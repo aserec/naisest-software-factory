@@ -4,9 +4,9 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTINGS_PATH } from "../agents";
+import { SETTINGS_PATH, sandboxDenyRead } from "../agents";
 import type { Repo } from "./context";
 
 const SRT = fileURLToPath(new URL("../../node_modules/.bin/srt", import.meta.url));
@@ -31,7 +31,7 @@ export function sandboxSettings(dir: string, home: string) {
   const agent = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
   return {
     network: { allowedDomains: agent.sandbox.network.allowedDomains, deniedDomains: [] },
-    filesystem: { denyRead: ["/proc", `${FACTORY_ROOT}/.git`, `${FACTORY_ROOT}.tmp`, join(dirname(dir), "claude-home")], allowWrite: [dir, home, "/tmp"], denyWrite: [] },
+    filesystem: { denyRead: sandboxDenyRead(dir), allowWrite: [dir, home, "/tmp"], denyWrite: [] },
   };
 }
 

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string }
@@ -14,6 +14,11 @@ export const SETTINGS_PATH = fileURLToPath(new URL("../.claude/factory-settings.
 const HOOKS_DIR = fileURLToPath(new URL("../.agents/hooks", import.meta.url));
 // A fixed host, so the TensorX key never goes anywhere else. Placeholder: confirm it in the TensorX console at go-live.
 export const TENSORX_BASE_URL = "https://api.tensorx.ai/v1";
+const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+
+// What no sandboxed command (agent Bash, install, gate) may read: /proc, the factory checkout's .git (it may hold
+// CI_JOB_TOKEN in its remote URL), the runner's File-variable dir <project dir>.tmp, and run/claude-home (sessions).
+export const sandboxDenyRead = (cwd: string) => ["/proc", `${ROOT}/.git`, `${ROOT}.tmp`, join(dirname(cwd), "claude-home")];
 
 export function buildClaudeArgs(r: ClaudeRun, settingsPath = SETTINGS_PATH): string[] {
   return [
@@ -72,13 +77,15 @@ function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string, s
   });
 }
 
-// The settings the agent runs with: the factory file, a hook from a fixed absolute dir, and Read denies for the config dir.
-export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string): any {
+// The settings the agent runs with: the factory file, a hook from a fixed absolute dir, Read denies for the config dir,
+// and the same sandbox read denies as install and gate commands. cwd is the target clone.
+export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string): any {
   const settings = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
   const quoted = `'${`${hooksDir}/deny-dangerous.sh`.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
   settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: quoted }] }] };
   if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
   if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
+  settings.sandbox.filesystem.denyRead = sandboxDenyRead(cwd);
   return settings;
 }
 
@@ -87,7 +94,7 @@ export async function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
   const dir = mkdtempSync(join(tmpdir(), "claude-settings-"));
   try {
     const path = join(dir, "settings.json");
-    writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR)));
+    writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, r.cwd)));
     const { code, out } = await run("claude", buildClaudeArgs(r, path), agentEnv(process.env), r.cwd);
     return parseStream(out, code);
   } finally {

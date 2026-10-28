@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
+import { sandboxSettings } from "./steps/repo";
 import { SETTINGS_PATH, agentEnv, buildClaudeArgs, factorySettings, parseFindings, parseStream, reviewerConfig, reviewerEnv, wrapTicket } from "./agents";
 
 const load = (f: string) => readFileSync(new URL(`./fixtures/${f}`, import.meta.url), "utf8");
@@ -15,11 +17,11 @@ test("settings path is absolute and exists, so the agent cwd cannot replace it",
   expect(JSON.parse(readFileSync(SETTINGS_PATH, "utf8")).sandbox.autoAllowBashIfSandboxed).toBe(false);
 });
 test("settings pin the hook to the given absolute dir and deny the config dir", () => {
-  const s = factorySettings({ CLAUDE_CONFIG_DIR: "/cfg", HOME: "/home/a" }, "/opt/hooks");
+  const s = factorySettings({ CLAUDE_CONFIG_DIR: "/cfg", HOME: "/home/a" }, "/opt/hooks", "/w/run/target");
   expect(s.hooks.PreToolUse[0].hooks[0].command).toBe("'/opt/hooks/deny-dangerous.sh'");
   expect(s.permissions.deny).toEqual(expect.arrayContaining(["Edit(./.git/**)", "Write(./.git/**)"]));
   expect(s.permissions.blockReadsOutsideWorkingDirectories).toBe(true);
-  const odd = factorySettings({}, `/a b/it's "x"\\y`);
+  const odd = factorySettings({}, `/a b/it's "x"\\y`, "/w/run/target");
   expect(odd.hooks.PreToolUse[0].hooks[0].command).toBe(`'/a b/it'\\''s "x"\\y/deny-dangerous.sh'`);
   expect(s.permissions.deny).toEqual(expect.arrayContaining(["Read(//cfg/**)", "Read(//proc/**)", "Edit(./.claude/**)", "Bash(git -C*)"]));
   expect(s.permissions.allow).toEqual(expect.arrayContaining(["Read(./**)"]));
@@ -79,3 +81,9 @@ test("findings come from the last JSON array in the output", () => {
   expect(parseFindings(out)).toEqual([{ blocking: true, file: "a.ts", text: "bug" }]);
 });
 test("output with no findings array throws", () => expect(() => parseFindings("all good")).toThrow());
+test("the agent sandbox denies the same reads as the gate sandbox", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+  const s = factorySettings({}, "/opt/hooks", "/w/run/target");
+  expect(s.sandbox.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home"]);
+  expect(s.sandbox.filesystem.denyRead).toEqual(sandboxSettings("/w/run/target", "/tmp/h").filesystem.denyRead);
+});
