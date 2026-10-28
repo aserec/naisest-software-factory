@@ -21,3 +21,9 @@ test("sendCard posts the card as JSON", async () => {
   await sendCard("https://h", { a: 1 }, f as any);
   expect(f).toHaveBeenCalledWith("https://h", expect.objectContaining({ method: "POST", body: '{"a":1}' }));
 });
+test("a fetch error never shows the webhook URL", async () => {
+  const f = vi.fn().mockRejectedValue(new Error("Invalid URL: https://secret.example/hook"));
+  const err = await sendCard("https://secret.example/hook", {}, f as any).catch((e) => e);
+  expect(err.message).toBe("Teams webhook request failed");
+  expect(err.cause).toBeUndefined();
+});

@@ -8,6 +8,8 @@ export interface RunRecord {
   models: { author?: string; reviewer?: string };
   rounds: { review: number; gate: number };
   costUsd: number;
+  tokens?: { input: number; output: number };
+  summary?: string; // what changed
 }
 
 export function loadRecord(dir = "run"): RunRecord {
@@ -25,17 +27,23 @@ export function addStep(r: RunRecord, step: string, data: unknown): RunRecord {
 
 // Plain text for the result comment.
 export function formatResult(r: RunRecord, mrUrl: string, pipelineUrl: string, now: Date): string {
-  const answers = (name: string) => `${name}: ${JSON.stringify(r.steps.find((s) => s.step === name)?.data ?? null)}`;
-  const minutes = Math.round((now.getTime() - new Date(r.startedAt).getTime()) / 60000);
+  const answers = (name: string) => {
+    const s = r.steps.find((x) => x.step === name);
+    return s ? `${name}: ${JSON.stringify(s.data)}` : `${name}: did not run`;
+  };
+  const ms = now.getTime() - new Date(r.startedAt).getTime();
+  const time = Number.isNaN(ms) ? "unknown" : `${Math.round(ms / 60000)} min`;
   return [
     `Merge request: ${mrUrl}`,
     `Pipeline: ${pipelineUrl}`,
     answers("triage"),
     answers("risk-check"),
+    ...(r.summary ? [`What changed: ${r.summary}`] : []),
     `Models: author ${r.models.author ?? "none"}, reviewer ${r.models.reviewer ?? "none"}`,
     `review rounds: ${r.rounds.review}`,
     `gate rounds: ${r.rounds.gate}`,
     `Cost: $${r.costUsd.toFixed(2)}`,
-    `Time: ${minutes} min`,
+    ...(r.tokens ? [`Tokens: ${r.tokens.input} in, ${r.tokens.output} out`] : []),
+    `Time: ${time}`,
   ].join("\n");
 }

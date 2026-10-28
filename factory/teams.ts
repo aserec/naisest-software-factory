@@ -27,6 +27,12 @@ export function buildCard(kind: CardKind, title: string, lines: string[], url: s
 
 // The webhook URL holds a secret, so it never goes into an error.
 export async function sendCard(webhookUrl: string, card: object, fetchFn: typeof fetch = fetch): Promise<void> {
-  const res = await fetchFn(webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(card) });
+  let res: Response;
+  try {
+    res = await fetchFn(webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(card) });
+  } catch {
+    // Drop the original error: its message can hold the URL.
+    throw new Error("Teams webhook request failed");
+  }
   if (!res.ok) throw new Error(`Teams webhook failed with status ${res.status}`);
 }
