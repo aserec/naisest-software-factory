@@ -33,6 +33,7 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] Check that the job artifact size limit is big enough, and that resumed runs use the same `CI_PROJECT_DIR`.
 - [ ] Check the Hetzner plugin: the image tag `:1.4.7` format, the `token` and `user_data_file` keys, and that the SAST and secret detection jobs inherit the `factory` tag.
 - [ ] Run `pnpm test` and `pnpm build` of `react_frontend` under the real sandbox. The `/proc` deny may break Node. Keep the image's user settings empty. Check that the reviewer's temporary HOME does not reinstall the provider package every run.
+- [ ] On the first VM run, check that the `/effort <level>` line at the start of the `claude -p` prompt really sets the effort (see `buildClaudeArgs` in `factory/agents.ts`). If it does not, remove that line and set the `effortLevel` setting in the agent settings file instead.
 - [ ] Confirm the OpenCode tool names (`websearch`, `task`) and the openai-compatible provider config.
 - [ ] Small config checks: the router `effortBump` limit, `loadTarget` name validation, and that the placeholder approver is replaced.
 
