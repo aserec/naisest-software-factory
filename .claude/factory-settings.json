@@ -24,7 +24,7 @@
   },
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "[ -x .agents/hooks/deny-dangerous.sh ] && .agents/hooks/deny-dangerous.sh || true" }] }
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "[ ! -x .agents/hooks/deny-dangerous.sh ] || .agents/hooks/deny-dangerous.sh" }] }
     ]
   }
 }
