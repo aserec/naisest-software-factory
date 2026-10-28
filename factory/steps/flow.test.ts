@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GITLAB_URL, makeContext, runStep } from "./context";
 import { GitLab, NotFactoryPipelineError } from "../gitlab";
-import { BOT, B, fakeWorld, mrEvent, runBuildPipeline, runFinishPipeline } from "./test-helpers";
+import { BOT, B, fakeWorld, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -270,6 +270,11 @@ test("makeContext refuses FACTORY_* values that do not match their pattern", () 
     expect(() => makeContext(env({ ...good, [k]: "1e3" }), dir)).toThrow(new RegExp(k));
   }
   expect(() => makeContext(env({ FACTORY_SKIP_APPLY: "yes" }), dir)).toThrow(/FACTORY_SKIP_APPLY/);
+  // A scheduled pipeline sets FACTORY_SCHEDULE instead of FACTORY_PIPELINE, never both.
+  expect(() => makeContext(env({ FACTORY_PIPELINE: "", FACTORY_SCHEDULE: "poll" }), dir)).not.toThrow();
+  expect(() => makeContext(env({ FACTORY_PIPELINE: "", FACTORY_SCHEDULE: "retry" }), dir)).not.toThrow();
+  expect(() => makeContext(env({ FACTORY_PIPELINE: "", FACTORY_SCHEDULE: "deploy" }), dir)).toThrow(/FACTORY_SCHEDULE/);
+  expect(() => makeContext(env({ FACTORY_SCHEDULE: "poll" }), dir)).toThrow(/FACTORY_PIPELINE/);
 });
 test("a build record that fails the provenance check is not retried", async () => {
   const w = fakeWorld();
@@ -327,4 +332,54 @@ test("makeContext reads and deletes secret files only inside the runner's temp d
   expect(() => makeContext({ ...env, FACTORY_GITLAB_TOKEN: secret }, dir)).toThrow(/FACTORY_GITLAB_TOKEN/);
   expect(() => makeContext({ ...env, FACTORY_GITLAB_TOKEN: `${dir}/../${other.split("/").at(-1)}/keep` }, dir)).toThrow(/FACTORY_GITLAB_TOKEN/);
   expect(existsSync(secret)).toBe(true);
+});
+
+// Task 13: poller starts and resumed runs. Both come as trigger variables with no webhook payload.
+test("a poller start with no payload claims the run from live labels", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8 };
+  await runBuildPipeline(w);
+  expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true, workItemIid: 8, actorId: 42 } });
+  expect(w.finishTriggered).toBe(true);
+  for (const o of [{ liveLabels: ["factory_needs_info"] }, { liveLabels: ["factory_ready"], actorLevel: 20 }]) {
+    const q = fakeWorld(o);
+    q.ctx.env = { ...q.ctx.env, payload: undefined, workItemIid: 8 };
+    await runBuildPipeline(q);
+    expect(q.record.steps.map((s) => s.step)).toEqual(["event"]);
+    expect(q.record.steps[0].data).toMatchObject({ start: false });
+    expect(q.labels).toEqual(o.liveLabels);
+  }
+});
+test("a resume continues at the limited step with the saved session", async () => {
+  const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
+  expect(first.workItemComments.at(-1)).toContain("Waiting run: pipeline 1");
+  const w = fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit", liveLabels: ["factory_waiting"] });
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, buildPipelineId: 1, factoryProjectId: 3 };
+  w.ctx.gitlab.buildRecord = async () => first.record;
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual([1]);
+  expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
+  expect(w.claudeRuns[0]).toMatchObject({ resumeSessionId: "sess-limit" });
+  expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1);
+  expect(w.finishTriggered).toBe(true);
+  expect(w.labels).toEqual(["factory_running"]);
+});
+test("a resume with a forged record, a record of another work item, or no saved session blocks", async () => {
+  const waitingRecord = (await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }))).record;
+  const records: (() => Promise<unknown>)[] = [
+    async () => { throw new NotFactoryPipelineError("Pipeline 1 is not a factory build pipeline"); },
+    async () => ({ ...waitingRecord, workItem: "acme/web/react_frontend#9" }),
+    async () => ({ ...waitingRecord, steps: waitingRecord.steps.slice(0, -1) }),
+  ];
+  for (const buildRecord of records) {
+    const w = fakeWorld({ liveLabels: ["factory_waiting"] });
+    w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, buildPipelineId: 1, factoryProjectId: 3 };
+    w.ctx.gitlab.buildRecord = buildRecord;
+    await runBuildJobs(w, tmp()).catch(() => {});
+    expect(w.labels).toEqual(["factory_blocked"]);
+    expect(w.cards.map((c) => c.kind)).toEqual(["blocked"]);
+    expect(w.workItemComments.at(-1)).toMatch(/resume|not a factory build pipeline/);
+    expect(w.claudeRuns).toHaveLength(0);
+    expect(w.restored).toEqual([]);
+  }
 });

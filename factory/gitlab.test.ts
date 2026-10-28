@@ -166,5 +166,25 @@ describe("buildRecord", () => {
     ["not started by the bot", { ...pipeline, user: { id: 9 } }],
   ])("rejects a pipeline %s", async (_name, p) => {
     await expect(new GitLab("https://gl.example", "tok", routes(p)).buildRecord(3, 41)).rejects.toBeInstanceOf(NotFactoryPipelineError);
+    await expect(new GitLab("https://gl.example", "tok", routes(p)).runArtifacts(3, 41)).rejects.toBeInstanceOf(NotFactoryPipelineError);
   });
+});
+
+test("labelAddedBy names who last added the label", async () => {
+  fakeResponse([
+    { action: "add", label: { name: "factory_ready" }, user: { id: 5 } },
+    { action: "add", label: { name: "bug" }, user: { id: 6 } },
+    { action: "remove", label: { name: "factory_ready" }, user: { id: 7 } },
+    { action: "add", label: { name: "factory_ready" }, user: { id: 8 } },
+  ]);
+  expect(await gl.labelAddedBy(1, 8, "factory_ready")).toBe(8);
+  fakeResponse([]);
+  expect(await gl.labelAddedBy(1, 8, "factory_ready")).toBeUndefined();
+});
+test("listLabeled lists open work items oldest first; notes map the author", async () => {
+  fakeResponse([{ iid: 3, labels: ["factory_ready"] }]);
+  expect(await gl.listLabeled(1, "factory_ready")).toEqual([{ iid: 3, labels: ["factory_ready"] }]);
+  expect(last().url).toContain("labels=factory_ready&state=opened&order_by=created_at&sort=asc");
+  fakeResponse([{ author: { id: 1 }, body: "hi" }]);
+  expect(await gl.notes(1, 8)).toEqual([{ authorId: 1, body: "hi" }]);
 });

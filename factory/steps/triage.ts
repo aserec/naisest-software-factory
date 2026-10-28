@@ -1,9 +1,13 @@
 import { pickModels } from "../router";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
-import { block, card, claude, isMain, prompt, runStep, save, ticketText, waiting, workItem, type StepContext, type StepResult } from "./context";
+import type { RouterRow } from "../types";
+import { block, card, claude, CONTINUE, data, isMain, prompt, resumeSession, runStep, save, ticketText, waiting, workItem, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const { projectId, iid, defaultBranch } = await workItem(ctx);
+  // A resumed run: triage already ran, the questions agent hit the limit.
+  const resumeSessionId = resumeSession(ctx, "triage");
+  if (resumeSessionId) return questions(ctx, data(ctx, "triage").row, defaultBranch, resumeSessionId);
   const item = await ctx.gitlab.getWorkItem(projectId, iid);
   const state = buildTriageState(item.title, item.description, item.labels);
   let answers: TriageAnswers;
@@ -26,9 +30,15 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (outcome.kind === "blocked") return block(ctx, outcome.reason);
   if (outcome.kind === "build") return "next";
 
-  // needs_info: an agent drafts questions from the ticket and the code. This step posts them.
+  return questions(ctx, row, defaultBranch);
+}
+
+// needs_info: an agent drafts questions from the ticket and the code. This step posts them.
+async function questions(ctx: StepContext, row: RouterRow, defaultBranch: string, resumeSessionId?: string): Promise<StepResult> {
+  const { projectId, iid } = await workItem(ctx);
   await ctx.repo.clone(defaultBranch);
-  const r = await claude(ctx, { prompt: `${prompt("questions")}\n\n${ticketText(ctx)}`, model: row.author, effort: row.effort, maxTurns: 15, cwd: ctx.dir });
+  const text = resumeSessionId ? CONTINUE : `${prompt("questions")}\n\n${ticketText(ctx)}`;
+  const r = await claude(ctx, { prompt: text, model: row.author, effort: row.effort, maxTurns: 15, cwd: ctx.dir, resumeSessionId });
   if (r.limitHit) return waiting(ctx, "questions", r.sessionId);
   if (r.isError) return block(ctx, `The agent could not write questions: ${r.resultText.slice(0, 500)}`);
   await ctx.gitlab.comment(projectId, iid, `This ticket is not clear enough to build yet. Please answer these questions, then add factory_ready again.\n\n${r.resultText}`);

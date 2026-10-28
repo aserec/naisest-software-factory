@@ -1,5 +1,6 @@
 // Shared parts of the CI steps: the context, the real adapters, and helpers for blocking, waiting and agent runs.
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runClaude, runReviewer, wrapTicket, type ClaudeResult, type ClaudeRun } from "../agents";
@@ -7,7 +8,7 @@ import { loadRouter, loadTarget } from "../config";
 import { GitLab, NotFactoryPipelineError } from "../gitlab";
 import { makeJevClient, type JevClient } from "../jev";
 import { addStep, loadRecord, saveRecord, type RunRecord } from "../record";
-import { FACTORY_ROOT, gitRepo } from "./repo";
+import { FACTORY_ROOT, gitRepo, sh } from "./repo";
 import { buildCard, sendCard, type CardKind } from "../teams";
 import type { Router, RouterRow, Target } from "../types";
 
@@ -38,12 +39,15 @@ export interface StepContext {
     workItemIid?: number;
     mrIid?: number;
     skipApply?: boolean; // a person merged by hand
-    buildPipelineId?: number; // finish pipeline: where the build record is
+    buildPipelineId?: number; // finish pipeline or resumed run: where the build record is
     factoryProjectId?: number;
     pipelineId?: number;
     pipelineUrl: string;
   };
-  startFinish(vars: Record<string, string>): Promise<void>;
+  // Starts a factory pipeline through the trigger API, as the bot.
+  startPipeline(vars: Record<string, string>): Promise<void>;
+  // A resumed run: puts back run/ (clone, git dir, Claude session) from an earlier build pipeline.
+  restoreRun(pipelineId: number): Promise<void>;
   sleep(ms: number): Promise<void>;
 }
 export type StepResult = "next" | "stop";
@@ -62,6 +66,12 @@ export function newRecord(): RunRecord {
 // The data of the last record step with this name.
 export const data = (ctx: StepContext, step: string): any => [...ctx.record.steps].reverse().find((s) => s.step === step)?.data;
 export const save = (ctx: StepContext, step: string, d: unknown) => void (ctx.record = addStep(ctx.record, step, d));
+// The newest author session in the record. Fixes and resumed runs continue it.
+export const session = (ctx: StepContext): string => [...ctx.record.steps].reverse().map((s: any) => s.data?.sessionId).find(Boolean);
+// On a resumed run, the saved session if this job is the one that hit the limit.
+export const resumeSession = (ctx: StepContext, job: string): string | undefined =>
+  data(ctx, "event")?.resumeAt === job ? data(ctx, "event").sessionId : undefined;
+export const CONTINUE = "You stopped because of a usage limit. Continue the same task from where you stopped.";
 
 export async function workItem(ctx: StepContext) {
   const iid: number | undefined = ctx.env.workItemIid ?? data(ctx, "event")?.workItemIid;
@@ -109,11 +119,17 @@ export async function block(ctx: StepContext, reason: string): Promise<StepResul
   return "stop";
 }
 
-// Claude hit a usage limit: keep the session so a later job can resume it.
+// The hourly retry finds the pipeline to resume from in this comment.
+export const waitingNote = (pipelineId: number | undefined) =>
+  `Claude reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline ${pipelineId ?? "unknown"}`;
+export const WAITING_RUN = /^Waiting run: pipeline (\d+)$/m;
+
+// Claude hit a usage limit: keep the session so a later pipeline can resume it.
 export async function waiting(ctx: StepContext, step: string, sessionId: string): Promise<StepResult> {
   const { projectId, iid } = await workItem(ctx);
-  save(ctx, step, { sessionId });
+  save(ctx, step, { sessionId, limit: true });
   await ctx.gitlab.setState(projectId, iid, "factory_waiting");
+  await ctx.gitlab.comment(projectId, iid, waitingNote(ctx.env.pipelineId));
   return "stop";
 }
 
@@ -126,7 +142,7 @@ export async function claude(ctx: StepContext, run: ClaudeRun): Promise<ClaudeRe
 // Resume the author session with feedback from the reviewer or the gate.
 export function fix(ctx: StepContext, feedback: string): Promise<ClaudeResult> {
   const row = modelRow(ctx);
-  const resumeSessionId = data(ctx, "prepare-patch").sessionId;
+  const resumeSessionId = session(ctx);
   return claude(ctx, { prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, model: row.author, effort: row.effort, maxTurns: 30, cwd: ctx.dir, resumeSessionId });
 }
 
@@ -156,7 +172,8 @@ const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
   CI_PROJECT_ID: /^[0-9]+$/,
-  FACTORY_PIPELINE: /^(build|finish)$/,
+  FACTORY_PIPELINE: /^(build|finish)?$/, // empty only in a scheduled pipeline
+  FACTORY_SCHEDULE: /^(poll|retry)?$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
   FACTORY_MR_IID: /^([0-9]+)?$/,
   FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,
@@ -165,6 +182,7 @@ const PATTERNS: Record<string, RegExp> = {
 function checkVars(env: NodeJS.ProcessEnv) {
   if (env.CI_SERVER_URL !== GITLAB_URL) throw new Error(`CI_SERVER_URL must be ${GITLAB_URL}`);
   for (const [k, re] of Object.entries(PATTERNS)) if (!re.test(env[k] ?? "")) throw new Error(`${k} has a value the factory does not accept`);
+  if (!env.FACTORY_PIPELINE === !env.FACTORY_SCHEDULE) throw new Error("Set exactly one of FACTORY_PIPELINE and FACTORY_SCHEDULE");
 }
 
 // GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
@@ -197,8 +215,9 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): Ste
   const target = loadTarget(name);
   if (env.CI_JOB_IMAGE && env.CI_JOB_IMAGE !== target.jobImage) throw new Error(`The job runs image ${env.CI_JOB_IMAGE}, but target ${name} names ${target.jobImage}`);
   const dir = resolve(RUN_DIR, "target");
+  const gitlab = new GitLab(server, token);
   return {
-    gitlab: new GitLab(server, token),
+    gitlab,
     jev: makeJevClient(env),
     teams: (c) => sendCard(webhook, c),
     agents: { claude: runClaude, review: runReviewer },
@@ -217,13 +236,25 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): Ste
       pipelineId: num(env.CI_PIPELINE_ID),
       pipelineUrl: env.CI_PIPELINE_URL ?? "",
     },
-    async startFinish(vars) {
+    async startPipeline(vars) {
       // The trigger token is only read here, by step code. It goes in the body, so errors never show it.
       if (!triggerToken) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
       const body = new URLSearchParams({ token: triggerToken, ref: need(env, "CI_COMMIT_REF_NAME") });
       for (const [k, v] of Object.entries(vars)) body.set(`variables[${k}]`, v);
       const res = await fetch(`${server}/api/v4/projects/${need(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
-      if (!res.ok) throw new Error(`Starting the finish pipeline failed with status ${res.status}`);
+      if (!res.ok) throw new Error(`Starting a pipeline failed with status ${res.status}`);
+    },
+    async restoreRun(pipelineId) {
+      const tmp = mkdtempSync(join(tmpdir(), "run-zip-"));
+      try {
+        const zip = join(tmp, "artifacts.zip");
+        writeFileSync(zip, Buffer.from(await gitlab.runArtifacts(Number(need(env, "CI_PROJECT_ID")), pipelineId)));
+        const r = await sh("unzip", ["-q", "-o", zip, `${RUN_DIR}/*`], process.cwd(), { PATH: env.PATH });
+        if (r.code !== 0) throw new Error(`unzip of pipeline ${pipelineId} artifacts failed: ${r.out.slice(-500)}`);
+        rmSync(join(RUN_DIR, "stop"), { force: true }); // that pipeline stopped at the limit; this one goes on
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
     },
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   };
@@ -251,6 +282,13 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
   throw new Error(`Could not load the run record of build pipeline ${buildPipelineId}: ${String(last)}`);
 }
 
+const BUILD_JOBS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
+// A resumed run skips the build jobs that finished before the one that hit the limit.
+function doneBeforeResume(ctx: StepContext, name: string): boolean {
+  const i = BUILD_JOBS.indexOf(name);
+  return i > 0 && i < BUILD_JOBS.indexOf(data(ctx, "event")?.resumeAt);
+}
+
 // The CI job body: skip if an earlier job stopped the run, run the step, save the record.
 // A "stop" is a normal end. Only unexpected errors fail the job, and they block the work item first.
 export async function runStep(
@@ -268,6 +306,10 @@ export async function runStep(
   let result: StepResult;
   try {
     ctx.record = await loadRunRecord(ctx, dir);
+    if (doneBeforeResume(ctx, name)) {
+      console.log(`Skipping ${name}: it finished before the run was resumed.`);
+      return;
+    }
     result = await run(ctx);
   } catch (e) {
     // Do not leave the work item stuck in a running state. block() needs a work item; without one it throws and we go on.

@@ -1,5 +1,5 @@
 import { codeReviewLoop } from "../loops";
-import { block, data, fix, install, isMain, modelRow, runStep, save, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { block, fix, install, isMain, modelRow, runStep, save, session, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const stop = await install(ctx);
@@ -13,7 +13,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (result.kind === "limit") return waiting(ctx, "code-review", result.sessionId);
   ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, review: result.rounds } };
   if (result.kind === "blocked") return block(ctx, `Code review did not pass after ${result.rounds} rounds. Open findings:\n\n${result.open.map((t) => `- ${t}`).join("\n")}`);
-  save(ctx, "code-review", { passed: true, rounds: result.rounds, sessionId: data(ctx, "prepare-patch").sessionId });
+  save(ctx, "code-review", { passed: true, rounds: result.rounds, sessionId: session(ctx) });
   return "next";
 }
 

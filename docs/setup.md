@@ -84,6 +84,15 @@ Remaining risk. The webhook URL holds the trigger token. Anyone who can see the 
 
 But the job shell itself still runs with every variable, before `env -i` starts. For example, `BASH_ENV` can run code in that shell, and that shell can read the File-type secrets. So a person who sees a webhook URL can reach the factory secrets. That is why webhook settings stay Maintainer-only.
 
+## 8. Schedules
+
+Two scheduled pipelines in the factory project (Build > Pipeline schedules). Create them signed in as the bot, so the bot owns them and the build pipelines they start are the bot's. Target branch: `main`.
+
+- [ ] **Poller**, every 5 minutes (`*/5 * * * *`). Variables: `FACTORY_SCHEDULE=poll`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It is the fallback when the label webhook does not fire: it starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. The build's event step checks the live labels and who added `factory_ready`, as it does for a webhook.
+- [ ] **Retry**, every hour (`0 * * * *`). Variables: `FACTORY_SCHEDULE=retry`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It resumes runs labeled `factory_waiting` (Claude's usage limit). The new build pipeline loads the record of the pipeline that hit the limit, puts back its clone and Claude session, and continues at the step that stopped. If that record or session is not usable, the work item gets `factory_blocked` with a comment.
+
+Make one pair of schedules for each target. `FACTORY_SCHEDULE` accepts only `poll` or `retry`. The `SAST_DISABLED` and `SECRET_DETECTION_DISABLED` variables keep the security scans from running every 5 minutes.
+
 ## Local use
 
 ```bash

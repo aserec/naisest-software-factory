@@ -28,7 +28,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (d.kind === "auto") {
     const rules = (data(ctx, "risk-check").rules as RuleResult[]).map((r) => `- ${r.rule}: ${r.detail}`).join("\n");
     await ctx.gitlab.commentMergeRequest(projectId, mrIid, `The factory merges this without a person: triage risk was trivial or low, code review and precommit-gate passed, every hard rule passed and Jev 2 passed.\n\n${rules}`);
-    await ctx.startFinish({
+    await ctx.startPipeline({
       FACTORY_PIPELINE: "finish",
       FACTORY_TARGET: ctx.target.name,
       FACTORY_WORK_ITEM_IID: String(iid),

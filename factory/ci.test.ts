@@ -6,13 +6,13 @@ import { expect, test } from "vitest";
 import { parse } from "yaml";
 
 const ci = parse(readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "utf8"));
-const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved", "poll", "retry-waiting"];
 const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const passed = (name: string) => `${name}="$${name}"`;
 const STEP_PREFIX = [
   "env -i", PATH, "HOME=/root", 'CLAUDE_CONFIG_DIR="$PWD/run/claude-home"',
   ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE"].map(passed),
-  ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY"].map(passed),
+  ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY", "FACTORY_SCHEDULE"].map(passed),
   // File variables: only their paths pass.
   ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_TRIGGER_TOKEN"].map(passed),
   ...["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"].map(passed),
@@ -20,7 +20,7 @@ const STEP_PREFIX = [
 const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile`;
 
 test("every factory job starts its step through the env -i allowlist", () => {
-  const jobs = Object.keys(ci).filter((k) => ["build", "finish"].some((t) => ci[k]?.extends === `.${t}`));
+  const jobs = Object.keys(ci).filter((k) => !k.startsWith(".") && ["build", "finish", "factory"].some((t) => ci[k]?.extends === `.${t}`));
   expect(jobs.sort()).toEqual([...STEPS].sort());
   expect(ci[".factory"].before_script).toEqual([INSTALL]);
   expect(ci[".factory"].variables).toBeUndefined();
@@ -39,4 +39,10 @@ test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {
   expect(env.PATH).toBe(PATH.slice(5));
   expect(env).toMatchObject({ FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" });
   for (const k of ["NODE_OPTIONS", "npm_config_registry", "FACTORY_HOOKS_DIR"]) expect(env[k]).toBeUndefined();
+});
+
+test("the poll and retry jobs run only in their own scheduled pipeline", () => {
+  expect(ci.poll.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "poll"' }]);
+  expect(ci["retry-waiting"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "retry"' }]);
+  expect(ci.smoke.rules[0].if).toContain('$CI_PIPELINE_SOURCE != "schedule"');
 });

@@ -1,13 +1,15 @@
 // Fake world for the step flow tests. Every outside call is an in-memory fake that records what the steps did.
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ClaudeResult, Finding } from "../agents";
+import type { ClaudeResult, ClaudeRun, Finding } from "../agents";
 import { loadRouter, loadTarget } from "../config";
 import { STATE_LABELS, type GitLab } from "../gitlab";
 import type { JevAnswer, JevClient } from "../jev";
 import { addStep } from "../record";
 import type { Risk } from "../types";
-import { newRecord, type Repo, type StepContext } from "./context";
+import { newRecord, runStep, waitingNote, type Repo, type StepContext } from "./context";
 import * as event from "./event";
 import * as triage from "./triage";
 import * as preparePatch from "./prepare-patch";
@@ -68,6 +70,9 @@ export function fakeWorld(o: WorldOptions = {}) {
     finishTriggered: false,
     finishVars: {} as Record<string, string>,
     claudeCalls: 0,
+    claudeRuns: [] as ClaudeRun[],
+    jevAsked: 0,
+    restored: [] as number[],
     mainPipelineRef: "",
     ctx: undefined as unknown as StepContext,
     get labels() {
@@ -85,6 +90,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     botUserId: async () => BOT,
     memberAccessLevel: async () => o.actorLevel ?? 30,
     countLabeled: async () => 0,
+    labelAddedBy: async () => 42,
     setState: async (_p, _i, label) => void (w.stateLabels = [...w.stateLabels.filter((l) => !(STATE_LABELS as readonly string[]).includes(l)), label]),
     comment: async (_p, _i, body) => void w.workItemComments.push(body),
     commentMergeRequest: async (_p, _i, body) => void w.mrComments.push(body),
@@ -105,6 +111,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const jev: JevClient = {
     provider: "mock",
     async ask(_state, questions): Promise<JevAnswer[]> {
+      w.jevAsked++;
       if (questions.some((q) => q.id === "injection")) {
         if (o.jev1 === "throw") throw new Error("Berget Jev call failed: HTTP 503");
         const t = o.jev1 ?? {};
@@ -142,7 +149,8 @@ export function fakeWorld(o: WorldOptions = {}) {
     agents: {
       claude: async (r) => {
         w.claudeCalls++;
-        if (o.prepare === "limit" && !r.resumeSessionId) return ok("sess-1", { isError: true, limitHit: true, resultText: "usage limit reached" });
+        w.claudeRuns.push(r);
+        if (o.prepare === "limit" && !r.resumeSessionId) return ok("sess-limit", { isError: true, limitHit: true, resultText: "usage limit reached" });
         return ok("sess-1");
       },
       review: async () => reviews.shift() ?? [],
@@ -153,7 +161,8 @@ export function fakeWorld(o: WorldOptions = {}) {
     dir: "/fake/run/target",
     repo,
     env: { payload: o.payload ?? payload, pipelineId: 1, pipelineUrl: "https://gitlab.test/pipelines/1" },
-    startFinish: async (vars) => void ((w.finishTriggered = true), (w.finishVars = vars)),
+    startPipeline: async (vars) => void ((w.finishTriggered = true), (w.finishVars = vars)),
+    restoreRun: async (id) => void w.restored.push(id),
     sleep: async () => {},
   };
   return w;
@@ -168,6 +177,33 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
   return w;
 }
 export const runBuildPipeline = (w: World) => runSteps(w, BUILD);
+// The build pipeline as CI runs it: one runStep per job, with the record passed through dir.
+export async function runBuildJobs(w: World, dir = mkdtempSync(join(tmpdir(), "jobs-"))) {
+  const names = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
+  for (const [i, s] of BUILD.entries()) await runStep(names[i], s.run, { dir, make: () => w.ctx });
+  return w;
+}
+
+// The scheduled jobs' view: counts and lists by label. Each waiting item's note points to pipeline 100 + iid,
+// and starting a build from that pipeline "resumes" the session saved there.
+export function fakeCtx(o: { ready?: number[]; waiting?: { iid: number; sessionId: string }[]; running: number; noteAuthor?: number }) {
+  const world = fakeWorld();
+  const waiting = o.waiting ?? [];
+  const g = world.ctx.gitlab;
+  g.countLabeled = async (_p, label) => (label === "factory_running" ? o.running : label === "factory_waiting" ? waiting.length : 0);
+  g.listLabeled = async (_p, label) =>
+    (label === "factory_ready" ? (o.ready ?? []) : label === "factory_waiting" ? waiting.map((x) => x.iid) : []).map((iid) => ({ iid, labels: [label] }));
+  g.notes = async (_p, iid) => [{ authorId: o.noteAuthor ?? BOT, body: `> *AI line*\n\n${waitingNote(100 + iid)}` }];
+  const resumed: string[] = [];
+  const started: Record<string, string>[] = [];
+  const ctx = Object.assign(world.ctx, { resumed, started, world });
+  ctx.startPipeline = async (vars) => {
+    started.push(vars);
+    const from = waiting.find((x) => 100 + x.iid === Number(vars.FACTORY_BUILD_PIPELINE_ID));
+    if (from) resumed.push(from.sessionId);
+  };
+  return ctx;
+}
 // The finish pipeline gets the work item and MR from trigger variables, and starts with the build record.
 export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_approval"; skipApply?: boolean; smoke?: string; workItemIid?: number; mrIid?: number } = {}) {
   w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: o.workItemIid ?? 8, mrIid: o.mrIid ?? 5, skipApply: o.skipApply };

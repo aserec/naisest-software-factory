@@ -2,7 +2,7 @@ export interface LabelEvent { projectPath: string; workItemIid: number; actorId:
 
 const LABEL = "factory_ready";
 const DEVELOPER = 30;
-const MAX_RUNS_PER_REPO = 2;
+export const MAX_RUNS_PER_REPO = 2;
 // A work item with one of these labels already has a run. needs_info, blocked and done do not.
 export const ACTIVE_LABELS = ["factory_running", "factory_waiting", "factory_paused", "factory_needs_approval"];
 

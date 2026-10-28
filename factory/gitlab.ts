@@ -64,6 +64,24 @@ export class GitLab {
     return Number(res.headers.get("X-Total") ?? 0);
   }
 
+  // Open work items with this label, oldest first.
+  async listLabeled(projectId: number, label: StateLabel): Promise<{ iid: number; labels: string[] }[]> {
+    const list = await this.json("GET", `/projects/${projectId}/issues?labels=${label}&state=opened&order_by=created_at&sort=asc&per_page=100`);
+    return list.map((w: { iid: number; labels: string[] }) => ({ iid: w.iid, labels: w.labels }));
+  }
+
+  // Who last added this label, from the label history. The poller has no webhook that names the person.
+  async labelAddedBy(projectId: number, iid: number, label: string): Promise<number | undefined> {
+    const events = await this.json("GET", `/projects/${projectId}/issues/${iid}/resource_label_events?per_page=100`);
+    return events.filter((e: any) => e.action === "add" && e.label?.name === label).at(-1)?.user?.id;
+  }
+
+  // Comments on a work item, newest first.
+  async notes(projectId: number, iid: number): Promise<{ authorId: number; body: string }[]> {
+    const list = await this.json("GET", `/projects/${projectId}/issues/${iid}/notes?sort=desc&order_by=created_at&per_page=100`);
+    return list.map((n: { author: { id: number }; body: string }) => ({ authorId: n.author.id, body: n.body }));
+  }
+
   async setState(projectId: number, iid: number, label: StateLabel): Promise<void> {
     const others = STATE_LABELS.filter((l) => l !== label).join(",");
     await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label, remove_labels: others });
@@ -150,10 +168,11 @@ export class GitLab {
     return this.openMergeRequest(projectId, branch, defaultBranch, `Revert ${sha.slice(0, 8)}`, `The default branch pipeline failed after ${sha}. This reverts it.`);
   }
 
-  // The run record saved by the build pipeline's decision job, for the finish pipeline.
+  // The newest successful decision job of a build pipeline. That job's artifacts hold run/ at the end of the
+  // build: the record, the target clone and the Claude session.
   // Only a pipeline the bot's trigger started on the factory's default branch counts: anyone who can run
   // a pipeline in the factory project could otherwise upload a record that says "auto".
-  async buildRecord(projectId: number, pipelineId: number): Promise<unknown> {
+  private async decisionJob(projectId: number, pipelineId: number): Promise<number> {
     const p = await this.json("GET", `/projects/${projectId}/pipelines/${pipelineId}`);
     const { defaultBranch } = await this.getProject(String(projectId));
     const bot = await this.botUserId();
@@ -166,7 +185,17 @@ export class GitLab {
       .filter((j: { name: string; status: string }) => j.name === "decision" && j.status === "success")
       .sort((a: { id: number }, b: { id: number }) => b.id - a.id)[0];
     if (!job) throw new Error(`Pipeline ${pipelineId} has no successful decision job`);
-    return this.json("GET", `/projects/${projectId}/jobs/${job.id}/artifacts/run/record.json`);
+    return job.id;
+  }
+
+  // The run record saved by a build pipeline, for the finish pipeline and for a resumed run.
+  async buildRecord(projectId: number, pipelineId: number): Promise<unknown> {
+    return this.json("GET", `/projects/${projectId}/jobs/${await this.decisionJob(projectId, pipelineId)}/artifacts/run/record.json`);
+  }
+
+  // The whole artifacts zip of a build pipeline, for a resumed run.
+  async runArtifacts(projectId: number, pipelineId: number): Promise<ArrayBuffer> {
+    return (await this.call("GET", `/projects/${projectId}/jobs/${await this.decisionJob(projectId, pipelineId)}/artifacts`)).arrayBuffer();
   }
 
   async pipelineStatus(projectId: number, ref: string, sha: string): Promise<"success" | "failed" | "running"> {

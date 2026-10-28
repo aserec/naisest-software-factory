@@ -1,5 +1,5 @@
 import { parseFactoryFile } from "../config";
-import { block, claude, install, isMain, modelRow, prompt, runStep, save, ticketText, waiting, workItem, type StepContext, type StepResult } from "./context";
+import { block, claude, CONTINUE, install, isMain, modelRow, prompt, resumeSession, runStep, save, ticketText, waiting, workItem, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const { defaultBranch } = await workItem(ctx);
@@ -11,7 +11,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const stop = await install(ctx, commands);
   if (stop) return stop;
   const row = modelRow(ctx);
-  const r = await claude(ctx, { prompt: `${prompt("prepare")}\n\n${ticketText(ctx)}`, model: row.author, effort: row.effort, maxTurns: 60, cwd: ctx.dir });
+  // A resumed run continues the session that hit the limit, in the clone restored from that pipeline.
+  const resumeSessionId = resumeSession(ctx, "prepare-patch");
+  const text = resumeSessionId ? CONTINUE : `${prompt("prepare")}\n\n${ticketText(ctx)}`;
+  const r = await claude(ctx, { prompt: text, model: row.author, effort: row.effort, maxTurns: 60, cwd: ctx.dir, resumeSessionId });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.sessionId);
   if (r.isError) return block(ctx, `The author run failed: ${r.resultText.slice(0, 500)}`);
   save(ctx, "prepare-patch", { sessionId: r.sessionId, commands });
