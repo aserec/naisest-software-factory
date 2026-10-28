@@ -57,3 +57,7 @@ test("other MR actions, other branches and revert branches are ignored", () => {
   expect(parseMergeRequestEvent({ ...p, object_attributes: { ...p.object_attributes, source_branch: "factory/revert-abcdef12-1" } })).toBeNull();
   expect(parseMergeRequestEvent(load("label-added.json"))).toBeNull();
 });
+test("a label start needs factory_ready in the live labels, not only in the payload", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(decideStart(e, { actorAccessLevel: 30, workItemLabels: ["factory_needs_info"], runningInRepo: 0 })).toEqual({ start: false, reason: "not-ready" });
+});

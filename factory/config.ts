@@ -15,13 +15,15 @@ const row = z.object({
 });
 const routerSchema = z.object({ low: row, high: row, effortBump: z.number() });
 
+// A REPLACE_WITH_ value is a placeholder someone must fill in before go-live. Never run with it.
+const real = z.string().min(1).refine((v) => !v.startsWith("REPLACE_WITH_"), { message: "is still a placeholder (REPLACE_WITH_...): set the real value in the target file" });
 const targetSchema = z.object({
   name: z.string().min(1),
-  projectPath: z.string().min(1),
+  projectPath: real,
   protectedPaths: z.array(z.string()),
   dependencyFiles: z.array(z.string()),
   maxChangedLines: z.number().int().positive(),
-  defaultApprover: z.string().min(1),
+  defaultApprover: real,
   jobImage: z.string().min(1),
 });
 
@@ -39,8 +41,12 @@ export function loadRouter(path = `${root}router.yml`): Router {
   return routerSchema.parse(readYaml(path));
 }
 
-export function loadTarget(name: string): Target {
-  return targetSchema.parse(readYaml(`${root}targets/${name}.yml`));
+// override is for tests: targets/react_frontend.yml keeps its placeholder approver until go-live.
+export function loadTarget(name: string, override: Partial<Target> = {}): Target {
+  const raw = { ...readYaml(`${root}targets/${name}.yml`), ...override };
+  const r = targetSchema.safeParse(raw);
+  if (!r.success) throw new Error(`targets/${name}.yml: ${r.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
+  return r.data;
 }
 
 export function parseFactoryFile(text: string): FactoryCommands {

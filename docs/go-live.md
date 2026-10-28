@@ -60,5 +60,6 @@ One list for everything people must do before and during go-live on `react_front
 
 ## 7. Acceptance runs
 
+- [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 6). The mock Jev never passes Jev 2 (its scores have confidence 0.6), so with the mock every change goes to a person and run 1 cannot auto-merge.
 - [ ] **Run 1:** label a trivial ticket in `react_frontend`. Expected: merged with a green main pipeline, `factory_done`, a result comment, no person involved.
 - [ ] **Run 2:** label a medium-risk ticket. Expected: `factory_needs_approval`, reasons on the merge request, one Teams card.

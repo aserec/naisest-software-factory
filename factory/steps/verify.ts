@@ -10,6 +10,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     if (data(ctx, "prepare-patch")?.commands?.smoke) return block(ctx, "The target's .factory.yml names a smoke test, but the factory cannot run smoke tests yet. A person must run it.");
     return "next";
   }
+  // Only a failed pipeline is a reason to revert. Canceled, skipped, or still no result after an hour: a person checks.
+  if (status !== "failed") return block(ctx, `There is no main pipeline result for ${sha} on ${defaultBranch} (status ${status}), so the factory did not revert. A person must check the merge.`);
   const revert = await ctx.gitlab.revertMerge(projectId, sha, defaultBranch);
   return block(ctx, `The ${defaultBranch} pipeline is ${status} after the merge. A person must merge this revert: ${revert.webUrl}`);
 }

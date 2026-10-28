@@ -2,8 +2,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { crc32 } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "vitest";
-import { extractRun, GITLAB_URL, makeContext, runStep } from "./context";
+import { expect, test, vi } from "vitest";
+// targets/react_frontend.yml keeps its placeholder approver until go-live, and loadTarget refuses it.
+// makeContext loads the real file, so these tests fill in an approver.
+vi.mock("../config", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../config")>();
+  return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
+});
+import { extractRun, GITLAB_URL, makeContext, runStep, ticketText } from "./context";
+import { reviewerPrompt } from "../agents";
 import { GitLab, NotFactoryPipelineError } from "../gitlab";
 import { findSecrets } from "../rules";
 import * as resultSaved from "./result-saved";
@@ -549,4 +556,24 @@ test("the result comment shows the tokens used and the author's summary", async 
   await resultSaved.run(w.ctx);
   expect(w.workItemComments.at(-1)).toContain("Tokens: 100 in, 20 out");
   expect(w.workItemComments.at(-1)).toContain("What changed: 1. Which list?");
+});
+
+test("a webhook label start stops when factory_ready is no longer on the work item", async () => {
+  const w = await runBuildPipeline(fakeWorld({ liveLabels: [] }));
+  expect(w.record.steps.map((s) => s.step)).toEqual(["event"]);
+  expect(w.record.steps[0].data).toMatchObject({ start: false, reason: "not-ready" });
+  expect(w.labels).toEqual([]);
+});
+test("a canceled, skipped or missing main pipeline blocks with no main pipeline, and does not revert", async () => {
+  for (const mainPipeline of ["none", "running"] as const) {
+    const w = await runFinishPipeline(fakeWorld({ mainPipeline }));
+    expect(w.revertOpened).toBe(false);
+    expect(w.labels).toEqual(["factory_blocked"]);
+    expect(w.workItemComments.at(-1)).toContain("no main pipeline");
+  }
+});
+test("the reviewer prompt holds the ticket wrapped once", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  const p = reviewerPrompt(ticketText(w.ctx), "diff");
+  expect(p.match(/<\/ticket>/g)).toHaveLength(1); // the prompt text itself names `<ticket>`, never the closing tag
 });

@@ -25,7 +25,7 @@ export function parseLabelEvent(payload: unknown): LabelEvent | null {
   return { projectPath, workItemIid, actorId, labelsBefore, labelsAfter };
 }
 
-export type StartDecision = { start: true } | { start: false; reason: "not-added" | "not-member" | "active-run" | "repo-full" };
+export type StartDecision = { start: true } | { start: false; reason: "not-added" | "not-ready" | "not-member" | "active-run" | "repo-full" };
 
 // Caller contract:
 // (a) handle one work item at a time (the event job uses a GitLab resource_group per target, which also guards the run count);
@@ -37,6 +37,8 @@ export function decideStart(
   ctx: { actorAccessLevel: number; workItemLabels: string[]; runningInRepo: number },
 ): StartDecision {
   if (!e.labelsAfter.includes(LABEL)) return { start: false, reason: "not-added" };
+  // The payload may be old: someone may have taken the label off since.
+  if (!ctx.workItemLabels.includes(LABEL)) return { start: false, reason: "not-ready" };
   if (ctx.actorAccessLevel < DEVELOPER) return { start: false, reason: "not-member" };
   if (ctx.workItemLabels.some((l) => ACTIVE_LABELS.includes(l))) return { start: false, reason: "active-run" };
   if (ctx.runningInRepo >= MAX_RUNS_PER_REPO) return { start: false, reason: "repo-full" };

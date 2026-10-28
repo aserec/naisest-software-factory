@@ -156,7 +156,7 @@ export function fix(ctx: StepContext, feedback: string): Promise<ClaudeResult> {
 }
 
 // Polls a pipeline status for up to an hour. Still "running" after that counts as not green.
-export async function waitFor(ctx: StepContext, status: () => Promise<"success" | "failed" | "running">) {
+export async function waitFor<S extends string>(ctx: StepContext, status: () => Promise<S | "running">): Promise<S | "running"> {
   for (let i = 0; i < POLL_TRIES; i++) {
     const s = await status();
     if (s !== "running") return s;

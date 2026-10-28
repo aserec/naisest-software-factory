@@ -67,6 +67,12 @@ test("pipelineStatus maps anything else to running", async () => {
   fakeResponse([]);
   expect(await gl.pipelineStatus(1, "b", "abc")).toBe("running");
 });
+test("pipelineStatus: a canceled or skipped pipeline is none, it will never give a result", async () => {
+  fakeResponse([{ status: "canceled" }]);
+  expect(await gl.pipelineStatus(1, "b", "abc")).toBe("none");
+  fakeResponse([{ status: "skipped" }]);
+  expect(await gl.pipelineStatus(1, "b", "abc")).toBe("none");
+});
 test("mergeRequestPipelineStatus reads the newest MR pipeline; canceled is failed, none is running", async () => {
   fakeResponse([{ status: "success", sha: "h" }, { status: "failed", sha: "h" }]);
   expect(await gl.mergeRequestPipelineStatus(1, 2, "h")).toBe("success");

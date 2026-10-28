@@ -46,3 +46,7 @@ test("the poll and retry jobs run only in their own scheduled pipeline", () => {
   expect(ci["retry-waiting"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "retry"' }]);
   expect(ci.smoke.rules[0].if).toContain('$CI_PIPELINE_SOURCE != "schedule"');
 });
+
+test("the smoke job type-checks before it runs the tests", () => {
+  expect(ci.smoke.script).toEqual(["corepack enable", "pnpm install --frozen-lockfile", "pnpm tsc --noEmit", "pnpm vitest run"]);
+});

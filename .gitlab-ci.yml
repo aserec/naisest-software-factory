@@ -40,6 +40,7 @@ smoke:
   script:
   - corepack enable
   - pnpm install --frozen-lockfile
+  - pnpm tsc --noEmit
   - pnpm vitest run
 
 # One job per step. State passes between jobs in run/: record.json, the target clone and the Claude session.

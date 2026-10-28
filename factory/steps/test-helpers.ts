@@ -41,7 +41,7 @@ export interface WorldOptions {
   mrState?: string;
   existingMr?: boolean;
   mrPipeline?: "success" | "failed";
-  mainPipeline?: "success" | "failed";
+  mainPipeline?: "success" | "failed" | "running" | "none";
   defaultBranch?: string;
   title?: string; // the work item title
 }
@@ -167,7 +167,7 @@ export function fakeWorld(o: WorldOptions = {}) {
       review: async () => (w.reviewsRun++, reviews.shift() ?? []),
     },
     record: newRecord(),
-    target: loadTarget("react_frontend"),
+    target: loadTarget("react_frontend", { defaultApprover: "approver" }),
     router: loadRouter(),
     dir: "/fake/run/target",
     repo,

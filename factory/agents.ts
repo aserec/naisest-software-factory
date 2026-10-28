@@ -137,6 +137,9 @@ export function reviewerConfig(model: string, baseURL: string) {
   };
 }
 
+// ticketText comes already wrapped (context.ticketText), so it is not wrapped again here.
+export const reviewerPrompt = (ticketText: string, diffText: string) => `${reviewPrompt}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>`;
+
 // Nothing secret except the TensorX key. No Claude token, no GitLab token.
 export function reviewerEnv(env: NodeJS.ProcessEnv, dir: string, configPath: string): NodeJS.ProcessEnv {
   return { PATH: env.PATH, HOME: dir, OPENCODE_CONFIG: configPath, TENSORX_API_KEY: env.TENSORX_API_KEY };
@@ -148,7 +151,7 @@ export async function runReviewer(input: { model: string; cwd: string; diffText:
   try {
     const configPath = join(dir, "opencode.json");
     writeFileSync(configPath, JSON.stringify(reviewerConfig(input.model, TENSORX_BASE_URL)));
-    const prompt = `${reviewPrompt}\n\n${wrapTicket(input.ticketText)}\n\n<diff>\n${input.diffText}\n</diff>`;
+    const prompt = reviewerPrompt(input.ticketText, input.diffText);
     const { code, out } = await run("opencode", ["run", "--model", `tensorx/${input.model}`, prompt], reviewerEnv(process.env, dir, configPath), dir);
     if (code !== 0) throw new Error(`opencode exited with code ${code}`);
     return parseFindings(out);

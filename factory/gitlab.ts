@@ -216,9 +216,11 @@ export class GitLab {
     return (await this.call("GET", `/projects/${projectId}/jobs/${await this.decisionJob(projectId, pipelineId)}/artifacts`)).arrayBuffer();
   }
 
-  async pipelineStatus(projectId: number, ref: string, sha: string): Promise<"success" | "failed" | "running"> {
+  // "none": the pipeline was canceled or skipped, so it will never give a result. No pipeline yet is "running".
+  async pipelineStatus(projectId: number, ref: string, sha: string): Promise<"success" | "failed" | "running" | "none"> {
     const list = await this.json("GET", `/projects/${projectId}/pipelines?ref=${encodeURIComponent(ref)}&sha=${sha}&per_page=1`);
     const status = list[0]?.status;
+    if (status === "canceled" || status === "skipped") return "none";
     return status === "success" || status === "failed" ? status : "running";
   }
 

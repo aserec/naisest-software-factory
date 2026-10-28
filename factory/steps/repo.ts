@@ -64,7 +64,7 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
       if (existsSync(dir)) return;
       await git(["clone", "--depth", "1", "--branch", ref, url, dir], auth, ".");
       await git(["clone", "--bare", "--depth", "1", "--branch", ref, url, gitDir], auth, ".");
-      appendFileSync(join(gitDir, "info/exclude"), "\nrun/\n"); // run/test-changes.md is a note, not part of the change
+      appendFileSync(join(gitDir, "info/exclude"), "\n/run/\n"); // run/test-changes.md is a note, not part of the change. Root only: src/run/ is code
     },
     async diff() {
       await git([...ours, "add", "-A"]);

@@ -78,3 +78,24 @@ test("readFile refuses links and paths that leave the clone", async () => {
   expect(() => repo.readFile("up/secret.txt")).toThrow(/Refused/);
   expect(() => repo.readFile("../secret.txt")).toThrow(/Refused/);
 });
+
+test("only the root run/ dir is left out of the change; src/run/ is code", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-exclude-"));
+  const seed = join(root, "seed");
+  git(root, "init", "-q", "-b", "master", seed);
+  writeFileSync(join(seed, "a.txt"), "one\n");
+  git(seed, "add", ".");
+  git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+  const server = join(root, "server.git");
+  git(root, "clone", "-q", "--bare", seed, server);
+  const dir = join(root, "run/target");
+  const repo = gitRepo(dir, join(root, "run/target.git"), `file://${server}`, "tok", process.env);
+  await repo.clone("master");
+  mkdirSync(join(dir, "run"));
+  mkdirSync(join(dir, "src/run"), { recursive: true });
+  writeFileSync(join(dir, "run/test-changes.md"), "why\n");
+  writeFileSync(join(dir, "src/run/job.ts"), "export {};\n");
+  const d = await repo.diff();
+  expect(d.numstat).toContain("src/run/job.ts");
+  expect(d.numstat).not.toContain("test-changes.md");
+});

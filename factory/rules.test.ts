@@ -11,7 +11,7 @@ test("plain text has no secrets", () => {
   expect(findSecrets("glpat-short and normal words")).toEqual([]);
 });
 
-const t = loadTarget("react_frontend");
+const t = loadTarget("react_frontend", { defaultApprover: "approver" });
 test("a rename out of a protected path still fails", () => {
   const r = checkHardRules([{ oldPath: ".gitlab-ci.yml", newPath: "ci/old.yml", added: 0, removed: 0, binary: false }], "", t, true);
   expect(r.find(x => x.rule === "protected-path")!.passed).toBe(false);
