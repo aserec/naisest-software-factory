@@ -55,8 +55,11 @@ export function makeJevClient(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fe
     console.warn("Jev mock in use: BERGET_API_KEY is not set. Answers are fixed, not real.");
     return {
       provider: "mock",
-      async ask(_state, questions) {
+      async ask(state, questions) {
+        const emptyDescription = (state as { description?: unknown } | null)?.description === "";
         return questions.map((q) => {
+          // Like a real model, the mock cannot build from an empty description: clarity is the lowest score.
+          if (q.id === "clarity" && emptyDescription) return { id: q.id, ...MOCK_ANSWERS.score, value: 2 };
           const own = MOCK_ANSWERS.byId[q.id];
           if (own) return { id: q.id, ...own };
           if (q.kind === "noul") return { id: q.id, ...MOCK_ANSWERS.noul };
