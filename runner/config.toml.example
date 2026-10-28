@@ -1,10 +1,12 @@
 # GitLab Runner config for the factory. Copy to /etc/gitlab-runner/config.toml.
 # Replace the values in <angle brackets>.
+# Plugin keys follow the README: https://gitlab.com/hetznercloud/fleeting-plugin-hetzner
+# (docs/reference/configuration.md and docs/guides/quickstart.md).
 concurrent = 4
 
 [[runners]]
   name = "factory-hetzner"
-  url = "https://gitlab.com"
+  url = "https://gitlab.example.com"
   token = "<RUNNER_AUTH_TOKEN>"
   executor = "docker-autoscaler"
 
@@ -15,10 +17,12 @@ concurrent = 4
     volumes = ["/cache"]
 
   [runners.autoscaler]
-    plugin = "hetznercloud/fleeting-plugin-hetzner:latest"
+    plugin = "hetznercloud/fleeting-plugin-hetzner:1.4.7"
     capacity_per_instance = 1   # one job per VM
     max_use_count = 1           # delete the VM after one job
     max_instances = 4
+    # Wait for cloud-init (Docker install) before the VM takes a job.
+    instance_ready_command = "cloud-init status --wait || test $? -eq 2"
 
     [runners.autoscaler.plugin_config]
       name = "factory-runner"

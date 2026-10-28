@@ -31,7 +31,7 @@ Store each one as a masked, protected CI variable.
   - Location `fsn1` (Germany). Server type `ccx23` (4 vCPU, 16 GB). Image Ubuntu 24.04.
   - `privileged = false` and no Docker socket volume.
   - Runner tag: `factory`. Every job in `.gitlab-ci.yml` must use it.
-- `runner/cloud-init.yml`: installs Docker on each new VM.
+- `runner/cloud-init.yml`: installs Docker on each new VM. Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
 
 ### Hetzner Cloud firewall
 
@@ -45,7 +45,7 @@ Attach a firewall to the runner VMs (for example by label):
 
 - [ ] Create a runner in the GitLab project with the tag `factory`. Copy its token.
 - [ ] Install `gitlab-runner` and the fleeting plugin on a small host.
-- [ ] Copy `runner/config.toml.example` to `/etc/gitlab-runner/config.toml` and `runner/cloud-init.yml` next to it. Fill in the runner token and the Hetzner API token.
+- [ ] Copy `runner/config.toml.example` to `/etc/gitlab-runner/config.toml` and `runner/cloud-init.yml` to `/etc/gitlab-runner/cloud-init.yml`. Fill in the runner token and the Hetzner API token.
 - [ ] Create the Hetzner firewall above and attach it.
 
 ## 5. Verify the runner
@@ -55,7 +55,7 @@ Attach a firewall to the runner VMs (for example by label):
 
 ## 6. Agent files
 
-- [ ] From the repo root, run `bash /Users/me/projects/agent-config/sync.sh`. It copies `.agents/`.
+- [ ] From the repo root, run `bash /path/to/agent-config/sync.sh`. It copies `.agents/`.
 
 ## Local use
 
