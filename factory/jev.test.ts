@@ -59,3 +59,14 @@ test("a noul answer without a probability throws", async () => {
   const fake = (async () => new Response(JSON.stringify({ answers: { a: { type: "noul" } } }))) as typeof fetch;
   await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, [{ id: "a", kind: "noul", text: "?" }])).rejects.toThrow(/probability/);
 });
+
+test("a choice answer that is not one of the options throws", async () => {
+  const fake = (async () => new Response(JSON.stringify({ answers: { risk: { type: "choice", confidence: 0.9, probabilities: { banana: 0.9, low: 0.1 } } } }))) as typeof fetch;
+  const q: JevQuestion[] = [{ id: "risk", kind: "choice", text: "?", options: ["trivial", "low", "medium", "high"] }];
+  await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, q)).rejects.toThrow(/not one of the options/);
+});
+test("a score answer whose top key is not a number throws", async () => {
+  const fake = (async () => new Response(JSON.stringify({ answers: { clarity: { type: "score", confidence: 0.9, probabilities: { "Score 8": 0.9 } } } }))) as typeof fetch;
+  const q: JevQuestion[] = [{ id: "clarity", kind: "score", text: "?", levels: 9 }];
+  await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, q)).rejects.toThrow(/not a number/);
+});

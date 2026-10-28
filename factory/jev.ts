@@ -46,6 +46,9 @@ function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnswer {
   const probs = a.probabilities ?? {};
   const [best, p] = Object.entries(probs).sort((x, y) => y[1] - x[1])[0] ?? [];
   if (best === undefined) throw new Error(`Jev answer for "${q.id}" has no probabilities`);
+  // An answer outside the question fails closed: the caller blocks instead of guessing.
+  if (q.kind === "choice" && !q.options.includes(best)) throw new Error(`Jev answer for "${q.id}" is not one of the options: ${JSON.stringify(best)}`);
+  if (q.kind === "score" && !Number.isInteger(Number(best))) throw new Error(`Jev score answer for "${q.id}" is not a number: ${JSON.stringify(best)}`);
   const value = q.kind === "choice" ? best : (q.min ?? 2) + Number(best);
   return { id: q.id, value, probability: p, confidence: a.confidence ?? p };
 }

@@ -36,10 +36,12 @@ export async function askTriage(jev: JevClient, state: object): Promise<TriageAn
 }
 
 export function decideTriage(a: TriageAnswers): TriageOutcome {
-  if (a.injectionYes >= INJECTION_LIMIT) return { kind: "blocked", reason: `Possible prompt injection (P(yes) ${a.injectionYes})` };
-  if (a.clarity.value < CLARITY_MIN) return { kind: "needs_info" };
-  // An unsure risk answer counts as one level higher.
-  const i = RISKS.indexOf(a.risk.value);
-  const risk = a.risk.confidence < RISK_CONFIDENCE_MIN ? RISKS[Math.min(i + 1, RISKS.length - 1)] : a.risk.value;
+  // Every check fails closed: NaN or an unknown value never lets a ticket through.
+  if (!(a.injectionYes < INJECTION_LIMIT)) return { kind: "blocked", reason: `Possible prompt injection (P(yes) ${a.injectionYes})` };
+  if (!(a.clarity.value >= CLARITY_MIN)) return { kind: "needs_info" };
+  // An unknown risk counts as high. An unsure risk answer counts as one level higher.
+  const known = RISKS.includes(a.risk.value) ? a.risk.value : "high";
+  const i = RISKS.indexOf(known);
+  const risk = a.risk.confidence >= RISK_CONFIDENCE_MIN ? known : RISKS[Math.min(i + 1, RISKS.length - 1)];
   return { kind: "build", risk, effort: a.effort.value };
 }

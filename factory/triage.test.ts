@@ -18,3 +18,15 @@ test("a described ticket builds with the mock", async () => {
   const a = await askTriage(makeJevClient({}), buildTriageState("t", "Fix the button", []));
   expect(decideTriage(a)).toEqual({ kind: "build", risk: "trivial", effort: 7 });
 });
+test("an unknown risk counts as high, even when Jev is unsure", () => {
+  expect(decideTriage({ ...base, risk: { value: "banana" as never, confidence: 0.5 } })).toMatchObject({ kind: "build", risk: "high" });
+  expect(decideTriage({ ...base, risk: { value: "banana" as never, confidence: 0.9 } })).toMatchObject({ kind: "build", risk: "high" });
+});
+test("NaN clarity asks questions, and NaN injection blocks", () => {
+  expect(decideTriage({ ...base, clarity: { value: NaN, confidence: 0.9 } })).toEqual({ kind: "needs_info" });
+  expect(decideTriage({ ...base, injectionYes: NaN }).kind).toBe("blocked");
+});
+test("NaN risk confidence bumps the risk one level", () => expect(decideTriage({ ...base, risk: { value: "low", confidence: NaN } })).toMatchObject({ risk: "medium" }));
+test("clarity 6 builds", () => expect(decideTriage({ ...base, clarity: { value: 6, confidence: 0.9 } }).kind).toBe("build"));
+test("risk confidence 0.7 does not bump", () => expect(decideTriage({ ...base, risk: { value: "low", confidence: 0.7 } })).toMatchObject({ risk: "low" }));
+test("injection is checked before clarity", () => expect(decideTriage({ ...base, injectionYes: 0.5, clarity: { value: 2, confidence: 0.9 } }).kind).toBe("blocked"));
