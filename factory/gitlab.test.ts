@@ -206,3 +206,23 @@ test("listClosed reads closed items, newest first, with no writes", async () => 
   expect(last().init.method).toBe("GET");
   expect(last().url).toContain("state=closed&order_by=updated_at&sort=desc&per_page=30");
 });
+// GitLab runs quick actions from any line that starts with "/", as the bot.
+const quickAction = /^\s*\//m;
+test("a /merge line from test-changes.md reaches the MR description escaped, on open and on update", async () => {
+  const description = "Changed tests, and why:\n\n/merge\n  /approve";
+  fakeResponse([]);
+  await gl.upsertMergeRequest(1, "factory/8-x", "master", "t", description);
+  expect(lastBody().description).not.toMatch(quickAction);
+  expect(lastBody().description).toContain("​/merge");
+  fakeResponse([{ iid: 4, web_url: "u4", target_branch: "master" }]);
+  await gl.upsertMergeRequest(1, "factory/8-x", "master", "t", description);
+  expect(last().init.method).toBe("PUT");
+  expect(lastBody().description).not.toMatch(quickAction);
+});
+test("a /label ~factory_ready line in a note is escaped", async () => {
+  await gl.comment(1, 8, "Questions:\n/label ~factory_ready\n/close");
+  expect(lastBody().body).not.toMatch(quickAction);
+  expect(lastBody().body).toContain("​/label ~factory_ready");
+  await gl.commentMergeRequest(1, 2, "/merge");
+  expect(lastBody().body).not.toMatch(quickAction);
+});
