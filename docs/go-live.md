@@ -39,8 +39,8 @@ One list for everything people must do before and during go-live on `react_front
 
 ## 4. Written confirmations
 
-- [ ] **Anthropic sales:** send a short description of the factory and ask if its use of the Team plan token (Kirill's seat) is allowed. Keep the answer in writing. If the answer is no, replace `CLAUDE_CODE_OAUTH_TOKEN` with `ANTHROPIC_API_KEY`. Never set both, because the API key wins.
-- [ ] **TensorX:** get in writing where TensorX processes data and that its terms fit the GDPR and the sovereignty rule. Get the real `TENSORX_BASE_URL` and put it in the code (replace the placeholder). Replace the placeholder reviewer IDs `tensorx-deepseek-small` and `tensorx-deepseek-large` in `router.yml`.
+- [ ] **Anthropic sales:** send the email in [go-live-emails.md](go-live-emails.md), a short description of the factory and ask if its use of the Team plan token (Kirill's seat) is allowed. Keep the answer in writing. If the answer is no, replace `CLAUDE_CODE_OAUTH_TOKEN` with `ANTHROPIC_API_KEY`. Never set both, because the API key wins.
+- [ ] **TensorX:** send the email in [go-live-emails.md](go-live-emails.md) and get in writing where TensorX processes data and that its terms fit the GDPR and the sovereignty rule. Get the real `TENSORX_BASE_URL` and put it in the code (replace the placeholder). Replace the placeholder reviewer IDs `tensorx-deepseek-small` and `tensorx-deepseek-large` in `router.yml`.
 
 ## 5. Add react_frontend
 
