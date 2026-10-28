@@ -170,7 +170,11 @@ export function makeContext(env: NodeJS.ProcessEnv): StepContext {
   const token = needSecret(env, "FACTORY_GITLAB_TOKEN");
   const webhook = needSecret(env, "TEAMS_WEBHOOK_URL");
   const triggerToken = secretFile(env, "FACTORY_TRIGGER_TOKEN");
-  const target = loadTarget(need(env, "FACTORY_TARGET"));
+  // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
+  const name = need(env, "FACTORY_TARGET");
+  if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);
+  const target = loadTarget(name);
+  if (env.CI_JOB_IMAGE && env.CI_JOB_IMAGE !== target.jobImage) throw new Error(`The job runs image ${env.CI_JOB_IMAGE}, but target ${name} names ${target.jobImage}`);
   const dir = resolve(RUN_DIR, "target");
   return {
     gitlab: new GitLab(server, token),
@@ -196,8 +200,7 @@ export function makeContext(env: NodeJS.ProcessEnv): StepContext {
       // The trigger token is only read here, by step code. It goes in the body, so errors never show it.
       if (!triggerToken) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
       const body = new URLSearchParams({ token: triggerToken, ref: need(env, "CI_COMMIT_REF_NAME") });
-      const all = { ...vars, FACTORY_JOB_IMAGE: target.jobImage };
-      for (const [k, v] of Object.entries(all)) body.set(`variables[${k}]`, v);
+      for (const [k, v] of Object.entries(vars)) body.set(`variables[${k}]`, v);
       const res = await fetch(`${server}/api/v4/projects/${need(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
       if (!res.ok) throw new Error(`Starting the finish pipeline failed with status ${res.status}`);
     },
@@ -217,6 +220,8 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
     try {
       return (await ctx.gitlab.buildRecord(factoryProjectId, buildPipelineId)) as RunRecord;
     } catch (e) {
+      // Only "not uploaded yet" is worth waiting for. A failed provenance check fails at once.
+      if (!String(e).includes("status 404")) throw e;
       last = e;
       await ctx.sleep(Math.min(5000 * 2 ** i, 60_000));
     }

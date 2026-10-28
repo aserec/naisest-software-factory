@@ -240,3 +240,24 @@ test("decision blocks instead of starting finish without a build pipeline id", a
   expect(w.finishTriggered).toBe(false);
   expect(w.labels).toEqual(["factory_blocked"]);
 });
+
+test("makeContext rejects a target with no targets/<name>.yml, and a job image the target does not name", () => {
+  const dir = tmp();
+  const env = (o: Record<string, string>) => {
+    for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
+    return { CI_SERVER_URL: "https://gl", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
+  };
+  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }))).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }))).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }))).toThrow(/image/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }))).not.toThrow();
+});
+test("a build record that fails the provenance check is not retried", async () => {
+  const w = fakeWorld();
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, mrIid: 5, buildPipelineId: 41, factoryProjectId: 3 };
+  let tries = 0;
+  w.ctx.gitlab.buildRecord = async () => { tries++; throw new Error("Pipeline 41 is not a factory build pipeline"); };
+  await expect(runStep("apply", async () => "next", { dir: tmp(), make: () => w.ctx })).rejects.toThrow(/not a factory build pipeline/);
+  expect(tries).toBe(1);
+  expect(w.labels).toEqual(["factory_blocked"]);
+});

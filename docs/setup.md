@@ -59,6 +59,18 @@ Attach a firewall to the runner VMs (for example by label):
 
 - [ ] From the repo root, run `bash /path/to/agent-config/sync.sh`. It copies `.agents/`.
 
+## 7. Target webhook
+
+For each target repo (Settings > Webhooks), add one webhook for issue, comment and merge request events. Its URL is:
+
+```text
+https://gitlab.example.com/api/v4/projects/<factory project id>/ref/main/trigger/pipeline?token=<trigger token>&variables[FACTORY_PIPELINE]=build&variables[FACTORY_TARGET]=<target name>
+```
+
+- [ ] Use the same bot-owned trigger token that is stored in `FACTORY_TRIGGER_TOKEN`. The finish pipeline only trusts build pipelines started by the bot.
+- [ ] `<target name>` must have a `targets/<target name>.yml` in this repo. Other names stop the job.
+- [ ] Warning: anyone who can see the webhook URL can start factory pipelines as the bot, with any variables. Only Maintainers can see webhook settings. Keep it that way, and never give Maintainer to someone you would not trust with the factory.
+
 ## Local use
 
 ```bash

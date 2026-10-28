@@ -28,8 +28,6 @@ include:
 - template: Security/Secret-Detection.gitlab-ci.yml
 variables:
   SECRET_DETECTION_ENABLED: 'true'
-  # The target's jobImage. The webhook URL and the finish trigger pass the real value.
-  FACTORY_JOB_IMAGE: node:22
 secret_detection:
   stage: secret-detection
   tags: [factory]
@@ -47,7 +45,9 @@ smoke:
 # One job per step. State passes between jobs in run/: record.json, the target clone and the Claude session.
 .factory:
   tags: [factory]
-  image: $FACTORY_JOB_IMAGE
+  # A fixed image, never a variable: trigger callers can set any variable. Every target's jobImage must be
+  # this image (makeContext checks). ponytail: one image for all targets; pin it by digest at go-live.
+  image: node:22
   timeout: 3h
   variables:
     CLAUDE_CONFIG_DIR: $CI_PROJECT_DIR/run/claude-home
