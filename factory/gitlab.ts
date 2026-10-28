@@ -34,7 +34,17 @@ export class GitLab {
       labels: w.labels as string[],
       assigneeIds: (w.assignees ?? []).map((a: { id: number }) => a.id),
       webUrl: w.web_url as string,
+      state: w.state as "opened" | "closed",
     };
+  }
+
+  async reopenWorkItem(projectId: number, iid: number): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { state_event: "reopen" });
+  }
+
+  // The bot's own user id, so its own approvals and merges are not taken for a person's.
+  async botUserId(): Promise<number> {
+    return (await this.json("GET", "/user")).id;
   }
 
   async memberAccessLevel(projectId: number, userId: number): Promise<number> {
@@ -85,14 +95,38 @@ export class GitLab {
     return { iid: mr.iid as number, webUrl: mr.web_url as string };
   }
 
+  // A re-run reuses the open MR of the factory branch and updates its text.
+  async upsertMergeRequest(projectId: number, branch: string, target: string, title: string, description: string) {
+    const open = await this.json("GET", `/projects/${projectId}/merge_requests?state=opened&source_branch=${encodeURIComponent(branch)}`);
+    if (!open[0]) return this.openMergeRequest(projectId, branch, target, title, description);
+    await this.call("PUT", `/projects/${projectId}/merge_requests/${open[0].iid}`, { title, description });
+    return { iid: open[0].iid as number, webUrl: open[0].web_url as string };
+  }
+
+  async getMergeRequest(projectId: number, mrIid: number) {
+    const mr = await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}`);
+    return {
+      state: mr.state as string,
+      description: (mr.description ?? "") as string,
+      headSha: mr.sha as string,
+      mergeSha: (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string,
+    };
+  }
+
+  async approvedBy(projectId: number, mrIid: number): Promise<number[]> {
+    const a = await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}/approvals`);
+    return (a.approved_by ?? []).map((x: { user: { id: number } }) => x.user.id);
+  }
+
   async assignMergeRequest(projectId: number, mrIid: number, userId: number): Promise<void> {
     await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { assignee_ids: [userId] });
   }
 
   // Merges now and returns the commit on the target branch. Call it only after the MR pipeline is "success".
   // GitLab uses the project's own squash setting.
-  async merge(projectId: number, mrIid: number): Promise<string> {
-    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, {});
+  // sha is the reviewed head: GitLab refuses the merge if the branch moved since.
+  async merge(projectId: number, mrIid: number, sha: string): Promise<string> {
+    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, { sha });
     return (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string;
   }
 
@@ -104,7 +138,8 @@ export class GitLab {
   }
 
   async revertMerge(projectId: number, sha: string, defaultBranch: string) {
-    const branch = `factory/revert-${sha.slice(0, 8)}`;
+    // A unique name, so an earlier revert branch for the same commit does not get in the way.
+    const branch = `factory/revert-${sha.slice(0, 8)}-${Date.now()}`;
     await this.call("POST", `/projects/${projectId}/repository/branches`, { branch, ref: defaultBranch });
     await this.call("POST", `/projects/${projectId}/repository/commits/${sha}/revert`, { branch });
     return this.openMergeRequest(projectId, branch, defaultBranch, `Revert ${sha.slice(0, 8)}`, `The default branch pipeline failed after ${sha}. This reverts it.`);

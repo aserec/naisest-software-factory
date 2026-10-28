@@ -15,3 +15,7 @@ test("react_frontend target has the 300-line limit and the protected paths", () 
 test(".factory.yml without build is rejected", () => {
   expect(() => parseFactoryFile("lint: pnpm lint\ntest: pnpm test")).toThrow(/build/);
 });
+test(".factory.yml without install is rejected", () => {
+  expect(() => parseFactoryFile("lint: pnpm lint\ntest: pnpm test\nbuild: pnpm build")).toThrow(/install/);
+  expect(parseFactoryFile("install: pnpm install --frozen-lockfile\nlint: a\ntest: b\nbuild: c").install).toBe("pnpm install --frozen-lockfile");
+});

@@ -26,6 +26,7 @@ const targetSchema = z.object({
 });
 
 const commandsSchema = z.object({
+  install: z.string().min(1),
   lint: z.string().min(1),
   test: z.string().min(1),
   build: z.string().min(1),

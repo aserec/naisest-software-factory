@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { decideStart, parseLabelEvent } from "./event.js";
+import { decideStart, parseLabelEvent, parseMergeRequestEvent } from "./event.js";
 
 const load = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 
@@ -43,4 +43,17 @@ test("re-added label after needs_info starts a new run", () => {
 test("a reporter on a work item with an active run gets not-member", () => {
   const e = parseLabelEvent(load("label-added.json"))!;
   expect(decideStart(e, { actorAccessLevel: 20, workItemLabels: ["factory_ready", "factory_running"], runningInRepo: 0 })).toEqual({ start: false, reason: "not-member" });
+});
+test("an approval or merge of a factory MR is a merge request event", () => {
+  const p = load("mr-approved.json");
+  expect(parseMergeRequestEvent(p)).toEqual({ projectPath: "acme/web/react_frontend", mrIid: 5, workItemIid: 8, action: "approved", actorId: 42 });
+  p.object_attributes.action = "merge";
+  expect(parseMergeRequestEvent(p)).toMatchObject({ action: "merge" });
+});
+test("other MR actions, other branches and revert branches are ignored", () => {
+  const p = load("mr-approved.json");
+  expect(parseMergeRequestEvent({ ...p, object_attributes: { ...p.object_attributes, action: "update" } })).toBeNull();
+  expect(parseMergeRequestEvent({ ...p, object_attributes: { ...p.object_attributes, source_branch: "feature/8-x" } })).toBeNull();
+  expect(parseMergeRequestEvent({ ...p, object_attributes: { ...p.object_attributes, source_branch: "factory/revert-abcdef12-1" } })).toBeNull();
+  expect(parseMergeRequestEvent(load("label-added.json"))).toBeNull();
 });

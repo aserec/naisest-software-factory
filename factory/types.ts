@@ -11,4 +11,4 @@ export interface Target {
   defaultApprover: string;
   jobImage: string;
 }
-export interface FactoryCommands { lint: string; test: string; build: string; smoke?: string }
+export interface FactoryCommands { install: string; lint: string; test: string; build: string; smoke?: string }

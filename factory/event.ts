@@ -42,3 +42,18 @@ export function decideStart(
   if (ctx.runningInRepo >= MAX_RUNS_PER_REPO) return { start: false, reason: "repo-full" };
   return { start: true };
 }
+
+export interface MergeRequestEvent { projectPath: string; mrIid: number; workItemIid: number; action: "approved" | "merge"; actorId: number }
+
+// An approval or a merge of a factory MR (branch factory/<work item iid>-<slug>). Anything else gives null.
+export function parseMergeRequestEvent(payload: unknown): MergeRequestEvent | null {
+  const p = payload as any;
+  if (p?.object_kind !== "merge_request") return null;
+  const a = p.object_attributes;
+  if (a?.action !== "approved" && a?.action !== "merge") return null;
+  const m = /^factory\/(\d+)-/.exec(String(a.source_branch ?? ""));
+  const projectPath = p.project?.path_with_namespace;
+  const actorId = p.user?.id;
+  if (!m || typeof projectPath !== "string" || typeof a.iid !== "number" || typeof actorId !== "number") return null;
+  return { projectPath, mrIid: a.iid, workItemIid: Number(m[1]), action: a.action, actorId };
+}

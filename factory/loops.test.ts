@@ -28,7 +28,7 @@ function fakeDeps(o: {
   };
   return deps;
 }
-const cmds = { lint: "pnpm lint", test: "pnpm test:unit", build: "pnpm build" };
+const cmds = { install: "pnpm install", lint: "pnpm lint", test: "pnpm test:unit", build: "pnpm build" };
 
 test("review passes on round 2 after one fix", async () => {
   const deps = fakeDeps({ reviews: [[{ blocking: true, text: "null check" }], []] });
