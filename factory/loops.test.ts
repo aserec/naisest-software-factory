@@ -56,11 +56,25 @@ test("gate blocks after 3 failing rounds and names the command", async () => {
 });
 test("a usage limit during a fix stops with limit, not blocked", async () => {
   const deps = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, sessionId: "s1" } });
-  expect(await codeReviewLoop(deps)).toEqual({ kind: "limit", sessionId: "s1" });
+  expect(await codeReviewLoop(deps)).toEqual({ kind: "limit", rounds: 1, sessionId: "s1" });
 });
 test("a failed author run blocks", async () => {
   const deps = fakeDeps({ reviews: [[B]], fixResult: { isError: true, resultText: "boom" } });
   const r = await codeReviewLoop(deps);
   expect(r.kind).toBe("blocked");
   expect(JSON.stringify(r)).toContain("author run failed");
+});
+
+// A resumed run continues its round count, so 3 rounds are never exceeded across a resume.
+test("loops started at a later round stop at the same limit", async () => {
+  const d = fakeDeps({ reviews: [[B], [B], [B]] });
+  expect(await codeReviewLoop(d, 3, 3)).toEqual({ kind: "blocked", rounds: 3, open: ["bug"] });
+  expect(d.fixCalls).toHaveLength(0);
+  const g = fakeDeps({ results: { lint: [false, false, false] } });
+  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, 3, 3)).toMatchObject({ kind: "blocked", rounds: 3 });
+  expect(g.fixCalls).toHaveLength(0);
+});
+test("a limit result carries the round it stopped in", async () => {
+  const d = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, isError: true } });
+  expect(await codeReviewLoop(d, 3, 2)).toMatchObject({ kind: "limit", rounds: 2 });
 });

@@ -24,3 +24,7 @@ test("retry ignores a waiting note not written by the bot and blocks the work it
   expect(ctx.world.labels).toEqual(["factory_blocked"]);
   expect(ctx.world.cards.map((c) => c.kind)).toEqual(["blocked"]);
 });
+// A non-developer's label must not take a free slot from a valid item, every 5 minutes.
+test("poller skips items whose factory_ready was added by a non-developer", async () => {
+  expect(await pollReady(fakeCtx({ ready: [3, 4], running: 1, nonDeveloper: [3] }))).toEqual([4]);
+});

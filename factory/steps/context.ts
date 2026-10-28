@@ -1,5 +1,5 @@
 // Shared parts of the CI steps: the context, the real adapters, and helpers for blocking, waiting and agent runs.
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -67,7 +67,7 @@ export function newRecord(): RunRecord {
 export const data = (ctx: StepContext, step: string): any => [...ctx.record.steps].reverse().find((s) => s.step === step)?.data;
 export const save = (ctx: StepContext, step: string, d: unknown) => void (ctx.record = addStep(ctx.record, step, d));
 // The newest author session in the record. Fixes and resumed runs continue it.
-export const session = (ctx: StepContext): string => [...ctx.record.steps].reverse().map((s: any) => s.data?.sessionId).find(Boolean);
+export const session = (ctx: StepContext): string | undefined => [...ctx.record.steps].reverse().map((s: any) => s.data?.sessionId).find(Boolean);
 // On a resumed run, the saved session if this job is the one that hit the limit.
 export const resumeSession = (ctx: StepContext, job: string): string | undefined =>
   data(ctx, "event")?.resumeAt === job ? data(ctx, "event").sessionId : undefined;
@@ -125,9 +125,9 @@ export const waitingNote = (pipelineId: number | undefined) =>
 export const WAITING_RUN = /^Waiting run: pipeline (\d+)$/m;
 
 // Claude hit a usage limit: keep the session so a later pipeline can resume it.
-export async function waiting(ctx: StepContext, step: string, sessionId: string): Promise<StepResult> {
+export async function waiting(ctx: StepContext, step: string, sessionId: string, extra: object = {}): Promise<StepResult> {
   const { projectId, iid } = await workItem(ctx);
-  save(ctx, step, { sessionId, limit: true });
+  save(ctx, step, { ...extra, sessionId, limit: true });
   await ctx.gitlab.setState(projectId, iid, "factory_waiting");
   await ctx.gitlab.comment(projectId, iid, waitingNote(ctx.env.pipelineId));
   return "stop";
@@ -143,6 +143,7 @@ export async function claude(ctx: StepContext, run: ClaudeRun): Promise<ClaudeRe
 export function fix(ctx: StepContext, feedback: string): Promise<ClaudeResult> {
   const row = modelRow(ctx);
   const resumeSessionId = session(ctx);
+  if (!resumeSessionId) throw new Error("The run record has no author session to fix");
   return claude(ctx, { prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, model: row.author, effort: row.effort, maxTurns: 30, cwd: ctx.dir, resumeSessionId });
 }
 
@@ -245,19 +246,26 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): Ste
       if (!res.ok) throw new Error(`Starting a pipeline failed with status ${res.status}`);
     },
     async restoreRun(pipelineId) {
-      const tmp = mkdtempSync(join(tmpdir(), "run-zip-"));
-      try {
-        const zip = join(tmp, "artifacts.zip");
-        writeFileSync(zip, Buffer.from(await gitlab.runArtifacts(Number(need(env, "CI_PROJECT_ID")), pipelineId)));
-        const r = await sh("unzip", ["-q", "-o", zip, `${RUN_DIR}/*`], process.cwd(), { PATH: env.PATH });
-        if (r.code !== 0) throw new Error(`unzip of pipeline ${pipelineId} artifacts failed: ${r.out.slice(-500)}`);
-        rmSync(join(RUN_DIR, "stop"), { force: true }); // that pipeline stopped at the limit; this one goes on
-      } finally {
-        rmSync(tmp, { recursive: true, force: true });
-      }
+      await extractRun(Buffer.from(await gitlab.runArtifacts(Number(need(env, "CI_PROJECT_ID")), pipelineId)), process.cwd(), env.PATH);
     },
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   };
+}
+
+// Puts run/ from an artifacts zip into cwd. unzip writes into an empty temp dir, and only its run/ is copied,
+// so no entry lands outside run/. The stop file goes: that pipeline stopped at the limit, this one goes on.
+export async function extractRun(zip: Buffer, cwd: string, path = process.env.PATH) {
+  const tmp = mkdtempSync(join(tmpdir(), "run-zip-"));
+  try {
+    writeFileSync(join(tmp, "artifacts.zip"), zip);
+    const out = join(tmp, "out");
+    const r = await sh("unzip", ["-q", "-o", join(tmp, "artifacts.zip"), `${RUN_DIR}/*`, "-d", out], tmp, { PATH: path });
+    if (r.code !== 0 && r.code !== 1) throw new Error(`unzip of the run artifacts failed: ${r.out.slice(-500)}`); // 1 is warnings only
+    rmSync(join(out, RUN_DIR, "stop"), { force: true });
+    cpSync(join(out, RUN_DIR), join(cwd, RUN_DIR), { recursive: true, verbatimSymlinks: true });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // The record from run/, or for the first finish job the one the build pipeline saved. That pipeline's
@@ -305,7 +313,16 @@ export async function runStep(
   const ctx = (opts.make ?? makeContext)(opts.env ?? process.env);
   let result: StepResult;
   try {
-    ctx.record = await loadRunRecord(ctx, dir);
+    try {
+      ctx.record = await loadRunRecord(ctx, dir);
+    } catch (e) {
+      // A resume whose record cannot be read now waits for the next hourly retry. A forged one still blocks.
+      if (name !== "event" || !ctx.env.buildPipelineId || e instanceof NotFactoryPipelineError) throw e;
+      save(ctx, "event", { start: false, reason: "record-unavailable", error: String(e).slice(0, 500) });
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(stopFile, name);
+      return;
+    }
     if (doneBeforeResume(ctx, name)) {
       console.log(`Skipping ${name}: it finished before the run was resumed.`);
       return;

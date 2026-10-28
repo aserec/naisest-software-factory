@@ -12,9 +12,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const result = await precommitGate(
     { review: async () => [], fix: (feedback) => fix(ctx, feedback), run: (cmd) => ctx.repo.run(cmd) },
     data(ctx, "prepare-patch").commands,
+    3,
+    ctx.record.rounds.gate + 1, // a resumed run goes on from its last round
   );
-  if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
   ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
+  if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
   if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.join("\n")}`);
 
   const title = ctx.record.ticket!.title;

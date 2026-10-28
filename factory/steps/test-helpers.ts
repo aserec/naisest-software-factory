@@ -29,6 +29,8 @@ export interface WorldOptions {
   reviews?: Finding[][];
   gate?: "green" | "red";
   prepare?: "ok" | "limit";
+  fixLimit?: boolean; // the first fix run hits the usage limit
+  factoryFile?: string; // .factory.yml in the clone
   numstat?: string;
   testChanges?: string;
   liveLabels?: string[];
@@ -73,6 +75,8 @@ export function fakeWorld(o: WorldOptions = {}) {
     claudeRuns: [] as ClaudeRun[],
     jevAsked: 0,
     restored: [] as number[],
+    ran: [] as string[],
+    reviewsRun: 0,
     mainPipelineRef: "",
     ctx: undefined as unknown as StepContext,
     get labels() {
@@ -136,10 +140,10 @@ export function fakeWorld(o: WorldOptions = {}) {
   const repo: Repo = {
     clone: async () => {},
     diff: async () => ({ text: "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
-    run: async (cmd) => ({ ok: o.gate !== "red", output: `ran ${cmd}` }),
+    run: async (cmd) => (w.ran.push(cmd), { ok: o.gate !== "red", output: `ran ${cmd}` }),
     commitAndPush: async () => "head5",
     readFile: (path) =>
-      path === ".factory.yml" ? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n" : path === "run/test-changes.md" ? o.testChanges : undefined,
+      path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : undefined,
   };
 
   w.ctx = {
@@ -150,10 +154,12 @@ export function fakeWorld(o: WorldOptions = {}) {
       claude: async (r) => {
         w.claudeCalls++;
         w.claudeRuns.push(r);
-        if (o.prepare === "limit" && !r.resumeSessionId) return ok("sess-limit", { isError: true, limitHit: true, resultText: "usage limit reached" });
+        const limit = ok("sess-limit", { isError: true, limitHit: true, resultText: "usage limit reached" });
+        if (o.prepare === "limit" && !r.resumeSessionId) return limit;
+        if (o.fixLimit && r.resumeSessionId) return limit;
         return ok("sess-1");
       },
-      review: async () => reviews.shift() ?? [],
+      review: async () => (w.reviewsRun++, reviews.shift() ?? []),
     },
     record: newRecord(),
     target: loadTarget("react_frontend"),
@@ -186,13 +192,16 @@ export async function runBuildJobs(w: World, dir = mkdtempSync(join(tmpdir(), "j
 
 // The scheduled jobs' view: counts and lists by label. Each waiting item's note points to pipeline 100 + iid,
 // and starting a build from that pipeline "resumes" the session saved there.
-export function fakeCtx(o: { ready?: number[]; waiting?: { iid: number; sessionId: string }[]; running: number; noteAuthor?: number }) {
+export function fakeCtx(o: { ready?: number[]; waiting?: { iid: number; sessionId: string }[]; running: number; noteAuthor?: number; nonDeveloper?: number[] }) {
   const world = fakeWorld();
   const waiting = o.waiting ?? [];
   const g = world.ctx.gitlab;
   g.countLabeled = async (_p, label) => (label === "factory_running" ? o.running : label === "factory_waiting" ? waiting.length : 0);
   g.listLabeled = async (_p, label) =>
     (label === "factory_ready" ? (o.ready ?? []) : label === "factory_waiting" ? waiting.map((x) => x.iid) : []).map((iid) => ({ iid, labels: [label] }));
+  // User 100 + iid added factory_ready. Items in nonDeveloper were labeled by a Reporter.
+  g.labelAddedBy = async (_p, iid) => 100 + iid;
+  g.memberAccessLevel = async (_p, user) => ((o.nonDeveloper ?? []).includes(user - 100) ? 20 : 30);
   g.notes = async (_p, iid) => [{ authorId: o.noteAuthor ?? BOT, body: `> *AI line*\n\n${waitingNote(100 + iid)}` }];
   const resumed: string[] = [];
   const started: Record<string, string>[] = [];

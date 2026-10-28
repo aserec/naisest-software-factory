@@ -1,7 +1,7 @@
 export interface LabelEvent { projectPath: string; workItemIid: number; actorId: number; labelsBefore: string[]; labelsAfter: string[] }
 
 const LABEL = "factory_ready";
-const DEVELOPER = 30;
+export const DEVELOPER = 30;
 export const MAX_RUNS_PER_REPO = 2;
 // A work item with one of these labels already has a run. needs_info, blocked and done do not.
 export const ACTIVE_LABELS = ["factory_running", "factory_waiting", "factory_paused", "factory_needs_approval"];
@@ -28,7 +28,7 @@ export function parseLabelEvent(payload: unknown): LabelEvent | null {
 export type StartDecision = { start: true } | { start: false; reason: "not-added" | "not-member" | "active-run" | "repo-full" };
 
 // Caller contract:
-// (a) handle one work item at a time (Task 12 uses a GitLab resource_group per work item);
+// (a) handle one work item at a time (the event job uses a GitLab resource_group per target, which also guards the run count);
 // (b) pass workItemLabels read live from GitLab, not from the payload;
 // (c) set factory_running before handling the next event;
 // (d) runningInRepo is the number of OTHER active runs in the repo, not counting this item.

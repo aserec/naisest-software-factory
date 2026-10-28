@@ -181,6 +181,17 @@ test("labelAddedBy names who last added the label", async () => {
   fakeResponse([]);
   expect(await gl.labelAddedBy(1, 8, "factory_ready")).toBeUndefined();
 });
+test("labelAddedBy reads every page, so the newest event counts", async () => {
+  const pages: Record<string, unknown[]> = {
+    "1": [{ action: "add", label: { name: "factory_ready" }, user: { id: 5 } }],
+    "2": [{ action: "add", label: { name: "factory_ready" }, user: { id: 8 } }],
+  };
+  const fetchFn = (async (url: string) => {
+    const page = new URL(url).searchParams.get("page") ?? "1";
+    return new Response(JSON.stringify(pages[page]), { headers: page === "1" ? { "X-Next-Page": "2" } : { "X-Next-Page": "" } });
+  }) as unknown as typeof fetch;
+  expect(await new GitLab("https://gl.example", "tok", fetchFn).labelAddedBy(1, 8, "factory_ready")).toBe(8);
+});
 test("listLabeled lists open work items oldest first; notes map the author", async () => {
   fakeResponse([{ iid: 3, labels: ["factory_ready"] }]);
   expect(await gl.listLabeled(1, "factory_ready")).toEqual([{ iid: 3, labels: ["factory_ready"] }]);
