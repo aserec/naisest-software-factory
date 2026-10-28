@@ -6,6 +6,7 @@ import { expect, test } from "vitest";
 import { extractRun, GITLAB_URL, makeContext, runStep } from "./context";
 import { GitLab, NotFactoryPipelineError } from "../gitlab";
 import { findSecrets } from "../rules";
+import * as resultSaved from "./result-saved";
 import { BOT, B, fakeWorld, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
@@ -540,4 +541,12 @@ test("the author is told to implement the ticket, tests first, until lint, test 
   expect(p).toMatch(/tests first, then the code/);
   expect(p).toMatch(/until lint, test and build pass/);
   expect(p).toMatch(/Do not commit/);
+});
+
+test("the result comment shows the tokens used and the author's summary", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  expect(w.record).toMatchObject({ tokens: { input: 100, output: 20 }, summary: "1. Which list?" });
+  await resultSaved.run(w.ctx);
+  expect(w.workItemComments.at(-1)).toContain("Tokens: 100 in, 20 out");
+  expect(w.workItemComments.at(-1)).toContain("What changed: 1. Which list?");
 });

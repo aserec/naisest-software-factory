@@ -55,7 +55,7 @@ export const mrEvent = (action: "approved" | "merge", actorId = 42) => ({
 });
 const KINDS: Record<string, string> = { "Needs info": "needs_info", "Needs approval": "needs_approval", Blocked: "blocked", Done: "done" };
 const payload = JSON.parse(readFileSync(fileURLToPath(new URL("../fixtures/label-added.json", import.meta.url)), "utf8"));
-const ok = (sessionId: string, extra: Partial<ClaudeResult> = {}): ClaudeResult => ({ sessionId, isError: false, limitHit: false, costUsd: 0.1, resultText: "1. Which list?", ...extra });
+const ok = (sessionId: string, extra: Partial<ClaudeResult> = {}): ClaudeResult => ({ sessionId, isError: false, limitHit: false, costUsd: 0.1, tokens: { input: 100, output: 20 }, resultText: "1. Which list?", ...extra });
 
 export function fakeWorld(o: WorldOptions = {}) {
   const reviews = [...(o.reviews ?? [[]])];

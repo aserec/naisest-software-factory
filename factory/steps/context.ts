@@ -136,7 +136,14 @@ export async function waiting(ctx: StepContext, step: string, sessionId: string,
 
 export async function claude(ctx: StepContext, run: ClaudeRun): Promise<ClaudeResult> {
   const r = await ctx.agents.claude(run);
-  ctx.record = { ...ctx.record, costUsd: ctx.record.costUsd + r.costUsd };
+  const t = ctx.record.tokens ?? { input: 0, output: 0 };
+  ctx.record = {
+    ...ctx.record,
+    costUsd: ctx.record.costUsd + r.costUsd,
+    tokens: { input: t.input + r.tokens.input, output: t.output + r.tokens.output },
+    // The author's last answer says what changed. The result comment shows it.
+    ...(r.isError ? {} : { summary: r.resultText }),
+  };
   return r;
 }
 

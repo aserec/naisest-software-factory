@@ -19,7 +19,7 @@ function fakeDeps(o: {
     review: async () => reviews.shift() ?? [],
     fix: async (f) => {
       fixCalls.push(f);
-      return { sessionId: "s", isError: false, limitHit: false, costUsd: 0, resultText: "", ...o.fixResult };
+      return { sessionId: "s", isError: false, limitHit: false, costUsd: 0, tokens: { input: 0, output: 0 }, resultText: "", ...o.fixResult };
     },
     run: async (cmd) => {
       runCalls.push(cmd);

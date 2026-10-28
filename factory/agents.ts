@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string }
-export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; resultText: string }
+export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number }; resultText: string }
 export interface Finding { blocking: boolean; file?: string; text: string }
 
 // Absolute paths in the factory checkout. Never relative to the agent cwd, which is the target clone.
@@ -58,6 +58,7 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
     isError: resultError || limitHit || result.subtype !== "success" || exitCode !== 0,
     limitHit,
     costUsd: Number(result.total_cost_usd ?? 0),
+    tokens: { input: Number(result.usage?.input_tokens ?? 0), output: Number(result.usage?.output_tokens ?? 0) },
     resultText: text,
   };
 }

@@ -36,7 +36,7 @@ test("agents never get the GitLab token or an API key", () => {
   const e = agentEnv({ PATH: "/bin", FACTORY_GITLAB_TOKEN: "x", TEAMS_WEBHOOK_URL: "y", ANTHROPIC_API_KEY: "z", CLAUDE_CODE_OAUTH_TOKEN: "t" });
   expect(Object.keys(e).sort()).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "PATH"]);
 });
-test("the stream gives session id and cost", () => expect(parseStream(load("stream-ok.jsonl"))).toMatchObject({ isError: false, limitHit: false, costUsd: 0.0042, resultText: "ok", sessionId: "11111111-1111-4111-8111-111111111111" }));
+test("the stream gives session id, cost and tokens", () => expect(parseStream(load("stream-ok.jsonl"))).toMatchObject({ isError: false, limitHit: false, costUsd: 0.0042, tokens: { input: 120, output: 8 }, resultText: "ok", sessionId: "11111111-1111-4111-8111-111111111111" }));
 test("a usage limit is reported as limitHit, not as a plain error", () => expect(parseStream(load("stream-limit.jsonl"))).toMatchObject({ isError: true, limitHit: true }));
 test("a rate_limit retry event alone marks limitHit, and forces isError", () => {
   const s = load("stream-limit.jsonl").split("\n").filter(Boolean);
