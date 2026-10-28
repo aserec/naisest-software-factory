@@ -13,7 +13,11 @@ import { GITLAB_URL, isMain } from "./context";
 export const CSV_HEADER = ["iid", "title", "injection_p_yes", "type", "type_conf", "risk", "risk_conf", "clarity", "clarity_conf", "effort", "effort_conf", "outcome"];
 
 // A CSV field in quotes when it holds a comma, quote or line break. Quotes are doubled.
-export const csvField = (v: string | number): string => (/[",\r\n]/.test(String(v)) ? `"${String(v).replaceAll('"', '""')}"` : String(v));
+// A text starting with = + - or @ gets a ' in front, so a spreadsheet does not read it as a formula.
+export const csvField = (v: string | number): string => {
+  const t = typeof v === "string" && /^[=+\-@]/.test(v) ? `'${v}` : String(v);
+  return /[",\r\n]/.test(t) ? `"${t.replaceAll('"', '""')}"` : t;
+};
 export const csvLine = (fields: (string | number)[]) => fields.map(csvField).join(",");
 
 export async function shadowRow(jev: JevClient, item: { iid: number; title: string; description: string; labels: string[] }): Promise<string> {
@@ -26,7 +30,7 @@ export async function shadowRow(jev: JevClient, item: { iid: number; title: stri
 export async function main(env = process.env, argv = process.argv.slice(2)) {
   const [targetName, countText] = argv;
   const count = Number(countText);
-  if (!targetName || !Number.isInteger(count) || count < 1) throw new Error("Usage: pnpm tsx factory/steps/jev-shadow.ts <target> <count>");
+  if (!targetName || !Number.isInteger(count) || count < 1 || count > 100) throw new Error("Usage: pnpm tsx factory/steps/jev-shadow.ts <target> <count> (count is at most 100)");
   // A shadow test with the mock would tell us nothing, so refuse it.
   if (!env.BERGET_API_KEY) throw new Error("BERGET_API_KEY is not set. The shadow test needs the real Jev, not the mock. Stopping.");
   if (!env.FACTORY_GITLAB_TOKEN) throw new Error("FACTORY_GITLAB_TOKEN is not set. It is needed to read closed work items.");

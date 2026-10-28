@@ -21,3 +21,8 @@ test("titles with commas, quotes and line breaks are quoted", async () => {
 test("the shadow test refuses the mock provider", async () => {
   await expect(main({ FACTORY_GITLAB_TOKEN: "t" }, ["react_frontend", "5"])).rejects.toThrow(/BERGET_API_KEY/);
 });
+test("a field that starts with a formula character gets a quote prefix", () => {
+  expect(csvField("=SUM(A1)")).toBe("'=SUM(A1)");
+  expect(csvField("-1 day")).toBe("'-1 day");
+  expect(csvField(-3)).toBe("-3");
+});

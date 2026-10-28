@@ -18,7 +18,7 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] `TENSORX_API_KEY`.
 - [ ] `TEAMS_WEBHOOK_URL`, type **File**, from a Teams Workflows flow "Post to a channel when a webhook request is received".
 - [ ] `BERGET_API_KEY`, when it exists.
-- [ ] Never set `ANTHROPIC_API_KEY` in the runner.
+- [ ] Do not set `ANTHROPIC_API_KEY` in the runner while the OAuth token is used. Never set both, because the API key wins.
 
 ## 3. Runner and image
 
@@ -38,7 +38,7 @@ One list for everything people must do before and during go-live on `react_front
 
 ## 4. Written confirmations
 
-- [ ] **Anthropic sales:** send a short description of the factory and ask if its use of the Team plan token (Kirill's seat) is allowed. Keep the answer in writing. If the answer is no, set `ANTHROPIC_API_KEY` instead.
+- [ ] **Anthropic sales:** send a short description of the factory and ask if its use of the Team plan token (Kirill's seat) is allowed. Keep the answer in writing. If the answer is no, replace `CLAUDE_CODE_OAUTH_TOKEN` with `ANTHROPIC_API_KEY`. Never set both, because the API key wins.
 - [ ] **TensorX:** get in writing where TensorX processes data and that its terms fit the GDPR and the sovereignty rule. Get the real `TENSORX_BASE_URL` and put it in the code (replace the placeholder). Replace the placeholder reviewer IDs `tensorx-deepseek-small` and `tensorx-deepseek-large` in `router.yml`.
 
 ## 5. Add react_frontend
@@ -55,7 +55,7 @@ One list for everything people must do before and during go-live on `react_front
   ```
   It writes `run/jev-shadow.csv`. It refuses to run without the real key.
 - [ ] Check the answers by hand with the team.
-- [ ] Set the thresholds in code (`factory/triage.ts` and the risk check) from the result. Commit the change with the CSV summary in the message.
+- [ ] Set the thresholds in code (triage thresholds in `factory/triage.ts`, Jev 2 thresholds in `factory/decision.ts`) from the result. Commit the change with the CSV summary in the message.
 
 ## 7. Acceptance runs
 
