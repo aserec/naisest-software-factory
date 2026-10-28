@@ -532,3 +532,12 @@ test("a factory-authored label change or comment stops at event, before triage, 
     expect(w.labels).toEqual(["factory_running"]);
   }
 });
+
+test("the author is told to implement the ticket, tests first, until lint, test and build pass, without committing", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  const p = w.claudeRuns[0].prompt;
+  expect(p).toMatch(/implement the ticket/);
+  expect(p).toMatch(/tests first, then the code/);
+  expect(p).toMatch(/until lint, test and build pass/);
+  expect(p).toMatch(/Do not commit/);
+});
