@@ -10,6 +10,7 @@ export interface RunRecord {
   costUsd: number;
   tokens?: { input: number; output: number };
   summary?: string; // what changed
+  ticket?: { title: string; description: string }; // the text Jev 1 checked; agents only see this text
 }
 
 export function loadRecord(dir = "run"): RunRecord {

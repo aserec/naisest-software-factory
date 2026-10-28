@@ -33,6 +33,7 @@ export class GitLab {
       description: (w.description ?? "") as string,
       labels: w.labels as string[],
       assigneeIds: (w.assignees ?? []).map((a: { id: number }) => a.id),
+      webUrl: w.web_url as string,
     };
   }
 
@@ -55,10 +56,28 @@ export class GitLab {
     await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label, remove_labels: others });
   }
 
-  async comment(projectId: number, iid: number, body: string): Promise<void> {
+  private async note(endpoint: string, body: string): Promise<void> {
     const full = `${AI_LINE}\n\n${body}`;
     if (findSecrets(full).length > 0) throw new Error("Comment refused: it contains a secret");
-    await this.call("POST", `/projects/${projectId}/issues/${iid}/notes`, { body: full });
+    await this.call("POST", endpoint, { body: full });
+  }
+
+  async comment(projectId: number, iid: number, body: string): Promise<void> {
+    await this.note(`/projects/${projectId}/issues/${iid}/notes`, body);
+  }
+
+  async commentMergeRequest(projectId: number, mrIid: number, body: string): Promise<void> {
+    await this.note(`/projects/${projectId}/merge_requests/${mrIid}/notes`, body);
+  }
+
+  async userId(username: string): Promise<number> {
+    const list = await this.json("GET", `/users?username=${encodeURIComponent(username)}`);
+    if (!list[0]) throw new Error(`GitLab user ${username} not found`);
+    return list[0].id;
+  }
+
+  async assignWorkItem(projectId: number, iid: number, userId: number): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { assignee_ids: [userId] });
   }
 
   async openMergeRequest(projectId: number, branch: string, target: string, title: string, description: string) {
@@ -70,8 +89,33 @@ export class GitLab {
     await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { assignee_ids: [userId] });
   }
 
-  async mergeWhenGreen(projectId: number, mrIid: number): Promise<void> {
-    await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, { merge_when_pipeline_succeeds: true, auto_merge: true });
+  // Merges now and returns the commit on the target branch. Call it only after the MR pipeline is "success".
+  // GitLab uses the project's own squash setting.
+  async merge(projectId: number, mrIid: number): Promise<string> {
+    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, {});
+    return (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string;
+  }
+
+  // Branch-ref queries miss merge request pipelines, so read the MR's own list (newest first).
+  async mergeRequestPipelineStatus(projectId: number, mrIid: number): Promise<"success" | "failed" | "running"> {
+    const status = (await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}/pipelines`))[0]?.status;
+    if (status === "success") return "success";
+    return status === "failed" || status === "canceled" ? "failed" : "running";
+  }
+
+  async revertMerge(projectId: number, sha: string, defaultBranch: string) {
+    const branch = `factory/revert-${sha.slice(0, 8)}`;
+    await this.call("POST", `/projects/${projectId}/repository/branches`, { branch, ref: defaultBranch });
+    await this.call("POST", `/projects/${projectId}/repository/commits/${sha}/revert`, { branch });
+    return this.openMergeRequest(projectId, branch, defaultBranch, `Revert ${sha.slice(0, 8)}`, `The default branch pipeline failed after ${sha}. This reverts it.`);
+  }
+
+  // The run record saved by the build pipeline's decision job, for the finish pipeline.
+  async buildRecord(projectId: number, pipelineId: number): Promise<unknown> {
+    const jobs = await this.json("GET", `/projects/${projectId}/pipelines/${pipelineId}/jobs?per_page=100`);
+    const job = jobs.find((j: { name: string }) => j.name === "decision");
+    if (!job) throw new Error(`Pipeline ${pipelineId} has no decision job`);
+    return this.json("GET", `/projects/${projectId}/jobs/${job.id}/artifacts/run/record.json`);
   }
 
   async pipelineStatus(projectId: number, ref: string, sha: string): Promise<"success" | "failed" | "running"> {

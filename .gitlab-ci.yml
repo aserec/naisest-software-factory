@@ -8,6 +8,18 @@
 stages:
 - test
 - secret-detection
+# Build pipeline
+- event
+- triage
+- prepare-patch
+- code-review
+- precommit-gate
+- risk-check
+- decision
+# Finish pipeline
+- apply
+- verify
+- result-saved
 sast:
   stage: test
   tags: [factory]
@@ -16,6 +28,8 @@ include:
 - template: Security/Secret-Detection.gitlab-ci.yml
 variables:
   SECRET_DETECTION_ENABLED: 'true'
+  # The target's jobImage. The webhook URL and the finish trigger pass the real value.
+  FACTORY_JOB_IMAGE: node:22
 secret_detection:
   stage: secret-detection
   tags: [factory]
@@ -23,7 +37,85 @@ smoke:
   stage: test
   tags: [factory]
   image: node:22
+  rules:
+  - if: $CI_PIPELINE_SOURCE != "trigger"
   script:
   - corepack enable
   - pnpm install --frozen-lockfile
   - pnpm vitest run
+
+# One job per step. State passes between jobs in run/: record.json, the target clone and the Claude session.
+.factory:
+  tags: [factory]
+  image: $FACTORY_JOB_IMAGE
+  timeout: 3h
+  variables:
+    CLAUDE_CONFIG_DIR: $CI_PROJECT_DIR/run/claude-home
+  before_script:
+  - corepack enable
+  - pnpm install --frozen-lockfile
+  artifacts:
+    when: always
+    paths: [run/]
+    expire_in: 90 days
+.build:
+  extends: .factory
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "trigger" && $FACTORY_PIPELINE == "build"
+.finish:
+  extends: .factory
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "trigger" && $FACTORY_PIPELINE == "finish"
+event:
+  extends: .build
+  stage: event
+  needs: []
+  # One event job per work item at a time (decideStart's caller contract). Webhook triggers do not
+  # know the iid yet, so there the group is the whole target, which also guards the per-repo run count.
+  resource_group: factory-$FACTORY_TARGET-$FACTORY_WORK_ITEM_IID
+  script: [pnpm tsx factory/steps/event.ts]
+triage:
+  extends: .build
+  stage: triage
+  needs: [event]
+  script: [pnpm tsx factory/steps/triage.ts]
+prepare-patch:
+  extends: .build
+  stage: prepare-patch
+  needs: [triage]
+  script: [pnpm tsx factory/steps/prepare-patch.ts]
+code-review:
+  extends: .build
+  stage: code-review
+  needs: [prepare-patch]
+  script: [pnpm tsx factory/steps/code-review.ts]
+precommit-gate:
+  extends: .build
+  stage: precommit-gate
+  needs: [code-review]
+  script: [pnpm tsx factory/steps/precommit-gate.ts]
+risk-check:
+  extends: .build
+  stage: risk-check
+  needs: [precommit-gate]
+  script: [pnpm tsx factory/steps/risk-check.ts]
+decision:
+  extends: .build
+  stage: decision
+  needs: [risk-check]
+  script: [pnpm tsx factory/steps/decision.ts]
+apply:
+  extends: .finish
+  stage: apply
+  needs: []
+  script: [pnpm tsx factory/steps/apply.ts]
+verify:
+  extends: .finish
+  stage: verify
+  needs: [apply]
+  script: [pnpm tsx factory/steps/verify.ts]
+result-saved:
+  extends: .finish
+  stage: result-saved
+  needs: [verify]
+  script: [pnpm tsx factory/steps/result-saved.ts]

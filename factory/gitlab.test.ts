@@ -67,9 +67,44 @@ test("pipelineStatus maps anything else to running", async () => {
   fakeResponse([]);
   expect(await gl.pipelineStatus(1, "b", "abc")).toBe("running");
 });
-test("mergeWhenGreen, openMergeRequest, close", async () => {
-  await gl.mergeWhenGreen(1, 2);
-  expect(lastBody()).toMatchObject({ merge_when_pipeline_succeeds: true, auto_merge: true });
+test("mergeRequestPipelineStatus reads the newest MR pipeline; canceled is failed, none is running", async () => {
+  fakeResponse([{ status: "success" }, { status: "failed" }]);
+  expect(await gl.mergeRequestPipelineStatus(1, 2)).toBe("success");
+  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/pipelines");
+  fakeResponse([{ status: "canceled" }, { status: "success" }]);
+  expect(await gl.mergeRequestPipelineStatus(1, 2)).toBe("failed");
+  fakeResponse([{ status: "failed" }]);
+  expect(await gl.mergeRequestPipelineStatus(1, 2)).toBe("failed");
+  fakeResponse([{ status: "pending" }]);
+  expect(await gl.mergeRequestPipelineStatus(1, 2)).toBe("running");
+  fakeResponse([]);
+  expect(await gl.mergeRequestPipelineStatus(1, 2)).toBe("running");
+});
+test("merge returns the commit that landed on the default branch", async () => {
+  fakeResponse({ merge_commit_sha: null, squash_commit_sha: "sq1", sha: "head" });
+  expect(await gl.merge(1, 2)).toBe("sq1");
+  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/merge");
+  expect(last().init.method).toBe("PUT");
+  fakeResponse({ merge_commit_sha: "m1", sha: "head" });
+  expect(await gl.merge(1, 2)).toBe("m1");
+});
+test("MR comments start with the AI line and refuse secrets", async () => {
+  await gl.commentMergeRequest(1, 2, "Reasons");
+  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/notes");
+  expect(lastBody().body.startsWith(AI_LINE)).toBe(true);
+  await expect(gl.commentMergeRequest(1, 2, "glpat-abcdefghijklmnopqrst")).rejects.toThrow(/secret/);
+});
+test("revertMerge opens a revert MR from a new branch off the default branch", async () => {
+  fakeResponse({ iid: 9, web_url: "u9" });
+  expect(await gl.revertMerge(1, "abcdef1234", "master")).toEqual({ iid: 9, webUrl: "u9" });
+  const [branch, revert, mr] = calls.map((c) => ({ url: c.url, body: JSON.parse(c.init.body as string) }));
+  expect(branch.url).toContain("/projects/1/repository/branches");
+  expect(branch.body).toEqual({ branch: "factory/revert-abcdef12", ref: "master" });
+  expect(revert.url).toContain("/projects/1/repository/commits/abcdef1234/revert");
+  expect(revert.body).toEqual({ branch: "factory/revert-abcdef12" });
+  expect(mr.body).toMatchObject({ source_branch: "factory/revert-abcdef12", target_branch: "master" });
+});
+test("openMergeRequest, close", async () => {
   fakeResponse({ iid: 2, web_url: "u" });
   expect(await gl.openMergeRequest(1, "br", "main", "t", "d")).toEqual({ iid: 2, webUrl: "u" });
   await gl.closeWorkItem(1, 8);
