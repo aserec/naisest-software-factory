@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { extractRun, GITLAB_URL, makeContext, runStep } from "./context";
 import { GitLab, NotFactoryPipelineError } from "../gitlab";
+import { findSecrets } from "../rules";
 import { BOT, B, fakeWorld, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
@@ -495,4 +496,22 @@ test("the MR pipeline status is read for the reviewed head commit in risk-check 
   expect(b.record.steps.find((s) => s.step === "risk-check")?.data).toMatchObject({ mrPipeline: "success" });
   const f = await runFinishPipeline(fakeWorld());
   expect(f.merged).toBe(true);
+});
+
+test("makeContext registers the secrets it holds, so no comment or push can carry them", () => {
+  const dir = tmp();
+  const file = (name: string, v: string) => (writeFileSync(join(dir, name), `${v}\n`), join(dir, name));
+  const teams = "https://teams.example/webhook/0123456789";
+  makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789",
+    TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
+    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir);
+  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", teams, "trigger-0123456789"]) {
+    expect(findSecrets(`text ${v} text`), v).toHaveLength(1);
+  }
+});
+test("a Claude token in the diff is not pushed", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, diffText: "+const t = 'sk-ant-oat01-abcdef';" }));
+  expect(w.commitMessage).toBe("");
+  expect(w.labels).toEqual(["factory_blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("did not push");
 });

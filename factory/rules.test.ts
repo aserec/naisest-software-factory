@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { loadTarget } from "./config";
-import { checkHardRules, findSecrets, parseNumstat } from "./rules";
+import { addKnownSecrets, checkHardRules, findSecrets, parseNumstat } from "./rules";
 
 test("finds a GitLab token and a private key header", () => {
   expect(findSecrets("x glpat-abcdefghijklmnopqrst y")).toEqual(["glpat-abcdefghijklmnopqrst"]);
@@ -62,4 +62,15 @@ test.each([
   ["rename with no paths", "0\t0\t\0"],
 ])("malformed numstat throws: %s", (_name, input) => {
   expect(() => parseNumstat(input)).toThrow();
+});
+test("Anthropic keys and GitLab CI job tokens are secrets", () => {
+  expect(findSecrets("x sk-ant-oat01-abc y")).toHaveLength(1);
+  expect(findSecrets("x glcbt-64_abc y")).toHaveLength(1);
+});
+test("a secret value this process holds is found, and never shown", () => {
+  addKnownSecrets("https://teams.example/webhook/abc123", "short", undefined);
+  const found = findSecrets("post to https://teams.example/webhook/abc123 now");
+  expect(found).toHaveLength(1);
+  expect(found.join()).not.toContain("abc123");
+  expect(findSecrets("a short note")).toEqual([]);
 });

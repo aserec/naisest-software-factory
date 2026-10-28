@@ -1,11 +1,20 @@
 import picomatch from "picomatch";
 import type { Target } from "./types";
 
-const SECRET_PATTERNS = [/glpat-[A-Za-z0-9_-]{20,}/g, /-----BEGIN [A-Z ]*PRIVATE KEY-----/g];
+// GitLab personal and CI job tokens, Anthropic keys (the Claude OAuth token too), private keys.
+const SECRET_PATTERNS = [/glpat-[A-Za-z0-9_-]{20,}/g, /glcbt-[A-Za-z0-9_-]+/g, /sk-ant-[A-Za-z0-9_-]+/g, /-----BEGIN [A-Z ]*PRIVATE KEY-----/g];
 
-/** Returns the secret-looking strings found in the text. */
+// The secret values this process holds (makeContext adds them). Short values are skipped: real tokens
+// and webhook URLs are long, and a short value would match ordinary text.
+const known = new Set<string>();
+export function addKnownSecrets(...values: (string | undefined)[]): void {
+  for (const v of values) if (v && v.length >= 16) known.add(v);
+}
+
+/** Returns the secret-looking strings found in the text. A known secret value shows as a placeholder, never as itself. */
 export function findSecrets(text: string): string[] {
-  return SECRET_PATTERNS.flatMap((re) => text.match(re) ?? []);
+  const held = [...known].filter((v) => text.includes(v)).map(() => "[a secret value this process holds]");
+  return [...SECRET_PATTERNS.flatMap((re) => text.match(re) ?? []), ...held];
 }
 
 export interface ChangedFile { oldPath: string; newPath: string; added: number; removed: number; binary: boolean }

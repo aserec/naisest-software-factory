@@ -2,9 +2,9 @@
 // The factory never runs git with the clone's own .git: a hostile .git/config there could leak the token
 // (insteadOf, extraHeader) or run code (fsmonitor, diff.external, textconv, filters, hooks).
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SETTINGS_PATH, sandboxDenyRead } from "../agents";
 import type { Repo } from "./context";
@@ -85,6 +85,12 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
       await git(["--git-dir", gitDir, "push", "--force", url, `${sha}:refs/heads/${branch}`], auth);
       return sha;
     },
-    readFile: (path) => (existsSync(join(dir, path)) ? readFileSync(join(dir, path), "utf8") : undefined),
+    // The agent writes the clone, so a link there could point at a secret file. Read only plain files inside it.
+    readFile(path) {
+      const full = join(dir, path);
+      if (!existsSync(full)) return undefined;
+      if (lstatSync(full).isSymbolicLink() || !realpathSync(full).startsWith(realpathSync(dir) + sep)) throw new Error(`Refused to read ${path}: it is a link or it leaves the clone`);
+      return readFileSync(full, "utf8");
+    },
   };
 }

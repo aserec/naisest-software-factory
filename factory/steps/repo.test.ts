@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,4 +61,20 @@ test("gate sandbox: agent network allowlist, no /proc, writes only to the clone,
   const root = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
   expect(s.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home"]);
   expect(s.filesystem.allowWrite).toEqual(["/w/run/target", "/tmp/h", "/tmp"]);
+});
+
+test("readFile refuses links and paths that leave the clone", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-read-"));
+  const dir = join(root, "target");
+  mkdirSync(join(dir, "run"), { recursive: true });
+  writeFileSync(join(root, "secret.txt"), "TOKEN");
+  writeFileSync(join(dir, "run/test-changes.md"), "why");
+  symlinkSync(join(root, "secret.txt"), join(dir, ".factory.yml"));
+  symlinkSync(root, join(dir, "up"));
+  const repo = gitRepo(dir, join(root, "target.git"), "file:///none", "tok", process.env);
+  expect(repo.readFile("run/test-changes.md")).toBe("why");
+  expect(repo.readFile("missing.md")).toBeUndefined();
+  expect(() => repo.readFile(".factory.yml")).toThrow(/Refused/);
+  expect(() => repo.readFile("up/secret.txt")).toThrow(/Refused/);
+  expect(() => repo.readFile("../secret.txt")).toThrow(/Refused/);
 });

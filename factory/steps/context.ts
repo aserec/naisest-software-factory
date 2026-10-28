@@ -8,6 +8,7 @@ import { loadRouter, loadTarget } from "../config";
 import { GitLab, NotFactoryPipelineError } from "../gitlab";
 import { makeJevClient, type JevClient } from "../jev";
 import { addStep, loadRecord, saveRecord, type RunRecord } from "../record";
+import { addKnownSecrets } from "../rules";
 import { FACTORY_ROOT, gitRepo, sh } from "./repo";
 import { buildCard, sendCard, type CardKind } from "../teams";
 import type { Router, RouterRow, Target } from "../types";
@@ -210,6 +211,8 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): Ste
   const token = needSecret(env, "FACTORY_GITLAB_TOKEN", secretDir);
   const webhook = needSecret(env, "TEAMS_WEBHOOK_URL", secretDir);
   const triggerToken = secretFile(env, "FACTORY_TRIGGER_TOKEN", secretDir);
+  // No comment, MR text or pushed diff may carry any of these.
+  addKnownSecrets(token, webhook, triggerToken, env.CLAUDE_CODE_OAUTH_TOKEN, env.TENSORX_API_KEY, env.BERGET_API_KEY);
   // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
   const name = need(env, "FACTORY_TARGET");
   if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);

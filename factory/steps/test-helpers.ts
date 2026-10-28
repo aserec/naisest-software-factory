@@ -32,6 +32,7 @@ export interface WorldOptions {
   fixLimit?: boolean; // the first fix run hits the usage limit
   factoryFile?: string; // .factory.yml in the clone
   numstat?: string;
+  diffText?: string;
   testChanges?: string;
   liveLabels?: string[];
   payload?: unknown;
@@ -143,7 +144,7 @@ export function fakeWorld(o: WorldOptions = {}) {
 
   const repo: Repo = {
     clone: async () => {},
-    diff: async () => ({ text: "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
+    diff: async () => ({ text: o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
     run: async (cmd) => (w.ran.push(cmd), { ok: o.gate !== "red", output: `ran ${cmd}` }),
     commitAndPush: async (_b, message) => ((w.commitMessage = message), "head5"),
     readFile: (path) =>
