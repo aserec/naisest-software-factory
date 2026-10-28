@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { AI_LINE, GitLab } from "./gitlab";
 
 let calls: { url: string; init: RequestInit }[] = [];
@@ -117,7 +117,7 @@ test("openMergeRequest, close", async () => {
   expect(lastBody()).toEqual({ state_event: "close" });
 });
 test("upsertMergeRequest reuses the open MR of the branch and updates it", async () => {
-  fakeResponse([{ iid: 4, web_url: "u4" }]);
+  fakeResponse([{ iid: 4, web_url: "u4", target_branch: "master" }]);
   expect(await gl.upsertMergeRequest(1, "factory/8-x", "master", "t", "d")).toEqual({ iid: 4, webUrl: "u4" });
   expect(calls[0].url).toBe("https://gl.example/api/v4/projects/1/merge_requests?state=opened&source_branch=factory%2F8-x");
   expect(last().init.method).toBe("PUT");
@@ -136,4 +136,35 @@ test("approvedBy lists approver ids; getMergeRequest maps the merge commit", asy
   expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/approvals");
   fakeResponse({ state: "merged", description: null, sha: "h", merge_commit_sha: "m" });
   expect(await gl.getMergeRequest(1, 2)).toEqual({ state: "merged", description: "", headSha: "h", mergeSha: "m" });
+});
+test("upsertMergeRequest refuses an open MR that targets another branch", async () => {
+  fakeResponse([{ iid: 4, web_url: "u4", target_branch: "release" }]);
+  await expect(gl.upsertMergeRequest(1, "factory/8-x", "master", "t", "d")).rejects.toThrow(/release/);
+  expect(calls).toHaveLength(1);
+});
+
+describe("buildRecord", () => {
+  const pipeline = { id: 41, source: "trigger", ref: "main", user: { id: 1 } };
+  const routes = (p: object) => (async (url: string) => {
+    const path = url.replace("https://gl.example/api/v4", "");
+    const body =
+      path === "/projects/3/pipelines/41" ? p :
+      path === "/projects/3" ? { id: 3, default_branch: "main" } :
+      path === "/user" ? { id: 1 } :
+      path.startsWith("/projects/3/pipelines/41/jobs") ? [{ id: 10, name: "decision", status: "success" }, { id: 12, name: "decision", status: "success" }, { id: 11, name: "risk-check", status: "success" }] :
+      path === "/projects/3/jobs/12/artifacts/run/record.json" ? { workItem: "newest" } :
+      path === "/projects/3/jobs/10/artifacts/run/record.json" ? { workItem: "older" } : undefined;
+    return new Response(JSON.stringify(body ?? {}), { status: body ? 200 : 404 });
+  }) as unknown as typeof fetch;
+
+  test("reads the newest decision job of a bot-triggered pipeline on the default branch", async () => {
+    expect(await new GitLab("https://gl.example", "tok", routes(pipeline)).buildRecord(3, 41)).toEqual({ workItem: "newest" });
+  });
+  test.each([
+    ["not started by a trigger", { ...pipeline, source: "push" }],
+    ["not on the default branch", { ...pipeline, ref: "evil" }],
+    ["not started by the bot", { ...pipeline, user: { id: 9 } }],
+  ])("rejects a pipeline %s", async (_name, p) => {
+    await expect(new GitLab("https://gl.example", "tok", routes(p)).buildRecord(3, 41)).rejects.toThrow(/not a factory build pipeline/);
+  });
 });

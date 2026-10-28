@@ -10,6 +10,8 @@ import { SETTINGS_PATH } from "../agents";
 import type { Repo } from "./context";
 
 const SRT = fileURLToPath(new URL("../../node_modules/.bin/srt", import.meta.url));
+// The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL.
+const FACTORY_GIT = fileURLToPath(new URL("../../.git", import.meta.url));
 
 export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
   return new Promise((done, fail) => {
@@ -28,7 +30,7 @@ export function sandboxSettings(dir: string, home: string) {
   const agent = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
   return {
     network: { allowedDomains: agent.sandbox.network.allowedDomains, deniedDomains: [] },
-    filesystem: { denyRead: ["/proc"], allowWrite: [dir, home, "/tmp"], denyWrite: [] },
+    filesystem: { denyRead: ["/proc", FACTORY_GIT], allowWrite: [dir, home, "/tmp"], denyWrite: [] },
   };
 }
 

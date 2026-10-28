@@ -99,6 +99,8 @@ export class GitLab {
   async upsertMergeRequest(projectId: number, branch: string, target: string, title: string, description: string) {
     const open = await this.json("GET", `/projects/${projectId}/merge_requests?state=opened&source_branch=${encodeURIComponent(branch)}`);
     if (!open[0]) return this.openMergeRequest(projectId, branch, target, title, description);
+    // GitLab allows one open MR per source branch, so an MR with another target must be closed by a person.
+    if (open[0].target_branch !== target) throw new Error(`Merge request !${open[0].iid} from ${branch} targets ${open[0].target_branch}, not ${target}`);
     await this.call("PUT", `/projects/${projectId}/merge_requests/${open[0].iid}`, { title, description });
     return { iid: open[0].iid as number, webUrl: open[0].web_url as string };
   }
@@ -146,10 +148,21 @@ export class GitLab {
   }
 
   // The run record saved by the build pipeline's decision job, for the finish pipeline.
+  // Only a pipeline the bot's trigger started on the factory's default branch counts: anyone who can run
+  // a pipeline in the factory project could otherwise upload a record that says "auto".
   async buildRecord(projectId: number, pipelineId: number): Promise<unknown> {
+    const p = await this.json("GET", `/projects/${projectId}/pipelines/${pipelineId}`);
+    const { defaultBranch } = await this.getProject(String(projectId));
+    const bot = await this.botUserId();
+    if (p.source !== "trigger" || p.ref !== defaultBranch || p.user?.id !== bot) {
+      throw new Error(`Pipeline ${pipelineId} is not a factory build pipeline (source ${p.source}, ref ${p.ref}, user ${p.user?.id})`);
+    }
     const jobs = await this.json("GET", `/projects/${projectId}/pipelines/${pipelineId}/jobs?per_page=100`);
-    const job = jobs.find((j: { name: string }) => j.name === "decision");
-    if (!job) throw new Error(`Pipeline ${pipelineId} has no decision job`);
+    // A retried job leaves older ones behind. Take the newest successful one.
+    const job = jobs
+      .filter((j: { name: string; status: string }) => j.name === "decision" && j.status === "success")
+      .sort((a: { id: number }, b: { id: number }) => b.id - a.id)[0];
+    if (!job) throw new Error(`Pipeline ${pipelineId} has no successful decision job`);
     return this.json("GET", `/projects/${projectId}/jobs/${job.id}/artifacts/run/record.json`);
   }
 

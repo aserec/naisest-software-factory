@@ -1,6 +1,6 @@
 import { decideMerge, type MergeDecision } from "../decision";
 import type { RuleResult } from "../rules";
-import { card, data, isMain, modelRow, person, runStep, save, workItem, type StepContext, type StepResult } from "./context";
+import { block, card, data, isMain, modelRow, person, runStep, save, workItem, type StepContext, type StepResult } from "./context";
 
 function decide(ctx: StepContext): MergeDecision {
   const rc = data(ctx, "risk-check");
@@ -22,6 +22,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const { projectId, iid } = await workItem(ctx);
   const { mrIid, mrUrl } = data(ctx, "precommit-gate");
   const d = decide(ctx);
+  // The finish pipeline loads this run's record from this pipeline.
+  if (d.kind === "auto" && !ctx.env.pipelineId) return block(ctx, "CI_PIPELINE_ID is not set, so the finish pipeline could not find this run's record.");
   save(ctx, "decision", d);
   if (d.kind === "auto") {
     const rules = (data(ctx, "risk-check").rules as RuleResult[]).map((r) => `- ${r.rule}: ${r.detail}`).join("\n");

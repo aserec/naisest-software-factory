@@ -9,7 +9,7 @@ The GitLab project is `Ceresa/software-factory`.
 - [ ] Create the GitLab project `Ceresa/software-factory`.
 - [ ] Create a bot user. Make a personal access token with the `api` scope.
 - [ ] Store the token as a masked, protected CI variable `FACTORY_GITLAB_TOKEN` of type **File**.
-- [ ] Create a pipeline trigger token. Store it as a masked, protected CI variable `FACTORY_TRIGGER_TOKEN` of type **File**.
+- [ ] Signed in as the bot, create a pipeline trigger token. The finish pipeline only trusts build pipelines the bot started. Store it as a masked, protected CI variable `FACTORY_TRIGGER_TOKEN` of type **File**.
 - [ ] Check the license under Admin > License.
   - Premium: give the bot merge rights by name on the protected branch of `react_frontend`.
   - Free: make the bot a Maintainer of `react_frontend`.

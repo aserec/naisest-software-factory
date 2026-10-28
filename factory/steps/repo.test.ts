@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { gitRepo, sandboxSettings } from "./repo";
 
@@ -55,6 +56,7 @@ test("a hostile .git/config in the clone has no effect on the factory's git", as
 test("gate sandbox: agent network allowlist, no /proc, writes only to the clone, HOME and /tmp", () => {
   const s = sandboxSettings("/w/run/target", "/tmp/h");
   expect(s.network.allowedDomains).toContain("registry.npmjs.org");
-  expect(s.filesystem.denyRead).toEqual(["/proc"]);
+  // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL.
+  expect(s.filesystem.denyRead).toEqual(["/proc", fileURLToPath(new URL("../../.git", import.meta.url))]);
   expect(s.filesystem.allowWrite).toEqual(["/w/run/target", "/tmp/h", "/tmp"]);
 });

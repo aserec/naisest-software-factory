@@ -221,3 +221,22 @@ test("makeContext reads the secret files into memory and deletes them", () => {
   expect(err).toContain("must be a File type CI variable");
   expect(err).not.toContain("glpat-raw-value");
 });
+
+// A build record from another run must not be used to merge.
+test("apply blocks when the build record is for another work item", async () => {
+  const w = await runFinishPipeline(fakeWorld(), { workItemIid: 9 });
+  expect(w.merged).toBe(false);
+  expect(w.workItemComments.at(-1)).toContain("another");
+});
+test("apply blocks when the build record is for another merge request", async () => {
+  const w = await runFinishPipeline(fakeWorld(), { mrIid: 6 });
+  expect(w.merged).toBe(false);
+  expect(w.labels).toEqual(["factory_blocked"]);
+});
+test("decision blocks instead of starting finish without a build pipeline id", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.ctx.env.pipelineId = undefined;
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.labels).toEqual(["factory_blocked"]);
+});

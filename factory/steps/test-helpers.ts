@@ -169,8 +169,8 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
 }
 export const runBuildPipeline = (w: World) => runSteps(w, BUILD);
 // The finish pipeline gets the work item and MR from trigger variables, and starts with the build record.
-export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_approval"; skipApply?: boolean; smoke?: string } = {}) {
-  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, mrIid: 5, skipApply: o.skipApply };
+export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_approval"; skipApply?: boolean; smoke?: string; workItemIid?: number; mrIid?: number } = {}) {
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: o.workItemIid ?? 8, mrIid: o.mrIid ?? 5, skipApply: o.skipApply };
   w.stateLabels = ["factory_running"];
   let r = newRecord();
   r = { ...r, workItem: "acme/web/react_frontend#8" };

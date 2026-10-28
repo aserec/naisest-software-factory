@@ -12,9 +12,13 @@ async function approvedByPerson(ctx: StepContext, projectId: number, mrIid: numb
 }
 
 export async function run(ctx: StepContext): Promise<StepResult> {
-  const { projectId } = await workItem(ctx);
+  const { projectId, iid } = await workItem(ctx);
   const mrIid = ctx.env.mrIid;
   if (!mrIid) throw new Error("FACTORY_MR_IID is not set");
+  // The record must belong to this work item and this MR, not to some other run.
+  if (ctx.record.workItem !== `${ctx.target.projectPath}#${iid}` || data(ctx, "precommit-gate")?.mrIid !== mrIid) {
+    return block(ctx, `The run record is for another work item or merge request (${ctx.record.workItem || "none"}), so the factory did not merge !${mrIid}.`);
+  }
   if (ctx.env.skipApply) {
     // A person merged by hand. Nothing to merge; verify checks the merge commit.
     const mr = await ctx.gitlab.getMergeRequest(projectId, mrIid);
