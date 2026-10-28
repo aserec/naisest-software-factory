@@ -1,0 +1,7 @@
+#cloud-config
+# Runs once when a Hetzner VM starts. Installs Docker on Ubuntu 24.04.
+package_update: true
+packages:
+  - docker.io
+runcmd:
+  - systemctl enable --now docker

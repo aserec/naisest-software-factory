@@ -1,0 +1,37 @@
+# GitLab Runner config for the factory. Copy to /etc/gitlab-runner/config.toml.
+# Replace the values in <angle brackets>.
+concurrent = 4
+
+[[runners]]
+  name = "factory-hetzner"
+  url = "https://gitlab.com"
+  token = "<RUNNER_AUTH_TOKEN>"
+  executor = "docker-autoscaler"
+
+  [runners.docker]
+    image = "node:22"
+    privileged = false
+    # No Docker socket volume. Jobs must never see the host Docker.
+    volumes = ["/cache"]
+
+  [runners.autoscaler]
+    plugin = "hetznercloud/fleeting-plugin-hetzner:latest"
+    capacity_per_instance = 1   # one job per VM
+    max_use_count = 1           # delete the VM after one job
+    max_instances = 4
+
+    [runners.autoscaler.plugin_config]
+      name = "factory-runner"
+      token = "<HETZNER_API_TOKEN>"
+      location = "fsn1"         # Falkenstein, Germany. "hel1" (Helsinki) also works.
+      server_type = "ccx23"     # 4 dedicated vCPU, 16 GB RAM
+      image = "ubuntu-24.04"
+      user_data_file = "/etc/gitlab-runner/cloud-init.yml"
+
+    [runners.autoscaler.connector_config]
+      username = "root"
+      use_external_addr = true
+
+    [[runners.autoscaler.policy]]
+      idle_count = 0
+      idle_time = "0s"
