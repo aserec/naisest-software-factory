@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { makeContext, runStep } from "./context";
+import { GITLAB_URL, makeContext, runStep } from "./context";
+import { GitLab, NotFactoryPipelineError } from "../gitlab";
 import { BOT, B, fakeWorld, mrEvent, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
@@ -213,11 +214,11 @@ test("finish loads the build record once it is uploaded", async () => {
 test("makeContext reads the secret files into memory and deletes them", () => {
   const dir = tmp();
   const file = (name: string, v: string) => (writeFileSync(join(dir, name), `${v}\n`), join(dir, name));
-  const env = { CI_SERVER_URL: "https://gl", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "k",
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "k",
     FACTORY_GITLAB_TOKEN: file("gl", "glpat-x"), TEAMS_WEBHOOK_URL: file("teams", "https://t"), FACTORY_TRIGGER_TOKEN: file("trig", "tt") };
-  makeContext(env);
+  makeContext(env, dir);
   for (const k of ["gl", "teams", "trig"]) expect(existsSync(join(dir, k))).toBe(false);
-  const err = (() => { try { makeContext({ ...env, FACTORY_GITLAB_TOKEN: "glpat-raw-value" }); } catch (e) { return String(e); } })();
+  const err = (() => { try { makeContext({ ...env, FACTORY_GITLAB_TOKEN: "glpat-raw-value" }, dir); } catch (e) { return String(e); } })();
   expect(err).toContain("must be a File type CI variable");
   expect(err).not.toContain("glpat-raw-value");
 });
@@ -245,37 +246,85 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: "https://gl", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
   };
-  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }))).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }))).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }))).toThrow(/image/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }))).not.toThrow();
+  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir)).toThrow(/image/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }), dir)).not.toThrow();
 });
 // Trigger callers can set any variable. Each FACTORY_* value must match its pattern, or the step does not start.
 test("makeContext refuses FACTORY_* values that do not match their pattern", () => {
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: "https://gl", FACTORY_PIPELINE: "finish", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "finish", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
   };
   const good = { FACTORY_WORK_ITEM_IID: "8", FACTORY_MR_IID: "5", FACTORY_BUILD_PIPELINE_ID: "41", FACTORY_SKIP_APPLY: "1" };
-  expect(makeContext(env(good)).env).toMatchObject({ workItemIid: 8, mrIid: 5, buildPipelineId: 41, skipApply: true });
-  expect(() => makeContext(env({ FACTORY_WORK_ITEM_IID: "" }))).not.toThrow(); // a webhook trigger has no iid
-  expect(() => makeContext(env({ FACTORY_PIPELINE: "deploy" }))).toThrow(/FACTORY_PIPELINE/);
-  expect(() => makeContext(env({ FACTORY_PIPELINE: "" }))).toThrow(/FACTORY_PIPELINE/);
+  expect(makeContext(env(good), dir).env).toMatchObject({ workItemIid: 8, mrIid: 5, buildPipelineId: 41, skipApply: true });
+  expect(() => makeContext(env({ FACTORY_WORK_ITEM_IID: "" }), dir)).not.toThrow(); // a webhook trigger has no iid
+  expect(() => makeContext(env({ FACTORY_PIPELINE: "deploy" }), dir)).toThrow(/FACTORY_PIPELINE/);
+  expect(() => makeContext(env({ FACTORY_PIPELINE: "" }), dir)).toThrow(/FACTORY_PIPELINE/);
   for (const k of ["FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID"]) {
-    expect(() => makeContext(env({ ...good, [k]: "8; rm -rf /" }))).toThrow(new RegExp(k));
-    expect(() => makeContext(env({ ...good, [k]: "1e3" }))).toThrow(new RegExp(k));
+    expect(() => makeContext(env({ ...good, [k]: "8; rm -rf /" }), dir)).toThrow(new RegExp(k));
+    expect(() => makeContext(env({ ...good, [k]: "1e3" }), dir)).toThrow(new RegExp(k));
   }
-  expect(() => makeContext(env({ FACTORY_SKIP_APPLY: "yes" }))).toThrow(/FACTORY_SKIP_APPLY/);
+  expect(() => makeContext(env({ FACTORY_SKIP_APPLY: "yes" }), dir)).toThrow(/FACTORY_SKIP_APPLY/);
 });
 test("a build record that fails the provenance check is not retried", async () => {
   const w = fakeWorld();
   w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, mrIid: 5, buildPipelineId: 41, factoryProjectId: 3 };
   let tries = 0;
-  w.ctx.gitlab.buildRecord = async () => { tries++; throw new Error("Pipeline 41 is not a factory build pipeline"); };
+  w.ctx.gitlab.buildRecord = async () => { tries++; throw new NotFactoryPipelineError("Pipeline 41 is not a factory build pipeline"); };
   await expect(runStep("apply", async () => "next", { dir: tmp(), make: () => w.ctx })).rejects.toThrow(/not a factory build pipeline/);
   expect(tries).toBe(1);
   expect(w.labels).toEqual(["factory_blocked"]);
+});
+
+// decision starts the finish pipeline from inside its own job, so apply can poll before that job succeeds.
+test("finish waits while the decision job is still running, then loads the record", async () => {
+  const w = fakeWorld();
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, mrIid: 5, buildPipelineId: 41, factoryProjectId: 3 };
+  let jobPolls = 0;
+  const fetchFn = (async (url: string) => {
+    const path = url.replace("https://gl.example/api/v4", "");
+    const body =
+      path === "/projects/3/pipelines/41" ? { id: 41, source: "trigger", ref: "main", user: { id: 1 } } :
+      path === "/projects/3" ? { id: 3, default_branch: "main" } :
+      path === "/user" ? { id: 1 } :
+      path.startsWith("/projects/3/pipelines/41/jobs") ? [{ id: 12, name: "decision", status: ++jobPolls <= 2 ? "running" : "success" }] :
+      path === "/projects/3/jobs/12/artifacts/run/record.json" ? { ...w.ctx.record, workItem: "from-build" } : undefined;
+    return new Response(JSON.stringify(body ?? {}), { status: body ? 200 : 404 });
+  }) as unknown as typeof fetch;
+  const real = new GitLab("https://gl.example", "tok", fetchFn);
+  w.ctx.gitlab.buildRecord = real.buildRecord.bind(real);
+  let seen = "";
+  await runStep("apply", async (ctx) => ((seen = ctx.record.workItem), "next"), { dir: tmp(), make: () => w.ctx });
+  expect(jobPolls).toBe(3);
+  expect(seen).toBe("from-build");
+});
+
+test("makeContext accepts only the fixed GitLab host and a numeric project id", () => {
+  const dir = tmp();
+  const env = (o: Record<string, string>) => {
+    for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
+  };
+  expect(() => makeContext(env({}), dir)).not.toThrow();
+  expect(() => makeContext(env({ CI_SERVER_URL: "https://evil.example" }), dir)).toThrow(/CI_SERVER_URL/);
+  expect(() => makeContext(env({ CI_SERVER_URL: `${GITLAB_URL}.evil.example` }), dir)).toThrow(/CI_SERVER_URL/);
+  expect(() => makeContext(env({ CI_PROJECT_ID: "3/../9" }), dir)).toThrow(/CI_PROJECT_ID/);
+  expect(() => makeContext(env({ CI_PROJECT_ID: "" }), dir)).toThrow(/CI_PROJECT_ID/);
+});
+
+test("makeContext reads and deletes secret files only inside the runner's temp dir", () => {
+  const dir = tmp();
+  const other = tmp();
+  const secret = join(other, "keep");
+  writeFileSync(secret, "do not delete");
+  for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams") };
+  expect(() => makeContext({ ...env, FACTORY_GITLAB_TOKEN: secret }, dir)).toThrow(/FACTORY_GITLAB_TOKEN/);
+  expect(() => makeContext({ ...env, FACTORY_GITLAB_TOKEN: `${dir}/../${other.split("/").at(-1)}/keep` }, dir)).toThrow(/FACTORY_GITLAB_TOKEN/);
+  expect(existsSync(secret)).toBe(true);
 });

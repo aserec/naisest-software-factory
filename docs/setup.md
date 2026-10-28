@@ -8,6 +8,7 @@ The GitLab project is `Ceresa/software-factory`.
 
 - [ ] Create the GitLab project `Ceresa/software-factory`.
 - [ ] Create a bot user. Make a personal access token with the `api` scope.
+- [ ] Make the bot Maintainer (or higher) of the factory project. Its trigger token must be allowed to set pipeline variables, and section 7 sets the minimum role for that to Maintainer.
 - [ ] Store the token as a masked, protected CI variable `FACTORY_GITLAB_TOKEN` of type **File**.
 - [ ] Signed in as the bot, create a pipeline trigger token. The finish pipeline only trusts build pipelines the bot started. Store it as a masked, protected CI variable `FACTORY_TRIGGER_TOKEN` of type **File**.
 - [ ] Check the license under Admin > License.
@@ -58,6 +59,7 @@ Attach a firewall to the runner VMs (for example by label):
 ## 6. Agent files
 
 - [ ] From the repo root, run `bash /path/to/agent-config/sync.sh`. It copies `.agents/`.
+- [ ] In the job image, install the `claude` and `opencode` CLIs at exact pinned versions, in a system path such as `/usr/local/bin`. Factory jobs run with a fixed `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), so a CLI in another place is not found.
 
 ## 7. Target webhook
 
@@ -77,6 +79,8 @@ Remaining risk. The webhook URL holds the trigger token. Anyone who can see the 
 - Every step starts through `env -i` with a fixed list of variables (see `.gitlab-ci.yml`). Variables such as `NODE_OPTIONS`, `npm_config_*` or `PATH` never reach node or pnpm.
 - Step code accepts each `FACTORY_*` value only if it matches its pattern, and only targets with a `targets/<name>.yml`.
 - The Berget and TensorX URLs and the Claude hook dir are fixed in code. No variable changes them.
+- Step code accepts only `CI_SERVER_URL=https://gitlab.example.com` (fixed in code), so the GitLab token never goes to another host. `CI_PROJECT_ID` must be digits.
+- Step code reads a File-type secret only from the runner's temp dir for this job (`<project dir>.tmp`), and deletes only files there. A variable that points anywhere else stops the step.
 
 But the job shell itself still runs with every variable, before `env -i` starts. For example, `BASH_ENV` can run code in that shell, and that shell can read the File-type secrets. So a person who sees a webhook URL can reach the factory secrets. That is why webhook settings stay Maintainer-only.
 

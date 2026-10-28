@@ -1,13 +1,13 @@
 // Shared parts of the CI steps: the context, the real adapters, and helpers for blocking, waiting and agent runs.
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runClaude, runReviewer, wrapTicket, type ClaudeResult, type ClaudeRun } from "../agents";
 import { loadRouter, loadTarget } from "../config";
-import { GitLab } from "../gitlab";
+import { GitLab, NotFactoryPipelineError } from "../gitlab";
 import { makeJevClient, type JevClient } from "../jev";
 import { addStep, loadRecord, saveRecord, type RunRecord } from "../record";
-import { gitRepo } from "./repo";
+import { FACTORY_ROOT, gitRepo } from "./repo";
 import { buildCard, sendCard, type CardKind } from "../teams";
 import type { Router, RouterRow, Target } from "../types";
 
@@ -149,40 +149,48 @@ function need(env: NodeJS.ProcessEnv, key: string): string {
 }
 const num = (v: string | undefined) => (v ? Number(v) : undefined);
 
-// Trigger callers can set any variable, so each FACTORY_* value must match its pattern before a step starts.
+export const GITLAB_URL = "https://gitlab.example.com";
+// The runner keeps File-type variables in <project dir>.tmp. Taken from this file's place, not from env.
+const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
+
+// Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
+  CI_PROJECT_ID: /^[0-9]+$/,
   FACTORY_PIPELINE: /^(build|finish)$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
   FACTORY_MR_IID: /^([0-9]+)?$/,
   FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,
   FACTORY_SKIP_APPLY: /^1?$/,
 };
-function checkFactoryVars(env: NodeJS.ProcessEnv) {
+function checkVars(env: NodeJS.ProcessEnv) {
+  if (env.CI_SERVER_URL !== GITLAB_URL) throw new Error(`CI_SERVER_URL must be ${GITLAB_URL}`);
   for (const [k, re] of Object.entries(PATTERNS)) if (!re.test(env[k] ?? "")) throw new Error(`${k} has a value the factory does not accept`);
 }
 
 // GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
 // before any agent, install or gate command runs, so the environment only holds a path to nothing.
-function secretFile(env: NodeJS.ProcessEnv, key: string): string | undefined {
-  const path = env[key];
-  if (!path) return undefined;
-  if (!existsSync(path)) throw new Error(`${key} must be a File type CI variable`); // never print the value
+// Only paths inside the runner's temp dir count, so no other file is ever read or deleted.
+function secretFile(env: NodeJS.ProcessEnv, key: string, secretDir: string): string | undefined {
+  const raw = env[key];
+  if (!raw) return undefined;
+  const path = resolve(raw);
+  if (!path.startsWith(resolve(secretDir) + sep) || !existsSync(path)) throw new Error(`${key} must be a File type CI variable`); // never print the value
   const value = readFileSync(path, "utf8").trim();
   rmSync(path, { force: true });
   return value;
 }
-const needSecret = (env: NodeJS.ProcessEnv, key: string) => {
-  const v = secretFile(env, key);
+const needSecret = (env: NodeJS.ProcessEnv, key: string, secretDir: string) => {
+  const v = secretFile(env, key, secretDir);
   if (!v) throw new Error(`${key} is not set`);
   return v;
 };
 
-export function makeContext(env: NodeJS.ProcessEnv): StepContext {
-  const server = need(env, "CI_SERVER_URL");
-  checkFactoryVars(env);
-  const token = needSecret(env, "FACTORY_GITLAB_TOKEN");
-  const webhook = needSecret(env, "TEAMS_WEBHOOK_URL");
-  const triggerToken = secretFile(env, "FACTORY_TRIGGER_TOKEN");
+export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): StepContext {
+  checkVars(env);
+  const server = GITLAB_URL;
+  const token = needSecret(env, "FACTORY_GITLAB_TOKEN", secretDir);
+  const webhook = needSecret(env, "TEAMS_WEBHOOK_URL", secretDir);
+  const triggerToken = secretFile(env, "FACTORY_TRIGGER_TOKEN", secretDir);
   // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
   const name = need(env, "FACTORY_TARGET");
   if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);
@@ -233,8 +241,9 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
     try {
       return (await ctx.gitlab.buildRecord(factoryProjectId, buildPipelineId)) as RunRecord;
     } catch (e) {
-      // Only "not uploaded yet" is worth waiting for. A failed provenance check fails at once.
-      if (!String(e).includes("status 404")) throw e;
+      // decision starts finish from inside its own job, so its record may not be there yet: wait.
+      // A failed provenance check fails at once.
+      if (e instanceof NotFactoryPipelineError) throw e;
       last = e;
       await ctx.sleep(Math.min(5000 * 2 ** i, 60_000));
     }

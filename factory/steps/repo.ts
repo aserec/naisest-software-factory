@@ -12,7 +12,7 @@ import type { Repo } from "./context";
 const SRT = fileURLToPath(new URL("../../node_modules/.bin/srt", import.meta.url));
 // Paths come from this file's place, not from env, which a trigger caller can set.
 // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL; the runner keeps File-type variables in <project dir>.tmp.
-const FACTORY_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+export const FACTORY_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
 
 export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
   return new Promise((done, fail) => {

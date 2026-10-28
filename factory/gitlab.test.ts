@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { AI_LINE, GitLab } from "./gitlab";
+import { AI_LINE, GitLab, NotFactoryPipelineError } from "./gitlab";
 
 let calls: { url: string; init: RequestInit }[] = [];
 let next: { status?: number; body?: unknown; headers?: Record<string, string> } = {};
@@ -165,6 +165,6 @@ describe("buildRecord", () => {
     ["not on the default branch", { ...pipeline, ref: "evil" }],
     ["not started by the bot", { ...pipeline, user: { id: 9 } }],
   ])("rejects a pipeline %s", async (_name, p) => {
-    await expect(new GitLab("https://gl.example", "tok", routes(p)).buildRecord(3, 41)).rejects.toThrow(/not a factory build pipeline/);
+    await expect(new GitLab("https://gl.example", "tok", routes(p)).buildRecord(3, 41)).rejects.toBeInstanceOf(NotFactoryPipelineError);
   });
 });
