@@ -57,6 +57,7 @@ smoke:
   artifacts:
     when: always
     paths: [run/]
+    exclude: [run/target/node_modules/**] # each job installs again, inside the sandbox
     expire_in: 90 days
 .build:
   extends: .factory

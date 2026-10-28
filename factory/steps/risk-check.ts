@@ -14,16 +14,17 @@ function hardRules(numstat: string, diffText: string, target: Target, pipelineGr
 }
 
 export async function run(ctx: StepContext): Promise<StepResult> {
-  const { projectId, defaultBranch } = await workItem(ctx);
-  const { mrIid } = data(ctx, "precommit-gate");
+  const { projectId } = await workItem(ctx);
+  // headSha is the commit that was reviewed and checked. apply merges only that commit.
+  const { mrIid, sha: headSha } = data(ctx, "precommit-gate");
   const mrPipeline = await waitFor(ctx, () => ctx.gitlab.mergeRequestPipelineStatus(projectId, mrIid));
-  const diff = await ctx.repo.diff(defaultBranch);
+  const diff = await ctx.repo.diff();
   const rules = hardRules(diff.numstat, diff.text, ctx.target, mrPipeline === "success");
   try {
-    save(ctx, "risk-check", { mrPipeline, rules, risk: await askRisk(ctx.jev, ctx.record.ticket!, diff.text) });
+    save(ctx, "risk-check", { headSha, mrPipeline, rules, risk: await askRisk(ctx.jev, ctx.record.ticket!, diff.text) });
   } catch (e) {
     // No guessing: the decision step sends this change to a person.
-    save(ctx, "risk-check", { mrPipeline, rules, riskError: String(e) });
+    save(ctx, "risk-check", { headSha, mrPipeline, rules, riskError: String(e) });
   }
   return "next";
 }

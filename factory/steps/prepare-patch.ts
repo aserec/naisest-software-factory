@@ -1,5 +1,5 @@
 import { parseFactoryFile } from "../config";
-import { block, claude, isMain, modelRow, prompt, runStep, save, ticketText, waiting, workItem, type StepContext, type StepResult } from "./context";
+import { block, claude, install, isMain, modelRow, prompt, runStep, save, ticketText, waiting, workItem, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const { defaultBranch } = await workItem(ctx);
@@ -8,6 +8,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const factoryFile = ctx.repo.readFile(".factory.yml");
   if (!factoryFile) return block(ctx, "The target repo has no .factory.yml.");
   const commands = parseFactoryFile(factoryFile);
+  const stop = await install(ctx, commands);
+  if (stop) return stop;
   const row = modelRow(ctx);
   const r = await claude(ctx, { prompt: `${prompt("prepare")}\n\n${ticketText(ctx)}`, model: row.author, effort: row.effort, maxTurns: 60, cwd: ctx.dir });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.sessionId);

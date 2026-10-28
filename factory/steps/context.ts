@@ -1,6 +1,5 @@
 // Shared parts of the CI steps: the context, the real adapters, and helpers for blocking, waiting and agent runs.
-import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runClaude, runReviewer, wrapTicket, type ClaudeResult, type ClaudeRun } from "../agents";
@@ -8,17 +7,19 @@ import { loadRouter, loadTarget } from "../config";
 import { GitLab } from "../gitlab";
 import { makeJevClient, type JevClient } from "../jev";
 import { addStep, loadRecord, saveRecord, type RunRecord } from "../record";
+import { gitRepo } from "./repo";
 import { buildCard, sendCard, type CardKind } from "../teams";
 import type { Router, RouterRow, Target } from "../types";
 
 // The target clone. Only step code touches GitLab; agents work here with no tokens.
 export interface Repo {
   clone(ref: string): Promise<void>;
-  // All changes against base, committed or not, new files included.
-  diff(base: string): Promise<{ text: string; numstat: string }>;
-  // A .factory.yml command, with a clean environment.
+  // All changes in the clone against the base commit, new files included.
+  diff(): Promise<{ text: string; numstat: string }>;
+  // A .factory.yml command, inside the sandbox.
   run(cmd: string): Promise<{ ok: boolean; output: string }>;
-  commitAndPush(branch: string, message: string): Promise<void>;
+  // Commits the clone's files on top of the base and force-pushes the branch. Returns the new sha.
+  commitAndPush(branch: string, message: string): Promise<string>;
   readFile(path: string): string | undefined;
 }
 
@@ -32,16 +33,25 @@ export interface StepContext {
   router: Router;
   dir: string; // the target clone, cwd for agents
   repo: Repo;
-  env: { payload?: unknown; workItemIid?: number; mrIid?: number; pipelineUrl: string };
+  env: {
+    payload?: unknown;
+    workItemIid?: number;
+    mrIid?: number;
+    skipApply?: boolean; // a person merged by hand
+    buildPipelineId?: number; // finish pipeline: where the build record is
+    factoryProjectId?: number;
+    pipelineId?: number;
+    pipelineUrl: string;
+  };
   startFinish(vars: Record<string, string>): Promise<void>;
   sleep(ms: number): Promise<void>;
 }
 export type StepResult = "next" | "stop";
 
 export const RUN_DIR = "run";
-const STOP_FILE = join(RUN_DIR, "stop");
 const POLL_MS = 30_000;
 const POLL_TRIES = 120; // one hour
+const RECORD_TRIES = 8; // about 4 minutes in all
 
 export const prompt = (name: string) => readFileSync(fileURLToPath(new URL(`../../prompts/${name}.md`, import.meta.url)), "utf8");
 
@@ -68,6 +78,14 @@ export function ticketText(ctx: StepContext): string {
 
 export const modelRow = (ctx: StepContext): RouterRow => data(ctx, "triage").row;
 
+// Installs the target's dependencies in the sandbox. Each job that runs target code needs it,
+// because node_modules is not kept between jobs.
+export async function install(ctx: StepContext, commands = data(ctx, "prepare-patch").commands): Promise<StepResult | undefined> {
+  const r = await ctx.repo.run(commands.install);
+  if (!r.ok) return block(ctx, `The install command failed:\n${r.output.slice(-2000)}`);
+  return undefined;
+}
+
 export async function person(ctx: StepContext, assigneeIds: number[]): Promise<number> {
   return assigneeIds[0] ?? ctx.gitlab.userId(ctx.target.defaultApprover);
 }
@@ -83,6 +101,7 @@ export async function block(ctx: StepContext, reason: string): Promise<StepResul
   const { projectId, iid } = await workItem(ctx);
   const item = await ctx.gitlab.getWorkItem(projectId, iid);
   save(ctx, "blocked", { reason });
+  if (item.state === "closed") await ctx.gitlab.reopenWorkItem(projectId, iid); // "Closes #iid" closed it at the merge
   await ctx.gitlab.setState(projectId, iid, "factory_blocked");
   await ctx.gitlab.comment(projectId, iid, `The factory stopped. A person must look at this.\n\n${reason}`);
   await ctx.gitlab.assignWorkItem(projectId, iid, await person(ctx, item.assigneeIds));
@@ -123,52 +142,6 @@ export async function waitFor(ctx: StepContext, status: () => Promise<"success" 
 
 // --- Real adapters ---
 
-function sh(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
-  return new Promise((done, fail) => {
-    const p = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-    let out = "";
-    p.stdout.on("data", (d) => (out += d));
-    p.stderr.on("data", (d) => (out += d));
-    p.on("error", fail);
-    p.on("close", (code) => done({ code, out }));
-  });
-}
-
-const cleanEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ PATH: env.PATH, HOME: env.HOME, LANG: env.LANG });
-
-export function gitRepo(dir: string, url: string, token: string, env: NodeJS.ProcessEnv): Repo {
-  // The token goes in a header through env, so it is never written to .git/config where the agent could read it.
-  const auth = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "http.extraHeader", GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`oauth2:${token}`).toString("base64")}` };
-  const git = async (args: string[], withAuth = false, cwd = dir) => {
-    // Hooks off: the agent may have written some into the clone.
-    const r = await sh("git", ["-c", "core.hooksPath=/dev/null", ...args], cwd, { ...cleanEnv(env), ...(withAuth ? auth : {}) });
-    if (r.code !== 0) throw new Error(`git ${args[0]} failed: ${r.out.slice(-500)}`);
-    return r.out;
-  };
-  return {
-    async clone(ref) {
-      if (existsSync(dir)) return;
-      await git(["clone", "--depth", "1", "--branch", ref, url, dir], true, ".");
-      appendFileSync(join(dir, ".git/info/exclude"), "\nrun/\n"); // run/test-changes.md is a note, not part of the change
-    },
-    async diff(base) {
-      await git(["add", "-A", "-N"]);
-      return { text: await git(["diff", base]), numstat: await git(["diff", "--numstat", "-z", "-M", base]) };
-    },
-    async run(cmd) {
-      const r = await sh("sh", ["-c", cmd], dir, cleanEnv(env));
-      return { ok: r.code === 0, output: r.out };
-    },
-    async commitAndPush(branch, message) {
-      await git(["checkout", "-B", branch]);
-      await git(["add", "-A"]);
-      await git(["-c", "user.name=Software Factory", "-c", "user.email=factory@noreply.invalid", "commit", "--no-verify", "-m", message]);
-      await git(["push", "origin", `HEAD:refs/heads/${branch}`], true);
-    },
-    readFile: (path) => (existsSync(join(dir, path)) ? readFileSync(join(dir, path), "utf8") : undefined),
-  };
-}
-
 function need(env: NodeJS.ProcessEnv, key: string): string {
   const v = env[key];
   if (!v) throw new Error(`${key} is not set`);
@@ -176,10 +149,27 @@ function need(env: NodeJS.ProcessEnv, key: string): string {
 }
 const num = (v: string | undefined) => (v ? Number(v) : undefined);
 
+// GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
+// before any agent, install or gate command runs, so the environment only holds a path to nothing.
+function secretFile(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const path = env[key];
+  if (!path) return undefined;
+  if (!existsSync(path)) throw new Error(`${key} must be a File type CI variable`); // never print the value
+  const value = readFileSync(path, "utf8").trim();
+  rmSync(path, { force: true });
+  return value;
+}
+const needSecret = (env: NodeJS.ProcessEnv, key: string) => {
+  const v = secretFile(env, key);
+  if (!v) throw new Error(`${key} is not set`);
+  return v;
+};
+
 export function makeContext(env: NodeJS.ProcessEnv): StepContext {
   const server = need(env, "CI_SERVER_URL");
-  const token = need(env, "FACTORY_GITLAB_TOKEN");
-  const webhook = need(env, "TEAMS_WEBHOOK_URL");
+  const token = needSecret(env, "FACTORY_GITLAB_TOKEN");
+  const webhook = needSecret(env, "TEAMS_WEBHOOK_URL");
+  const triggerToken = secretFile(env, "FACTORY_TRIGGER_TOKEN");
   const target = loadTarget(need(env, "FACTORY_TARGET"));
   const dir = resolve(RUN_DIR, "target");
   return {
@@ -191,17 +181,22 @@ export function makeContext(env: NodeJS.ProcessEnv): StepContext {
     target,
     router: loadRouter(),
     dir,
-    repo: gitRepo(dir, `${server}/${target.projectPath}.git`, token, env),
+    repo: gitRepo(dir, `${dir}.git`, `${server}/${target.projectPath}.git`, token, env),
     env: {
       payload: env.TRIGGER_PAYLOAD ? JSON.parse(readFileSync(env.TRIGGER_PAYLOAD, "utf8")) : undefined,
       workItemIid: num(env.FACTORY_WORK_ITEM_IID),
       mrIid: num(env.FACTORY_MR_IID),
+      skipApply: env.FACTORY_SKIP_APPLY === "1",
+      buildPipelineId: num(env.FACTORY_BUILD_PIPELINE_ID),
+      factoryProjectId: num(env.CI_PROJECT_ID),
+      pipelineId: num(env.CI_PIPELINE_ID),
       pipelineUrl: env.CI_PIPELINE_URL ?? "",
     },
     async startFinish(vars) {
       // The trigger token is only read here, by step code. It goes in the body, so errors never show it.
-      const body = new URLSearchParams({ token: need(env, "FACTORY_TRIGGER_TOKEN"), ref: need(env, "CI_COMMIT_REF_NAME") });
-      const all = { ...vars, FACTORY_BUILD_PIPELINE_ID: need(env, "CI_PIPELINE_ID"), FACTORY_JOB_IMAGE: target.jobImage };
+      if (!triggerToken) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
+      const body = new URLSearchParams({ token: triggerToken, ref: need(env, "CI_COMMIT_REF_NAME") });
+      const all = { ...vars, FACTORY_JOB_IMAGE: target.jobImage };
       for (const [k, v] of Object.entries(all)) body.set(`variables[${k}]`, v);
       const res = await fetch(`${server}/api/v4/projects/${need(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
       if (!res.ok) throw new Error(`Starting the finish pipeline failed with status ${res.status}`);
@@ -210,33 +205,51 @@ export function makeContext(env: NodeJS.ProcessEnv): StepContext {
   };
 }
 
-async function loadRunRecord(ctx: StepContext, env: NodeJS.ProcessEnv): Promise<RunRecord> {
-  if (existsSync(join(RUN_DIR, "record.json"))) return loadRecord(RUN_DIR);
-  // The first finish job starts with the record of the build pipeline that started it.
-  if (env.FACTORY_BUILD_PIPELINE_ID) return (await ctx.gitlab.buildRecord(Number(need(env, "CI_PROJECT_ID")), Number(env.FACTORY_BUILD_PIPELINE_ID))) as RunRecord;
-  return newRecord();
+// The record from run/, or for the first finish job the one the build pipeline saved. That pipeline's
+// decision job may still be uploading it when finish starts, so retry for a few minutes.
+async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> {
+  if (existsSync(join(dir, "record.json"))) return loadRecord(dir);
+  const { buildPipelineId, factoryProjectId } = ctx.env;
+  if (!buildPipelineId) return newRecord();
+  if (!factoryProjectId) throw new Error("CI_PROJECT_ID is not set");
+  let last: unknown;
+  for (let i = 0; i < RECORD_TRIES; i++) {
+    try {
+      return (await ctx.gitlab.buildRecord(factoryProjectId, buildPipelineId)) as RunRecord;
+    } catch (e) {
+      last = e;
+      await ctx.sleep(Math.min(5000 * 2 ** i, 60_000));
+    }
+  }
+  throw new Error(`Could not load the run record of build pipeline ${buildPipelineId}: ${String(last)}`);
 }
 
 // The CI job body: skip if an earlier job stopped the run, run the step, save the record.
-// A "stop" is a normal end. Only unexpected errors fail the job.
-export async function runStep(name: string, run: (ctx: StepContext) => Promise<StepResult>, env = process.env): Promise<void> {
-  if (existsSync(STOP_FILE)) {
-    console.log(`Skipping ${name}: the run stopped at ${readFileSync(STOP_FILE, "utf8")}.`);
+// A "stop" is a normal end. Only unexpected errors fail the job, and they block the work item first.
+export async function runStep(
+  name: string,
+  run: (ctx: StepContext) => Promise<StepResult>,
+  opts: { env?: NodeJS.ProcessEnv; make?: (env: NodeJS.ProcessEnv) => StepContext; dir?: string } = {},
+): Promise<void> {
+  const dir = opts.dir ?? RUN_DIR;
+  const stopFile = join(dir, "stop");
+  if (existsSync(stopFile)) {
+    console.log(`Skipping ${name}: the run stopped at ${readFileSync(stopFile, "utf8")}.`);
     return;
   }
-  const ctx = makeContext(env);
-  ctx.record = await loadRunRecord(ctx, env);
+  const ctx = (opts.make ?? makeContext)(opts.env ?? process.env);
   let result: StepResult;
   try {
+    ctx.record = await loadRunRecord(ctx, dir);
     result = await run(ctx);
   } catch (e) {
-    // Do not leave the work item stuck in factory_running. The original error still fails the job.
-    if (ctx.record.workItem) await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`).catch(() => {});
+    // Do not leave the work item stuck in a running state. block() needs a work item; without one it throws and we go on.
+    await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`).catch(() => {});
     throw e;
   } finally {
-    saveRecord(ctx.record, RUN_DIR); // also creates run/
+    saveRecord(ctx.record, dir); // also creates the dir
   }
-  if (result === "stop") writeFileSync(STOP_FILE, name);
+  if (result === "stop") writeFileSync(stopFile, name);
 }
 
 // Runs main() only when the file is the script node started, not when a test imports it.

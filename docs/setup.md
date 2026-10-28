@@ -8,8 +8,8 @@ The GitLab project is `Ceresa/software-factory`.
 
 - [ ] Create the GitLab project `Ceresa/software-factory`.
 - [ ] Create a bot user. Make a personal access token with the `api` scope.
-- [ ] Store the token as a masked, protected CI variable `FACTORY_GITLAB_TOKEN`.
-- [ ] Create a pipeline trigger token.
+- [ ] Store the token as a masked, protected CI variable `FACTORY_GITLAB_TOKEN` of type **File**.
+- [ ] Create a pipeline trigger token. Store it as a masked, protected CI variable `FACTORY_TRIGGER_TOKEN` of type **File**.
 - [ ] Check the license under Admin > License.
   - Premium: give the bot merge rights by name on the protected branch of `react_frontend`.
   - Free: make the bot a Maintainer of `react_frontend`.
@@ -20,8 +20,10 @@ Store each one as a masked, protected CI variable.
 
 - [ ] `CLAUDE_CODE_OAUTH_TOKEN`: from Kirill's `claude setup-token`.
 - [ ] `TENSORX_API_KEY`
-- [ ] `TEAMS_WEBHOOK_URL`: from a Teams Workflows flow "Post to a channel when a webhook request is received".
+- [ ] `TEAMS_WEBHOOK_URL` of type **File**: from a Teams Workflows flow "Post to a channel when a webhook request is received".
 - [ ] `BERGET_API_KEY`: when it exists.
+
+`FACTORY_GITLAB_TOKEN`, `FACTORY_TRIGGER_TOKEN` and `TEAMS_WEBHOOK_URL` must be type File, not Variable. The step code reads each file and deletes it before any agent or target command runs. A step stops with an error if one of them is a plain Variable.
 
 ## 3. Runner files (done in the repo)
 

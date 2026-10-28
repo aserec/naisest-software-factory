@@ -5,6 +5,7 @@ import type { ClaudeResult, Finding } from "../agents";
 import { loadRouter, loadTarget } from "../config";
 import { STATE_LABELS, type GitLab } from "../gitlab";
 import type { JevAnswer, JevClient } from "../jev";
+import { addStep } from "../record";
 import type { Risk } from "../types";
 import { newRecord, type Repo, type StepContext } from "./context";
 import * as event from "./event";
@@ -29,11 +30,23 @@ export interface WorldOptions {
   numstat?: string;
   testChanges?: string;
   liveLabels?: string[];
+  payload?: unknown;
+  actorLevel?: number;
+  approvedBy?: number[];
+  mrState?: string;
+  existingMr?: boolean;
   mrPipeline?: "success" | "failed";
   mainPipeline?: "success" | "failed";
   defaultBranch?: string;
 }
 
+export const BOT = 1;
+export const mrEvent = (action: "approved" | "merge", actorId = 42) => ({
+  object_kind: "merge_request",
+  user: { id: actorId },
+  project: { path_with_namespace: "acme/web/react_frontend" },
+  object_attributes: { iid: 5, action, source_branch: "factory/8-add-a-loading-state" },
+});
 const KINDS: Record<string, string> = { "Needs info": "needs_info", "Needs approval": "needs_approval", Blocked: "blocked", Done: "done" };
 const payload = JSON.parse(readFileSync(fileURLToPath(new URL("../fixtures/label-added.json", import.meta.url)), "utf8"));
 const ok = (sessionId: string, extra: Partial<ClaudeResult> = {}): ClaudeResult => ({ sessionId, isError: false, limitHit: false, costUsd: 0.1, resultText: "1. Which list?", ...extra });
@@ -45,6 +58,8 @@ export function fakeWorld(o: WorldOptions = {}) {
     workItemComments: [] as string[],
     mrComments: [] as string[],
     mrDescription: "",
+    mrOpened: false,
+    mergedSha: "",
     cards: [] as { kind: string; card: any }[],
     assigned: false,
     closed: false,
@@ -65,8 +80,10 @@ export function fakeWorld(o: WorldOptions = {}) {
 
   const gitlab: Partial<GitLab> = {
     getProject: async () => ({ id: 7, defaultBranch: o.defaultBranch ?? "main" }),
-    getWorkItem: async () => ({ title: "Add a loading state", description: "Show a spinner while the list loads.", labels: [...w.stateLabels], assigneeIds: [], webUrl: "https://gitlab.test/work_items/8" }),
-    memberAccessLevel: async () => 30,
+    getWorkItem: async () => ({ title: "Add a loading state", description: "Show a spinner while the list loads.", labels: [...w.stateLabels], assigneeIds: [], webUrl: "https://gitlab.test/work_items/8", state: w.closed ? "closed" : "opened" }),
+    reopenWorkItem: async () => void (w.closed = false),
+    botUserId: async () => BOT,
+    memberAccessLevel: async () => o.actorLevel ?? 30,
     countLabeled: async () => 0,
     setState: async (_p, _i, label) => void (w.stateLabels = [...w.stateLabels.filter((l) => !(STATE_LABELS as readonly string[]).includes(l)), label]),
     comment: async (_p, _i, body) => void w.workItemComments.push(body),
@@ -74,9 +91,12 @@ export function fakeWorld(o: WorldOptions = {}) {
     userId: async () => 99,
     assignWorkItem: async () => void (w.assigned = true),
     assignMergeRequest: async () => void (w.assigned = true),
-    openMergeRequest: async (_p, _b, _t, _title, description) => ((w.mrDescription = description), { iid: 5, webUrl: "https://gitlab.test/merge_requests/5" }),
+    upsertMergeRequest: async (_p, _b, _t, _title, description) => ((w.mrDescription = description), (w.mrOpened = !o.existingMr), { iid: 5, webUrl: "https://gitlab.test/merge_requests/5" }),
+    getMergeRequest: async () => ({ state: o.mrState ?? "opened", description: "Factory run: https://gitlab.test/pipelines/41", headSha: "head5", mergeSha: "manual789" }),
+    approvedBy: async () => o.approvedBy ?? [],
     mergeRequestPipelineStatus: async () => o.mrPipeline ?? "success",
-    merge: async () => ((w.merged = true), "abc123def456"),
+    // Merging closes the work item, as "Closes #8" does in GitLab.
+    merge: async (_p, _i, sha) => ((w.merged = true), (w.mergedSha = sha), (w.closed = true), "abc123def456"),
     pipelineStatus: async (_p, ref) => ((w.mainPipelineRef = ref), o.mainPipeline ?? "success"),
     revertMerge: async () => ((w.revertOpened = true), { iid: 6, webUrl: "https://gitlab.test/merge_requests/6" }),
     closeWorkItem: async () => void (w.closed = true),
@@ -110,9 +130,9 @@ export function fakeWorld(o: WorldOptions = {}) {
     clone: async () => {},
     diff: async () => ({ text: "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
     run: async (cmd) => ({ ok: o.gate !== "red", output: `ran ${cmd}` }),
-    commitAndPush: async () => {},
+    commitAndPush: async () => "head5",
     readFile: (path) =>
-      path === ".factory.yml" ? "lint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n" : path === "run/test-changes.md" ? o.testChanges : undefined,
+      path === ".factory.yml" ? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n" : path === "run/test-changes.md" ? o.testChanges : undefined,
   };
 
   w.ctx = {
@@ -132,7 +152,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     router: loadRouter(),
     dir: "/fake/run/target",
     repo,
-    env: { payload, pipelineUrl: "https://gitlab.test/pipelines/1" },
+    env: { payload: o.payload ?? payload, pipelineId: 1, pipelineUrl: "https://gitlab.test/pipelines/1" },
     startFinish: async (vars) => void ((w.finishTriggered = true), (w.finishVars = vars)),
     sleep: async () => {},
   };
@@ -148,9 +168,19 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
   return w;
 }
 export const runBuildPipeline = (w: World) => runSteps(w, BUILD);
-// The finish pipeline gets the work item and MR from trigger variables.
-export function runFinishPipeline(w: World) {
-  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, mrIid: 5 };
+// The finish pipeline gets the work item and MR from trigger variables, and starts with the build record.
+export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_approval"; skipApply?: boolean; smoke?: string } = {}) {
+  w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, mrIid: 5, skipApply: o.skipApply };
   w.stateLabels = ["factory_running"];
+  let r = newRecord();
+  r = { ...r, workItem: "acme/web/react_frontend#8" };
+  for (const [step, d] of [
+    ["event", { workItemIid: 8 }],
+    ["prepare-patch", { sessionId: "sess-1", commands: { install: "i", lint: "l", test: "t", build: "b", ...(o.smoke ? { smoke: o.smoke } : {}) } }],
+    ["precommit-gate", { passed: true, sha: "head5", mrIid: 5, mrUrl: "https://gitlab.test/merge_requests/5" }],
+    ["risk-check", { headSha: "head5" }],
+    ["decision", { kind: o.decision ?? "auto" }],
+  ] as const) r = addStep(r, step, d);
+  w.ctx.record = r;
   return runSteps(w, FINISH);
 }

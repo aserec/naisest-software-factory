@@ -24,7 +24,15 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const d = decide(ctx);
   save(ctx, "decision", d);
   if (d.kind === "auto") {
-    await ctx.startFinish({ FACTORY_PIPELINE: "finish", FACTORY_TARGET: ctx.target.name, FACTORY_WORK_ITEM_IID: String(iid), FACTORY_MR_IID: String(mrIid) });
+    const rules = (data(ctx, "risk-check").rules as RuleResult[]).map((r) => `- ${r.rule}: ${r.detail}`).join("\n");
+    await ctx.gitlab.commentMergeRequest(projectId, mrIid, `The factory merges this without a person: triage risk was trivial or low, code review and precommit-gate passed, every hard rule passed and Jev 2 passed.\n\n${rules}`);
+    await ctx.startFinish({
+      FACTORY_PIPELINE: "finish",
+      FACTORY_TARGET: ctx.target.name,
+      FACTORY_WORK_ITEM_IID: String(iid),
+      FACTORY_MR_IID: String(mrIid),
+      FACTORY_BUILD_PIPELINE_ID: String(ctx.env.pipelineId),
+    });
     return "next";
   }
   const item = await ctx.gitlab.getWorkItem(projectId, iid);

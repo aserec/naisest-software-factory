@@ -1,11 +1,12 @@
 import { codeReviewLoop } from "../loops";
-import { block, data, fix, isMain, modelRow, runStep, save, ticketText, waiting, workItem, type StepContext, type StepResult } from "./context";
+import { block, data, fix, install, isMain, modelRow, runStep, save, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
-  const { defaultBranch } = await workItem(ctx);
+  const stop = await install(ctx);
+  if (stop) return stop;
   const row = modelRow(ctx);
   const result = await codeReviewLoop({
-    review: async () => ctx.agents.review({ model: row.reviewer, cwd: ctx.dir, diffText: (await ctx.repo.diff(defaultBranch)).text, ticketText: ticketText(ctx) }),
+    review: async () => ctx.agents.review({ model: row.reviewer, cwd: ctx.dir, diffText: (await ctx.repo.diff()).text, ticketText: ticketText(ctx) }),
     fix: (feedback) => fix(ctx, feedback),
     run: async () => { throw new Error("code review runs no commands"); },
   });
