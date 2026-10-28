@@ -4,7 +4,7 @@
 export type JevQuestion =
   | { id: string; kind: "noul"; text: string }
   | { id: string; kind: "choice"; text: string; options: string[] }
-  | { id: string; kind: "score"; text: string; levels: number };
+  | { id: string; kind: "score"; text: string; levels: number; min?: number };
 export interface JevAnswer { id: string; value: string | number | boolean; probability: number; confidence: number }
 export interface JevClient { readonly provider: "berget" | "mock"; ask(state: unknown, questions: JevQuestion[]): Promise<JevAnswer[]> }
 
@@ -17,7 +17,7 @@ export const MOCK_ANSWERS = {
   byId: {} as Record<string, Omit<JevAnswer, "id">>,
   noul: { value: false, probability: 0.1, confidence: 0.9 },
   choice: { probability: 0.8, confidence: 0.8 }, // value is the first option
-  score: { value: 1, probability: 0.6, confidence: 0.6 },
+  score: { value: 7, probability: 0.6, confidence: 0.6 },
 };
 
 type ApiAnswer = {
@@ -32,19 +32,20 @@ type ApiAnswer = {
 function toApiQuestion(q: JevQuestion) {
   if (q.kind === "noul") return { type: "noul", instructions: q.text };
   if (q.kind === "choice") return { type: "choice", instructions: q.text, criteria: Object.fromEntries(q.options.map((o) => [o, null])) };
-  return { type: "score", instructions: q.text, criteria: Array.from({ length: q.levels }, (_, i) => `Level ${i}`) };
+  return { type: "score", instructions: q.text, criteria: Array.from({ length: q.levels }, (_, i) => `Score ${(q.min ?? 2) + i}`) };
 }
 
 function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnswer {
   if (!a || a.type !== q.kind) throw new Error(`Jev answer missing or wrong type for "${q.id}"`);
   if (q.kind === "noul") {
-    const p = a.noul as number;
+    const p = a.noul;
+    if (typeof p !== "number") throw new Error(`Jev noul answer for "${q.id}" has no probability`);
     return { id: q.id, value: p >= 0.5, probability: p, confidence: a.confidence ?? p };
   }
   const probs = a.probabilities ?? {};
   const [best, p] = Object.entries(probs).sort((x, y) => y[1] - x[1])[0] ?? [];
   if (best === undefined) throw new Error(`Jev answer for "${q.id}" has no probabilities`);
-  const value = q.kind === "choice" ? best : Number(best);
+  const value = q.kind === "choice" ? best : (q.min ?? 2) + Number(best);
   return { id: q.id, value, probability: p, confidence: a.confidence ?? p };
 }
 
