@@ -515,3 +515,20 @@ test("a Claude token in the diff is not pushed", async () => {
   expect(w.labels).toEqual(["factory_blocked"]);
   expect(w.workItemComments.at(-1)).toContain("did not push");
 });
+
+// The factory's own label changes and comments come back through the webhook. They must not start a run.
+test("a factory-authored label change or comment stops at event, before triage, clone or install", async () => {
+  const project = { path_with_namespace: "acme/web/react_frontend" };
+  const labelChange = { object_kind: "issue", user: { id: BOT }, project, object_attributes: { iid: 8 },
+    changes: { labels: { previous: [{ title: "factory_ready" }], current: [{ title: "factory_running" }] } } };
+  const comment = { object_kind: "note", user: { id: BOT }, project, object_attributes: { noteable_type: "Issue", note: "/label ~factory_ready" }, issue: { iid: 8 } };
+  for (const payload of [labelChange, comment]) {
+    const w = await runBuildJobs(fakeWorld({ payload, liveLabels: ["factory_running"] }));
+    expect(w.record.steps.map((s) => s.step)).toEqual(["event"]);
+    expect(w.record.steps[0].data).toMatchObject({ start: false, reason: "not-added" });
+    expect(w.jevAsked).toBe(0);
+    expect(w.ran).toEqual([]);
+    expect(w.claudeCalls).toBe(0);
+    expect(w.labels).toEqual(["factory_running"]);
+  }
+});

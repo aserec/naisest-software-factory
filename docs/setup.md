@@ -63,10 +63,10 @@ Attach a firewall to the runner VMs (for example by label):
 
 ## 7. Target webhook
 
-For each target repo (Settings > Webhooks), add one webhook for issue, comment and merge request events. Its URL is:
+For each target repo (Settings > Webhooks), add one webhook for issue and merge request events only. Leave comment events off. Its URL is:
 
 ```text
-https://gitlab.example.com/api/v4/projects/<factory project id>/ref/main/trigger/pipeline?token=<trigger token>&variables[FACTORY_PIPELINE]=build&variables[FACTORY_TARGET]=<target name>
+https://gitlab.example.com/api/v4/projects/<factory project id>/ref/main/trigger/pipeline?token=<trigger token>&variables[FACTORY_PIPELINE]=build&variables[FACTORY_TARGET]=<target name>&variables[SAST_DISABLED]=true&variables[SECRET_DETECTION_DISABLED]=true
 ```
 
 - [ ] Use the same bot-owned trigger token that is stored in `FACTORY_TRIGGER_TOKEN`. The finish pipeline only trusts build pipelines started by the bot.
