@@ -13,6 +13,7 @@ export type MergeDecision = { kind: "auto" } | { kind: "needs_approval"; reasons
 const MAX_DIFF = 8000;
 const DIFF_RISK_MAX = 4;
 const MIN_CONFIDENCE = 0.9;
+const RULE_NAMES: RuleResult["rule"][] = ["protected-path", "dependency-file", "size", "secret", "pipeline"];
 const EPSILON = 1e-9; // so 0.9 and 0.1 pass despite float error
 
 export async function askRisk(jev: JevClient, ticket: { title: string; description: string }, diffText: string): Promise<RiskAnswers> {
@@ -23,8 +24,9 @@ export async function askRisk(jev: JevClient, ticket: { title: string; descripti
     return a;
   };
   const risk = get("diff_risk");
+  if (typeof risk.value !== "number") throw new Error(`Jev diff_risk answer is not a number: ${JSON.stringify(risk.value)}`);
   return {
-    diffRisk: { value: Number(risk.value), confidence: risk.confidence },
+    diffRisk: { value: risk.value, confidence: risk.confidence },
     scopeYes: get("scope").probability,
     sensitiveYes: get("sensitive").probability,
   };
@@ -36,10 +38,22 @@ export function decideMerge(input: { triageRisk: Risk; reviewPassed: boolean; ga
   if (triageRisk !== "trivial" && triageRisk !== "low") reasons.push(`triage risk is ${triageRisk}, only trivial or low can merge alone`);
   if (!reviewPassed) reasons.push("code review did not pass");
   if (!gateGreen) reasons.push("precommit-gate is not green");
-  // An empty list passes only because the caller always passes all five rules.
-  for (const r of rules) if (!r.passed) reasons.push(`hard rule ${r.rule} failed: ${r.detail}`);
+  // All five rules must be present and passed. Missing or unknown names go to a person.
+  for (const name of RULE_NAMES) {
+    if (!rules.some((r) => r.rule === name)) reasons.push(`hard rule ${name} is missing`);
+  }
+  for (const r of rules) {
+    if (!RULE_NAMES.includes(r.rule)) reasons.push(`unknown hard rule ${String(r.rule)}`);
+    else if (r.passed !== true) reasons.push(`hard rule ${r.rule} failed: ${r.detail}`);
+  }
   // NaN fails every check below, so a bad answer goes to a person.
-  if (!(risk.diffRisk.value <= DIFF_RISK_MAX)) reasons.push(`diff_risk ${risk.diffRisk.value} is above ${DIFF_RISK_MAX}`);
+  const v = risk.diffRisk.value;
+  if (!(Number.isInteger(v) && v >= 2 && v <= 10)) reasons.push(`diff_risk ${v} is not a whole number from 2 to 10`);
+  else if (v > DIFF_RISK_MAX) reasons.push(`diff_risk ${v} is above ${DIFF_RISK_MAX}`);
+  const inRange = (n: number) => n >= 0 && n <= 1;
+  if (!inRange(risk.diffRisk.confidence)) reasons.push(`diff_risk confidence ${risk.diffRisk.confidence} is not between 0 and 1`);
+  if (!inRange(risk.scopeYes)) reasons.push(`scope yes ${risk.scopeYes} is not between 0 and 1`);
+  if (!inRange(risk.sensitiveYes)) reasons.push(`sensitive yes ${risk.sensitiveYes} is not between 0 and 1`);
   if (!(risk.diffRisk.confidence >= MIN_CONFIDENCE - EPSILON)) reasons.push(`diff_risk confidence ${risk.diffRisk.confidence} is below ${MIN_CONFIDENCE}`);
   if (!(risk.scopeYes >= MIN_CONFIDENCE - EPSILON)) reasons.push(`scope yes ${risk.scopeYes} is below ${MIN_CONFIDENCE}`);
   if (!(risk.sensitiveYes <= 1 - MIN_CONFIDENCE + EPSILON)) reasons.push(`sensitive yes ${risk.sensitiveYes} is above ${+(1 - MIN_CONFIDENCE).toFixed(2)}`);
