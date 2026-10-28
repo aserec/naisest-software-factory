@@ -33,11 +33,33 @@ test("changing an existing test file passes", () => {
   expect(checkHardRules([{ oldPath: "src/a.test.ts", newPath: "src/a.test.ts", added: 3, removed: 2, binary: false }], "", t, true).every(x => x.passed)).toBe(true);
 });
 test("a red pipeline fails", () => expect(checkHardRules([], "", t, false).find(x => x.rule === "pipeline")!.passed).toBe(false));
-test("a secret in the diff fails the secret rule", () => {
-  expect(checkHardRules([], "+token glpat-abcdefghijklmnopqrst", t, true).find(x => x.rule === "secret")!.passed).toBe(false);
+test("a secret in the diff fails the secret rule and is not printed", () => {
+  const r = checkHardRules([], "+token glpat-abcdefghijklmnopqrst", t, true).find(x => x.rule === "secret")!;
+  expect(r.passed).toBe(false);
+  expect(r.detail).not.toContain("glpat-");
 });
-test("parses a file with spaces, a rename, and empty input", () => {
-  expect(parseNumstat("1\t2\tsrc/my file.ts\0")).toEqual([{ oldPath: "src/my file.ts", newPath: "src/my file.ts", added: 1, removed: 2, binary: false }]);
-  expect(parseNumstat("0\t0\t\0old.ts\0new.ts\0")).toEqual([{ oldPath: "old.ts", newPath: "new.ts", added: 0, removed: 0, binary: false }]);
-  expect(parseNumstat("")).toEqual([]);
+const one = (oldPath: string, newPath: string, added = 1, removed = 1) => [{ oldPath, newPath, added, removed, binary: false }];
+test("a rename into a protected path fails", () => {
+  expect(checkHardRules(one("src/x.yml", ".gitlab-ci.yml"), "", t, true).find(x => x.rule === "protected-path")!.passed).toBe(false);
+});
+test("deleting a protected file fails", () => {
+  expect(checkHardRules(parseNumstat("0\t5\t.gitlab-ci.yml\0"), "", t, true).find(x => x.rule === "protected-path")!.passed).toBe(false);
+});
+test("parses a file with spaces in its name", () => {
+  expect(parseNumstat("1\t2\tsrc/my file.ts\0")).toEqual(one("src/my file.ts", "src/my file.ts", 1, 2));
+});
+test("parses a rename", () => {
+  expect(parseNumstat("0\t0\t\0old.ts\0new.ts\0")).toEqual(one("old.ts", "new.ts", 0, 0));
+});
+test("empty numstat gives an empty list", () => expect(parseNumstat("")).toEqual([]));
+test.each([
+  ["empty counts", "\t\ta.ts\0"],
+  ["negative count", "-500\t0\ta.ts\0"],
+  ["non-number count", "abc\t1\ta.ts\0"],
+  ["one dash only", "-\t1\ta.ts\0"],
+  ["missing tabs", "1 2 a.ts\0"],
+  ["truncated rename", "0\t0\t\0old.ts\0"],
+  ["rename with no paths", "0\t0\t\0"],
+])("malformed numstat throws: %s", (_name, input) => {
+  expect(() => parseNumstat(input)).toThrow();
 });

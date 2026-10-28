@@ -19,14 +19,20 @@ export function parseNumstat(gitNumstatZ: string): ChangedFile[] {
     const entry = parts[i];
     if (entry === "") continue;
     const first = entry.indexOf("\t");
-    const second = entry.indexOf("\t", first + 1);
+    const second = first < 0 ? -1 : entry.indexOf("\t", first + 1);
+    if (second < 0) throw new Error(`Bad numstat entry: ${JSON.stringify(entry)}`);
     const added = entry.slice(0, first);
     const removed = entry.slice(first + 1, second);
     const path = entry.slice(second + 1);
     // A rename has an empty path here; the old and new paths are the next two parts.
     const [oldPath, newPath] = path === "" ? [parts[i + 1], parts[i + 2]] : [path, path];
     if (path === "") i += 2;
-    const binary = added === "-" || removed === "-";
+    if (!oldPath || !newPath) throw new Error(`Bad numstat rename: ${JSON.stringify(entry)}`);
+    const binary = added === "-" && removed === "-";
+    // Counts must be plain digits, or both "-" for a binary file. Anything else fails closed.
+    if (!binary && !(/^\d+$/.test(added) && /^\d+$/.test(removed))) {
+      throw new Error(`Bad numstat counts: ${JSON.stringify(entry)}`);
+    }
     files.push({ oldPath, newPath, added: binary ? 0 : Number(added), removed: binary ? 0 : Number(removed), binary });
   }
   return files;
