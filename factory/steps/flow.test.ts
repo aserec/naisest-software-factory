@@ -484,3 +484,15 @@ test("a resume whose record is gone for good blocks with a comment and a card", 
     expect(w.workItemComments.at(-1)).toContain(error);
   }
 });
+
+test("[skip ci] and [ci skip] never reach the commit or MR title, so the MR pipeline runs", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, title: "Fix list [SKIP CI] now [ci skip]" }));
+  for (const t of [w.commitMessage, w.mrTitle]) expect(t).not.toMatch(/skip ci|ci skip/i);
+  expect(w.mrTitle).toContain("Fix list");
+});
+test("the MR pipeline status is read for the reviewed head commit in risk-check and apply", async () => {
+  const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  expect(b.record.steps.find((s) => s.step === "risk-check")?.data).toMatchObject({ mrPipeline: "success" });
+  const f = await runFinishPipeline(fakeWorld());
+  expect(f.merged).toBe(true);
+});

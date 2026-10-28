@@ -17,7 +17,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const { projectId } = await workItem(ctx);
   // headSha is the commit that was reviewed and checked. apply merges only that commit.
   const { mrIid, sha: headSha } = data(ctx, "precommit-gate");
-  const mrPipeline = await waitFor(ctx, () => ctx.gitlab.mergeRequestPipelineStatus(projectId, mrIid));
+  const mrPipeline = await waitFor(ctx, () => ctx.gitlab.mergeRequestPipelineStatus(projectId, mrIid, headSha));
   const diff = await ctx.repo.diff();
   const rules = hardRules(diff.numstat, diff.text, ctx.target, mrPipeline === "success");
   try {

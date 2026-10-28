@@ -3,6 +3,8 @@ import { precommitGate } from "../loops";
 import { findSecrets } from "../rules";
 import { block, data, fix, install, isMain, runStep, save, waiting, workItem, type StepContext, type StepResult } from "./context";
 
+// GitLab skips the pipeline of a commit or MR whose title says so, and the hard rules need that pipeline.
+const noSkipCi = (title: string) => title.replace(/\[(skip ci|ci skip)\]/gi, "").trim();
 const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
 
 export async function run(ctx: StepContext): Promise<StepResult> {
@@ -19,7 +21,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
   if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.join("\n")}`);
 
-  const title = ctx.record.ticket!.title;
+  const title = noSkipCi(ctx.record.ticket!.title);
   const testChanges = ctx.repo.readFile("run/test-changes.md");
   // The finish pipeline finds this run's record through the pipeline link (approval and manual merge paths).
   const description = [AI_LINE, `Closes #${iid}`, `Factory run: ${ctx.env.pipelineUrl}`, ...(testChanges ? ["Changed tests, and why:", testChanges] : [])].join("\n\n");

@@ -42,6 +42,7 @@ export interface WorldOptions {
   mrPipeline?: "success" | "failed";
   mainPipeline?: "success" | "failed";
   defaultBranch?: string;
+  title?: string; // the work item title
 }
 
 export const BOT = 1;
@@ -62,6 +63,8 @@ export function fakeWorld(o: WorldOptions = {}) {
     workItemComments: [] as string[],
     mrComments: [] as string[],
     mrDescription: "",
+    mrTitle: "",
+    commitMessage: "",
     mrOpened: false,
     mergedSha: "",
     cards: [] as { kind: string; card: any }[],
@@ -89,7 +92,7 @@ export function fakeWorld(o: WorldOptions = {}) {
 
   const gitlab: Partial<GitLab> = {
     getProject: async () => ({ id: 7, defaultBranch: o.defaultBranch ?? "main" }),
-    getWorkItem: async () => ({ title: "Add a loading state", description: "Show a spinner while the list loads.", labels: [...w.stateLabels], assigneeIds: [], webUrl: "https://gitlab.test/work_items/8", state: w.closed ? "closed" : "opened" }),
+    getWorkItem: async () => ({ title: o.title ?? "Add a loading state", description: "Show a spinner while the list loads.", labels: [...w.stateLabels], assigneeIds: [], webUrl: "https://gitlab.test/work_items/8", state: w.closed ? "closed" : "opened" }),
     reopenWorkItem: async () => void (w.closed = false),
     botUserId: async () => BOT,
     memberAccessLevel: async () => o.actorLevel ?? 30,
@@ -101,10 +104,11 @@ export function fakeWorld(o: WorldOptions = {}) {
     userId: async () => 99,
     assignWorkItem: async () => void (w.assigned = true),
     assignMergeRequest: async () => void (w.assigned = true),
-    upsertMergeRequest: async (_p, _b, _t, _title, description) => ((w.mrDescription = description), (w.mrOpened = !o.existingMr), { iid: 5, webUrl: "https://gitlab.test/merge_requests/5" }),
+    upsertMergeRequest: async (_p, _b, _t, title, description) => ((w.mrTitle = title), (w.mrDescription = description), (w.mrOpened = !o.existingMr), { iid: 5, webUrl: "https://gitlab.test/merge_requests/5" }),
     getMergeRequest: async () => ({ state: o.mrState ?? "opened", description: "Factory run: https://gitlab.test/pipelines/41", headSha: "head5", mergeSha: "manual789" }),
     approvedBy: async () => o.approvedBy ?? [],
-    mergeRequestPipelineStatus: async () => o.mrPipeline ?? "success",
+    // Only the reviewed head counts. A caller that passes another sha never sees green.
+    mergeRequestPipelineStatus: async (_p, _i, sha) => (sha === "head5" ? (o.mrPipeline ?? "success") : "running"),
     // Merging closes the work item, as "Closes #8" does in GitLab.
     merge: async (_p, _i, sha) => ((w.merged = true), (w.mergedSha = sha), (w.closed = true), "abc123def456"),
     pipelineStatus: async (_p, ref) => ((w.mainPipelineRef = ref), o.mainPipeline ?? "success"),
@@ -141,7 +145,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     clone: async () => {},
     diff: async () => ({ text: "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
     run: async (cmd) => (w.ran.push(cmd), { ok: o.gate !== "red", output: `ran ${cmd}` }),
-    commitAndPush: async () => "head5",
+    commitAndPush: async (_b, message) => ((w.commitMessage = message), "head5"),
     readFile: (path) =>
       path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : undefined,
   };

@@ -169,8 +169,11 @@ export class GitLab {
   }
 
   // Branch-ref queries miss merge request pipelines, so read the MR's own list (newest first).
-  async mergeRequestPipelineStatus(projectId: number, mrIid: number): Promise<"success" | "failed" | "running"> {
-    const status = (await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}/pipelines`))[0]?.status;
+  // Only a pipeline for headSha counts: a green pipeline of an older commit says nothing about this one.
+  async mergeRequestPipelineStatus(projectId: number, mrIid: number, headSha: string): Promise<"success" | "failed" | "running"> {
+    const newest = (await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}/pipelines`))[0];
+    if (newest?.sha !== headSha) return "running";
+    const status = newest.status;
     if (status === "success") return "success";
     return status === "failed" || status === "canceled" ? "failed" : "running";
   }

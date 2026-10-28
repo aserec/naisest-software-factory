@@ -32,7 +32,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const headSha = data(ctx, "risk-check")?.headSha;
   if (!headSha) return block(ctx, "The run record has no reviewed commit, so the factory did not merge.");
   // Merge only after the merge request's own pipeline reports success.
-  const status = await waitFor(ctx, () => ctx.gitlab.mergeRequestPipelineStatus(projectId, mrIid));
+  const status = await waitFor(ctx, () => ctx.gitlab.mergeRequestPipelineStatus(projectId, mrIid, headSha));
   if (status !== "success") return block(ctx, `The merge request pipeline is ${status}, so the factory did not merge.`);
   save(ctx, "apply", { mrIid, sha: await ctx.gitlab.merge(projectId, mrIid, headSha) });
   return "next";
