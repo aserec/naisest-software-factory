@@ -199,3 +199,10 @@ test("listLabeled lists open work items oldest first; notes map the author", asy
   fakeResponse([{ author: { id: 1 }, body: "hi" }]);
   expect(await gl.notes(1, 8)).toEqual([{ authorId: 1, body: "hi" }]);
 });
+
+test("listClosed reads closed items, newest first, with no writes", async () => {
+  fakeResponse([{ iid: 5, title: "A", description: null, labels: ["x"] }]);
+  expect(await gl.listClosed(1, 30)).toEqual([{ iid: 5, title: "A", description: "", labels: ["x"] }]);
+  expect(last().init.method).toBe("GET");
+  expect(last().url).toContain("state=closed&order_by=updated_at&sort=desc&per_page=30");
+});

@@ -70,6 +70,12 @@ export class GitLab {
     return list.map((w: { iid: number; labels: string[] }) => ({ iid: w.iid, labels: w.labels }));
   }
 
+  // The newest closed work items, for the Jev shadow test. Read only.
+  async listClosed(projectId: number, count: number): Promise<{ iid: number; title: string; description: string; labels: string[] }[]> {
+    const list = await this.json("GET", `/projects/${projectId}/issues?state=closed&order_by=updated_at&sort=desc&per_page=${Math.min(count, 100)}`);
+    return list.slice(0, count).map((w: any) => ({ iid: w.iid, title: w.title, description: w.description ?? "", labels: w.labels }));
+  }
+
   // Who last added this label, from the label history. The poller has no webhook that names the person.
   async labelAddedBy(projectId: number, iid: number, label: string): Promise<number | undefined> {
     const events: any[] = [];
