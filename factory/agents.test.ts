@@ -16,7 +16,11 @@ test("settings path is absolute and exists, so the agent cwd cannot replace it",
 });
 test("settings pin the hook to the given absolute dir and deny the config dir", () => {
   const s = factorySettings({ CLAUDE_CONFIG_DIR: "/cfg", HOME: "/home/a" }, "/opt/hooks");
-  expect(s.hooks.PreToolUse[0].hooks[0].command).toBe("/opt/hooks/deny-dangerous.sh");
+  expect(s.hooks.PreToolUse[0].hooks[0].command).toBe("'/opt/hooks/deny-dangerous.sh'");
+  expect(s.permissions.deny).toEqual(expect.arrayContaining(["Edit(./.git/**)", "Write(./.git/**)"]));
+  expect(s.permissions.blockReadsOutsideWorkingDirectories).toBe(true);
+  const odd = factorySettings({}, `/a b/it's "x"\\y`);
+  expect(odd.hooks.PreToolUse[0].hooks[0].command).toBe(`'/a b/it'\\''s "x"\\y/deny-dangerous.sh'`);
   expect(s.permissions.deny).toEqual(expect.arrayContaining(["Read(//cfg/**)", "Read(//proc/**)", "Edit(./.claude/**)", "Bash(git -C*)"]));
   expect(s.permissions.allow).toEqual(expect.arrayContaining(["Read(./**)"]));
   expect(s.permissions.allow).not.toContain("Read");
@@ -60,7 +64,7 @@ test("a non-success subtype or a non-zero exit code is an error", () => {
 test("reviewer config turns off every tool and uses TensorX", () => {
   const c = reviewerConfig("m1", "https://t.example/v1");
   expect(Object.values(c.tools).every((v) => v === false)).toBe(true);
-  expect(c.tools).toMatchObject({ bash: false, edit: false, write: false, webfetch: false });
+  expect(c.tools).toMatchObject({ bash: false, edit: false, write: false, webfetch: false, websearch: false, task: false });
   expect(c.permission).toEqual({ edit: "deny", bash: "deny", webfetch: "deny" });
   expect(c.provider.tensorx.options.baseURL).toBe("https://t.example/v1");
 });

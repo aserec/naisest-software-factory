@@ -71,8 +71,9 @@ function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string, s
 
 // The settings the agent runs with: the factory file, a hook from a fixed absolute dir, and Read denies for the config dir.
 export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string): any {
-  const text = readFileSync(SETTINGS_PATH, "utf8").replaceAll("__HOOKS_DIR__", hooksDir);
-  const settings = JSON.parse(text);
+  const settings = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
+  const quoted = `'${`${hooksDir}/deny-dangerous.sh`.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
+  settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: quoted }] }] };
   if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
   if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
   return settings;
@@ -107,7 +108,7 @@ export function parseFindings(out: string): Finding[] {
 
 const reviewPrompt = readFileSync(fileURLToPath(new URL("../prompts/review.md", import.meta.url)), "utf8");
 
-const offTools = ["bash", "edit", "write", "read", "grep", "glob", "list", "patch", "todowrite", "todoread", "webfetch", "skill"];
+const offTools = ["bash", "edit", "write", "read", "grep", "glob", "list", "patch", "todowrite", "todoread", "webfetch", "websearch", "task", "skill"];
 
 // OpenCode config for the reviewer: no tools at all (the diff is in the prompt), TensorX as the only provider.
 export function reviewerConfig(model: string, baseURL: string) {
