@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,11 +8,16 @@ export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "
 export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; resultText: string }
 export interface Finding { blocking: boolean; file?: string; text: string }
 
-export function buildClaudeArgs(r: ClaudeRun): string[] {
+// Absolute paths in the factory checkout. Never relative to the agent cwd, which is the target clone.
+export const SETTINGS_PATH = fileURLToPath(new URL("../.claude/factory-settings.json", import.meta.url));
+const defaultHooksDir = fileURLToPath(new URL("../.agents/hooks", import.meta.url));
+
+export function buildClaudeArgs(r: ClaudeRun, settingsPath = SETTINGS_PATH): string[] {
   return [
     "-p", `/effort ${r.effort}\n${r.prompt}`,
     "--output-format", "stream-json", "--verbose",
-    "--settings", ".claude/factory-settings.json",
+    "--settings", settingsPath,
+    "--setting-sources", "user", // do not merge the target repo's own .claude/settings*.json
     "--permission-mode", "dontAsk", "--permission-prompts", "none",
     "--max-turns", String(r.maxTurns), "--model", r.model,
     ...(r.resumeSessionId ? ["--resume", r.resumeSessionId] : []),
@@ -25,7 +30,7 @@ export function agentEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(keep.filter((k) => env[k] !== undefined).map((k) => [k, env[k]]));
 }
 
-export function parseStream(jsonl: string): ClaudeResult {
+export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeResult {
   let result: any;
   let retryLimit = false;
   for (const line of jsonl.split("\n")) {
@@ -37,10 +42,12 @@ export function parseStream(jsonl: string): ClaudeResult {
   }
   if (!result) throw new Error("Claude stream has no final result event (cut off?)");
   const text = String(result.result ?? "");
-  const limitHit = retryLimit || /usage limit/i.test(text);
+  const resultError = Boolean(result.is_error);
+  // The usage-limit text counts only on an error result, so a normal answer that says "usage limit" is not a hit.
+  const limitHit = retryLimit || (resultError && /usage limit/i.test(text));
   return {
     sessionId: String(result.session_id ?? ""),
-    isError: Boolean(result.is_error) || limitHit,
+    isError: resultError || limitHit || result.subtype !== "success" || exitCode !== 0,
     limitHit,
     costUsd: Number(result.total_cost_usd ?? 0),
     resultText: text,
@@ -62,9 +69,27 @@ function run(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string, s
   });
 }
 
+// The settings the agent runs with: the factory file, a hook from a fixed absolute dir, and Read denies for the config dir.
+export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string): any {
+  const text = readFileSync(SETTINGS_PATH, "utf8").replaceAll("__HOOKS_DIR__", hooksDir);
+  const settings = JSON.parse(text);
+  if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
+  if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
+  return settings;
+}
+
 export async function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
-  const { out } = await run("claude", buildClaudeArgs(r), agentEnv(process.env), r.cwd);
-  return parseStream(out);
+  const hooksDir = process.env.FACTORY_HOOKS_DIR ?? defaultHooksDir;
+  if (!existsSync(`${hooksDir}/deny-dangerous.sh`)) throw new Error(`Hook missing: ${hooksDir}/deny-dangerous.sh`);
+  const dir = mkdtempSync(join(tmpdir(), "claude-settings-"));
+  try {
+    const path = join(dir, "settings.json");
+    writeFileSync(path, JSON.stringify(factorySettings(process.env, hooksDir)));
+    const { code, out } = await run("claude", buildClaudeArgs(r, path), agentEnv(process.env), r.cwd);
+    return parseStream(out, code);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // The last JSON array in the text that parses and holds finding objects.
@@ -82,24 +107,43 @@ export function parseFindings(out: string): Finding[] {
 
 const reviewPrompt = readFileSync(fileURLToPath(new URL("../prompts/review.md", import.meta.url)), "utf8");
 
-export async function runReviewer(input: { model: string; cwd: string; diffText: string; ticketText: string }): Promise<Finding[]> {
-  const dir = mkdtempSync(join(tmpdir(), "opencode-"));
-  const config = {
+const offTools = ["bash", "edit", "write", "read", "grep", "glob", "list", "patch", "todowrite", "todoread", "webfetch", "skill"];
+
+// OpenCode config for the reviewer: no tools at all (the diff is in the prompt), TensorX as the only provider.
+export function reviewerConfig(model: string, baseURL: string) {
+  return {
     $schema: "https://opencode.ai/config.json",
-    tools: { bash: false, edit: false, write: false, webfetch: false, websearch: false },
+    tools: Object.fromEntries(offTools.map((t) => [t, false])),
+    permission: { edit: "deny", bash: "deny", webfetch: "deny" },
     provider: {
       tensorx: {
         npm: "@ai-sdk/openai-compatible",
         name: "TensorX",
-        options: { baseURL: process.env.TENSORX_BASE_URL, apiKey: "{env:TENSORX_API_KEY}" },
-        models: { [input.model]: { name: input.model } },
+        options: { baseURL, apiKey: "{env:TENSORX_API_KEY}" },
+        models: { [model]: { name: model } },
       },
     },
   };
-  const configPath = join(dir, "opencode.json");
-  writeFileSync(configPath, JSON.stringify(config));
-  const env = { ...agentEnv(process.env), OPENCODE_CONFIG: configPath, TENSORX_API_KEY: process.env.TENSORX_API_KEY ?? "" };
-  const prompt = `${reviewPrompt}\n\n${wrapTicket(input.ticketText)}\n\n<diff>\n${input.diffText}\n</diff>`;
-  const { out } = await run("opencode", ["run", "--model", `tensorx/${input.model}`, prompt], env, input.cwd);
-  return parseFindings(out);
+}
+
+// Nothing secret except the TensorX key. No Claude token, no GitLab token.
+export function reviewerEnv(env: NodeJS.ProcessEnv, dir: string, configPath: string): NodeJS.ProcessEnv {
+  return { PATH: env.PATH, HOME: dir, OPENCODE_CONFIG: configPath, TENSORX_API_KEY: env.TENSORX_API_KEY, TENSORX_BASE_URL: env.TENSORX_BASE_URL };
+}
+
+export async function runReviewer(input: { model: string; cwd: string; diffText: string; ticketText: string }): Promise<Finding[]> {
+  const baseURL = process.env.TENSORX_BASE_URL;
+  if (!baseURL) throw new Error("TENSORX_BASE_URL is not set");
+  // The reviewer runs in an empty temp dir, so no project config or plugin from the target clone loads. input.cwd is not used.
+  const dir = mkdtempSync(join(tmpdir(), "opencode-"));
+  try {
+    const configPath = join(dir, "opencode.json");
+    writeFileSync(configPath, JSON.stringify(reviewerConfig(input.model, baseURL)));
+    const prompt = `${reviewPrompt}\n\n${wrapTicket(input.ticketText)}\n\n<diff>\n${input.diffText}\n</diff>`;
+    const { code, out } = await run("opencode", ["run", "--model", `tensorx/${input.model}`, prompt], reviewerEnv(process.env, dir, configPath), dir);
+    if (code !== 0) throw new Error(`opencode exited with code ${code}`);
+    return parseFindings(out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
