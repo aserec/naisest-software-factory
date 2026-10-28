@@ -290,6 +290,7 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
   throw new Error(`Could not load the run record of build pipeline ${buildPipelineId}: ${String(last)}`);
 }
 
+const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN/;
 const BUILD_JOBS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
 // A resumed run skips the build jobs that finished before the one that hit the limit.
 function doneBeforeResume(ctx: StepContext, name: string): boolean {
@@ -316,8 +317,9 @@ export async function runStep(
     try {
       ctx.record = await loadRunRecord(ctx, dir);
     } catch (e) {
-      // A resume whose record cannot be read now waits for the next hourly retry. A forged one still blocks.
-      if (name !== "event" || !ctx.env.buildPipelineId || e instanceof NotFactoryPipelineError) throw e;
+      // A resume whose record cannot be read now (GitLab 5xx or a network error) waits for the next hourly retry.
+      // Anything else (forged, 404, no decision job, a bad record) will not get better: block, so a person hears.
+      if (name !== "event" || !ctx.env.buildPipelineId || !TRANSIENT.test(String(e))) throw e;
       save(ctx, "event", { start: false, reason: "record-unavailable", error: String(e).slice(0, 500) });
       mkdirSync(dir, { recursive: true });
       writeFileSync(stopFile, name);

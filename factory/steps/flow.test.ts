@@ -473,3 +473,14 @@ test("extractRun restores run/ without the stop file and writes nothing outside 
   expect(existsSync(join(cwd, "run/stop"))).toBe(false);
   for (const p of [join(cwd, "x"), join(base, "y"), join(cwd, "z")]) expect(existsSync(p)).toBe(false);
 });
+test("a resume whose record is gone for good blocks with a comment and a card", async () => {
+  for (const error of ["GitLab GET failed with status 404", "Pipeline 1 has no successful decision job", "Unexpected token < in JSON"]) {
+    const w = fakeWorld({ liveLabels: ["factory_waiting"] });
+    w.ctx.env = { ...w.ctx.env, payload: undefined, workItemIid: 8, buildPipelineId: 1, factoryProjectId: 3 };
+    w.ctx.gitlab.buildRecord = async () => { throw new Error(error); };
+    await runBuildJobs(w, tmp()).catch(() => {});
+    expect(w.labels, error).toEqual(["factory_blocked"]);
+    expect(w.cards.map((c) => c.kind)).toEqual(["blocked"]);
+    expect(w.workItemComments.at(-1)).toContain(error);
+  }
+});
