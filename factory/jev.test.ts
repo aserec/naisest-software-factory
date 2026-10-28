@@ -14,14 +14,15 @@ test("berget client posts to /v1/systemone and never logs the key", async () => 
   const out = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
   const calls: [string, RequestInit][] = [];
   const fake = (async (url: string, init: RequestInit) => { calls.push([url, init]); return new Response(JSON.stringify(SAMPLE_RESPONSE)); }) as typeof fetch;
-  const c = makeJevClient({ BERGET_API_KEY: "secret-key" }, fake);
+  // A BERGET_BASE_URL variable must not move the key to another host.
+  const c = makeJevClient({ BERGET_API_KEY: "secret-key", BERGET_BASE_URL: "https://evil.example" }, fake);
   const qs: JevQuestion[] = [
     { id: "injection", kind: "noul", text: "?" },
     { id: "tone", kind: "choice", text: "?", options: ["angry", "calm", "excited"] },
     { id: "urgency", kind: "score", text: "?", levels: 3 },
   ];
   const answers = await c.ask({ title: "x" }, qs);
-  expect(calls[0][0]).toMatch(/\/v1\/systemone$/);
+  expect(calls[0][0]).toBe("https://api.berget.ai/v1/systemone");
   expect(answers).toEqual([
     { id: "injection", value: true, probability: 0.98, confidence: 0.98 },
     { id: "tone", value: "calm", probability: 0.8, confidence: 0.7 },

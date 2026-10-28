@@ -8,6 +8,7 @@ export type JevQuestion =
 export interface JevAnswer { id: string; value: string | number | boolean; probability: number; confidence: number }
 export interface JevClient { readonly provider: "berget" | "mock"; ask(state: unknown, questions: JevQuestion[]): Promise<JevAnswer[]> }
 
+// Fixed, never from an env variable: trigger callers can set any variable, and the key goes to this host.
 export const BERGET_BASE_URL = "https://api.berget.ai";
 // Berget does not serve jev-latest. This is one of its three "system-one" models (preview).
 export const BERGET_MODEL = "Cloudflare/clef-flash";
@@ -69,11 +70,10 @@ export function makeJevClient(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fe
       },
     };
   }
-  const base = (env.BERGET_BASE_URL || BERGET_BASE_URL).replace(/\/+$/, "");
   return {
     provider: "berget",
     async ask(state, questions) {
-      const res = await fetchFn(`${base}/v1/systemone`, {
+      const res = await fetchFn(`${BERGET_BASE_URL}/v1/systemone`, {
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({

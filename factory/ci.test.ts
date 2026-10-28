@@ -1,0 +1,42 @@
+// Trigger callers can set any CI variable. Every factory job must start node and pnpm through `env -i`
+// with a fixed allowlist, so NODE_OPTIONS, npm_config_*, PATH and the like never reach them.
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { expect, test } from "vitest";
+import { parse } from "yaml";
+
+const ci = parse(readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "utf8"));
+const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+const passed = (name: string) => `${name}="$${name}"`;
+const STEP_PREFIX = [
+  "env -i", PATH, "HOME=/root", 'CLAUDE_CONFIG_DIR="$PWD/run/claude-home"',
+  ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE"].map(passed),
+  ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY"].map(passed),
+  // File variables: only their paths pass.
+  ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_TRIGGER_TOKEN"].map(passed),
+  ...["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"].map(passed),
+].join(" ");
+const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile`;
+
+test("every factory job starts its step through the env -i allowlist", () => {
+  const jobs = Object.keys(ci).filter((k) => ["build", "finish"].some((t) => ci[k]?.extends === `.${t}`));
+  expect(jobs.sort()).toEqual([...STEPS].sort());
+  expect(ci[".factory"].before_script).toEqual([INSTALL]);
+  expect(ci[".factory"].variables).toBeUndefined();
+  for (const job of jobs) {
+    expect(ci[job].before_script, job).toBeUndefined();
+    expect(ci[job].script, job).toEqual([`${STEP_PREFIX} node --import tsx factory/steps/${job}.ts`]);
+  }
+});
+
+test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {
+  const out = execFileSync("bash", ["-c", `${STEP_PREFIX} /usr/bin/env`], {
+    encoding: "utf8",
+    env: { PATH: "/evil:/usr/bin:/bin", NODE_OPTIONS: "--require /evil.js", npm_config_registry: "https://evil", FACTORY_HOOKS_DIR: "/evil", FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" },
+  });
+  const env = Object.fromEntries(out.trim().split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+  expect(env.PATH).toBe(PATH.slice(5));
+  expect(env).toMatchObject({ FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" });
+  for (const k of ["NODE_OPTIONS", "npm_config_registry", "FACTORY_HOOKS_DIR"]) expect(env[k]).toBeUndefined();
+});

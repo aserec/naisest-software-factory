@@ -149,6 +149,18 @@ function need(env: NodeJS.ProcessEnv, key: string): string {
 }
 const num = (v: string | undefined) => (v ? Number(v) : undefined);
 
+// Trigger callers can set any variable, so each FACTORY_* value must match its pattern before a step starts.
+const PATTERNS: Record<string, RegExp> = {
+  FACTORY_PIPELINE: /^(build|finish)$/,
+  FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
+  FACTORY_MR_IID: /^([0-9]+)?$/,
+  FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,
+  FACTORY_SKIP_APPLY: /^1?$/,
+};
+function checkFactoryVars(env: NodeJS.ProcessEnv) {
+  for (const [k, re] of Object.entries(PATTERNS)) if (!re.test(env[k] ?? "")) throw new Error(`${k} has a value the factory does not accept`);
+}
+
 // GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
 // before any agent, install or gate command runs, so the environment only holds a path to nothing.
 function secretFile(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -167,6 +179,7 @@ const needSecret = (env: NodeJS.ProcessEnv, key: string) => {
 
 export function makeContext(env: NodeJS.ProcessEnv): StepContext {
   const server = need(env, "CI_SERVER_URL");
+  checkFactoryVars(env);
   const token = needSecret(env, "FACTORY_GITLAB_TOKEN");
   const webhook = needSecret(env, "TEAMS_WEBHOOK_URL");
   const triggerToken = secretFile(env, "FACTORY_TRIGGER_TOKEN");

@@ -10,7 +10,10 @@ export interface Finding { blocking: boolean; file?: string; text: string }
 
 // Absolute paths in the factory checkout. Never relative to the agent cwd, which is the target clone.
 export const SETTINGS_PATH = fileURLToPath(new URL("../.claude/factory-settings.json", import.meta.url));
-const defaultHooksDir = fileURLToPath(new URL("../.agents/hooks", import.meta.url));
+// Never from an env variable: trigger callers can set any variable.
+const HOOKS_DIR = fileURLToPath(new URL("../.agents/hooks", import.meta.url));
+// A fixed host, so the TensorX key never goes anywhere else. Placeholder: confirm it in the TensorX console at go-live.
+export const TENSORX_BASE_URL = "https://api.tensorx.ai/v1";
 
 export function buildClaudeArgs(r: ClaudeRun, settingsPath = SETTINGS_PATH): string[] {
   return [
@@ -80,12 +83,11 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string): any {
 }
 
 export async function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
-  const hooksDir = process.env.FACTORY_HOOKS_DIR ?? defaultHooksDir;
-  if (!existsSync(`${hooksDir}/deny-dangerous.sh`)) throw new Error(`Hook missing: ${hooksDir}/deny-dangerous.sh`);
+  if (!existsSync(`${HOOKS_DIR}/deny-dangerous.sh`)) throw new Error(`Hook missing: ${HOOKS_DIR}/deny-dangerous.sh`);
   const dir = mkdtempSync(join(tmpdir(), "claude-settings-"));
   try {
     const path = join(dir, "settings.json");
-    writeFileSync(path, JSON.stringify(factorySettings(process.env, hooksDir)));
+    writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR)));
     const { code, out } = await run("claude", buildClaudeArgs(r, path), agentEnv(process.env), r.cwd);
     return parseStream(out, code);
   } finally {
@@ -129,17 +131,15 @@ export function reviewerConfig(model: string, baseURL: string) {
 
 // Nothing secret except the TensorX key. No Claude token, no GitLab token.
 export function reviewerEnv(env: NodeJS.ProcessEnv, dir: string, configPath: string): NodeJS.ProcessEnv {
-  return { PATH: env.PATH, HOME: dir, OPENCODE_CONFIG: configPath, TENSORX_API_KEY: env.TENSORX_API_KEY, TENSORX_BASE_URL: env.TENSORX_BASE_URL };
+  return { PATH: env.PATH, HOME: dir, OPENCODE_CONFIG: configPath, TENSORX_API_KEY: env.TENSORX_API_KEY };
 }
 
 export async function runReviewer(input: { model: string; cwd: string; diffText: string; ticketText: string }): Promise<Finding[]> {
-  const baseURL = process.env.TENSORX_BASE_URL;
-  if (!baseURL) throw new Error("TENSORX_BASE_URL is not set");
   // The reviewer runs in an empty temp dir, so no project config or plugin from the target clone loads. input.cwd is not used.
   const dir = mkdtempSync(join(tmpdir(), "opencode-"));
   try {
     const configPath = join(dir, "opencode.json");
-    writeFileSync(configPath, JSON.stringify(reviewerConfig(input.model, baseURL)));
+    writeFileSync(configPath, JSON.stringify(reviewerConfig(input.model, TENSORX_BASE_URL)));
     const prompt = `${reviewPrompt}\n\n${wrapTicket(input.ticketText)}\n\n<diff>\n${input.diffText}\n</diff>`;
     const { code, out } = await run("opencode", ["run", "--model", `tensorx/${input.model}`, prompt], reviewerEnv(process.env, dir, configPath), dir);
     if (code !== 0) throw new Error(`opencode exited with code ${code}`);

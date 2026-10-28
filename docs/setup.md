@@ -69,7 +69,16 @@ https://gitlab.example.com/api/v4/projects/<factory project id>/ref/main/trigger
 
 - [ ] Use the same bot-owned trigger token that is stored in `FACTORY_TRIGGER_TOKEN`. The finish pipeline only trusts build pipelines started by the bot.
 - [ ] `<target name>` must have a `targets/<target name>.yml` in this repo. Other names stop the job.
-- [ ] Warning: anyone who can see the webhook URL can start factory pipelines as the bot, with any variables. Only Maintainers can see webhook settings. Keep it that way, and never give Maintainer to someone you would not trust with the factory.
+- [ ] In the factory project, set Settings > CI/CD > Variables > "Minimum role to use pipeline variables" to Maintainer.
+- [ ] Keep webhook settings Maintainer-only in every target repo, and never give Maintainer to someone you would not trust with the factory.
+
+Remaining risk. The webhook URL holds the trigger token. Anyone who can see the URL can start factory pipelines as the bot and set any CI variable. The factory limits what those variables can do:
+
+- Every step starts through `env -i` with a fixed list of variables (see `.gitlab-ci.yml`). Variables such as `NODE_OPTIONS`, `npm_config_*` or `PATH` never reach node or pnpm.
+- Step code accepts each `FACTORY_*` value only if it matches its pattern, and only targets with a `targets/<name>.yml`.
+- The Berget and TensorX URLs and the Claude hook dir are fixed in code. No variable changes them.
+
+But the job shell itself still runs with every variable, before `env -i` starts. For example, `BASH_ENV` can run code in that shell, and that shell can read the File-type secrets. So a person who sees a webhook URL can reach the factory secrets. That is why webhook settings stay Maintainer-only.
 
 ## Local use
 
