@@ -1,0 +1,14 @@
+{
+  "object_kind": "issue",
+  "event_type": "issue",
+  "user": { "id": 42, "name": "Dev One", "username": "devone" },
+  "project": { "id": 7, "name": "react_frontend", "path_with_namespace": "acme/web/react_frontend" },
+  "object_attributes": { "id": 301, "iid": 8, "title": "Add a loading state", "action": "update", "state": "opened" },
+  "labels": [{ "id": 206, "title": "factory_ready" }],
+  "changes": {
+    "labels": {
+      "previous": [],
+      "current": [{ "id": 206, "title": "factory_ready" }]
+    }
+  }
+}

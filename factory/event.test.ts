@@ -1,0 +1,34 @@
+import { readFileSync } from "node:fs";
+import { expect, test } from "vitest";
+import { decideStart, parseLabelEvent } from "./event.js";
+
+const load = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
+
+test("label just added by a developer starts a run", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(e).toMatchObject({ projectPath: "acme/web/react_frontend", workItemIid: 8, actorId: 42, labelsBefore: [], labelsAfter: ["factory_ready"] });
+  expect(decideStart(e, { actorAccessLevel: 30, workItemLabels: ["factory_ready"], runningInRepo: 0 })).toEqual({ start: true });
+});
+test("other edits do not start a run", () => {
+  expect(parseLabelEvent(load("label-unchanged.json"))).toBeNull();
+});
+test("work_item events work too", () => {
+  expect(parseLabelEvent({ ...load("label-added.json"), object_kind: "work_item" })).not.toBeNull();
+});
+test("label that was already there is not new", () => {
+  const p = load("label-added.json");
+  p.changes.labels.previous = [{ title: "factory_ready" }];
+  expect(parseLabelEvent(p)).toBeNull();
+});
+test("reporters cannot start runs", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(decideStart(e, { actorAccessLevel: 20, workItemLabels: ["factory_ready"], runningInRepo: 0 })).toEqual({ start: false, reason: "not-member" });
+});
+test("a second event during a run is ignored", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(decideStart(e, { actorAccessLevel: 30, workItemLabels: ["factory_ready", "factory_running"], runningInRepo: 1 })).toEqual({ start: false, reason: "active-run" });
+});
+test("a third run in the same repo waits", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(decideStart(e, { actorAccessLevel: 30, workItemLabels: ["factory_ready"], runningInRepo: 2 })).toEqual({ start: false, reason: "repo-full" });
+});
