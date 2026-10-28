@@ -32,3 +32,15 @@ test("a third run in the same repo waits", () => {
   const e = parseLabelEvent(load("label-added.json"))!;
   expect(decideStart(e, { actorAccessLevel: 30, workItemLabels: ["factory_ready"], runningInRepo: 2 })).toEqual({ start: false, reason: "repo-full" });
 });
+test("re-added label while waiting is an active run", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(decideStart(e, { actorAccessLevel: 30, workItemLabels: ["factory_ready", "factory_waiting"], runningInRepo: 0 })).toEqual({ start: false, reason: "active-run" });
+});
+test("re-added label after needs_info starts a new run", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(decideStart(e, { actorAccessLevel: 30, workItemLabels: ["factory_ready", "factory_needs_info"], runningInRepo: 0 })).toEqual({ start: true });
+});
+test("a reporter on a work item with an active run gets not-member", () => {
+  const e = parseLabelEvent(load("label-added.json"))!;
+  expect(decideStart(e, { actorAccessLevel: 20, workItemLabels: ["factory_ready", "factory_running"], runningInRepo: 0 })).toEqual({ start: false, reason: "not-member" });
+});
