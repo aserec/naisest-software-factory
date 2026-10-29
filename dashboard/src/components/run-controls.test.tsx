@@ -41,6 +41,13 @@ test("Resume is hidden when a pipeline cancel ended the run", async () => {
   expect(names()).toEqual(["Restart"]);
 });
 
+test("after a pipeline cancel only Restart shows, even before the label says stopped", async () => {
+  server({ label: "factory_running", cancelled: true });
+  renderWithQuery(<RunControls run="r1" />);
+  await screen.findByRole("button", { name: "Restart" });
+  expect(names()).toEqual(["Restart"]);
+});
+
 test("a run in any other state has no buttons, and a waiting request replaces them", async () => {
   server({ label: "factory_done" });
   renderWithQuery(<RunControls run="r1" />);

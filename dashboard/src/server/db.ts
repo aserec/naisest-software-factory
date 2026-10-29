@@ -163,8 +163,11 @@ export function openDb(path: string): Db {
       if (r.kind === "stop") {
         if (db.prepare("SELECT 1 FROM events WHERE run = ? AND type = 'run_end'").get(r.run)) return { refused: "run already ended" };
       } else {
+        // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted (spec 6.1, Ruling R18).
+        const cancelled = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'stop' AND outcome = 'cancelled'").get(r.run);
+        if (cancelled && r.kind === "resume") return { refused: "the pipeline was cancelled, use Restart" };
         const last = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'step_end' ORDER BY seq DESC LIMIT 1").get(r.run) as Row | undefined;
-        if (!last || JSON.parse(last.data as string).outcome !== "stopped") return { refused: "run is not stopped" };
+        if (!cancelled && (!last || JSON.parse(last.data as string).outcome !== "stopped")) return { refused: "run is not stopped" };
       }
       const row: ControlRequest = { id: randomUUID(), at: new Date().toISOString(), kind: r.kind, run: r.run, target: r.target, ticket: r.ticket, user: r.user };
       db.prepare("INSERT INTO requests (id, kind, run, target, ticket, user, at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(row.id, row.kind, row.run, row.target, row.ticket, row.user, row.at);

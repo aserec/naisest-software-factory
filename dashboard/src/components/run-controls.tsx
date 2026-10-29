@@ -49,8 +49,8 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
   );
 }
 
-// Stop while the last state label is factory_running. Resume and Restart while it is factory_stopped;
-// Resume is hidden when a pipeline cancel ended the run, because the cancelled job saved nothing to resume from (spec 6.1).
+// Stop while the last state label is factory_running. Resume and Restart while it is factory_stopped.
+// After a pipeline cancel only Restart, because the cancelled job saved nothing to resume from (spec 6.1).
 export function RunControls({ run }: { run: string }) {
   const client = useQueryClient();
   const key = ["run-state", run];
@@ -71,7 +71,8 @@ export function RunControls({ run }: { run: string }) {
     onSettled: () => client.invalidateQueries({ queryKey: key }),
   });
   if (!data) return null;
-  const buttons: Action[] = data.pending.length ? [] : data.label === "factory_running" ? ["stop"] : data.label === "factory_stopped" ? (data.cancelled ? ["restart"] : ["resume", "restart"]) : [];
+  // A cancel means the run is over even before the poller sets the stopped label, so only Restart is left (Ruling R18).
+  const buttons: Action[] = data.pending.length ? [] : data.cancelled ? ["restart"] : data.label === "factory_running" ? ["stop"] : data.label === "factory_stopped" ? ["resume", "restart"] : [];
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
       {buttons.map((a) => (

@@ -116,6 +116,15 @@ describe("requests", () => {
     expect(db.requests({})[0].doneAt).toBeTruthy();
   });
 
+  it("after a pipeline cancel allows restart but refuses resume (spec 6.1)", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("run_start"), ev("step_start", {}, { step: "triage" })]);
+    const r = db.request(stopReq) as { id: string };
+    db.finish(r.id, "cancelled");
+    expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "the pipeline was cancelled, use Restart" });
+    expect(db.request({ ...stopReq, kind: "restart" })).toMatchObject({ kind: "restart" });
+  });
+
   it("filters by target and by age", () => {
     const db = openDb(":memory:");
     db.addEvents([ev("run_start"), ev("run_start", {}, { run: "r2", target: "other" })]);
