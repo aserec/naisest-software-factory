@@ -114,3 +114,24 @@ test("control throws when the dashboard cannot be reached or refuses", async () 
   const refused = makeHttpDashboard("https://d.example", "bad", (async () => new Response("{}", { status: 401 })) as unknown as typeof fetch);
   await expect(refused.control("t")).rejects.toThrow("HTTP 401");
 });
+
+test("with a slow dashboard, no new batch starts after flush returns", async () => {
+  vi.useFakeTimers();
+  try {
+    let posts = 0;
+    const fetchFn = (async () => {
+      posts++;
+      return new Promise<Response>((r) => setTimeout(() => r(ok()), 3000));
+    }) as unknown as typeof fetch;
+    const dash = makeHttpDashboard("https://d.example", "tok", fetchFn);
+    for (let i = 0; i < 1200; i++) dash.send(event(i)); // four batches: the first send starts at 100 events
+    const flushed = dash.flush();
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushed;
+    expect(posts).toBe(2); // the second batch is on its way when flush gives up
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(posts).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});

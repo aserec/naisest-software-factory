@@ -13,12 +13,14 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
   const headers = { authorization: `Bearer ${token}` };
   const queue: RunEvent[] = [];
   let sending: Promise<void> | undefined;
+  let closing = false; // set when flush gives up, so a slow dashboard cannot keep the process alive; a new send clears it
 
   // A fetch that never answers still ends after TIMEOUT_MS: the abort signal is a hint, the race is the guarantee.
   async function call(path: string, init: RequestInit = {}): Promise<Response> {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => (abort.abort(), reject(new Error(`dashboard did not answer in ${TIMEOUT_MS / 1000} s`))), TIMEOUT_MS)));
+    timer!.unref();
     try {
       return await Promise.race([fetchFn(`${base}${path}`, { ...init, headers: { ...headers, ...init.headers }, signal: abort.signal }), timeout]);
     } finally {
@@ -61,7 +63,7 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
   }
 
   async function sendAll() {
-    while (queue.length) {
+    while (queue.length && !closing) {
       const failed = await sendBatch(queue.splice(0, BATCH));
       if (failed.length) {
         queue.unshift(...failed);
@@ -76,14 +78,17 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
 
   return {
     send(e) {
+      closing = false;
       queue.push(e);
       if (queue.length > MAX_QUEUE) queue.shift();
       if (queue.length >= SEND_AT) void pump();
     },
     async flush() {
+      closing = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([pump(), new Promise((r) => (timer = setTimeout(r, TIMEOUT_MS)))]);
       clearTimeout(timer);
+      closing = true;
     },
     async control(target, run) {
       const q = new URLSearchParams({ target, ...(run ? { run } : {}) });
