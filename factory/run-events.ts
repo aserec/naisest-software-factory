@@ -3,6 +3,8 @@ import { z } from "zod";
 
 export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "decision", "label_change", "usage", "stop", "resume", "restart", "switch_change", "error"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
+// The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
+export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "switch_change"]);
 
 export const SWITCHES = ["watcher", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply"] as const;
 export type SwitchName = (typeof SWITCHES)[number];

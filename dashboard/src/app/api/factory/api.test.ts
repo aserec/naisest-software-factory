@@ -41,6 +41,14 @@ describe("POST /api/events", () => {
     expect(((await r.json()) as { error: string }).error).toContain("2");
   });
 
+  it("refuses the dashboard's own audit types and names the event", async () => {
+    for (const type of ["stop", "resume", "restart", "switch_change"] as const) {
+      const r = await send([ev("run_start", {}, "own"), ev(type, { user: "x", name: "retry", scope: "*", on: false }, "own")]);
+      expect([r.status, ((await r.json()) as { error: string }).error]).toEqual([400, `event 1 has type ${type}, which only the dashboard writes`]);
+    }
+    expect(getDb().events({ run: "own" }).events).toEqual([]);
+  });
+
   it("drops data keys the event type does not know", async () => {
     const call = ev("tool_call", { name: "x", input: "i", result: "r", ms: 1, ok: true, extra: "secret" }, "strip");
     expect((await send([call])).status).toBe(200);

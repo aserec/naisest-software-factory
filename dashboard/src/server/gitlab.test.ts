@@ -108,8 +108,9 @@ describe("importEvents", () => {
   const ev = (n: number) => ({ id: crypto.randomUUID(), run: "r1", at: "2026-10-29T10:00:00.000Z", target: "t1", ticket: "5", type: "error", data: { message: `m${n}`, extra: "dropped" } });
   const jobs = [{ id: 11 }, { id: 12 }];
 
-  it("adds the good lines, skips the bad one, and never fetches a job twice", async () => {
-    const file = [JSON.stringify(ev(1)), "not json", JSON.stringify(ev(2))].join("\n");
+  it("adds the good lines, skips the bad one and the dashboard's own types, and never fetches a job twice", async () => {
+    const own = { ...ev(3), type: "stop", data: { user: "x" } }; // the dashboard's own audit type
+    const file = [JSON.stringify(ev(1)), "not json", JSON.stringify(own), JSON.stringify(ev(2))].join("\n");
     const { fn, calls } = fakeFetch({
       "/pipelines?": () => Response.json([{ id: 7 }]),
       "/pipelines/7/jobs": () => Response.json(jobs),
