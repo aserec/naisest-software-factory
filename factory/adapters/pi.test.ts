@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import type { HarnessJob, Provider } from "../seams";
 import { sandboxDenyRead } from "../sandbox";
-import { agentEnv, pi, piArgs, piModels, piSandboxSettings } from "./pi";
+import { agentEnv, pi, piArgs, piModels, piSandboxSettings, piToolCalls } from "./pi";
 import { readNew } from "../inbox-file";
 import piExtension, { guardCheck } from "./pi-extension";
 
@@ -56,7 +56,7 @@ test("a no-tools job returns stdout as text, from an empty dir with the provider
   vi.stubEnv("FACTORY_GITLAB_TOKEN", "gl-secret");
   vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-secret");
   const r = await pi.run(job());
-  expect(r).toEqual({ session: "", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: "hello\n" });
+  expect(r).toEqual({ session: "", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: "hello\n" });
   expect(readFileSync(join(bin, "cwd"), "utf8").trim()).not.toBe(realpathSync(tmpdir()));
   expect(readFileSync(join(bin, "args"), "utf8")).toContain("--provider\ntensorx\n--model\nm1");
   expect(JSON.parse(readFileSync(join(bin, "models.json"), "utf8")).providers.tensorx.api).toBe("openai-completions");
@@ -120,7 +120,7 @@ test("an author job runs pi in srt with the guard extension, the sandbox setting
   vi.stubEnv("TENSORX_API_KEY", "tx-key");
   const cwd = runDir();
   const r = await pi.run(authorJob(cwd, { prompt: "fix 'it'; $(x)" }));
-  expect(r).toEqual({ session: "sess-1", ok: true, limitHit: false, stopped: false, costUsd: 0.02, tokens: { input: 10, output: 3 }, text: "done" });
+  expect(r).toEqual({ session: "sess-1", ok: true, limitHit: false, stopped: false, costUsd: 0.02, tokens: { input: 10, output: 3, cacheRead: 0, cacheWrite: 0 }, contextTokens: 10, text: "done" });
   const args = readFileSync(join(bin, "args"), "utf8").split("\n");
   expect(args).toEqual(expect.arrayContaining(["--print", "--mode", "json", "--no-extensions", "--extension", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-mcp", "--provider", "tensorx", "--model", "m1"]));
   expect(args).not.toContain("--no-tools");
@@ -238,4 +238,30 @@ test("the extension aborts the agent on a stop line, and does nothing without an
   x.result();
   expect(x.ctx.aborted).toBe(true);
   expect(readNew(join(dir, "inbox.jsonl"))).toEqual({ comments: [], stop: false });
+});
+
+// Live tool calls. Event names are from the Pi JSON mode docs (docs/json.md): tool_execution_start and tool_execution_end.
+const toolStart = (id: string, toolName: string, args: object) => ({ type: "tool_execution_start", toolCallId: id, toolName, args });
+const toolEnd = (id: string, toolName: string, text: string, isError = false, durationMs = 42) => ({ type: "tool_execution_end", toolCallId: id, toolName, result: { content: [{ type: "text", text }], details: {} }, isError, durationMs });
+test("piToolCalls pairs a tool start and end by id, takes the time Pi measured, and gives ok from isError", () => {
+  const calls = piToolCalls();
+  const got = [toolStart("c1", "read", { path: "a.ts" }), toolEnd("c1", "read", "file text"), toolStart("c2", "bash", { command: "pnpm test" }), toolEnd("c2", "bash", "1 failed", true, 7)]
+    .flatMap((e) => calls.line(JSON.stringify(e)));
+  expect(got).toEqual([
+    { name: "read", input: JSON.stringify({ path: "a.ts" }), result: "file text", ms: 42, ok: true },
+    { name: "bash", input: JSON.stringify({ command: "pnpm test" }), result: "1 failed", ms: 7, ok: false },
+  ]);
+});
+test("piToolCalls ignores other events, a line that is not JSON and an end with no start", () => {
+  const calls = piToolCalls();
+  expect([calls.line("not json"), calls.line(JSON.stringify({ type: "turn_start" })), calls.line(JSON.stringify(toolEnd("zz", "bash", "x")))]).toEqual([[], [], []]);
+});
+test("an author job gives each tool call to onToolCall while pi runs, and the cache and context tokens in the result", async () => {
+  const usage = { input: 10, output: 3, cacheRead: 100, cacheWrite: 20, cost: { total: 0.02 } };
+  fakePi(events(header, toolStart("c1", "bash", { command: "ls" }), toolEnd("c1", "bash", "a.ts"), answer("done", usage)));
+  fakeSrt();
+  const seen: string[] = [];
+  const r = await pi.run(authorJob(runDir(), { onToolCall: (c) => seen.push(`${c.name}:${c.result}:${c.ok}`) }));
+  expect(seen).toEqual(["bash:a.ts:true"]);
+  expect(r).toMatchObject({ ok: true, tokens: { input: 10, output: 3, cacheRead: 100, cacheWrite: 20 }, contextTokens: 130 });
 });

@@ -3,7 +3,7 @@ import type { RunRecord } from "./record";
 import { findSecrets } from "./rules";
 import { SWITCHES } from "./run-events";
 import { NotFactoryRunError } from "./seams";
-import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
+import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
@@ -224,14 +224,17 @@ export function fakeJudge(answer: (q: JevQuestion, state: unknown) => JevAnswer)
 }
 
 // A Harness for tests. `script` gives the result of job n (from 0); the rest is filled with an ok answer.
-export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<HarnessResult> = () => ({})): Harness & { jobs: HarnessJob[] } {
+// `toolCalls` in the script's answer are given to the job's onToolCall before run resolves, when the job has one.
+export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<HarnessResult> & { toolCalls?: ToolCall[] } = () => ({})): Harness & { jobs: HarnessJob[] } {
   const jobs: HarnessJob[] = [];
   return {
     apis: ["anthropic", "openai"],
     jobs,
     run: async (job) => {
       const n = jobs.push(job) - 1;
-      return { session: `fake-session-${n}`, ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: "", ...script(job, n) };
+      const { toolCalls = [], ...result } = script(job, n);
+      toolCalls.forEach((c) => job.onToolCall?.(c));
+      return { session: `fake-session-${n}`, ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: "", ...result };
     },
   };
 }

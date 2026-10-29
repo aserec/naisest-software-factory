@@ -20,7 +20,7 @@ function fakeDeps(o: {
     review: async () => reviews.shift() ?? [],
     fix: async (f) => {
       fixCalls.push(f);
-      return { session: "s", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: "", ...o.fixResult };
+      return { session: "s", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: "", ...o.fixResult };
     },
     run: async (cmd) => {
       runCalls.push(cmd);

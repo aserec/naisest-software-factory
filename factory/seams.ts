@@ -93,9 +93,11 @@ export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEn
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
 export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
-export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number }
+// One tool the agent used. input and result are text (JSON for input); ms is how long the tool ran.
+export interface ToolCall { name: string; input: string; result: string; ms: number; ok: boolean }
+export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; onToolCall?: (c: ToolCall) => void } // onToolCall is called as each tool finishes, while the agent runs
 // `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
-export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number }; text: string }
+export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; text: string } // contextTokens: input plus cache tokens of the last model turn
 export interface Harness { readonly apis: ApiStyle[]; run(job: HarnessJob): Promise<HarnessResult> }
 
 // Error logs. One group is one kind of error; hourly[0] is the last hour, 24 entries.

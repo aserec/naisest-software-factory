@@ -9,7 +9,7 @@ import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
-import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type TicketRef, type Tracker } from "../seams";
+import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
 import type { RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
@@ -128,9 +128,10 @@ export const inbox = (ctx: StepContext) =>
 // An author run with tools gets the inbox: comments from trusted people reach it, and a stop line stops it.
 export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, job: Omit<HarnessJob, "role" | "model">): Promise<HarnessResult> {
   const box = role === "author" && job.tools === "code" ? inbox(ctx) : undefined;
-  const r = await ctx.harnesses[choice.harness].run({ ...job, ...(box ? { inbox: box } : {}), role, model: modelChoice(choice, ctx.seams) });
-  // ponytail: cache and context tokens are 0 until the harnesses report them (Task B3).
-  emit(ctx, "usage", { role, model: choice.model, input: r.tokens.input, output: r.tokens.output, cacheRead: 0, cacheWrite: 0, costUsd: r.costUsd, contextTokens: 0 });
+  // Only the author's tool calls go to the dashboard. Jev and the reviewer show at step level.
+  const onToolCall = role === "author" ? (c: ToolCall) => void emit(ctx, "tool_call", c, { parent: ctx.stepEvent }) : undefined;
+  const r = await ctx.harnesses[choice.harness].run({ ...job, ...(box ? { inbox: box } : {}), ...(onToolCall ? { onToolCall } : {}), role, model: modelChoice(choice, ctx.seams) });
+  emit(ctx, "usage", { role, model: choice.model, input: r.tokens.input, output: r.tokens.output, cacheRead: r.tokens.cacheRead, cacheWrite: r.tokens.cacheWrite, costUsd: r.costUsd, contextTokens: r.contextTokens });
   const t = ctx.record.tokens ?? { input: 0, output: 0 };
   ctx.record = {
     ...ctx.record,

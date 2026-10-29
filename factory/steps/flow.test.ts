@@ -792,3 +792,24 @@ test("a successful @factory resume sends one paired start and end for the event 
   expect(ev.map((e) => e.type)).toEqual(["step_start", "step_end"]);
   expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([first.record.runId]));
 });
+
+// Task B3: author tool calls go to the dashboard under the step; usage carries the cache and context tokens.
+test("an author's tool calls are sent as tool_call events under their step, a reviewer's are not asked for, and usage has the cache tokens", async () => {
+  const w = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
+  const events = dash(w).events;
+  const calls = events.filter((e) => e.type === "tool_call");
+  expect(calls.length).toBeGreaterThan(0);
+  const starts = new Map(events.filter((e) => e.type === "step_start").map((e) => [e.id, e.step]));
+  for (const c of calls) {
+    expect(c.parent && starts.get(c.parent)).toBeTruthy();
+    expect(c.data).toEqual({ name: "Read", input: '{"file_path":"a.ts"}', result: "text", ms: 12, ok: true });
+    expect(runEvent.safeParse(c).success).toBe(true);
+  }
+  expect(new Set(calls.map((c) => starts.get(c.parent!)))).toEqual(new Set(["prepare-patch"]));
+  const jobs = w.harness.jobs;
+  expect(jobs.filter((j) => j.role === "author").every((j) => typeof j.onToolCall === "function")).toBe(true);
+  expect(jobs.filter((j) => j.role !== "author").length).toBeGreaterThan(0);
+  expect(jobs.filter((j) => j.role !== "author").every((j) => j.onToolCall === undefined)).toBe(true);
+  const usage = events.filter((e) => e.type === "usage" && e.data.role === "author");
+  expect(usage[0].data).toMatchObject({ input: 100, output: 20, cacheRead: 7, cacheWrite: 3, contextTokens: 110 });
+});

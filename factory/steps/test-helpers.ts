@@ -96,12 +96,12 @@ export function fakeWorld(o: WorldOptions = {}) {
   const limit: Partial<HarnessResult> = { session: "sess-limit", ok: false, limitHit: true, text: "usage limit reached" };
   const stop: Partial<HarnessResult> = { session: "sess-stop", ok: false, stopped: true, text: "" };
   const harness = fakeHarness((job) => {
-    if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []) };
+    if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []), toolCalls: [{ name: "Read", input: "{}", result: "x", ms: 1, ok: true }] };
     if (o.prepare === "limit" && !job.resume) return limit;
     if (o.fixLimit && job.resume) return limit;
     if (o.fixStop && job.resume) return stop;
     if (o.prepare === "stop" && !job.resume) return stop;
-    return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20 }, text: "1. Which list?" };
+    return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20, cacheRead: 7, cacheWrite: 3 }, contextTokens: 110, toolCalls: [{ name: "Read", input: '{"file_path":"a.ts"}', result: "text", ms: 12, ok: true }], text: "1. Which list?" };
   });
   const ran: string[] = [];
   let commitMessage = "";
