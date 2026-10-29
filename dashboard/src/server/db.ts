@@ -1,0 +1,193 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { SWITCHES, type ControlRequest, type RunEvent, type SwitchName } from "software-factory/run-events";
+
+export interface RunSummary {
+  run: string;
+  target: string;
+  ticket: string;
+  startedAt: string;
+  endedAt?: string;
+  outcome?: string;
+  costUsd: number;
+  lastStep?: { step: string; startedAt: string; ended: boolean };
+}
+
+export interface Db {
+  addEvents(events: RunEvent[]): number;
+  events(q: { run?: string; after?: number; limit?: number }): { events: (RunEvent & { seq: number })[]; cursor: number };
+  runs(q: { target?: string; ticket?: string }): RunSummary[];
+  switches(target: string): Record<SwitchName, boolean>;
+  setSwitch(scope: string, name: SwitchName, on: boolean, user: string): void;
+  request(r: Omit<ControlRequest, "id" | "at">): ControlRequest | { refused: string };
+  requests(q: { target?: string; pending?: boolean; sinceMinutes?: number }): ControlRequest[];
+  finish(id: string, outcome: NonNullable<ControlRequest["outcome"]>): void;
+  prune(now: Date): void;
+  backup(dir: string, now: Date): void;
+}
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS events (
+  seq INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, run TEXT NOT NULL, parent TEXT, at TEXT NOT NULL,
+  target TEXT NOT NULL, ticket TEXT NOT NULL, pipeline TEXT, job TEXT, step TEXT, type TEXT NOT NULL, data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS events_run ON events (run, seq);
+CREATE INDEX IF NOT EXISTS events_ticket ON events (target, ticket);
+CREATE TABLE IF NOT EXISTS switches (
+  scope TEXT NOT NULL, name TEXT NOT NULL, "on" INTEGER NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (scope, name)
+);
+CREATE TABLE IF NOT EXISTS requests (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, run TEXT NOT NULL, target TEXT NOT NULL, ticket TEXT NOT NULL,
+  user TEXT NOT NULL, at TEXT NOT NULL, outcome TEXT, done_at TEXT
+);`;
+
+const DAY_MS = 864e5;
+const KEEP_BACKUPS = 7;
+const BACKUP_FILE = /^factory-\d{4}-\d{2}-\d{2}\.db$/;
+
+type Row = Record<string, unknown>;
+const text = (v: unknown) => (v == null ? undefined : (v as string));
+
+function toEvent(r: Row): RunEvent & { seq: number } {
+  const e: RunEvent & { seq: number } = { seq: r.seq as number, id: r.id as string, run: r.run as string, at: r.at as string, target: r.target as string, ticket: r.ticket as string, type: r.type as RunEvent["type"], data: JSON.parse(r.data as string) };
+  for (const k of ["parent", "pipeline", "job", "step"] as const) if (r[k] != null) e[k] = r[k] as string;
+  return e;
+}
+
+function toRequest(r: Row): ControlRequest {
+  const q: ControlRequest = { id: r.id as string, kind: r.kind as ControlRequest["kind"], run: r.run as string, target: r.target as string, ticket: r.ticket as string, user: r.user as string, at: r.at as string };
+  if (r.outcome != null) q.outcome = r.outcome as ControlRequest["outcome"];
+  if (r.done_at != null) q.doneAt = r.done_at as string;
+  return q;
+}
+
+export function openDb(path: string): Db {
+  const db = new DatabaseSync(path);
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec(SCHEMA);
+
+  const insertEvent = db.prepare("INSERT OR IGNORE INTO events (id, run, parent, at, target, ticket, pipeline, job, step, type, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  // A pending request is one with no done_at. "cancelled" keeps it pending (Ruling R4) and is never overwritten.
+  const finishStmt = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE ? END WHERE id = ?");
+  const cancelStmt = db.prepare("UPDATE requests SET outcome = 'cancelled' WHERE id = ?");
+  const finishStops = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE 'stopped' END WHERE run = ? AND kind = 'stop' AND done_at IS NULL");
+
+  function inTransaction(fn: () => void) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      fn();
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  function addEvents(events: RunEvent[]): number {
+    let added = 0;
+    inTransaction(() => {
+      for (const e of events) {
+        const r = insertEvent.run(e.id, e.run, e.parent ?? null, e.at, e.target, e.ticket, e.pipeline ?? null, e.job ?? null, e.step ?? null, e.type, JSON.stringify(e.data));
+        if (r.changes === 0) continue;
+        added++;
+        if (e.type === "step_end" && e.data.outcome === "stopped") finishStops.run(new Date().toISOString(), e.run);
+      }
+    });
+    return added;
+  }
+
+  return {
+    addEvents,
+
+    events({ run, after = 0, limit = 500 }) {
+      const rows = db.prepare("SELECT * FROM events WHERE seq > ? AND (? IS NULL OR run = ?) ORDER BY seq LIMIT ?").all(after, run ?? null, run ?? null, limit) as Row[];
+      const events = rows.map(toEvent);
+      return { events, cursor: events.length ? events[events.length - 1].seq : after };
+    },
+
+    runs({ target, ticket }) {
+      const rows = db
+        .prepare(
+          `SELECT seq, run, target, ticket, at, step, type, data FROM events
+           WHERE type IN ('run_start','run_end','usage','step_start','step_end')
+             AND run IN (SELECT run FROM events WHERE type = 'run_start' AND (? IS NULL OR target = ?) AND (? IS NULL OR ticket = ?))
+           ORDER BY seq`,
+        )
+        .all(target ?? null, target ?? null, ticket ?? null, ticket ?? null) as Row[];
+      const byRun = new Map<string, RunSummary>();
+      for (const r of rows) {
+        const id = r.run as string;
+        const data = JSON.parse(r.data as string) as Record<string, unknown>;
+        let s = byRun.get(id);
+        if (r.type === "run_start") {
+          s = { run: id, target: r.target as string, ticket: r.ticket as string, startedAt: r.at as string, costUsd: 0 };
+          byRun.set(id, s);
+        } else if (!s) continue;
+        else if (r.type === "run_end") {
+          s.endedAt = r.at as string;
+          s.outcome = data.outcome as string;
+        } else if (r.type === "usage") s.costUsd += data.costUsd as number;
+        else if (r.type === "step_start") s.lastStep = { step: text(r.step) ?? "", startedAt: r.at as string, ended: false };
+        else if (r.type === "step_end" && s.lastStep && s.lastStep.step === (text(r.step) ?? "")) s.lastStep.ended = true;
+      }
+      return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
+    },
+
+    switches(target) {
+      const rows = db.prepare(`SELECT scope, name, "on" FROM switches WHERE scope IN (?, '*')`).all(target) as Row[];
+      const out = Object.fromEntries(SWITCHES.map((n) => [n, true])) as Record<SwitchName, boolean>;
+      for (const r of rows) if (!r.on) out[r.name as SwitchName] = false;
+      return out;
+    },
+
+    setSwitch(scope, name, on, user) {
+      const at = new Date().toISOString();
+      db.prepare(`INSERT INTO switches (scope, name, "on", user, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (scope, name) DO UPDATE SET "on" = excluded."on", user = excluded.user, at = excluded.at`).run(scope, name, on ? 1 : 0, user, at);
+      // A switch change belongs to no run, so run and ticket stay empty.
+      addEvents([{ id: randomUUID(), run: "", at, target: scope, ticket: "", type: "switch_change", data: { user, name, scope, on } }]);
+    },
+
+    request(r) {
+      const pending = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = ? AND done_at IS NULL").get(r.run, r.kind);
+      if (pending) return { refused: "already requested" };
+      if (r.kind === "stop") {
+        if (db.prepare("SELECT 1 FROM events WHERE run = ? AND type = 'run_end'").get(r.run)) return { refused: "run already ended" };
+      } else {
+        const last = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'step_end' ORDER BY seq DESC LIMIT 1").get(r.run) as Row | undefined;
+        if (!last || JSON.parse(last.data as string).outcome !== "stopped") return { refused: "run is not stopped" };
+      }
+      const row: ControlRequest = { id: randomUUID(), at: new Date().toISOString(), kind: r.kind, run: r.run, target: r.target, ticket: r.ticket, user: r.user };
+      db.prepare("INSERT INTO requests (id, kind, run, target, ticket, user, at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(row.id, row.kind, row.run, row.target, row.ticket, row.user, row.at);
+      return row;
+    },
+
+    requests({ target, pending, sinceMinutes }) {
+      const since = sinceMinutes == null ? null : new Date(Date.now() - sinceMinutes * 60_000).toISOString();
+      const rows = db
+        .prepare("SELECT * FROM requests WHERE (? IS NULL OR target = ?) AND (? = 0 OR done_at IS NULL) AND (? IS NULL OR at > ?) ORDER BY at, rowid")
+        .all(target ?? null, target ?? null, pending ? 1 : 0, since, since) as Row[];
+      return rows.map(toRequest);
+    },
+
+    finish(id, outcome) {
+      if (outcome === "cancelled") cancelStmt.run(id);
+      else finishStmt.run(new Date().toISOString(), outcome, id);
+    },
+
+    prune(now) {
+      const cutoff = new Date(now.getTime() - 90 * DAY_MS).toISOString();
+      db.prepare("UPDATE events SET data = json_remove(data, '$.input', '$.result') WHERE type = 'tool_call' AND at < ?").run(cutoff);
+    },
+
+    backup(dir, now) {
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `factory-${now.toISOString().slice(0, 10)}.db`);
+      rmSync(file, { force: true }); // VACUUM INTO refuses to write over a file
+      db.prepare("VACUUM INTO ?").run(file);
+      const old = readdirSync(dir).filter((f) => BACKUP_FILE.test(f)).sort().slice(0, -KEEP_BACKUPS);
+      for (const f of old) rmSync(join(dir, f));
+    },
+  };
+}
