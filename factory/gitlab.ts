@@ -37,7 +37,10 @@ export class GitLab {
   // How many work items with this label were created since the date, open or closed.
   async countCreatedSince(projectId: number, label: string, since: Date): Promise<number> {
     const res = await this.call("GET", `/projects/${projectId}/issues?labels=${label}&created_after=${encodeURIComponent(since.toISOString())}&per_page=1`);
-    return Number(res.headers.get("X-Total") ?? 0);
+    // Fail closed: a missing count would read as 0 and let the daily cap pass.
+    const total = res.headers.get("X-Total")?.trim();
+    if (!total || !Number.isFinite(Number(total))) throw new Error(`GitLab sent no usable X-Total count: ${JSON.stringify(total)}`);
+    return Number(total);
   }
 
   async createWorkItem(projectId: number, title: string, description: string, labels: string[]) {

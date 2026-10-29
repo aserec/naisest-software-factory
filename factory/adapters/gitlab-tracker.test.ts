@@ -224,4 +224,11 @@ describe("watcher tickets", () => {
     expect(await tracker().createdSince("watcher", new Date("2026-01-02T00:00:00Z"))).toBe(3);
     expect(last().url).toContain("labels=factory_watcher&created_after=2026-01-02T00%3A00%3A00.000Z");
   });
+  // A missing count must not read as zero, or the daily cap never holds.
+  test("createdSince fails when the count header is missing or not a number", async () => {
+    for (const headers of [{}, { "X-Total": "" }, { "X-Total": "many" }]) {
+      routes["/projects/7/issues"] = { body: [], headers };
+      await expect(tracker().createdSince("watcher", new Date())).rejects.toThrow("X-Total");
+    }
+  });
 });
