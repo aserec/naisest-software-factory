@@ -1,8 +1,6 @@
-import { DEVELOPER } from "../event";
-import { AI_LINE, GitLab } from "../gitlab";
+import { AI_LINE, DEVELOPER, GitLab, GITLAB_URL } from "../gitlab";
 import { gitRepo } from "../steps/repo";
 import type { Checks, CodeHost } from "../seams";
-import { GITLAB_URL } from "./gitlab-ci";
 
 export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv): CodeHost {
   let project: Promise<{ id: number; defaultBranch: string }> | undefined;

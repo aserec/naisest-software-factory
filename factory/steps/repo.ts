@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTINGS_PATH, sandboxDenyRead } from "../agents";
+import { SETTINGS_PATH, sandboxDenyRead } from "../sandbox";
 import type { Repo } from "../seams";
 
 const SRT = fileURLToPath(new URL("../../node_modules/.bin/srt", import.meta.url));

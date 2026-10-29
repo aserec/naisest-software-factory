@@ -4,11 +4,11 @@ import { retryWaiting } from "./retry-waiting";
 import { fakeCtx } from "./test-helpers";
 
 test("poller starts ready items up to the repo limit of 2", async () => {
-  expect(await pollReady(fakeCtx({ ready: [3, 4, 5], running: 0 }))).toEqual([3, 4]);
+  expect(await pollReady(fakeCtx({ ready: [3, 4, 5], running: 0 }))).toEqual(["3", "4"]);
 });
 test("retry resumes waiting runs with their saved session", async () => {
   const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0 });
-  expect(await retryWaiting(ctx)).toEqual([9]);
+  expect(await retryWaiting(ctx)).toEqual(["9"]);
   expect(ctx.resumed).toEqual(["s9"]);
 });
 
@@ -18,13 +18,13 @@ test("poller starts nothing while the repo already has 2 active runs", async () 
 });
 // Anyone who can comment could write the waiting line. Only the bot's own note counts.
 test("retry ignores a waiting note not written by the bot and blocks the work item", async () => {
-  const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0, noteAuthor: 42 });
+  const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0, noteAuthor: "dev" });
   expect(await retryWaiting(ctx)).toEqual([]);
   expect(ctx.resumed).toEqual([]);
-  expect(ctx.world.labels).toEqual(["factory_blocked"]);
+  expect(ctx.world.tracker.tickets.get("9")!.state).toBe("blocked");
   expect(ctx.world.cards.map((c) => c.kind)).toEqual(["blocked"]);
 });
 // A non-developer's label must not take a free slot from a valid item, every 5 minutes.
-test("poller skips items whose factory_ready was added by a non-developer", async () => {
-  expect(await pollReady(fakeCtx({ ready: [3, 4], running: 1, nonDeveloper: [3] }))).toEqual([4]);
+test("poller skips tickets set ready by a person who may not command the factory", async () => {
+  expect(await pollReady(fakeCtx({ ready: [3, 4], running: 1, nonDeveloper: [3] }))).toEqual(["4"]);
 });

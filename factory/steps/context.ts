@@ -1,62 +1,28 @@
-// Shared parts of the CI steps: the context, the real adapters, and helpers for blocking, waiting and agent runs.
+// Shared parts of the CI steps: the context and helpers for blocking, waiting and agent runs.
+// Steps see the factory's outside tools only through the seams. makeContext (factory/compose.ts) picks the adapters.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { TENSORX_BASE_URL, parseFindings, reviewerPrompt, wrapTicket, type ClaudeResult, type ClaudeRun, type Finding } from "../agents";
-import { claudeCode } from "../adapters/claude-code";
-import { pi } from "../adapters/pi";
-import { loadRouter, loadTarget } from "../config";
-import { extractRun, GITLAB_URL, makeGitLabCi, RUN_DIR } from "../adapters/gitlab-ci";
-import { GitLab } from "../gitlab";
-import { makeJevClient, type JevClient } from "../jev";
-import { addStep, loadRecord, saveRecord, type RunRecord } from "../record";
-import { addKnownSecrets } from "../rules";
-import { NotFactoryRunError, type Repo } from "../seams";
-import { FACTORY_ROOT, gitRepo } from "./repo";
-import { buildCard, sendCard, type CardKind } from "../teams";
-import type { Router, RouterRow, Target } from "../types";
-
-// Until the steps use the seams, these names stay importable from here.
-export { extractRun, GITLAB_URL, RUN_DIR };
-export type { Repo };
-
-// Thin wrappers over the harnesses. Task 6 moves the steps onto Harness and removes them.
-const teamPlan = (model: string) => ({ name: "team-plan", api: "anthropic" as const, keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { [model]: "claude" } });
-export async function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
-  const h = await claudeCode.run({ role: "author", prompt: r.prompt, model: { provider: teamPlan(r.model), model: r.model, effort: r.effort }, cwd: r.cwd, tools: "code", resume: r.resumeSessionId, maxTurns: r.maxTurns });
-  return { sessionId: h.session, isError: !h.ok, limitHit: h.limitHit, costUsd: h.costUsd, tokens: h.tokens, resultText: h.text };
-}
-export async function runReviewer(input: { model: string; cwd: string; diffText: string; ticketText: string }): Promise<Finding[]> {
-  const provider = { name: "tensorx", api: "openai" as const, baseUrl: TENSORX_BASE_URL, keyEnv: "TENSORX_API_KEY", models: { [input.model]: "unknown" } };
-  const h = await pi.run({ role: "reviewer", prompt: reviewerPrompt(input.ticketText, input.diffText), model: { provider, model: input.model }, cwd: input.cwd, tools: "none", maxTurns: 1 });
-  if (!h.ok) throw new Error("pi failed");
-  return parseFindings(h.text);
-}
+import { wrapTicket } from "../agents";
+import { makeContext } from "../compose";
+import { modelChoice } from "../config";
+import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
+import { NotFactoryRunError, type Chat, type CiRunner, type CodeHost, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type TicketRef, type Tracker } from "../seams";
+import type { RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
-  gitlab: GitLab;
-  jev: JevClient;
-  teams: (card: object) => Promise<void>;
-  agents: { claude: typeof runClaude; review: typeof runReviewer };
+  tracker: Tracker;
+  codeHost: CodeHost;
+  ci: CiRunner;
+  judge: Judge;
+  chat: Chat;
+  harnesses: Record<RoleChoice["harness"], Harness>;
+  seams: SeamsConfig;
   record: RunRecord;
   target: Target;
   router: Router;
   dir: string; // the target clone, cwd for agents
   repo: Repo;
-  env: {
-    payload?: unknown;
-    workItemIid?: number;
-    mrIid?: number;
-    skipApply?: boolean; // a person merged by hand
-    buildPipelineId?: number; // finish pipeline or resumed run: where the build record is
-    factoryProjectId?: number;
-    pipelineId?: number;
-    pipelineUrl: string;
-  };
-  // Starts a factory pipeline through the trigger API, as the bot.
-  startPipeline(vars: Record<string, string>): Promise<void>;
-  // A resumed run: puts back run/ (clone, git dir, Claude session) from an earlier build pipeline.
-  restoreRun(pipelineId: number): Promise<void>;
   sleep(ms: number): Promise<void>;
 }
 export type StepResult = "next" | "stop";
@@ -66,10 +32,6 @@ const POLL_TRIES = 120; // one hour
 const RECORD_TRIES = 8; // about 4 minutes in all
 
 export const prompt = (name: string) => readFileSync(fileURLToPath(new URL(`../../prompts/${name}.md`, import.meta.url)), "utf8");
-
-export function newRecord(): RunRecord {
-  return { workItem: "", startedAt: new Date().toISOString(), steps: [], models: {}, rounds: { review: 0, gate: 0 }, costUsd: 0 };
-}
 
 // The data of the last record step with this name.
 export const data = (ctx: StepContext, step: string): any => [...ctx.record.steps].reverse().find((s) => s.step === step)?.data;
@@ -81,11 +43,11 @@ export const resumeSession = (ctx: StepContext, job: string): string | undefined
   data(ctx, "event")?.resumeAt === job ? data(ctx, "event").sessionId : undefined;
 export const CONTINUE = "You stopped because of a usage limit. Continue the same task from where you stopped.";
 
-export async function workItem(ctx: StepContext) {
-  const iid: number | undefined = ctx.env.workItemIid ?? data(ctx, "event")?.workItemIid;
-  if (!iid) throw new Error("This run has no work item");
-  const p = await ctx.gitlab.getProject(ctx.target.projectPath);
-  return { projectId: p.id, defaultBranch: p.defaultBranch, iid };
+// The ticket of this run: from the run's variables, or from the event step's record.
+export function ticketRef(ctx: StepContext): TicketRef {
+  const ref: TicketRef | undefined = ctx.ci.vars.ticket ?? data(ctx, "event")?.ticket;
+  if (!ref) throw new Error("This run has no ticket");
+  return ref;
 }
 
 export function ticketText(ctx: StepContext): string {
@@ -104,65 +66,62 @@ export async function install(ctx: StepContext, commands = data(ctx, "prepare-pa
   return undefined;
 }
 
-export async function person(ctx: StepContext, assigneeIds: number[]): Promise<number> {
-  return assigneeIds[0] ?? ctx.gitlab.userId(ctx.target.defaultApprover);
+export const person = (ctx: StepContext, ticket: Ticket) => ticket.assignees[0] ?? ctx.target.defaultApprover;
+
+export async function notify(ctx: StepContext, kind: Notice, lines: string[], url: string) {
+  const t = await ctx.tracker.ticket(ticketRef(ctx));
+  await ctx.chat.notify(kind, t.title, lines, url || t.url);
 }
 
-export async function card(ctx: StepContext, kind: CardKind, lines: string[], url: string) {
-  const { projectId, iid } = await workItem(ctx);
-  const item = await ctx.gitlab.getWorkItem(projectId, iid);
-  await ctx.teams(buildCard(kind, item.title, lines, url || item.webUrl));
-}
-
-// Stop the run for a person: label, comment, assign, card.
+// Stop the run for a person: state, comment, assign, notice.
 export async function block(ctx: StepContext, reason: string): Promise<StepResult> {
-  const { projectId, iid } = await workItem(ctx);
-  const item = await ctx.gitlab.getWorkItem(projectId, iid);
+  const ref = ticketRef(ctx);
+  const t = await ctx.tracker.ticket(ref);
   save(ctx, "blocked", { reason });
-  if (item.state === "closed") await ctx.gitlab.reopenWorkItem(projectId, iid); // "Closes #iid" closed it at the merge
-  await ctx.gitlab.setState(projectId, iid, "factory_blocked");
-  await ctx.gitlab.comment(projectId, iid, `The factory stopped. A person must look at this.\n\n${reason}`);
-  await ctx.gitlab.assignWorkItem(projectId, iid, await person(ctx, item.assigneeIds));
-  await ctx.teams(buildCard("blocked", item.title, [reason], item.webUrl));
+  if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
+  await ctx.tracker.setState(ref, "blocked");
+  await ctx.tracker.comment(ref, `The factory stopped. A person must look at this.\n\n${reason}`);
+  await ctx.tracker.assign(ref, person(ctx, t));
+  await ctx.chat.notify("blocked", t.title, [reason], t.url);
   return "stop";
 }
 
-// The hourly retry finds the pipeline to resume from in this comment.
-export const waitingNote = (pipelineId: number | undefined) =>
-  `Claude reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline ${pipelineId ?? "unknown"}`;
+// The hourly retry finds the run to resume from in this comment.
+export const waitingNote = (run: string | undefined) =>
+  `Claude reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline ${run ?? "unknown"}`;
 export const WAITING_RUN = /^Waiting run: pipeline (\d+)$/m;
 
-// Claude hit a usage limit: keep the session so a later pipeline can resume it.
+// The agent hit a usage limit: keep the session so a later run can resume it.
 export async function waiting(ctx: StepContext, step: string, sessionId: string, extra: object = {}): Promise<StepResult> {
-  const { projectId, iid } = await workItem(ctx);
+  const ref = ticketRef(ctx);
   save(ctx, step, { ...extra, sessionId, limit: true });
-  await ctx.gitlab.setState(projectId, iid, "factory_waiting");
-  await ctx.gitlab.comment(projectId, iid, waitingNote(ctx.env.pipelineId));
+  await ctx.tracker.setState(ref, "waiting");
+  await ctx.tracker.comment(ref, waitingNote(ctx.ci.vars.run));
   return "stop";
 }
 
-export async function claude(ctx: StepContext, run: ClaudeRun): Promise<ClaudeResult> {
-  const r = await ctx.agents.claude(run);
+// Runs one agent job on the harness the router picked, and adds its cost and tokens to the record.
+export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, job: Omit<HarnessJob, "role" | "model">): Promise<HarnessResult> {
+  const r = await ctx.harnesses[choice.harness].run({ ...job, role, model: modelChoice(choice, ctx.seams) });
   const t = ctx.record.tokens ?? { input: 0, output: 0 };
   ctx.record = {
     ...ctx.record,
     costUsd: ctx.record.costUsd + r.costUsd,
     tokens: { input: t.input + r.tokens.input, output: t.output + r.tokens.output },
     // The author's last answer says what changed. The result comment shows it.
-    ...(r.isError ? {} : { summary: r.resultText }),
+    ...(role === "author" && r.ok ? { summary: r.text } : {}),
   };
   return r;
 }
 
 // Resume the author session with feedback from the reviewer or the gate.
-export function fix(ctx: StepContext, feedback: string): Promise<ClaudeResult> {
-  const row = modelRow(ctx);
-  const resumeSessionId = session(ctx);
-  if (!resumeSessionId) throw new Error("The run record has no author session to fix");
-  return claude(ctx, { prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, model: row.author, effort: row.effort, maxTurns: 30, cwd: ctx.dir, resumeSessionId });
+export function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
+  const resume = session(ctx);
+  if (!resume) throw new Error("The run record has no author session to fix");
+  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30 });
 }
 
-// Polls a pipeline status for up to an hour. Still "running" after that counts as not green.
+// Polls a status for up to an hour. Still "running" after that counts as not done.
 export async function waitFor<S extends string>(ctx: StepContext, status: () => Promise<S | "running">): Promise<S | "running"> {
   for (let i = 0; i < POLL_TRIES; i++) {
     const s = await status();
@@ -172,73 +131,16 @@ export async function waitFor<S extends string>(ctx: StepContext, status: () => 
   return "running" as const;
 }
 
-// --- Real adapters ---
-
-function need(env: NodeJS.ProcessEnv, key: string): string {
-  const v = env[key];
-  if (!v) throw new Error(`${key} is not set`);
-  return v;
-}
-const num = (v: string | undefined) => (v ? Number(v) : undefined);
-
-// The runner keeps File-type variables in <project dir>.tmp. Taken from this file's place, not from env.
-const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
-
-export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): StepContext {
-  const ci = makeGitLabCi(env, secretDir);
-  const server = GITLAB_URL;
-  const token = ci.secret("FACTORY_GITLAB_TOKEN");
-  const webhook = ci.secret("TEAMS_WEBHOOK_URL");
-  if (!token) throw new Error("FACTORY_GITLAB_TOKEN is not set");
-  if (!webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
-  // No comment, MR text or pushed diff may carry any of these.
-  addKnownSecrets(token, webhook, env.CLAUDE_CODE_OAUTH_TOKEN, env.TENSORX_API_KEY, env.BERGET_API_KEY);
-  // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
-  const name = need(env, "FACTORY_TARGET");
-  if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);
-  const target = loadTarget(name);
-  if (env.CI_JOB_IMAGE && env.CI_JOB_IMAGE !== target.jobImage) throw new Error(`The job runs image ${env.CI_JOB_IMAGE}, but target ${name} names ${target.jobImage}`);
-  const dir = resolve(RUN_DIR, "target");
-  const gitlab = new GitLab(server, token);
-  return {
-    gitlab,
-    jev: makeJevClient(env),
-    teams: (c) => sendCard(webhook, c),
-    agents: { claude: runClaude, review: runReviewer },
-    record: newRecord(),
-    target,
-    router: loadRouter(),
-    dir,
-    repo: gitRepo(dir, `${dir}.git`, `${server}/${target.projectPath}.git`, token, env),
-    env: {
-      payload: ci.vars.payload,
-      workItemIid: num(ci.vars.ticket),
-      mrIid: num(ci.vars.change),
-      skipApply: ci.vars.skipApply,
-      buildPipelineId: num(ci.vars.buildRun),
-      factoryProjectId: num(env.CI_PROJECT_ID),
-      pipelineId: num(ci.vars.run),
-      pipelineUrl: ci.vars.runUrl,
-    },
-    // Until the steps use the seam: the old trigger variables become a run.
-    startPipeline: (v) =>
-      ci.start({ kind: v.FACTORY_PIPELINE as "build" | "finish", ticket: v.FACTORY_WORK_ITEM_IID, change: v.FACTORY_MR_IID, buildRun: v.FACTORY_BUILD_PIPELINE_ID, skipApply: v.FACTORY_SKIP_APPLY === "1" }),
-    restoreRun: (pipelineId) => ci.restoreRun(String(pipelineId)),
-    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-  };
-}
-
-// The record from run/, or for the first finish job the one the build pipeline saved. That pipeline's
+// The record from run/, or for the first finish job the one the build run saved. That run's
 // decision job may still be uploading it when finish starts, so retry for a few minutes.
 async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> {
   if (existsSync(join(dir, "record.json"))) return loadRecord(dir);
-  const { buildPipelineId, factoryProjectId } = ctx.env;
-  if (!buildPipelineId) return newRecord();
-  if (!factoryProjectId) throw new Error("CI_PROJECT_ID is not set");
+  const { buildRun } = ctx.ci.vars;
+  if (!buildRun) return newRecord();
   let last: unknown;
   for (let i = 0; i < RECORD_TRIES; i++) {
     try {
-      return (await ctx.gitlab.buildRecord(factoryProjectId, buildPipelineId)) as RunRecord;
+      return await ctx.ci.buildRecord(buildRun);
     } catch (e) {
       // decision starts finish from inside its own job, so its record may not be there yet: wait.
       // A failed provenance check fails at once.
@@ -247,7 +149,7 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
       await ctx.sleep(Math.min(5000 * 2 ** i, 60_000));
     }
   }
-  throw new Error(`Could not load the run record of build pipeline ${buildPipelineId}: ${String(last)}`);
+  throw new Error(`Could not load the run record of build pipeline ${buildRun}: ${String(last)}`);
 }
 
 const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN/;
@@ -259,7 +161,7 @@ function doneBeforeResume(ctx: StepContext, name: string): boolean {
 }
 
 // The CI job body: skip if an earlier job stopped the run, run the step, save the record.
-// A "stop" is a normal end. Only unexpected errors fail the job, and they block the work item first.
+// A "stop" is a normal end. Only unexpected errors fail the job, and they block the ticket first.
 export async function runStep(
   name: string,
   run: (ctx: StepContext) => Promise<StepResult>,
@@ -277,9 +179,9 @@ export async function runStep(
     try {
       ctx.record = await loadRunRecord(ctx, dir);
     } catch (e) {
-      // A resume whose record cannot be read now (GitLab 5xx or a network error) waits for the next hourly retry.
+      // A resume whose record cannot be read now (a server 5xx or a network error) waits for the next hourly retry.
       // Anything else (forged, 404, no decision job, a bad record) will not get better: block, so a person hears.
-      if (name !== "event" || !ctx.env.buildPipelineId || !TRANSIENT.test(String(e))) throw e;
+      if (name !== "event" || !ctx.ci.vars.buildRun || !TRANSIENT.test(String(e))) throw e;
       save(ctx, "event", { start: false, reason: "record-unavailable", error: String(e).slice(0, 500) });
       mkdirSync(dir, { recursive: true });
       writeFileSync(stopFile, name);
@@ -291,7 +193,7 @@ export async function runStep(
     }
     result = await run(ctx);
   } catch (e) {
-    // Do not leave the work item stuck in a running state. block() needs a work item; without one it throws and we go on.
+    // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
     await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`).catch(() => {});
     throw e;
   } finally {

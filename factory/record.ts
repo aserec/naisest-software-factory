@@ -1,11 +1,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+export const RUN_DIR = "run";
+
 export interface RunRecord {
   workItem: string;
   startedAt: string;
   steps: { step: string; at: string; data: unknown }[];
-  models: { author?: string; reviewer?: string };
+  models: { author?: string; reviewer?: string }; // "<harness>/<model>"
   rounds: { review: number; gate: number };
   costUsd: number;
   tokens?: { input: number; output: number };
@@ -13,11 +15,15 @@ export interface RunRecord {
   ticket?: { title: string; description: string }; // the text Jev 1 checked; agents only see this text
 }
 
-export function loadRecord(dir = "run"): RunRecord {
+export function newRecord(): RunRecord {
+  return { workItem: "", startedAt: new Date().toISOString(), steps: [], models: {}, rounds: { review: 0, gate: 0 }, costUsd: 0 };
+}
+
+export function loadRecord(dir = RUN_DIR): RunRecord {
   return JSON.parse(readFileSync(join(dir, "record.json"), "utf8"));
 }
 
-export function saveRecord(r: RunRecord, dir = "run"): void {
+export function saveRecord(r: RunRecord, dir = RUN_DIR): void {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "record.json"), JSON.stringify(r, null, 2));
 }

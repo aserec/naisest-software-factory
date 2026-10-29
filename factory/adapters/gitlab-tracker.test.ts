@@ -36,6 +36,17 @@ describe("tickets", () => {
     routes["/projects/7/issues/8"] = { body: issue({ state: "closed" }) };
     expect(await tracker().ticket("8")).toMatchObject({ open: false, state: undefined, marks: [] });
   });
+  // A person adds factory_ready again: an active run stays active, an ended run counts as ready.
+  test("with two state labels, an active run wins over ready and ready wins over an ended run", async () => {
+    const state = async (labels: string[]) => {
+      routes["/projects/7/issues/8"] = { body: issue({ labels }) };
+      return (await tracker().ticket("8")).state;
+    };
+    expect(await state(["factory_ready", "factory_needs_approval"])).toBe("needs_approval");
+    expect(await state(["factory_waiting", "factory_ready"])).toBe("waiting");
+    expect(await state(["factory_needs_info", "factory_ready"])).toBe("ready");
+    expect(await state(["factory_done", "factory_ready"])).toBe("ready");
+  });
   test("the project id is looked up once", async () => {
     routes["/projects/7/issues/8"] = { body: issue() };
     const t = tracker();

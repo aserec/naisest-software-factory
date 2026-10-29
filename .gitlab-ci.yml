@@ -64,11 +64,12 @@ contract-real:
 # docs/setup.md section 7 explains why webhook settings must stay Maintainer-only.
 # Allowed CI_* values: CI_SERVER_URL, CI_PROJECT_ID, CI_PIPELINE_ID, CI_PIPELINE_URL, CI_COMMIT_REF_NAME, CI_JOB_IMAGE.
 # FACTORY_SCHEDULE (poll or retry) selects a scheduled job.
+# The adapters (seams.yml) and the models (router.yml) are read from this checkout, never chosen by a variable.
 # FACTORY_GITLAB_TOKEN, TEAMS_WEBHOOK_URL, FACTORY_TRIGGER_TOKEN and TRIGGER_PAYLOAD are File variables, so only paths pass.
 .factory:
   tags: [factory]
   # A fixed image, never a variable: trigger callers can set any variable. Every target's jobImage must be
-  # this image (makeContext checks). ponytail: one image for all targets; pin it by digest at go-live.
+  # this image (makeContext in factory/compose.ts checks). ponytail: one image for all targets; pin it by digest at go-live.
   image: node:22
   timeout: 3h
   before_script:

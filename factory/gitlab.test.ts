@@ -52,14 +52,6 @@ test("memberAccessLevel is 0 on 404", async () => {
   fakeResponse({ access_level: 30 });
   expect(await gl.memberAccessLevel(1, 5)).toBe(30);
 });
-test("countLabeled reads X-Total", async () => {
-  fakeResponse([], 200, { "X-Total": "3" });
-  expect(await gl.countLabeled(1, "factory_running")).toBe(3);
-});
-test("getWorkItem maps fields", async () => {
-  fakeResponse({ title: "T", description: null, labels: ["a"], assignees: [{ id: 4 }] });
-  expect(await gl.getWorkItem(1, 8)).toEqual({ title: "T", description: "", labels: ["a"], assigneeIds: [4] });
-});
 test("pipelineStatus maps anything else to running", async () => {
   fakeResponse([{ status: "success" }]);
   expect(await gl.pipelineStatus(1, "b", "abc")).toBe("success");
@@ -143,12 +135,10 @@ test("upsertMergeRequest opens a new MR when none is open", async () => {
   expect(last().init.method).toBe("POST");
   expect(lastBody()).toMatchObject({ source_branch: "factory/8-x", target_branch: "master" });
 });
-test("approvedBy lists approver ids; getMergeRequest maps the merge commit", async () => {
+test("approvedBy lists approver ids", async () => {
   fakeResponse({ approved_by: [{ user: { id: 3 } }, { user: { id: 4 } }] });
   expect(await gl.approvedBy(1, 2)).toEqual([3, 4]);
   expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/approvals");
-  fakeResponse({ state: "merged", description: null, sha: "h", merge_commit_sha: "m" });
-  expect(await gl.getMergeRequest(1, 2)).toEqual({ state: "merged", description: "", headSha: "h", mergeSha: "m" });
 });
 test("upsertMergeRequest refuses an open MR that targets another branch", async () => {
   fakeResponse([{ iid: 4, web_url: "u4", target_branch: "release" }]);
@@ -204,20 +194,6 @@ test("labelAddedBy reads every page, so the newest event counts", async () => {
     return new Response(JSON.stringify(pages[page]), { headers: page === "1" ? { "X-Next-Page": "2" } : { "X-Next-Page": "" } });
   }) as unknown as typeof fetch;
   expect(await new GitLab("https://gl.example", "tok", fetchFn).labelAddedBy(1, 8, "factory_ready")).toBe(8);
-});
-test("listLabeled lists open work items oldest first; notes map the author", async () => {
-  fakeResponse([{ iid: 3, labels: ["factory_ready"] }]);
-  expect(await gl.listLabeled(1, "factory_ready")).toEqual([{ iid: 3, labels: ["factory_ready"] }]);
-  expect(last().url).toContain("labels=factory_ready&state=opened&order_by=created_at&sort=asc");
-  fakeResponse([{ author: { id: 1 }, body: "hi" }]);
-  expect(await gl.notes(1, 8)).toEqual([{ authorId: 1, body: "hi" }]);
-});
-
-test("listClosed reads closed items, newest first, with no writes", async () => {
-  fakeResponse([{ iid: 5, title: "A", description: null, labels: ["x"] }]);
-  expect(await gl.listClosed(1, 30)).toEqual([{ iid: 5, title: "A", description: "", labels: ["x"] }]);
-  expect(last().init.method).toBe("GET");
-  expect(last().url).toContain("state=closed&order_by=updated_at&sort=desc&per_page=30");
 });
 // GitLab runs quick actions from any line that starts with "/", as the bot.
 const quickAction = /^\s*\//m;

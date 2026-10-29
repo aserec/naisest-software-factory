@@ -1,5 +1,4 @@
-import { DEVELOPER } from "../event";
-import { GitLab, STATE_LABELS, type StateLabel } from "../gitlab";
+import { DEVELOPER, GitLab, type StateLabel } from "../gitlab";
 import type { FactoryEvent, FactoryState, Mark, Ticket, Tracker } from "../seams";
 
 const READY = "factory_ready";
@@ -7,6 +6,8 @@ const MARK_LABELS: Record<Mark, string> = { watcher: "factory_watcher" };
 const labelOf = (state: FactoryState) => `factory_${state}` as StateLabel;
 const fingerprintMarker = (fp: string) => `<!-- factory:fingerprint ${fp} -->`;
 const titles = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap((l) => (typeof l?.title === "string" ? [l.title] : [])) : []);
+// A person can add factory_ready next to another state label. An active run wins over ready, ready wins over an ended run.
+const STATE_ORDER = ["running", "waiting", "paused", "needs_approval", "ready", "needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
 
 function toTicket(w: any): Ticket {
@@ -16,7 +17,7 @@ function toTicket(w: any): Ticket {
     title: w.title,
     body: w.description ?? "",
     open: w.state === "opened",
-    state: STATE_LABELS.find((l) => labels.includes(l))?.slice("factory_".length) as FactoryState | undefined,
+    state: STATE_ORDER.find((s) => labels.includes(labelOf(s))),
     marks: (Object.keys(MARK_LABELS) as Mark[]).filter((m) => labels.includes(MARK_LABELS[m])),
     tags: labels.filter((l) => !l.startsWith("factory_")),
     assignees: (w.assignees ?? []).map((a: { username: string }) => a.username),

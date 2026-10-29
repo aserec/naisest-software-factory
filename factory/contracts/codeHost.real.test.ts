@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe } from "vitest";
 import { makeGitLabCodeHost } from "../adapters/gitlab-code-host";
-import { GITLAB_URL } from "../adapters/gitlab-ci";
+import { GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { GitLab } from "../gitlab";
 import { codeHostContract } from "./codeHost.contract";

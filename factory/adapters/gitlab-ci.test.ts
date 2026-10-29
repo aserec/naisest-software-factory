@@ -5,7 +5,8 @@ import { crc32 } from "node:zlib";
 import { describe, expect, test } from "vitest";
 import { GitLab } from "../gitlab";
 import { NotFactoryRunError } from "../seams";
-import { extractRun, GITLAB_URL, makeGitLabCi } from "./gitlab-ci";
+import { GITLAB_URL } from "../gitlab";
+import { extractRun, makeGitLabCi } from "./gitlab-ci";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "ci-"));
 // An env with a secret dir. Each File variable is a path inside it.

@@ -1,9 +1,10 @@
-import type { ClaudeResult, Finding } from "./agents.js";
+import type { Finding } from "./agents.js";
+import type { HarnessResult } from "./seams.js";
 import type { FactoryCommands } from "./types.js";
 
 export interface LoopDeps {
   review(): Promise<Finding[]>;
-  fix(feedback: string): Promise<ClaudeResult>;
+  fix(feedback: string): Promise<HarnessResult>;
   run(cmd: string): Promise<{ ok: boolean; output: string }>;
 }
 export type LoopResult =
@@ -14,8 +15,8 @@ export type LoopResult =
 // Runs fix. Returns a final result if the loop must stop, otherwise undefined.
 async function fixOrStop(deps: LoopDeps, feedback: string, rounds: number): Promise<LoopResult | undefined> {
   const r = await deps.fix(feedback);
-  if (r.limitHit) return { kind: "limit", rounds, sessionId: r.sessionId };
-  if (r.isError) return { kind: "blocked", rounds, open: [`author run failed: ${r.resultText.slice(0, 500)}`] };
+  if (r.limitHit) return { kind: "limit", rounds, sessionId: r.session };
+  if (!r.ok) return { kind: "blocked", rounds, open: [`author run failed: ${r.text.slice(0, 500)}`] };
   return undefined;
 }
 

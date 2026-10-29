@@ -10,13 +10,13 @@ const fakeJev: JevClient = {
   },
 };
 
-test("a row has iid, title, five answers with confidence, and the outcome", async () => {
-  expect(await shadowRow(fakeJev, { iid: 7, title: "Fix button", description: "d", labels: [] })).toBe("7,Fix button,0.05,bug,0.8,low,0.8,8,0.8,4,0.8,build (low)");
+test("a row has the ticket, title, five answers with confidence, and the outcome", async () => {
+  expect(await shadowRow(fakeJev, { ref: "7", title: "Fix button", body: "d", tags: [] })).toBe("7,Fix button,0.05,bug,0.8,low,0.8,8,0.8,4,0.8,build (low)");
 });
 test("titles with commas, quotes and line breaks are quoted", async () => {
   expect(csvField('He said "hi", ok')).toBe('"He said ""hi"", ok"');
   expect(csvField("a\nb")).toBe('"a\nb"');
-  expect(await shadowRow(fakeJev, { iid: 1, title: 'a, "b"', description: "", labels: [] })).toMatch(/^1,"a, ""b""",/);
+  expect(await shadowRow(fakeJev, { ref: "1", title: 'a, "b"', body: "", tags: [] })).toMatch(/^1,"a, ""b""",/);
 });
 test("the shadow test refuses the mock provider", async () => {
   await expect(main({ FACTORY_GITLAB_TOKEN: "t" }, ["react_frontend", "5"])).rejects.toThrow(/BERGET_API_KEY/);

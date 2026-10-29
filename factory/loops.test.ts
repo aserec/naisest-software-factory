@@ -1,13 +1,14 @@
 import { expect, test } from "vitest";
 import { codeReviewLoop, precommitGate, type LoopDeps } from "./loops.js";
-import type { ClaudeResult, Finding } from "./agents.js";
+import type { Finding } from "./agents.js";
+import type { HarnessResult } from "./seams.js";
 
 const B: Finding = { blocking: true, text: "bug" };
 
 function fakeDeps(o: {
   reviews?: Finding[][];
   results?: Record<string, boolean[]>;
-  fixResult?: Partial<ClaudeResult>;
+  fixResult?: Partial<HarnessResult>;
 }) {
   const reviews = [...(o.reviews ?? [])];
   const results = Object.fromEntries(Object.entries(o.results ?? {}).map(([k, v]) => [k, [...v]]));
@@ -19,7 +20,7 @@ function fakeDeps(o: {
     review: async () => reviews.shift() ?? [],
     fix: async (f) => {
       fixCalls.push(f);
-      return { sessionId: "s", isError: false, limitHit: false, costUsd: 0, tokens: { input: 0, output: 0 }, resultText: "", ...o.fixResult };
+      return { session: "s", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: "", ...o.fixResult };
     },
     run: async (cmd) => {
       runCalls.push(cmd);
@@ -55,11 +56,11 @@ test("gate blocks after 3 failing rounds and names the command", async () => {
   expect(deps.fixCalls[0]).toContain("out of pnpm test:unit");
 });
 test("a usage limit during a fix stops with limit, not blocked", async () => {
-  const deps = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, sessionId: "s1" } });
+  const deps = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, session: "s1" } });
   expect(await codeReviewLoop(deps)).toEqual({ kind: "limit", rounds: 1, sessionId: "s1" });
 });
 test("a failed author run blocks", async () => {
-  const deps = fakeDeps({ reviews: [[B]], fixResult: { isError: true, resultText: "boom" } });
+  const deps = fakeDeps({ reviews: [[B]], fixResult: { ok: false, text: "boom" } });
   const r = await codeReviewLoop(deps);
   expect(r.kind).toBe("blocked");
   expect(JSON.stringify(r)).toContain("author run failed");
@@ -75,6 +76,6 @@ test("loops started at a later round stop at the same limit", async () => {
   expect(g.fixCalls).toHaveLength(0);
 });
 test("a limit result carries the round it stopped in", async () => {
-  const d = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, isError: true } });
+  const d = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, ok: false } });
   expect(await codeReviewLoop(d, 3, 2)).toMatchObject({ kind: "limit", rounds: 2 });
 });

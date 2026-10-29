@@ -2,7 +2,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe } from "vitest";
-import { GITLAB_URL, makeGitLabCi } from "../adapters/gitlab-ci";
+import { makeGitLabCi } from "../adapters/gitlab-ci";
+import { GITLAB_URL } from "../gitlab";
 import { GitLab } from "../gitlab";
 import { ciContract } from "./ci.contract";
 

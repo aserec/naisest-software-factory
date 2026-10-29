@@ -1,14 +1,12 @@
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { GitLab } from "../gitlab";
-import type { RunRecord } from "../record";
+import { GitLab, GITLAB_URL } from "../gitlab";
+import { RUN_DIR, type RunRecord } from "../record";
 import { addKnownSecrets } from "../rules";
 import type { CiRunner } from "../seams";
 import { sh } from "../steps/repo";
 
-export const GITLAB_URL = "https://gitlab.example.com";
-export const RUN_DIR = "run";
 
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
