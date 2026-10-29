@@ -4,7 +4,7 @@
 import { makeContext } from "../compose";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO } from "../event";
 import type { SwitchName, TicketRef } from "../seams";
-import { isMain, parseStoppedNote, switchOn, type StepContext } from "./context";
+import { cancelNote, isMain, parseStoppedNote, switchOn, type StepContext } from "./context";
 import { activeRuns, mayStart } from "./event";
 
 export async function pollReady(ctx: StepContext): Promise<TicketRef[]> {
@@ -53,10 +53,29 @@ export async function resumeSwitchedOff(ctx: StepContext): Promise<TicketRef[]> 
   return started;
 }
 
+// The dashboard cancelled a pipeline that did not stop in time. That run saved nothing, so the poller marks the ticket stopped
+// and says it can only be restarted. Then the dashboard hears the request is done.
+export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[]> {
+  const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
+  if (!control) return [];
+  const finished: TicketRef[] = [];
+  for (const r of control.requests) {
+    if (r.kind !== "stop" || r.outcome !== "cancelled") continue;
+    if ((await ctx.tracker.ticket(r.ticket)).state === "running") {
+      await ctx.tracker.setState(r.ticket, "stopped");
+      await ctx.tracker.comment(r.ticket, cancelNote(r.user));
+      finished.push(r.ticket);
+    }
+    await ctx.dashboard.requestDone(r.id, "done");
+  }
+  return finished;
+}
+
 export async function main() {
   if (process.env.FACTORY_SCHEDULE !== "poll") throw new Error("FACTORY_SCHEDULE must be poll");
   const ctx = makeContext(process.env);
   console.log(`Started build runs for tickets: ${(await pollReady(ctx)).join(", ") || "none"}`);
   console.log(`Resumed runs a switch stopped: ${(await resumeSwitchedOff(ctx)).join(", ") || "none"}`);
+  console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx)).join(", ") || "none"}`);
 }
 if (isMain(import.meta.url)) await main();

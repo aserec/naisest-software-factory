@@ -690,6 +690,17 @@ test("a fix run's inbox sees a stop posted before it started, after the run bega
   const fixRun = w.harness.jobs.find((j) => j.role === "author" && j.resume);
   expect((await fixRun!.inbox!.poll()).stop).toBe(true);
 });
+// Task B5: a stop from the dashboard reaches the author run through its inbox.
+test("a stop from the dashboard stops the author run and keeps its session", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.ctx.dashboard = fakeDashboard({ stop: true });
+  const run = w.harness.run;
+  w.harness.run = async (job) => (job.inbox && (await job.inbox.poll()).stop ? { ...(await run(job)), session: "sess-d", ok: false, stopped: true } : run(job));
+  await runBuildPipeline(w);
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: "sess-d", stopped: true } });
+  expect(parseStoppedNote(w.workItemComments.at(-1)!)?.reason).toBe("stopped from the dashboard");
+});
 test("a watcher ticket set ready by the factory starts a run; another ticket set ready by the factory does not", async () => {
   const ready = { kind: "ready", ticket: "8", actor: BOT };
   const w = fakeWorld({ jev1: { risk: "trivial" }, payload: ready });

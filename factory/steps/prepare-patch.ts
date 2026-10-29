@@ -1,6 +1,6 @@
 import { parseFactoryFile } from "../config";
 import type { FactoryCommands } from "../types";
-import { agent, block, PERSON_STOP, switchOn, CONTINUE, data, install, isMain, modelRow, prompt, resumeSession, runStep, save, stopped, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, block, stopReason, switchOn, CONTINUE, data, install, isMain, modelRow, prompt, resumeSession, runStep, save, stopped, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   if (!(await switchOn(ctx, "prepare_patch"))) return stopped(ctx, "prepare-patch", { reason: "switch off prepare_patch" });
@@ -22,7 +22,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (stop) return stop;
   const text = resumeSessionId ? CONTINUE : `${prompt("prepare")}\n\n${ticketText(ctx)}`;
   const r = await agent(ctx, "author", modelRow(ctx).author, { tools: "code", prompt: text, maxTurns: 60, cwd: ctx.dir, resume: resumeSessionId });
-  if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: PERSON_STOP, extra: { commands } });
+  if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands } });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });
   if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 500)}`);
   save(ctx, "prepare-patch", { sessionId: r.session, commands });

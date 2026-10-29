@@ -29,6 +29,7 @@ export interface StepContext {
   sleep(ms: number): Promise<void>;
   step?: string; // the step runStep runs
   stepEvent?: string; // the ID of its step_start event, the parent of what the step sends
+  dashboardStop?: boolean; // the dashboard asked this run to stop (seen by the inbox)
 }
 export type StepResult = "next" | "stop";
 
@@ -147,12 +148,27 @@ export async function stopped(ctx: StepContext, step: string, o: { session?: str
   await ctx.tracker.comment(ref, stoppedNote({ run: ctx.ci.vars.run ?? "unknown", step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun }));
   return "stop";
 }
-export const PERSON_STOP = "stopped by @factory stop";
+const PERSON_STOP = "stopped by @factory stop";
+export const DASHBOARD_STOP = "stopped from the dashboard";
+// Why the inbox stopped the run: the dashboard, or else a person's `@factory stop`.
+export const stopReason = (ctx: StepContext) => (ctx.dashboardStop ? DASHBOARD_STOP : PERSON_STOP);
+
+// The poller's comment when the dashboard cancelled a pipeline that did not stop in time. Such a run cannot be resumed.
+const CANCEL_REASON = "Reason: pipeline cancelled from the dashboard";
+export const cancelNote = (user: string) =>
+  `The run was stopped from the dashboard by @${user}. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\n${CANCEL_REASON}`;
+// Only the factory's own comments may be passed in.
+export const isCancelNote = (body: string) => body.split("\n").includes(CANCEL_REASON);
 
 // The ticket's inbox from the start of this run (the newest event step), so a stop posted
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
+// It also asks the dashboard whether a person stopped this run there.
 export const inbox = (ctx: StepContext) =>
-  makeInbox(ctx.tracker, ticketRef(ctx), [...ctx.record.steps].reverse().find((s) => s.step === "event")?.at ?? new Date().toISOString());
+  makeInbox(ctx.tracker, ticketRef(ctx), [...ctx.record.steps].reverse().find((s) => s.step === "event")?.at ?? new Date().toISOString(), async () => {
+    const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
+    if (stop) ctx.dashboardStop = true;
+    return stop;
+  });
 
 // Runs one agent job on the harness the router picked, and adds its cost and tokens to the record.
 // An author run with tools gets the inbox: comments from trusted people reach it, and a stop line stops it.

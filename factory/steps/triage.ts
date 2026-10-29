@@ -2,7 +2,7 @@ import { emit } from "../emit";
 import { pickModels } from "../router";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
-import { agent, block, PERSON_STOP, switchOn, CONTINUE, data, isMain, notify, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, block, stopReason, switchOn, CONTINUE, data, isMain, notify, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
@@ -41,7 +41,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   await ctx.repo.clone(await ctx.codeHost.defaultBranch());
   const text = resumeSessionId ? CONTINUE : `${prompt("questions")}\n\n${ticketText(ctx)}`;
   const r = await agent(ctx, "author", row.author, { tools: "code", prompt: text, maxTurns: 15, cwd: ctx.dir, resume: resumeSessionId });
-  if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: PERSON_STOP });
+  if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
   if (r.limitHit) return waiting(ctx, "questions", r.session);
   if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
   await ctx.tracker.comment(ref, `This ticket is not clear enough to build yet. Please answer these questions, then add factory_ready again.\n\n${r.text}`);
