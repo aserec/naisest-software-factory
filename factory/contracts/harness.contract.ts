@@ -20,9 +20,10 @@ export function harnessContract(make: () => Harness, o: { model: ModelChoice; un
 
     test.skipIf(o.author === false)("an author job gives a session, and a resume of it is accepted", async () => {
       const h = make();
-      const first = await h.run(job({ role: "author", tools: "code" }));
+      const cwd = mkdtempSync(join(tmpdir(), "contract-harness-")); // sessions are kept per directory, so both runs share it
+      const first = await h.run(job({ role: "author", tools: "code", cwd }));
       expect(first.session).not.toBe("");
-      const again = await h.run(job({ role: "author", tools: "code", resume: first.session }));
+      const again = await h.run(job({ role: "author", tools: "code", cwd, resume: first.session }));
       expect(again.ok).toBe(true);
     });
 

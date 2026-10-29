@@ -58,10 +58,12 @@ export const claudeCode: Harness = {
   apis: ["anthropic"],
   async run(job: HarnessJob): Promise<HarnessResult> {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard
-    // Without tools there is nothing to read in the target clone, so run in an empty dir.
-    const cwd = job.tools === "none" ? mkdtempSync(join(tmpdir(), "claude-empty-")) : job.cwd;
-    const dir = mkdtempSync(join(tmpdir(), "claude-settings-"));
+    let cwd = job.cwd;
+    let dir = "";
     try {
+      // Without tools there is nothing to read in the target clone, so run in an empty dir.
+      if (job.tools === "none") cwd = mkdtempSync(join(tmpdir(), "claude-empty-"));
+      dir = mkdtempSync(join(tmpdir(), "claude-settings-"));
       const path = join(dir, "settings.json");
       writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd)));
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools };
@@ -74,7 +76,7 @@ export const claudeCode: Harness = {
         return { session: "", ok: false, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: (e as Error).message };
       }
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      if (dir) rmSync(dir, { recursive: true, force: true });
       if (cwd !== job.cwd) rmSync(cwd, { recursive: true, force: true });
     }
   },

@@ -14,5 +14,8 @@ describe.skipIf(!process.env.FACTORY_CONTRACT_REAL)("real Claude Code harness", 
 });
 
 describe.skipIf(!process.env.FACTORY_CONTRACT_REAL)("real Pi harness", () => {
-  harnessContract(() => pi, { model: { provider: tensorx, model: process.env.CONTRACT_PI_MODEL ?? "" }, unserved: { provider: tensorx, model: "no-such-model" }, author: false });
+  // The callback also runs when the suite is skipped, so only fail when the real run is on.
+  const model = process.env.CONTRACT_PI_MODEL ?? "";
+  if (process.env.FACTORY_CONTRACT_REAL && !model) throw new Error("CONTRACT_PI_MODEL is not set");
+  harnessContract(() => pi, { model: { provider: tensorx, model }, unserved: { provider: tensorx, model: "no-such-model" }, author: false });
 });
