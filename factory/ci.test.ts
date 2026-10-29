@@ -63,6 +63,12 @@ test("the dashboard job runs in the same pipelines as smoke and installs the who
   ]);
 });
 
+test("the dashboard e2e job uses the Playwright image of the pinned @playwright/test version", () => {
+  const pinned = JSON.parse(readFileSync("dashboard/package.json", "utf8")).devDependencies["@playwright/test"];
+  expect(ci["dashboard-e2e"].image).toBe(`mcr.microsoft.com/playwright:v${pinned}-noble`);
+  expect(ci["dashboard-e2e"].rules).toEqual(ci.smoke.rules);
+});
+
 test("the real contract job runs only when started by hand from a web pipeline", () => {
   expect(ci["contract-real"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "web"', when: "manual" }]);
 });

@@ -1,5 +1,5 @@
 import { EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
-import { factoryAuthorized } from "@/server/auth";
+import { auth, factoryAuthorized } from "@/server/auth";
 import { getDb } from "@/server/db-instance";
 
 const MAX_EVENTS = 500;
@@ -18,4 +18,14 @@ export async function POST(req: Request) {
     events.push({ ...r.data, data: EVENT_DATA[r.data.type].parse(r.data.data) });
   }
   return Response.json({ added: getDb().addEvents(events) });
+}
+
+// Live view and history are this one query: the page asks again with the cursor it got last.
+export async function GET(req: Request) {
+  if (!(await auth())) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const q = new URL(req.url).searchParams;
+  const run = q.get("run");
+  const after = Number(q.get("after") ?? 0);
+  if (!run || !Number.isInteger(after) || after < 0) return bad("run and a whole number after are required");
+  return Response.json(getDb().events({ run, after }));
 }

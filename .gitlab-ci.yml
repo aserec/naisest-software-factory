@@ -57,6 +57,19 @@ dashboard-test:
   - pnpm --filter factory-dashboard test
   - pnpm --filter factory-dashboard build
 
+# Browser test of the board, the run timeline and the step detail, on a seeded database and a stub GitLab.
+# The image has the browsers; its version must match @playwright/test in dashboard/package.json (1.62.1).
+dashboard-e2e:
+  stage: test
+  tags: [factory]
+  image: mcr.microsoft.com/playwright:v1.62.1-noble
+  rules:
+  - if: $CI_PIPELINE_SOURCE != "trigger" && $CI_PIPELINE_SOURCE != "schedule"
+  script:
+  - corepack enable
+  - pnpm install --frozen-lockfile
+  - pnpm --filter factory-dashboard exec playwright test
+
 # Runs the contracts against a real GitLab test project. Start it by hand from a web pipeline.
 contract-real:
   stage: test
