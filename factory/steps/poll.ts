@@ -38,10 +38,15 @@ export async function resumeSwitchedOff(ctx: StepContext): Promise<TicketRef[]> 
     const name = note && /^switch off (\w+)$/.exec(note.reason)?.[1];
     if (!note || !name || !control.switches[name as SwitchName]) continue;
     if (note.step === "apply") {
-      // A finish run has no event step to claim the ticket, so claim it here, or the next poll starts it again.
+      // Only a guard against a second start by the next poll: apply sets "running" again through its run, for the dashboard.
       if (!note.change || !note.buildRun) continue;
       await ctx.tracker.setState(ref, "running");
-      await ctx.ci.start({ kind: "finish", ticket: ref, change: note.change, buildRun: note.buildRun });
+      try {
+        await ctx.ci.start({ kind: "finish", ticket: ref, change: note.change, buildRun: note.buildRun });
+      } catch (e) {
+        await ctx.tracker.setState(ref, "stopped"); // the next poll tries again
+        throw e;
+      }
     } else await ctx.ci.start({ kind: "build", ticket: ref, buildRun: note.run });
     started.push(ref);
   }

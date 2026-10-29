@@ -921,6 +921,33 @@ test("apply off stops the finish run, and turning it on starts a finish run with
   expect(w.ci.started.at(-1)).toEqual({ kind: "finish", ticket: "8", change: "5", buildRun: "41" });
   expect(w.states).toEqual(["running"]);
 });
+// Fix round 1 (R39, R40).
+test("apply off does not stop a finish run after a hand merge", async () => {
+  const w = fakeWorld({ mrState: "merged" });
+  withSwitches(w, "apply");
+  await runFinishPipeline(w, { decision: "needs_approval", skipApply: true });
+  expect(w.record.steps.find((s) => s.step === "apply")?.data).toMatchObject({ skipped: true });
+  expect(w.record.steps.some((s) => s.step === "verify")).toBe(true);
+  expect(w.states).toEqual(["done"]);
+});
+test("a resumed apply sends label_change factory_running to the stopped run, and a failed start leaves the ticket stopped", async () => {
+  const w = fakeWorld();
+  const switches = withSwitches(w, "apply");
+  w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
+  await runFinishPipeline(w);
+  const record = { ...w.record, runId: "run-41", steps: w.record.steps.filter((s) => s.step !== "apply") };
+  switches.apply = true;
+  const start = w.ci.start;
+  w.ci.start = async () => { throw new Error("CI is down"); };
+  await expect(resumeSwitchedOff(w.ctx)).rejects.toThrow("CI is down");
+  expect(w.states).toEqual(["stopped"]);
+  w.ci.start = start;
+  expect(await resumeSwitchedOff(w.ctx)).toEqual(["8"]);
+  w.ci.buildRecord = async () => record;
+  await runStep("apply", apply.run, { dir: tmp(), make: () => w.ctx });
+  expect(w.merged).toBe(true);
+  expect(dash(w).events.filter((e) => e.type === "label_change").map((e) => [e.run, e.data])).toEqual([["run-41", { to: "factory_running" }]]);
+});
 test("parseStoppedNote reads back the note stopped() writes", () => {
   const body = stoppedNote({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
   expect(parseStoppedNote(body)).toEqual({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });

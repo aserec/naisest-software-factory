@@ -4,7 +4,6 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const change = ctx.ci.vars.change;
   if (!change) throw new Error("This finish run has no change");
-  if (!(await switchOn(ctx, "apply"))) return stopped(ctx, "apply", { reason: "switch off apply", change });
   // The record must belong to this ticket and this change, not to some other run.
   if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}` || data(ctx, "precommit-gate")?.change !== change) {
     return block(ctx, `The run record is for another ticket or change (${ctx.record.workItem || "none"}), so the factory did not merge change ${change}.`);
@@ -16,6 +15,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     save(ctx, "apply", { change, sha: c.landedSha, skipped: true });
     return "next";
   }
+  // The switch is about the factory merging, so a finish run after a hand merge (above) never stops for it.
+  if (!(await switchOn(ctx, "apply"))) return stopped(ctx, "apply", { reason: "switch off apply", change });
+  // Through the watched tracker, so the run's label_change tells the dashboard it runs again after a switch stop.
+  await ctx.tracker.setState(ref, "running");
   // A person approved: someone other than the factory who may command it.
   if (data(ctx, "decision")?.kind !== "auto" && !(await ctx.codeHost.approvedByTrusted(change))) {
     return block(ctx, `Change ${change} needs a person's approval, and it has none. The factory did not merge.`);
