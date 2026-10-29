@@ -197,6 +197,12 @@ test("verify blocks when .factory.yml names a smoke test", async () => {
 
 // runStep, the CI job body.
 const tmp = () => mkdtempSync(join(tmpdir(), "runstep-"));
+// A copy of seams.yml with a dashboard address: the real file keeps a placeholder until go-live.
+const seamsFile = (dir: string, edit: (text: string) => string = (t) => t) => {
+  const path = join(dir, "seams.yml");
+  writeFileSync(path, edit(readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8")).replace("REPLACE_WITH_DASHBOARD_URL", "https://dashboard.example"));
+  return path;
+};
 test("runStep skips when an earlier job stopped the run", async () => {
   const dir = tmp();
   writeFileSync(join(dir, "stop"), "event");
@@ -268,13 +274,14 @@ test("decision blocks instead of starting finish without a build pipeline id", a
 test("makeContext rejects a target with no targets/<name>.yml, and a job image the target does not name", () => {
   const dir = tmp();
   const env = (o: Record<string, string>) => {
-    for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
+    for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x");
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
-  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir)).toThrow(/image/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }), dir)).not.toThrow();
+  const seams = seamsFile(dir);
+  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir, seams)).toThrow(/image/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }), dir, seams)).not.toThrow();
 });
 test("a build record that fails the provenance check is not retried", async () => {
   const w = fakeWorld();
@@ -445,8 +452,8 @@ test("makeContext registers the secrets it holds, so no comment or push can carr
   const teams = "https://teams.example/webhook/0123456789";
   makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789",
     TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
-    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir);
-  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", teams, "trigger-0123456789"]) {
+    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir));
+  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", teams, "dashboard-token-0123456789", "trigger-0123456789"]) {
     expect(findSecrets(`text ${v} text`), v).toHaveLength(1);
   }
 });
@@ -540,18 +547,18 @@ test("makeContext refuses an unknown adapter in seams.yml before it builds any",
 });
 test("makeContext builds a context on the adapters seams.yml names", () => {
   const dir = tmp();
-  for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
-  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams") }, dir);
+  for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x");
+  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
+  expect(typeof ctx.dashboard.send).toBe("function");
   expect(ctx.ci.vars.ticket).toBe("8");
   expect(ctx.seams.tracker).toBe("gitlab");
   expect(Object.keys(ctx.harnesses).sort()).toEqual(["claude-code", "pi"]);
 });
 test("seams.yml judge: model-call builds the model judge from judgeModel, and needs that provider's key", () => {
   const dir = tmp();
-  const seams = join(dir, "seams.yml");
-  writeFileSync(seams, readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8").replace("judge: jev-berget", "judge: model-call"));
-  const files = () => { for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
-  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams") };
+  const seams = seamsFile(dir, (t) => t.replace("judge: jev-berget", "judge: model-call"));
+  const files = () => { for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
   files();
   expect(() => makeContext(env, dir, seams)).toThrow("TENSORX_API_KEY is not set");
   files();
@@ -694,4 +701,13 @@ test("a watcher ticket set ready by the factory starts a run; another ticket set
   polled.tracker.startedBy = async () => BOT;
   await runBuildPipeline(polled);
   expect(polled.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
+});
+test("makeContext needs the dashboard token and a real dashboardUrl", () => {
+  const dir = tmp();
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
+  const files = (...ks: string[]) => { for (const k of ks) writeFileSync(join(dir, k), "x"); };
+  files("gl", "teams");
+  expect(() => makeContext({ ...env, FACTORY_DASHBOARD_TOKEN: "" }, dir, seamsFile(dir))).toThrow("FACTORY_DASHBOARD_TOKEN is not set");
+  files("gl", "teams", "dash");
+  expect(() => makeContext(env, dir)).toThrow(/dashboardUrl is still a placeholder/); // the real seams.yml, until go-live
 });

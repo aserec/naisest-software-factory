@@ -7,6 +7,7 @@ export interface Router { low: RouterRow; high: RouterRow; writer: RoleChoice; e
 // seams.yml: the adapter per seam and the providers. Names are checked against the adapter map in makeContext.
 export interface SeamsConfig {
   tracker: string; codeHost: string; ci: string; judge: string; chat: string; logSource: string;
+  dashboard: string; dashboardUrl: string;
   judgeModel: { provider: string; model: string };
   providers: Record<string, Omit<Provider, "name">>;
 }
@@ -18,5 +19,6 @@ export interface Target {
   maxChangedLines: number;
   defaultApprover: string;
   jobImage: string;
+  stuckMinutes?: Record<string, number>; // the dashboard reads it; the factory only accepts it
 }
 export interface FactoryCommands { install: string; lint: string; test: string; build: string; smoke?: string }

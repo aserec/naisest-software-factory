@@ -8,7 +8,7 @@ import { makeInbox } from "../inbox";
 import { makeContext } from "../compose";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
-import { NotFactoryRunError, type Chat, type CiRunner, type CodeHost, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type TicketRef, type Tracker } from "../seams";
+import { NotFactoryRunError, type Chat, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type TicketRef, type Tracker } from "../seams";
 import type { RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
@@ -17,6 +17,7 @@ export interface StepContext {
   ci: CiRunner;
   judge: Judge;
   chat: Chat;
+  dashboard: Dashboard;
   harnesses: Record<RoleChoice["harness"], Harness>;
   seams: SeamsConfig;
   record: RunRecord;

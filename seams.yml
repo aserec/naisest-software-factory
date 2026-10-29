@@ -4,6 +4,9 @@ ci: gitlab
 judge: jev-berget
 chat: teams
 logSource: files
+dashboard: http
+# The dashboard's address, e.g. https://factory.<domain>. makeContext refuses the placeholder.
+dashboardUrl: REPLACE_WITH_DASHBOARD_URL
 # Used when judge is model-call.
 judgeModel: { provider: tensorx, model: tensorx-deepseek-small }
 providers:

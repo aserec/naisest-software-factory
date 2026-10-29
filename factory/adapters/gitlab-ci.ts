@@ -44,7 +44,7 @@ const need = (env: NodeJS.ProcessEnv, key: string): string => {
 };
 
 // Steps may ask for these. The trigger token stays inside the adapter.
-const SECRETS = ["FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL"];
+const SECRETS = ["FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN"];
 
 export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn: typeof fetch = fetch): CiRunner {
   checkVars(env);

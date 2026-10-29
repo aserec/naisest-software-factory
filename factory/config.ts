@@ -29,6 +29,8 @@ const seamsSchema = z.object({
   judge: z.string().min(1),
   chat: z.string().min(1),
   logSource: z.string().min(1),
+  dashboard: z.string().min(1),
+  dashboardUrl: z.string().min(1),
   judgeModel: z.object({ provider: z.string().min(1), model: z.string().min(1) }),
   providers: z.record(z.object({
     api: z.enum(["anthropic", "openai"]),
@@ -48,6 +50,7 @@ const targetSchema = z.object({
   maxChangedLines: z.number().int().positive(),
   defaultApprover: real,
   jobImage: z.string().min(1),
+  stuckMinutes: z.record(z.number().positive()).optional(),
 });
 
 const commandsSchema = z.object({
@@ -79,6 +82,12 @@ export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
   family(seams, seams.judgeModel, "seams.yml judgeModel");
   if (seams.providers[seams.judgeModel.provider].keyEnv === TEAM_PLAN_KEY) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider}: the Team plan works only with claude-code`);
   return seams;
+}
+
+// Not in seamsSchema: loadSeams runs in many tests, and makeContext is the one place that needs the address.
+export function checkDashboardUrl(seams: SeamsConfig): string {
+  if (seams.dashboardUrl.startsWith("REPLACE_WITH_")) throw new Error("seams.yml dashboardUrl is still a placeholder (REPLACE_WITH_...): set the dashboard's address");
+  return seams.dashboardUrl;
 }
 
 export function loadRouter(path = `${root}router.yml`, seams = loadSeams()): Router {

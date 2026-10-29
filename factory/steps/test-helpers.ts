@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Finding } from "../agents";
 import { loadRouter, loadSeams, loadTarget } from "../config";
-import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
+import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeDashboard, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
 import { addStep, newRecord } from "../record";
 import type { Checks, FactoryEvent, FactoryState, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
 import type { Risk } from "../types";
@@ -115,7 +115,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   };
   const seams = loadSeams();
   const ctx: StepContext = {
-    tracker, codeHost: host, ci, judge, chat,
+    tracker, codeHost: host, ci, judge, chat, dashboard: fakeDashboard(),
     harnesses: { "claude-code": harness, pi: harness },
     seams,
     record: newRecord(),

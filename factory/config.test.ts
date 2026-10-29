@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { loadRouter, loadSeams, loadTarget, modelChoice, parseFactoryFile } from "./config";
+import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, parseFactoryFile } from "./config";
 
 const real = (name: string) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), "utf8");
 // The real file with one text replaced, in a temp dir.
@@ -25,7 +25,7 @@ test("router.yml gives the spec's models and bump", () => {
 });
 test("seams.yml picks the GitLab, Jev and Teams adapters and gives the providers to the harness", () => {
   const s = loadSeams();
-  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "gitlab", judge: "jev-berget", chat: "teams", logSource: "files" });
+  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "gitlab", judge: "jev-berget", chat: "teams", logSource: "files", dashboard: "http" });
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
     provider: { name: "tensorx", api: "openai", baseUrl: "https://api.tensorx.ai/v1", keyEnv: "TENSORX_API_KEY", models: { "tensorx-deepseek-small": "deepseek", "tensorx-deepseek-large": "deepseek" } },
     model: "tensorx-deepseek-small",
@@ -67,4 +67,15 @@ test(".factory.yml without install is rejected", () => {
 test("a target with a REPLACE_WITH_ placeholder is refused with a clear error", () => {
   expect(() => loadTarget("react_frontend")).toThrow(/targets\/react_frontend\.yml: defaultApprover is still a placeholder/);
   expect(loadTarget("react_frontend", { defaultApprover: "kirill" }).defaultApprover).toBe("kirill");
+});
+test("a dashboardUrl that is still a placeholder is refused when the context is built, not when seams.yml loads", () => {
+  expect(loadSeams().dashboardUrl).toBe("REPLACE_WITH_DASHBOARD_URL");
+  expect(() => checkDashboardUrl(loadSeams())).toThrow(/dashboardUrl is still a placeholder/);
+  const path = edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", "REPLACE_WITH_URL");
+  expect(() => checkDashboardUrl(loadSeams(path))).toThrow(/dashboardUrl is still a placeholder/);
+  expect(checkDashboardUrl(loadSeams(edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", "https://factory.example.com")))).toBe("https://factory.example.com");
+});
+test("a target may set stuckMinutes, and a zero or negative value is refused", () => {
+  expect(loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 30 } }).stuckMinutes).toEqual({ verify: 30 });
+  expect(() => loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 0 } })).toThrow(/stuckMinutes/);
 });

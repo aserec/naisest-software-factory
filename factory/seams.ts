@@ -1,5 +1,6 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { RunRecord } from "./record";
+import type { ControlState, RunEvent } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -100,3 +101,12 @@ export interface Harness { readonly apis: ApiStyle[]; run(job: HarnessJob): Prom
 // Error logs. One group is one kind of error; hourly[0] is the last hour, 24 entries.
 export interface ErrorGroup { fingerprint: string; message: string; component?: string; hourly: number[]; firstSeen: string; lastSeen: string; samples: string[]; stack?: string; link: string }
 export interface LogSource { errors(since: Date): Promise<ErrorGroup[]> }
+
+// The factory's run dashboard. The factory sends events and reads the switches and requests a person set there.
+export type { RunEvent, ControlState, SwitchName } from "./run-events";
+export interface Dashboard {
+  send(e: RunEvent): void; // never throws, never waits
+  flush(): Promise<void>; // at most 5 s
+  control(target: string, run?: string): Promise<ControlState>; // throws when the dashboard cannot be reached
+  requestDone(id: string, outcome: "done" | "refused"): Promise<void>;
+}
