@@ -220,3 +220,28 @@ test("a restart request dated in the future does not make a factory-set ready tr
   ctx.dashboard = fakeDashboard({ requests: [request("restart", "3", { at: new Date(Date.now() + 60 * 60_000).toISOString() })] });
   expect(await pollReady(ctx)).toEqual([]);
 });
+// Final review: a restart whose start failed leaves the ticket ready. The next poll starts it once and ends the old run.
+test("a restart whose start failed is started by the next poll, once, and then ends the old run", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const ctx = stoppedCtx([]);
+    ctx.tracker.startedBy = async () => BOT; // the restart's ready
+    const dash = fakeDashboard({ requests: [request("restart", "7")] });
+    ctx.dashboard = dash;
+    const start = ctx.ci.start;
+    let down = true;
+    ctx.ci.start = async (run) => { if (down) throw new Error("CI is down"); return start(run); };
+    await main(ctx);
+    expect(ctx.world.tracker.tickets.get("7")!.state).toBe("ready");
+    expect(dash.done).toEqual([]);
+    down = false;
+    await main(ctx); // the request is still pending: pollReady must leave the ticket to it
+    expect(ctx.world.ci.started).toEqual([{ kind: "build", ticket: "7" }]);
+    expect(dash.done).toEqual([["q7", "done"]]);
+    expect(dash.events.filter((e) => e.type === "run_end")).toMatchObject([{ run: "run-1", data: { outcome: "restarted" } }]);
+  } finally {
+    vi.unstubAllEnvs();
+    log.mockRestore();
+  }
+});

@@ -14,10 +14,13 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
   if (!(await switchOn(ctx, "new_runs"))) return [];
   const free = MAX_RUNS_PER_REPO - (await activeRuns(ctx));
   if (free <= 0) return [];
+  // A pending restart owns its ticket: handleRequests starts it, also after a failed start.
+  const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
+  const restarting = control?.requests.filter((r) => r.kind === "restart" && !r.outcome).map((r) => r.ticket) ?? [];
   const start: TicketRef[] = [];
   for (const t of await ctx.tracker.list("ready")) {
     if (start.length >= free) break;
-    if ((t.state && ACTIVE_STATES.includes(t.state)) || skip.includes(t.ref)) continue;
+    if ((t.state && ACTIVE_STATES.includes(t.state)) || skip.includes(t.ref) || restarting.includes(t.ref)) continue;
     // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every 5 minutes.
     const actor = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
     if (!(await mayStart(ctx, actor, t))) continue;
@@ -77,7 +80,9 @@ export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
         if (/status 404|No ticket/.test(String(e))) return undefined; // the ticket is gone
         throw e;
       });
-      const ok = t?.state === "stopped" && (r.kind === "resume" ? await resume(ctx, r.ticket) : await restart(ctx, r));
+      // A restart whose start failed set the ticket ready already: only the start is left.
+      const retry = r.kind === "restart" && t?.state === "ready" && (await ctx.tracker.isFactory((await ctx.tracker.startedBy(r.ticket)) ?? ""));
+      const ok = retry ? await startRestart(ctx, r) : t?.state === "stopped" && (r.kind === "resume" ? await resume(ctx, r.ticket) : await restart(ctx, r));
       if (ok) started.push(r.ticket);
       await ctx.dashboard.requestDone(r.id, ok ? "done" : "refused");
     } catch (e) {
@@ -100,6 +105,10 @@ async function restart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
   await ctx.tracker.comment(r.ticket, `Restarted from the dashboard by @${r.user}. This run ends as blocked and a new run starts.`);
   await ctx.tracker.setState(r.ticket, "blocked");
   await ctx.tracker.setState(r.ticket, "ready");
+  return startRestart(ctx, r);
+}
+
+async function startRestart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
   await ctx.ci.start({ kind: "build", ticket: r.ticket });
   // Only once the new run is on its way. The old run's event names its own ticket and no poller pipeline or job.
   const vars = { ...ctx.ci.vars, ticket: r.ticket, run: undefined, job: undefined };
