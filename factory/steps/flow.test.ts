@@ -382,7 +382,7 @@ test("a resume stops quietly when the item is no longer waiting, or the repo is 
   expect(notWaiting.states).toEqual(["running"]);
   const full = resumeWorld({}, first);
   full.tracker.tickets.set("20", { ...full.tracker.tickets.get("9")!, ref: "20", state: "running" });
-  full.tracker.tickets.set("21", { ...full.tracker.tickets.get("9")!, ref: "21", state: "paused" }); // 3 active runs, this one included
+  full.tracker.tickets.set("21", { ...full.tracker.tickets.get("9")!, ref: "21", state: "stopped" }); // 3 active runs, this one included
   await runBuildJobs(full, tmp());
   expect(full.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "repo-full" });
   for (const w of [notWaiting, full]) {
@@ -533,4 +533,89 @@ test("makeContext builds a context on the adapters seams.yml names", () => {
   expect(ctx.ci.vars.ticket).toBe("8");
   expect(ctx.seams.tracker).toBe("gitlab");
   expect(Object.keys(ctx.harnesses).sort()).toEqual(["claude-code", "pi"]);
+});
+
+// Task 8: the inbox. A stop comment ends an author run; a resume comment continues it.
+const stopRecord = async (o: WorldOptions = {}) => runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop", ...o }));
+const command = (c: "stop" | "resume", actor = "dev"): WorldOptions["payload"] => ({ kind: "command", ticket: "8", actor, command: c });
+// The resume run: the ticket is stopped, the factory's own comment names the run, and that run's record is loadable.
+async function resumeStopped(o: WorldOptions = {}, first?: { record: RunRecord }) {
+  const stopped = first ?? (await stopRecord());
+  const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume"), ...o });
+  await w.tracker.comment("8", `Stopped run: pipeline 1`);
+  w.ci.buildRecord = async () => stopped.record;
+  await runBuildJobs(w, tmp());
+  return w;
+}
+test("an author run that finds @factory stop leaves the ticket stopped, keeps the session and names the run", async () => {
+  const w = await stopRecord();
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.workItemComments.at(-1)).toMatch(/^Stopped run: pipeline 1$/m);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: "sess-stop", stopped: true } });
+  expect(w.cards).toHaveLength(0);
+  expect(w.finishTriggered).toBe(false);
+});
+test("a stopped fix run in code review stops the run too", async () => {
+  const w = await stopRecord({ prepare: "ok", reviews: [[B]], fixStop: true });
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "code-review", data: { sessionId: "sess-stop", stopped: true } });
+});
+test("a stopped questions run stops the run", async () => {
+  const w = await stopRecord({ jev1: { clarity: 4 } });
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "questions", data: { stopped: true } });
+  expect(w.states).toEqual(["stopped"]);
+});
+test("author runs get the inbox; reviewer runs do not", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], []] }));
+  expect(w.harness.jobs.filter((j) => j.role === "author").every((j) => j.inbox)).toBe(true);
+  expect(w.harness.jobs.filter((j) => j.role === "reviewer").some((j) => j.inbox)).toBe(false);
+});
+test("@factory resume from a trusted person on a stopped ticket continues with the saved session", async () => {
+  const w = await resumeStopped();
+  expect(w.restored).toEqual(["1"]);
+  expect(w.claudeRuns[0]).toMatchObject({ resume: "sess-stop" });
+  expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1);
+  expect(w.finishTriggered).toBe(true);
+});
+test("@factory resume from an untrusted person starts nothing", async () => {
+  const w = await resumeStopped({ actorLevel: 20 });
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.claudeCalls).toBe(0);
+  expect(w.restored).toEqual([]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "not-member" } });
+});
+test("@factory resume from the factory itself, or on a ticket that is not stopped, starts nothing", async () => {
+  const bot = await resumeStopped({ payload: command("resume", BOT) });
+  expect(bot.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "bot" });
+  const running = await resumeStopped({ state: "running" });
+  expect(running.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "not-stopped" });
+  expect(running.claudeCalls).toBe(0);
+});
+test("@factory resume with no Stopped run comment from the factory blocks", async () => {
+  const w = fakeWorld({ state: "stopped", payload: command("resume") });
+  w.tracker.say("8", "dev", "Stopped run: pipeline 99"); // a person's line proves nothing
+  w.ci.buildRecord = async () => (await stopRecord()).record; // so a forged line would get a record
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.claudeCalls).toBe(0);
+});
+test("@factory stop outside a run is ignored", async () => {
+  for (const state of ["needs_info", "stopped"] as const) {
+    const w = await runBuildPipeline(fakeWorld({ state, payload: command("stop") }));
+    expect(w.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "not-running" });
+    expect(w.states).toEqual([state]);
+  }
+});
+test("@factory stop on a running ticket is left to the run's inbox", async () => {
+  const w = await runBuildPipeline(fakeWorld({ state: "running", payload: command("stop") }));
+  expect(w.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "in-run" });
+  expect(w.states).toEqual(["running"]);
+});
+test("a stopped ticket holds a run slot", async () => {
+  const w = fakeWorld({ otherRuns: 2, state: "stopped", payload: command("resume") });
+  await w.tracker.comment("8", "Stopped run: pipeline 1");
+  w.ci.buildRecord = async () => (await stopRecord()).record;
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.record.steps.at(-1)?.data).toMatchObject({ reason: "repo-full" });
 });

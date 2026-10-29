@@ -4,7 +4,7 @@ import type { RunRecord } from "./record";
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
 export type ChangeRef = string;
-export type FactoryState = "ready" | "running" | "needs_info" | "needs_approval" | "waiting" | "paused" | "blocked" | "done";
+export type FactoryState = "ready" | "running" | "needs_info" | "needs_approval" | "waiting" | "stopped" | "blocked" | "done";
 export type Mark = "watcher";
 
 export interface Ticket {
@@ -17,7 +17,7 @@ export interface Comment { author: PersonRef; byFactory: boolean; body: string; 
 export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }
   | { kind: "approved" | "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
-  | { kind: "command"; ticket: TicketRef; actor: PersonRef; command: "stop" | "continue" } // filled in Task 8
+  | { kind: "command"; ticket: TicketRef; actor: PersonRef; command: "stop" | "resume" }
   | { kind: "ignored"; reason: "other-project" | "not-added" };
 
 export interface TicketDraft { title: string; body: string; state?: FactoryState; marks: Mark[]; fingerprint: string }
@@ -93,6 +93,6 @@ export interface ModelChoice { provider: Provider; model: string; effort?: "medi
 export type Role = "author" | "reviewer" | "writer";
 export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
 export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number }
-// `stopped` tells a `@factory stop` from a failure. Adapters return false until Task 8 wires the inbox.
+// `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
 export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number }; text: string }
 export interface Harness { readonly apis: ApiStyle[]; run(job: HarnessJob): Promise<HarnessResult> }

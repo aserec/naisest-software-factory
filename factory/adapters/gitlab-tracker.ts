@@ -7,7 +7,7 @@ const labelOf = (state: FactoryState) => `factory_${state}` as StateLabel;
 const fingerprintMarker = (fp: string) => `<!-- factory:fingerprint ${fp} -->`;
 const titles = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap((l) => (typeof l?.title === "string" ? [l.title] : [])) : []);
 // A person can add factory_ready next to another state label. An active run wins over ready, ready wins over an ended run.
-const STATE_ORDER = ["running", "waiting", "paused", "needs_approval", "ready", "needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
+const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", "needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
 
 function toTicket(w: any): Ticket {
@@ -81,6 +81,12 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
         const change = p.changes?.labels;
         if (!change || !titles(change.current).includes(READY) || titles(change.previous).includes(READY) || typeof a?.iid !== "number") return ignored("not-added");
         return { kind: "ready", ticket: String(a.iid), actor };
+      }
+      // A person's note with the line `@factory stop` or `@factory resume`. The event step decides who may.
+      if (p.object_kind === "note" && a?.noteable_type === "Issue" && !a.system && typeof p.issue?.iid === "number") {
+        const command = String(a.note ?? "").split("\n").map((l) => l.trim().toLowerCase()).find((l) => l === "@factory stop" || l === "@factory resume");
+        if (command) return { kind: "command", ticket: String(p.issue.iid), actor, command: command === "@factory stop" ? "stop" : "resume" };
+        return ignored("not-added");
       }
       // An approval or a merge of a factory change (branch factory/<ticket>-<slug>).
       if (p.object_kind === "merge_request" && (a?.action === "approved" || a?.action === "merge")) {

@@ -28,8 +28,9 @@ export interface WorldOptions {
   jev2?: "pass" | "throw";
   reviews?: Finding[][];
   gate?: "green" | "red";
-  prepare?: "ok" | "limit";
+  prepare?: "ok" | "limit" | "stop";
   fixLimit?: boolean; // the first fix run hits the usage limit
+  fixStop?: boolean; // the first fix run finds @factory stop
   factoryFile?: string; // .factory.yml in the clone
   numstat?: string;
   diffText?: string;
@@ -93,10 +94,13 @@ export function fakeWorld(o: WorldOptions = {}) {
   });
   // The reviewer answers with the next review in the queue, as JSON text.
   const limit: Partial<HarnessResult> = { session: "sess-limit", ok: false, limitHit: true, text: "usage limit reached" };
+  const stop: Partial<HarnessResult> = { session: "sess-stop", ok: false, stopped: true, text: "" };
   const harness = fakeHarness((job) => {
     if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []) };
     if (o.prepare === "limit" && !job.resume) return limit;
     if (o.fixLimit && job.resume) return limit;
+    if (o.fixStop && job.resume) return stop;
+    if (o.prepare === "stop" && !job.resume) return stop;
     return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20 }, text: "1. Which list?" };
   });
   const ran: string[] = [];

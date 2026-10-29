@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, runCommand, type ClaudeResult, type ClaudeRun } from "../agents";
+import { pumpInbox } from "../inbox";
 import type { Harness, HarnessJob, HarnessResult, Provider } from "../seams";
 
 export function buildClaudeArgs(r: ClaudeRun & { tools?: "code" | "none" }, settingsPath = SETTINGS_PATH): string[] {
@@ -60,22 +61,29 @@ export const claudeCode: Harness = {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard
     let cwd = job.cwd;
     let dir = "";
+    let pump: ReturnType<typeof pumpInbox> | undefined;
     try {
       // Without tools there is nothing to read in the target clone, so run in an empty dir.
       if (job.tools === "none") cwd = mkdtempSync(join(tmpdir(), "claude-empty-"));
       dir = mkdtempSync(join(tmpdir(), "claude-settings-"));
       const path = join(dir, "settings.json");
-      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd)));
+      // The inbox file sits in the settings dir, outside the clone, so the agent's own commands cannot write to it.
+      const inboxFile = job.inbox ? join(dir, "inbox.jsonl") : undefined;
+      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile)));
+      if (job.inbox && inboxFile) pump = pumpInbox(job.inbox, inboxFile);
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools };
       const { code, out } = await runCommand("claude", buildClaudeArgs(run, path), agentEnv(process.env, job.model.provider), cwd);
+      // The hook stops the agent at its next tool call after a stop line. A run that was stopped is never ok.
+      const stopped = (await pump?.end()) ?? false;
+      pump = undefined;
       try {
         const r = parseStream(out, code);
-        // ponytail: stopped stays false until Task 8 reads the inbox between turns.
-        return { session: r.sessionId, ok: !r.isError, limitHit: r.limitHit, stopped: false, costUsd: r.costUsd, tokens: r.tokens, text: r.resultText };
+        return { session: r.sessionId, ok: !r.isError && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, text: r.resultText };
       } catch (e) { // a stream cut before the result event is a failed run, not a crash
-        return { session: "", ok: false, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: (e as Error).message };
+        return { session: "", ok: false, limitHit: false, stopped, costUsd: 0, tokens: { input: 0, output: 0 }, text: (e as Error).message };
       }
     } finally {
+      await pump?.end(); // only still set when the run threw
       if (dir) rmSync(dir, { recursive: true, force: true });
       if (cwd !== job.cwd) rmSync(cwd, { recursive: true, force: true });
     }

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, guardReady, runCommand } from "../agents";
+import { pumpInbox } from "../inbox";
 import { SRT, piHome } from "../sandbox";
 import { sandboxSettings } from "../steps/repo";
 import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider } from "../seams";
@@ -65,6 +66,7 @@ export function parsePiOutput(out: string) {
 async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
   const home = piHome(job.cwd);
   const tmp = mkdtempSync(join(tmpdir(), "pi-srt-"));
+  let pump: ReturnType<typeof pumpInbox> | undefined;
   try {
     mkdirSync(home, { recursive: true });
     writeFileSync(join(home, "models.json"), JSON.stringify(piModels(job.model)));
@@ -76,11 +78,18 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
       // ponytail: --session <dir> --continue is from the plan. Confirm it on the runner's Pi (it may be --session-dir).
       ...(job.resume ? ["--session", home, "--continue"] : []), "--", job.prompt,
     ];
+    // The extension reads the inbox file from Pi's home (the one place inside the sandbox that Pi may read). A new run starts with a new inbox.
+    const inboxFile = join(home, "inbox.jsonl");
+    rmSync(inboxFile, { force: true });
+    rmSync(`${inboxFile}.read`, { force: true });
+    if (job.inbox) pump = pumpInbox(job.inbox, inboxFile);
     const { code, out } = await runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd);
+    const stopped = (await pump?.end()) ?? false; // the extension aborts the agent at its next tool result after a stop line
+    pump = undefined;
     const r = parsePiOutput(out);
-    // stopped stays false until Task 8.
-    return { session: r.session, ok: code === 0 && !r.error, limitHit: r.limitHit, stopped: false, costUsd: r.costUsd, tokens: r.tokens, text: r.text };
+    return { session: r.session, ok: code === 0 && !r.error && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, text: r.text };
   } finally {
+    await pump?.end(); // only still set when the run threw
     rmSync(tmp, { recursive: true, force: true });
   }
 }
@@ -96,7 +105,7 @@ export const pi: Harness = {
     try {
       writeFileSync(join(dir, "models.json"), JSON.stringify(piModels(job.model)));
       const { code, out } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt), agentEnv(process.env, job.model.provider, dir), dir);
-      // Pi has no session to resume and reports no cost, so those stay empty. stopped stays false until Task 8.
+      // Pi has no session to resume and reports no cost, so those stay empty. It has no tools, so the inbox is not used and it is never stopped.
       return { session: "", ok: code === 0, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: out };
     } finally {
       rmSync(dir, { recursive: true, force: true });

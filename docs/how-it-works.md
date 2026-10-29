@@ -37,11 +37,15 @@ A work item has at most one state label at a time.
 | `factory_needs_info` | The factory asked questions on the ticket. Answer them, then add `factory_ready` again. |
 | `factory_needs_approval` | The merge request waits for a person. |
 | `factory_waiting` | Claude's plan limit was hit. A scheduled job retries later. |
-| `factory_paused` | Someone commented `stop`. |
+| `factory_stopped` | A person commented `@factory stop`. The run keeps its session. Comment `@factory resume` to continue it. |
 | `factory_blocked` | The factory stopped. A person must look. |
 | `factory_done` | Merged and verified. |
 
-An active run is any of `factory_running`, `factory_waiting`, `factory_paused`, `factory_needs_approval`. Adding `factory_ready` to an item that is `factory_needs_info`, `factory_blocked` or `factory_done` starts a new run.
+An active run is any of `factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`. Adding `factory_ready` to an item that is `factory_needs_info`, `factory_blocked` or `factory_done` starts a new run.
+
+## Stop and resume
+
+While an author agent runs, the factory reads new comments on the work item about once a minute. Comments from people who may command the factory (Developer and above) reach the agent as data. A comment with the line `@factory stop` stops the agent at its next tool call: the item gets `factory_stopped`, and the factory comments `Stopped run: pipeline <n>`. A person then comments the line `@factory resume`: the factory loads that run's record and continues the saved agent session at the step that stopped. A `@factory stop` outside a run does nothing.
 
 ## The merge rule
 

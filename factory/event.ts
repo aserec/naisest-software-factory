@@ -2,7 +2,7 @@ import type { FactoryEvent, FactoryState } from "./seams";
 
 export const MAX_RUNS_PER_REPO = 2;
 // A ticket in one of these states already has a run. needs_info, blocked and done do not.
-export const ACTIVE_STATES: FactoryState[] = ["running", "waiting", "paused", "needs_approval"];
+export const ACTIVE_STATES: FactoryState[] = ["running", "waiting", "stopped", "needs_approval"];
 
 export type StartDecision = { start: true } | { start: false; reason: "not-added" | "not-ready" | "not-member" | "active-run" | "repo-full" };
 

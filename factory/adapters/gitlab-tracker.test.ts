@@ -169,8 +169,22 @@ describe("parseEvent", () => {
     p.object_attributes = { ...load("mr-approved.json").object_attributes, action: "open" };
     expect(tracker().parseEvent(p)).toEqual({ kind: "ignored", reason: "not-added" });
   });
+  test("a note with a command line gives a command, whatever the case", () => {
+    expect(tracker().parseEvent(load("note-stop.json"))).toEqual({ kind: "command", ticket: "8", actor: "devone", command: "stop" });
+    const p = load("note-stop.json");
+    p.object_attributes.note = "  @Factory RESUME ";
+    expect(tracker().parseEvent(p)).toEqual({ kind: "command", ticket: "8", actor: "devone", command: "resume" });
+  });
+  test("a note that only mentions a command, a system note and a note on a change are ignored", () => {
+    const ignoredEvent = { kind: "ignored", reason: "not-added" };
+    for (const edit of [(a: any) => (a.note = "do not @factory stop it"), (a: any) => (a.note = "> @factory stop"), (a: any) => (a.system = true), (a: any) => (a.noteable_type = "MergeRequest")]) {
+      const p = load("note-stop.json");
+      edit(p.object_attributes);
+      expect(tracker().parseEvent(p)).toEqual(ignoredEvent);
+    }
+  });
   test("another project is ignored", () => {
-    for (const f of ["label-added.json", "mr-approved.json"]) {
+    for (const f of ["label-added.json", "mr-approved.json", "note-stop.json"]) {
       const p = load(f);
       p.project.path_with_namespace = "other/project";
       expect(tracker().parseEvent(p)).toEqual({ kind: "ignored", reason: "other-project" });

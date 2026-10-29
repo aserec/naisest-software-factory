@@ -1,7 +1,7 @@
 import { findSecrets } from "./rules";
 import { NotFactoryRunError } from "./seams";
 
-export const STATE_LABELS = ["factory_ready", "factory_running", "factory_needs_info", "factory_needs_approval", "factory_waiting", "factory_paused", "factory_blocked", "factory_done"] as const;
+export const STATE_LABELS = ["factory_ready", "factory_running", "factory_needs_info", "factory_needs_approval", "factory_waiting", "factory_stopped", "factory_blocked", "factory_done"] as const;
 export type StateLabel = (typeof STATE_LABELS)[number];
 export const GITLAB_URL = "https://gitlab.example.com";
 // GitLab access level of the Developer role. Developers and above may command the factory.

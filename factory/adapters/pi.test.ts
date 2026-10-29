@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { HarnessJob, Provider } from "../seams";
 import { sandboxDenyRead } from "../sandbox";
 import { agentEnv, pi, piArgs, piModels, piSandboxSettings } from "./pi";
-import { guardCheck } from "./pi-extension";
+import piExtension, { guardCheck, readNew } from "./pi-extension";
 
 // The harness runs srt by absolute path, so the fake srt replaces that path here.
 const fake = vi.hoisted(() => ({ srt: "" }));
@@ -176,4 +176,54 @@ test("the harness refuses to start when the command guard cannot run, and never 
   process.env.PATH = bin; // fake pi only: no jq, so the guard cannot run
   await expect(pi.run(job())).rejects.toThrow(/jq/);
   expect(() => readFileSync(join(bin, "args"))).toThrow();
+});
+
+// The inbox.
+test("a stop in the inbox gives stopped and not ok, and the poll is written to the inbox file in the pi home", async () => {
+  fakePi(events(header, answer("done")));
+  fakeSrt();
+  const cwd = runDir();
+  const r = await pi.run(authorJob(cwd, { inbox: { poll: async () => ({ comments: ["c1"], stop: true }) } }));
+  expect(r).toMatchObject({ ok: false, stopped: true, session: "sess-1" });
+  expect(JSON.parse(readFileSync(join(cwd, "..", "pi-home", "inbox.jsonl"), "utf8"))).toEqual({ comments: ["c1"], stop: true });
+});
+test("a run starts with an empty inbox: a file from an earlier run is removed", async () => {
+  fakePi(events(header, answer("done")));
+  fakeSrt();
+  const cwd = runDir();
+  const home = join(cwd, "..", "pi-home");
+  mkdirSync(home, { recursive: true });
+  writeFileSync(join(home, "inbox.jsonl"), '{"comments":[],"stop":true}\n');
+  expect(await pi.run(authorJob(cwd))).toMatchObject({ ok: true, stopped: false });
+  expect(existsSync(join(home, "inbox.jsonl"))).toBe(false);
+});
+function extensionWith(file: string) {
+  vi.stubEnv("PI_CODING_AGENT_DIR", join(file, ".."));
+  const handlers: Record<string, (e: any, ctx?: any) => unknown> = {};
+  const sent: any[] = [];
+  piExtension({ on: (name, h) => void (handlers[name] = h), sendMessage: (m, o) => void sent.push([m, o]) });
+  const ctx = { aborted: false, abort() { ctx.aborted = true; } };
+  return { result: () => handlers.tool_result({}, ctx), sent, ctx };
+}
+test("the extension hands new comments to the agent after a tool result, once", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "ext-")), "inbox.jsonl");
+  writeFileSync(file, '{"comments":["c1","c2"],"stop":false}\n');
+  const x = extensionWith(file);
+  x.result();
+  x.result();
+  expect(x.sent).toHaveLength(1);
+  expect(x.sent[0][0].content).toBe("c1\n\nc2");
+  expect(x.sent[0][1]).toEqual({ deliverAs: "steer" });
+  expect(x.ctx.aborted).toBe(false);
+});
+test("the extension aborts the agent on a stop line, and does nothing without an inbox file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ext-"));
+  const none = extensionWith(join(dir, "inbox.jsonl"));
+  none.result();
+  expect(none.sent).toHaveLength(0);
+  writeFileSync(join(dir, "inbox.jsonl"), '{"comments":[],"stop":true}\n');
+  const x = extensionWith(join(dir, "inbox.jsonl"));
+  x.result();
+  expect(x.ctx.aborted).toBe(true);
+  expect(readNew(join(dir, "inbox.jsonl"))).toEqual({ comments: [], stop: false });
 });

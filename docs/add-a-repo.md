@@ -13,7 +13,7 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
   test: pnpm test
   build: pnpm build
   ```
-- [ ] Add the webhook (Settings > Webhooks) for issue and merge request events only. Leave comment events off: no comment starts a run, and each event starts a pipeline. URL:
+- [ ] Add the webhook (Settings > Webhooks) for issue, comment and merge request events. Each event starts a pipeline; a comment starts a run only when it has the line `@factory resume`. URL:
   ```text
   https://gitlab.example.com/api/v4/projects/<factory project id>/ref/main/trigger/pipeline?token=<trigger token>&variables[FACTORY_PIPELINE]=build&variables[FACTORY_TARGET]=<name>&variables[SAST_DISABLED]=true&variables[SECRET_DETECTION_DISABLED]=true
   ```

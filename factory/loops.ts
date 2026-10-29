@@ -10,11 +10,12 @@ export interface LoopDeps {
 export type LoopResult =
   | { kind: "passed"; rounds: number }
   | { kind: "blocked"; rounds: number; open: string[] }
-  | { kind: "limit"; rounds: number; sessionId: string }; // rounds: the round the limit stopped
+  | { kind: "limit" | "stopped"; rounds: number; sessionId: string }; // rounds: the round the limit or the stop came in
 
 // Runs fix. Returns a final result if the loop must stop, otherwise undefined.
 async function fixOrStop(deps: LoopDeps, feedback: string, rounds: number): Promise<LoopResult | undefined> {
   const r = await deps.fix(feedback);
+  if (r.stopped) return { kind: "stopped", rounds, sessionId: r.session };
   if (r.limitHit) return { kind: "limit", rounds, sessionId: r.session };
   if (!r.ok) return { kind: "blocked", rounds, open: [`author run failed: ${r.text.slice(0, 500)}`] };
   return undefined;

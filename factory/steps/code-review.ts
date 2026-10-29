@@ -1,6 +1,6 @@
 import { parseFindings, reviewerPrompt } from "../agents";
 import { codeReviewLoop } from "../loops";
-import { agent, block, fix, install, isMain, modelRow, runStep, save, session, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, block, fix, install, isMain, modelRow, runStep, save, session, stopped, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 class ReviewerFailed extends Error {}
 
@@ -26,6 +26,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
   ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, review: result.rounds } };
   if (result.kind === "limit") return waiting(ctx, "code-review", result.sessionId);
+  if (result.kind === "stopped") return stopped(ctx, "code-review", result.sessionId);
   if (result.kind === "blocked") return block(ctx, `Code review did not pass after ${result.rounds} rounds. Open findings:\n\n${result.open.map((t) => `- ${t}`).join("\n")}`);
   save(ctx, "code-review", { passed: true, rounds: result.rounds, sessionId: session(ctx) });
   return "next";

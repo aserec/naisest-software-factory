@@ -75,6 +75,12 @@ test("loops started at a later round stop at the same limit", async () => {
   expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, 3, 3)).toMatchObject({ kind: "blocked", rounds: 3 });
   expect(g.fixCalls).toHaveLength(0);
 });
+test("a stopped fix run stops the loop with its session, not blocked", async () => {
+  const stopFix = { stopped: true, ok: false, session: "s9" };
+  expect(await codeReviewLoop(fakeDeps({ reviews: [[B]], fixResult: stopFix }))).toEqual({ kind: "stopped", rounds: 1, sessionId: "s9" });
+  const g = fakeDeps({ results: { lint: [false] }, fixResult: stopFix });
+  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" })).toEqual({ kind: "stopped", rounds: 1, sessionId: "s9" });
+});
 test("a limit result carries the round it stopped in", async () => {
   const d = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, ok: false } });
   expect(await codeReviewLoop(d, 3, 2)).toMatchObject({ kind: "limit", rounds: 2 });

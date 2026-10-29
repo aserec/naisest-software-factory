@@ -7,7 +7,7 @@ import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, Fact
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
 // An in-memory Tracker for tests. It keeps the rules of the real one: secrets are refused, the factory is not trusted.
-export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: Map<TicketRef, Ticket>; posted: { ref: TicketRef; text: string }[]; created: TicketDraft[] } {
+export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: Map<TicketRef, Ticket>; posted: { ref: TicketRef; text: string }[]; created: TicketDraft[]; say(ref: TicketRef, author: PersonRef, body: string, at?: string): void } {
   const tickets = new Map<TicketRef, Ticket>();
   const notes = new Map<TicketRef, Comment[]>();
   const fingerprints = new Map<TicketRef, string>();
@@ -28,6 +28,8 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
 
   return {
     tickets, posted, created,
+    // A comment from a person, for inbox tests.
+    say: (ref, author, body, at = new Date().toISOString()) => void notes.set(ref, [{ author, byFactory: false, body, at }, ...(notes.get(ref) ?? [])]),
     ticket: async (ref) => get(ref),
     setState: async (ref, state: FactoryState) => { get(ref).state = state; },
     comment: async (ref, text) => {

@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { wrapTicket } from "../agents";
+import { makeInbox } from "../inbox";
 import { makeContext } from "../compose";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
@@ -41,7 +42,7 @@ export const session = (ctx: StepContext): string | undefined => [...ctx.record.
 // On a resumed run, the saved session if this job is the one that hit the limit.
 export const resumeSession = (ctx: StepContext, job: string): string | undefined =>
   data(ctx, "event")?.resumeAt === job ? data(ctx, "event").sessionId : undefined;
-export const CONTINUE = "You stopped because of a usage limit. Continue the same task from where you stopped.";
+export const CONTINUE = "You stopped before you finished. Continue the same task from where you stopped.";
 
 // The ticket of this run: from the run's variables, or from the event step's record.
 export function ticketRef(ctx: StepContext): TicketRef {
@@ -100,9 +101,24 @@ export async function waiting(ctx: StepContext, step: string, sessionId: string,
   return "stop";
 }
 
+// A person stopped the run (`@factory stop`): keep the session so `@factory resume` can continue it.
+export const stoppedNote = (run: string | undefined) =>
+  `A person stopped this run. Comment the line @factory resume to continue it.\n\nStopped run: pipeline ${run ?? "unknown"}`;
+export const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
+
+export async function stopped(ctx: StepContext, step: string, sessionId: string, extra: object = {}): Promise<StepResult> {
+  const ref = ticketRef(ctx);
+  save(ctx, step, { ...extra, sessionId, stopped: true });
+  await ctx.tracker.setState(ref, "stopped");
+  await ctx.tracker.comment(ref, stoppedNote(ctx.ci.vars.run));
+  return "stop";
+}
+
 // Runs one agent job on the harness the router picked, and adds its cost and tokens to the record.
+// An author run with tools gets the inbox: comments from trusted people reach it, and a stop line stops it.
 export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, job: Omit<HarnessJob, "role" | "model">): Promise<HarnessResult> {
-  const r = await ctx.harnesses[choice.harness].run({ ...job, role, model: modelChoice(choice, ctx.seams) });
+  const inbox = role === "author" && job.tools === "code" ? makeInbox(ctx.tracker, ticketRef(ctx), new Date().toISOString()) : undefined;
+  const r = await ctx.harnesses[choice.harness].run({ ...job, ...(inbox ? { inbox } : {}), role, model: modelChoice(choice, ctx.seams) });
   const t = ctx.record.tokens ?? { input: 0, output: 0 };
   ctx.record = {
     ...ctx.record,

@@ -116,3 +116,25 @@ test("the harness refuses to start when the command guard cannot run, and never 
   await expect(claudeCode.run(job())).rejects.toThrow(/jq/);
   expect(() => readFileSync(join(bin, "args"))).toThrow();
 });
+
+test("a stop in the inbox gives stopped, never ok, and keeps the session for a resume", async () => {
+  fakeClaude("stream-ok.jsonl");
+  const r = await claudeCode.run(job({ inbox: { poll: async () => ({ comments: [], stop: true }) } }));
+  expect(r).toMatchObject({ ok: false, stopped: true, session: "11111111-1111-4111-8111-111111111111" });
+});
+test("an inbox with no stop leaves the run as it was, and a job with no inbox has no polling", async () => {
+  fakeClaude("stream-ok.jsonl");
+  let polls = 0;
+  const r = await claudeCode.run(job({ inbox: { poll: async () => (polls++, { comments: ["c"], stop: false }) } }));
+  expect(r).toMatchObject({ ok: true, stopped: false });
+  expect(polls).toBe(1); // at once, and the next one is 60 s away
+});
+test("the run's settings carry the inbox hook only when the job has an inbox", async () => {
+  const bin = fakeClaude("stream-ok.jsonl");
+  // The settings file is deleted when the run ends, so the fake claude copies it while it runs.
+  writeFileSync(join(bin, "claude"), readFileSync(join(bin, "claude"), "utf8").replace("head -n", `cp "$(printf '%s\\n' "$@" | sed -n '/settings.json$/p')" "${bin}/settings.json"\nhead -n`));
+  await claudeCode.run(job({ inbox: { poll: async () => ({ comments: [], stop: false }) } }));
+  expect(JSON.parse(readFileSync(join(bin, "settings.json"), "utf8")).hooks.PostToolUse[0].hooks[0].command).toContain("claude-inbox-hook.ts");
+  await claudeCode.run(job());
+  expect(JSON.parse(readFileSync(join(bin, "settings.json"), "utf8")).hooks.PostToolUse).toBeUndefined();
+});
