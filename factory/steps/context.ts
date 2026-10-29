@@ -114,11 +114,16 @@ export async function stopped(ctx: StepContext, step: string, sessionId: string,
   return "stop";
 }
 
+// The ticket's inbox from the start of this run (the newest event step), so a stop posted
+// between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
+export const inbox = (ctx: StepContext) =>
+  makeInbox(ctx.tracker, ticketRef(ctx), [...ctx.record.steps].reverse().find((s) => s.step === "event")?.at ?? new Date().toISOString());
+
 // Runs one agent job on the harness the router picked, and adds its cost and tokens to the record.
 // An author run with tools gets the inbox: comments from trusted people reach it, and a stop line stops it.
 export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, job: Omit<HarnessJob, "role" | "model">): Promise<HarnessResult> {
-  const inbox = role === "author" && job.tools === "code" ? makeInbox(ctx.tracker, ticketRef(ctx), new Date().toISOString()) : undefined;
-  const r = await ctx.harnesses[choice.harness].run({ ...job, ...(inbox ? { inbox } : {}), role, model: modelChoice(choice, ctx.seams) });
+  const box = role === "author" && job.tools === "code" ? inbox(ctx) : undefined;
+  const r = await ctx.harnesses[choice.harness].run({ ...job, ...(box ? { inbox: box } : {}), role, model: modelChoice(choice, ctx.seams) });
   const t = ctx.record.tokens ?? { input: 0, output: 0 };
   ctx.record = {
     ...ctx.record,

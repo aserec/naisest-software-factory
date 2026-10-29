@@ -51,7 +51,7 @@ async function resume(ctx: StepContext, ref: TicketRef, buildRun: string): Promi
   return "next";
 }
 
-// A person's `@factory stop` or `@factory resume`. A stop only matters inside a run, where the agent's inbox sees it.
+// A person's `@factory stop` or `@factory resume`. A stop only matters inside a run, where the agent's inbox or the decision step sees it.
 // A resume continues the run named in the factory's own `Stopped run` comment.
 async function commandEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "command" }>): Promise<StepResult> {
   const quiet = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: e.ticket, command: e.command }), "stop" as const);

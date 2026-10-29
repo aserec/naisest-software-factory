@@ -641,3 +641,39 @@ test("a stopped ticket holds a run slot", async () => {
   expect(w.states).toEqual(["stopped"]);
   expect(w.record.steps.at(-1)?.data).toMatchObject({ reason: "repo-full" });
 });
+// A stop posted between author runs (here during code review) must still stop the run before it merges.
+test("a stop comment posted during code review leads to stopped, not a merge", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  const run = w.harness.run;
+  w.harness.run = async (job) => {
+    if (job.role === "reviewer") w.tracker.say("8", "dev", "@factory stop", new Date(Date.now() + 1000).toISOString());
+    return run(job);
+  };
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "decision", data: { sessionId: "sess-1", stopped: true } });
+  // The resumed run polls from its own start, so the old stop is not seen again.
+  const r = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume") });
+  r.openChange();
+  r.tracker.say("8", "dev", "@factory stop", w.record.steps.at(-1)!.at);
+  await r.tracker.comment("8", "Stopped run: pipeline 1");
+  r.ci.buildRecord = async () => w.record;
+  await runBuildJobs(r, tmp());
+  expect(r.finishTriggered).toBe(true);
+});
+test("a fix run's inbox sees a stop posted before it started, after the run began", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const w = fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], []] });
+  const run = w.harness.run;
+  w.harness.run = async (job) => {
+    if (job.role === "reviewer" && w.harness.jobs.length < 3) {
+      w.tracker.say("8", "dev", "@factory stop", new Date(Date.now() + 1000).toISOString());
+      vi.setSystemTime(Date.now() + 2000); // the fix run starts after the comment
+    }
+    return run(job);
+  };
+  await runBuildPipeline(w).finally(() => vi.useRealTimers());
+  const fixRun = w.harness.jobs.find((j) => j.role === "author" && j.resume);
+  expect((await fixRun!.inbox!.poll()).stop).toBe(true);
+});
