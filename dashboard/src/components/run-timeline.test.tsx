@@ -1,9 +1,13 @@
-import { fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RunTimeline, useRunEvents } from "./run-timeline";
 import { ev, json, renderWithQuery, wrapper } from "./test-utils";
 
-afterEach(() => vi.unstubAllGlobals());
+// No test globals, so Testing Library does not clean up by itself.
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const start = ev("step_start", "00", { step: "prepare-patch", id: "s1" });
 const events = [
@@ -38,4 +42,15 @@ test("the events hook asks after the cursor it got and appends the answer", asyn
   await result.current.refetch();
   expect(fetchFn.mock.calls[1][0]).toBe("/api/events?run=r1&after=3");
   await waitFor(() => expect(result.current.data).toHaveLength(events.length));
+});
+
+test("marks a running lane past its limit as Stuck, and not a recent one or an ended one", async () => {
+  const old = new Date(Date.now() - 121 * 60_000).toISOString();
+  const recent = new Date(Date.now() - 60_000).toISOString();
+  const lane = (step: string, at: string) => ({ ...ev("step_start", "00", { step }), at });
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events: [lane("prepare-patch", old), lane("code-review", recent), lane("triage", old), { ...ev("step_end", "00", { step: "triage", data: { outcome: "next" } }), at: recent }], cursor: 4 })));
+  renderWithQuery(<RunTimeline run="r1" limits={{ "prepare-patch": 120, "code-review": 20, triage: 5 }} />);
+  expect((await screen.findByRole("button", { name: /prepare-patch/ })).textContent).toContain("Stuck");
+  expect(screen.getByRole("button", { name: /code-review/ }).textContent).not.toContain("Stuck");
+  expect(screen.getByRole("button", { name: /triage/ }).textContent).not.toContain("Stuck");
 });

@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import type { RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { StepDetail } from "./step-detail";
+import { isStuck } from "./stuck";
 
 export type SeqEvent = RunEvent & { seq: number };
 
@@ -52,11 +53,12 @@ export function lanes(events: SeqEvent[]): Lane[] {
   return out;
 }
 
-function LaneRow({ lane, from, span }: { lane: Lane; from: number; span: number }) {
+function LaneRow({ lane, from, span, limits }: { lane: Lane; from: number; span: number; limits: Record<string, number> }) {
   const [open, setOpen] = useState(false);
   const start = Date.parse(lane.start.at);
   const end = lane.end ? Date.parse(lane.end.at) : from + span;
   const secs = Math.round((end - start) / 1000);
+  const stuck = !lane.end && isStuck({ step: lane.start.step ?? "", startedAt: lane.start.at, ended: false }, limits, new Date());
   return (
     <li className="rounded border p-2">
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-left">
@@ -66,6 +68,7 @@ function LaneRow({ lane, from, span }: { lane: Lane; from: number; span: number 
         </span>
         <span className="w-16 text-right text-sm">{secs} s</span>
         <Badge variant={lane.outcome === "error" ? "destructive" : "secondary"}>{lane.outcome ?? "running"}</Badge>
+        {stuck && <Badge variant="destructive">Stuck</Badge>}
         <span className="w-16 text-right text-sm">${lane.costUsd.toFixed(2)}</span>
       </button>
       {open && (
@@ -93,7 +96,8 @@ function LaneRow({ lane, from, span }: { lane: Lane; from: number; span: number 
   );
 }
 
-export function RunTimeline({ run }: { run: string }) {
+// limits: minutes per step for the run's target, read on the server.
+export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record<string, number> }) {
   const { data, error } = useRunEvents(run);
   if (error) return <p role="alert">{error.message}</p>;
   if (!data) return <p>Loading...</p>;
@@ -105,7 +109,7 @@ export function RunTimeline({ run }: { run: string }) {
   return (
     <ul className="space-y-2">
       {rows.map((l) => (
-        <LaneRow key={l.start.id} lane={l} from={from} span={span} />
+        <LaneRow key={l.start.id} lane={l} from={from} span={span} limits={limits} />
       ))}
     </ul>
   );
