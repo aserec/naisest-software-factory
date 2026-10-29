@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { RunEvent } from "../seams";
 import { makeHttpDashboard } from "./http-dashboard";
 
 const event = (n: number): RunEvent => ({ id: randomUUID(), run: "r", at: new Date().toISOString(), target: "t", ticket: "1", type: "step_start", data: { n } });
 const ok = () => new Response("{}");
+afterEach(() => vi.restoreAllMocks());
 
 // Review Focus 1: a dead dashboard never slows or fails a step.
 test("with a fetch that never answers, send is instant, flush ends in 5 s and the queue keeps the newest 5000", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   let hang = true;
   const bodies: RunEvent[][] = [];
   const fetchFn = vi.fn(async (_url: unknown, init?: RequestInit) => {
@@ -30,6 +32,7 @@ test("with a fetch that never answers, send is instant, flush ends in 5 s and th
 }, 15_000);
 
 test("a batch that fails goes back to the front and is sent again in order", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
   const bodies: RunEvent[][] = [];
   let calls = 0;
   const fetchFn = (async (_url: unknown, init?: RequestInit) => {
@@ -47,21 +50,43 @@ test("a batch that fails goes back to the front and is sent again in order", asy
   expect(bodies.flat().map((e) => e.id)).toEqual([...first, later].map((e) => e.id));
 });
 
-test("a refused batch (HTTP 400) is dropped, so it cannot block the events after it", async () => {
-  const bodies: RunEvent[][] = [];
-  let calls = 0;
+test("a 400 batch delivers the good events and drops only the bad one, with one warning that has no body", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const good: RunEvent[] = [event(1), event(3)];
+  const bad: RunEvent = { ...event(2), type: "error", data: { message: "secret-in-body" } };
+  const delivered: RunEvent[] = [];
   const fetchFn = (async (_url: unknown, init?: RequestInit) => {
-    if (calls++ === 0) return new Response("{}", { status: 400 });
-    bodies.push(JSON.parse(String(init?.body)));
+    const events: RunEvent[] = JSON.parse(String(init?.body));
+    if (events.some((e) => e.id === bad.id)) return new Response("{}", { status: 400 });
+    delivered.push(...events);
+    return ok();
+  }) as unknown as typeof fetch;
+  const dash = makeHttpDashboard("https://d.example", "tok", fetchFn);
+  [good[0], bad, good[1]].forEach((e) => dash.send(e));
+  await dash.flush();
+  const next = event(4);
+  dash.send(next);
+  await dash.flush();
+  expect(delivered.map((e) => e.id)).toEqual([...good, next].map((e) => e.id)); // the bad event is not retried
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn.mock.calls[0][0]).toBe(`dashboard: dropped error event ${bad.id}, the dashboard refused it`);
+  warn.mockRestore();
+});
+
+test("another failing status or a network error warns once and the batch is kept", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  let calls = 0;
+  const fetchFn = (async () => {
+    if (calls++ < 2) return new Response("{}", { status: 503 });
+    if (calls === 3) throw new Error("ECONNRESET");
     return ok();
   }) as unknown as typeof fetch;
   const dash = makeHttpDashboard("https://d.example", "tok", fetchFn);
   dash.send(event(1));
-  await dash.flush();
-  const next = event(2);
-  dash.send(next);
-  await dash.flush();
-  expect(bodies.flat().map((e) => e.id)).toEqual([next.id]);
+  for (let i = 0; i < 4; i++) await dash.flush();
+  expect(warn.mock.calls.map((c) => c[0])).toEqual(["dashboard: HTTP 503", "dashboard: network error"]);
+  expect(calls).toBe(4); // two 503s, one reset, then the same batch goes through
+  warn.mockRestore();
 });
 
 test("every call carries the bearer token, and control and requestDone use the factory API paths", async () => {

@@ -26,15 +26,45 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
     }
   }
 
+  // One line the first time each kind of failure is seen, so a dead dashboard is not silent and not noisy.
+  const warned = new Set<string>();
+  const warnOnce = (why: string) => {
+    if (!warned.has(why)) console.warn(`dashboard: ${why}`), warned.add(why);
+  };
+  const post = (events: RunEvent[]) => call("/api/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(events) });
+
+  // Returns the events to try again later: none when all went through or were refused for good.
+  async function sendBatch(batch: RunEvent[]): Promise<RunEvent[]> {
+    try {
+      const res = await post(batch);
+      if (res.ok) return [];
+      if (res.status !== 400) {
+        warnOnce(`HTTP ${res.status}`);
+        return batch;
+      }
+    } catch {
+      warnOnce("network error");
+      return batch;
+    }
+    // A 400 is permanent: the dashboard refused something in this batch, and retrying it would block every later event.
+    // Send each event alone once and drop only the ones it refuses. Type and id only: the event body may hold secrets.
+    for (const [i, e] of batch.entries()) {
+      try {
+        const res = await post([e]);
+        if (res.status === 400) console.warn(`dashboard: dropped ${e.type} event ${e.id}, the dashboard refused it`);
+        else if (!res.ok) return warnOnce(`HTTP ${res.status}`), batch.slice(i);
+      } catch {
+        return warnOnce("network error"), batch.slice(i);
+      }
+    }
+    return [];
+  }
+
   async function sendAll() {
     while (queue.length) {
-      const batch = queue.splice(0, BATCH);
-      try {
-        const res = await call("/api/events", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(batch) });
-        // A 400 means the dashboard refused these events. Sending them again cannot help and would block every later event.
-        if (!res.ok && res.status !== 400) throw new Error(`HTTP ${res.status}`);
-      } catch {
-        queue.unshift(...batch);
+      const failed = await sendBatch(queue.splice(0, BATCH));
+      if (failed.length) {
+        queue.unshift(...failed);
         queue.splice(0, queue.length - MAX_QUEUE); // the oldest go first
         return; // the timer tries again
       }

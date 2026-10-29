@@ -75,6 +75,11 @@ test("a dashboardUrl that is still a placeholder is refused when the context is 
   expect(() => checkDashboardUrl(loadSeams(path))).toThrow(/dashboardUrl is still a placeholder/);
   expect(checkDashboardUrl(loadSeams(edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", "https://factory.example.com")))).toBe("https://factory.example.com");
 });
+test("a dashboardUrl that is not an https address is refused, so the token never goes in clear", () => {
+  for (const bad of ["http://factory.example.com", "factory.example.com", "ftp://factory.example.com"]) {
+    expect(() => checkDashboardUrl(loadSeams(edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", bad))), bad).toThrow(/dashboardUrl must be an https/);
+  }
+});
 test("a target may set stuckMinutes, and a zero or negative value is refused", () => {
   expect(loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 30 } }).stuckMinutes).toEqual({ verify: 30 });
   expect(() => loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 0 } })).toThrow(/stuckMinutes/);
