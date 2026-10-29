@@ -299,12 +299,14 @@ retry-waiting:
     TENSORX_API_KEY="$TENSORX_API_KEY" BERGET_API_KEY="$BERGET_API_KEY"
     node --import tsx factory/steps/retry-waiting.ts
 # The watcher opens tickets from error logs. While logSource is files (fake errors), a person starts it
-# by hand: Run pipeline in the web UI with FACTORY_SCHEDULE=watch and FACTORY_TARGET set.
+# by hand: Run pipeline in the web UI with FACTORY_SCHEDULE=watch and FACTORY_TARGET set, then press play on the
+# manual job. A trigger caller can forge CI_PIPELINE_SOURCE, so the manual play is the real guard.
 watcher:
   extends: .factory
   stage: test
   rules:
   - if: $CI_PIPELINE_SOURCE == "web" && $FACTORY_SCHEDULE == "watch"
+    when: manual
   script:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root

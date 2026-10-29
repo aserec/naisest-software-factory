@@ -7,7 +7,8 @@ import { agent, isMain } from "./context";
 
 export async function main(env: NodeJS.ProcessEnv = process.env) {
   if (env.FACTORY_SCHEDULE !== "watch") throw new Error("FACTORY_SCHEDULE must be watch");
-  // Checked before makeContext reads any secret.
+  // Checked before makeContext reads any secret. A pipeline variable can forge the source, so this is only
+  // a second check: the CI job is manual, and a person must start it.
   if (loadSeams().logSource === "files" && env.CI_PIPELINE_SOURCE !== "web") throw new Error("With logSource files the watcher runs only in a pipeline started by hand (web)");
   const ctx = makeContext(env);
   const r = await runWatcher({

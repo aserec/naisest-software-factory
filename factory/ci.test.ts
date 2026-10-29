@@ -57,7 +57,7 @@ test("the real contract job runs only when started by hand from a web pipeline",
 });
 
 test("the watcher runs only from a pipeline started by hand", async () => {
-  expect(ci.watcher.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "web" && $FACTORY_SCHEDULE == "watch"' }]);
+  expect(ci.watcher.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "web" && $FACTORY_SCHEDULE == "watch"', when: "manual" }]);
   expect(ci.watcher.stage).toBe("test");
   // With logSource files, main refuses any other pipeline before it reads a secret.
   await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "schedule" })).rejects.toThrow(/started by hand/);
