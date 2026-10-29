@@ -51,7 +51,7 @@ Today: GitLab work items, through the `GitLab` class.
 What steps need, in factory words:
 
 - `ticket(ref)`: title, body, state, assignees, web URL.
-- `setState(ref, state)`: the factory states (`ready`, `running`, `needs_info`, `needs_approval`, `waiting`, `paused`, `blocked`, `done`). The GitLab adapter maps them to the `factory_*` labels.
+- `setState(ref, state)`: the factory states (`ready`, `running`, `needs_info`, `needs_approval`, `waiting`, `stopped`, `blocked`, `done`). The GitLab adapter maps them to the `factory_*` labels.
 - `comment(ref, text)`, `assign(ref, person)`, `close(ref)`, `reopen(ref)`.
 - `list(state)` and `listClosed(count)` for the poller, retry and Jev shadow runs.
 - `trusted(actor)`: may this person command the factory? GitLab: Developer role or higher.
@@ -112,7 +112,7 @@ The inbox connector also lives inside the adapter. The spec of 2026-10-28 (secti
 
 Real adapters: Claude Code and Pi. Both adapters fill all three roles.
 
-Inbox scope, my call: `@factory stop` and `@factory continue`. Comment-started runs and merge request comments as blocking findings stay in phase 2, as in the 2026-10-28 spec.
+Inbox scope, my call: `@factory stop` and `@factory resume`. Comment-started runs and merge request comments as blocking findings stay in phase 2, as in the 2026-10-28 spec.
 
 Pi author proof, my call: a contract test plus the sandbox proof in section 7. No approved provider exists for a Pi author today, because Pi cannot use the Team plan and TensorX still waits on its GDPR proof. A real Pi author run happens after that proof.
 
