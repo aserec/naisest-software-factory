@@ -74,3 +74,19 @@ test("a cut at the size limit leaves no half of a customer value", () => {
     expect(out).not.toMatch(/jane/i);
   }
 });
+
+test("a private pair inside the value of another key is still removed", () => {
+  const cases: [string, string][] = [
+    ["url=http://h/p?user=jane&x=1", "jane"],
+    ["next=/cb?token=abc", "abc"],
+    ["redirect=/login?email=jane", "jane"],
+    ["a=b:password=hunter2", "hunter2"],
+    ["x=token=abc", "abc"],
+    ["x==name=Jane", "Jane"],
+    ["foo: token: abc", "abc"],
+    ["msg: name: Jane", "Jane"],
+    ['{"a": "b", "user": "jane"}', "jane"],
+  ];
+  for (const [text, value] of cases) expect(scrub(text), text).not.toContain(value);
+  expect(scrub("next=/cb?token=abc&x=1")).toBe("next=/cb?token=[removed]&x=1");
+});
