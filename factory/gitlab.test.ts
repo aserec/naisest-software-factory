@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { AI_LINE, GitLab, NotFactoryPipelineError } from "./gitlab";
+import { AI_LINE, GitLab } from "./gitlab";
+import { NotFactoryRunError } from "./seams";
 
 let calls: { url: string; init: RequestInit }[] = [];
 let next: { status?: number; body?: unknown; headers?: Record<string, string> } = {};
@@ -177,8 +178,8 @@ describe("buildRecord", () => {
     ["not on the default branch", { ...pipeline, ref: "evil" }],
     ["not started by the bot", { ...pipeline, user: { id: 9 } }],
   ])("rejects a pipeline %s", async (_name, p) => {
-    await expect(new GitLab("https://gl.example", "tok", routes(p)).buildRecord(3, 41)).rejects.toBeInstanceOf(NotFactoryPipelineError);
-    await expect(new GitLab("https://gl.example", "tok", routes(p)).runArtifacts(3, 41)).rejects.toBeInstanceOf(NotFactoryPipelineError);
+    await expect(new GitLab("https://gl.example", "tok", routes(p)).buildRecord(3, 41)).rejects.toBeInstanceOf(NotFactoryRunError);
+    await expect(new GitLab("https://gl.example", "tok", routes(p)).runArtifacts(3, 41)).rejects.toBeInstanceOf(NotFactoryRunError);
   });
 });
 

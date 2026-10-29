@@ -1,29 +1,22 @@
 // Shared parts of the CI steps: the context, the real adapters, and helpers for blocking, waiting and agent runs.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runClaude, runReviewer, wrapTicket, type ClaudeResult, type ClaudeRun } from "../agents";
 import { loadRouter, loadTarget } from "../config";
-import { GitLab, NotFactoryPipelineError } from "../gitlab";
+import { extractRun, GITLAB_URL, makeGitLabCi, RUN_DIR } from "../adapters/gitlab-ci";
+import { GitLab } from "../gitlab";
 import { makeJevClient, type JevClient } from "../jev";
 import { addStep, loadRecord, saveRecord, type RunRecord } from "../record";
 import { addKnownSecrets } from "../rules";
-import { FACTORY_ROOT, gitRepo, sh } from "./repo";
+import { NotFactoryRunError, type Repo } from "../seams";
+import { FACTORY_ROOT, gitRepo } from "./repo";
 import { buildCard, sendCard, type CardKind } from "../teams";
 import type { Router, RouterRow, Target } from "../types";
 
-// The target clone. Only step code touches GitLab; agents work here with no tokens.
-export interface Repo {
-  clone(ref: string): Promise<void>;
-  // All changes in the clone against the base commit, new files included.
-  diff(): Promise<{ text: string; numstat: string }>;
-  // A .factory.yml command, inside the sandbox.
-  run(cmd: string): Promise<{ ok: boolean; output: string }>;
-  // Commits the clone's files on top of the base and force-pushes the branch. Returns the new sha.
-  commitAndPush(branch: string, message: string): Promise<string>;
-  readFile(path: string): string | undefined;
-}
+// Until the steps use the seams, these names stay importable from here.
+export { extractRun, GITLAB_URL, RUN_DIR };
+export type { Repo };
 
 export interface StepContext {
   gitlab: GitLab;
@@ -53,7 +46,6 @@ export interface StepContext {
 }
 export type StepResult = "next" | "stop";
 
-export const RUN_DIR = "run";
 const POLL_MS = 30_000;
 const POLL_TRIES = 120; // one hour
 const RECORD_TRIES = 8; // about 4 minutes in all
@@ -174,52 +166,18 @@ function need(env: NodeJS.ProcessEnv, key: string): string {
 }
 const num = (v: string | undefined) => (v ? Number(v) : undefined);
 
-export const GITLAB_URL = "https://gitlab.example.com";
 // The runner keeps File-type variables in <project dir>.tmp. Taken from this file's place, not from env.
 const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
-// Trigger callers can set any variable, so each value must match its pattern before a step starts.
-const PATTERNS: Record<string, RegExp> = {
-  CI_PROJECT_ID: /^[0-9]+$/,
-  FACTORY_PIPELINE: /^(build|finish)?$/, // empty only in a scheduled pipeline
-  FACTORY_SCHEDULE: /^(poll|retry)?$/,
-  FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
-  FACTORY_MR_IID: /^([0-9]+)?$/,
-  FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,
-  FACTORY_SKIP_APPLY: /^1?$/,
-};
-function checkVars(env: NodeJS.ProcessEnv) {
-  if (env.CI_SERVER_URL !== GITLAB_URL) throw new Error(`CI_SERVER_URL must be ${GITLAB_URL}`);
-  for (const [k, re] of Object.entries(PATTERNS)) if (!re.test(env[k] ?? "")) throw new Error(`${k} has a value the factory does not accept`);
-  if (!env.FACTORY_PIPELINE === !env.FACTORY_SCHEDULE) throw new Error("Set exactly one of FACTORY_PIPELINE and FACTORY_SCHEDULE");
-}
-
-// GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
-// before any agent, install or gate command runs, so the environment only holds a path to nothing.
-// Only paths inside the runner's temp dir count, so no other file is ever read or deleted.
-function secretFile(env: NodeJS.ProcessEnv, key: string, secretDir: string): string | undefined {
-  const raw = env[key];
-  if (!raw) return undefined;
-  const path = resolve(raw);
-  if (!path.startsWith(resolve(secretDir) + sep) || !existsSync(path)) throw new Error(`${key} must be a File type CI variable`); // never print the value
-  const value = readFileSync(path, "utf8").trim();
-  rmSync(path, { force: true });
-  return value;
-}
-const needSecret = (env: NodeJS.ProcessEnv, key: string, secretDir: string) => {
-  const v = secretFile(env, key, secretDir);
-  if (!v) throw new Error(`${key} is not set`);
-  return v;
-};
-
 export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): StepContext {
-  checkVars(env);
+  const ci = makeGitLabCi(env, secretDir);
   const server = GITLAB_URL;
-  const token = needSecret(env, "FACTORY_GITLAB_TOKEN", secretDir);
-  const webhook = needSecret(env, "TEAMS_WEBHOOK_URL", secretDir);
-  const triggerToken = secretFile(env, "FACTORY_TRIGGER_TOKEN", secretDir);
+  const token = ci.secret("FACTORY_GITLAB_TOKEN");
+  const webhook = ci.secret("TEAMS_WEBHOOK_URL");
+  if (!token) throw new Error("FACTORY_GITLAB_TOKEN is not set");
+  if (!webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
   // No comment, MR text or pushed diff may carry any of these.
-  addKnownSecrets(token, webhook, triggerToken, env.CLAUDE_CODE_OAUTH_TOKEN, env.TENSORX_API_KEY, env.BERGET_API_KEY);
+  addKnownSecrets(token, webhook, env.CLAUDE_CODE_OAUTH_TOKEN, env.TENSORX_API_KEY, env.BERGET_API_KEY);
   // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
   const name = need(env, "FACTORY_TARGET");
   if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);
@@ -238,44 +196,21 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR): Ste
     dir,
     repo: gitRepo(dir, `${dir}.git`, `${server}/${target.projectPath}.git`, token, env),
     env: {
-      payload: env.TRIGGER_PAYLOAD ? JSON.parse(readFileSync(env.TRIGGER_PAYLOAD, "utf8")) : undefined,
-      workItemIid: num(env.FACTORY_WORK_ITEM_IID),
-      mrIid: num(env.FACTORY_MR_IID),
-      skipApply: env.FACTORY_SKIP_APPLY === "1",
-      buildPipelineId: num(env.FACTORY_BUILD_PIPELINE_ID),
+      payload: ci.vars.payload,
+      workItemIid: num(ci.vars.ticket),
+      mrIid: num(ci.vars.change),
+      skipApply: ci.vars.skipApply,
+      buildPipelineId: num(ci.vars.buildRun),
       factoryProjectId: num(env.CI_PROJECT_ID),
-      pipelineId: num(env.CI_PIPELINE_ID),
-      pipelineUrl: env.CI_PIPELINE_URL ?? "",
+      pipelineId: num(ci.vars.run),
+      pipelineUrl: ci.vars.runUrl,
     },
-    async startPipeline(vars) {
-      // The trigger token is only read here, by step code. It goes in the body, so errors never show it.
-      if (!triggerToken) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
-      const body = new URLSearchParams({ token: triggerToken, ref: need(env, "CI_COMMIT_REF_NAME") });
-      for (const [k, v] of Object.entries(vars)) body.set(`variables[${k}]`, v);
-      const res = await fetch(`${server}/api/v4/projects/${need(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
-      if (!res.ok) throw new Error(`Starting a pipeline failed with status ${res.status}`);
-    },
-    async restoreRun(pipelineId) {
-      await extractRun(Buffer.from(await gitlab.runArtifacts(Number(need(env, "CI_PROJECT_ID")), pipelineId)), process.cwd(), env.PATH);
-    },
+    // Until the steps use the seam: the old trigger variables become a run.
+    startPipeline: (v) =>
+      ci.start({ kind: v.FACTORY_PIPELINE as "build" | "finish", ticket: v.FACTORY_WORK_ITEM_IID, change: v.FACTORY_MR_IID, buildRun: v.FACTORY_BUILD_PIPELINE_ID, skipApply: v.FACTORY_SKIP_APPLY === "1" }),
+    restoreRun: (pipelineId) => ci.restoreRun(String(pipelineId)),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   };
-}
-
-// Puts run/ from an artifacts zip into cwd. unzip writes into an empty temp dir, and only its run/ is copied,
-// so no entry lands outside run/. The stop file goes: that pipeline stopped at the limit, this one goes on.
-export async function extractRun(zip: Buffer, cwd: string, path = process.env.PATH) {
-  const tmp = mkdtempSync(join(tmpdir(), "run-zip-"));
-  try {
-    writeFileSync(join(tmp, "artifacts.zip"), zip);
-    const out = join(tmp, "out");
-    const r = await sh("unzip", ["-q", "-o", join(tmp, "artifacts.zip"), `${RUN_DIR}/*`, "-d", out], tmp, { PATH: path });
-    if (r.code !== 0 && r.code !== 1) throw new Error(`unzip of the run artifacts failed: ${r.out.slice(-500)}`); // 1 is warnings only
-    rmSync(join(out, RUN_DIR, "stop"), { force: true });
-    cpSync(join(out, RUN_DIR), join(cwd, RUN_DIR), { recursive: true, verbatimSymlinks: true });
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
 }
 
 // The record from run/, or for the first finish job the one the build pipeline saved. That pipeline's
@@ -292,7 +227,7 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
     } catch (e) {
       // decision starts finish from inside its own job, so its record may not be there yet: wait.
       // A failed provenance check fails at once.
-      if (e instanceof NotFactoryPipelineError) throw e;
+      if (e instanceof NotFactoryRunError) throw e;
       last = e;
       await ctx.sleep(Math.min(5000 * 2 ** i, 60_000));
     }

@@ -1,4 +1,5 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
+import type { RunRecord } from "./record";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -38,4 +39,44 @@ export interface Tracker {
   create(draft: TicketDraft): Promise<{ ref: TicketRef; url: string }>;
   findOpen(fingerprint: string): Promise<TicketRef | undefined>;
   createdSince(mark: Mark, since: Date): Promise<number>;
+}
+
+// The target clone. Only step code touches the code host; agents work here with no tokens.
+export interface Repo {
+  clone(ref: string): Promise<void>;
+  // All changes in the clone against the base commit, new files included.
+  diff(): Promise<{ text: string; numstat: string }>;
+  // A .factory.yml command, inside the sandbox.
+  run(cmd: string): Promise<{ ok: boolean; output: string }>;
+  // Commits the clone's files on top of the base and force-pushes the branch. Returns the new sha.
+  commitAndPush(branch: string, message: string): Promise<string>;
+  readFile(path: string): string | undefined;
+}
+
+export type Checks = "green" | "red" | "running" | "none";
+export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; body: string }
+export interface CodeHost {
+  defaultBranch(): Promise<string>;
+  cloneAt(dir: string): Repo;
+  openChange(branch: string, title: string, body: string, ticket: TicketRef): Promise<{ ref: ChangeRef; url: string }>; // adds the AI line and the closing line
+  change(ref: ChangeRef): Promise<Change>;
+  approvedByTrusted(ref: ChangeRef): Promise<boolean>;
+  checks(at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks>;
+  merge(ref: ChangeRef, sha: string): Promise<string>;
+  revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
+  commentChange(ref: ChangeRef, text: string): Promise<void>;
+  assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
+}
+
+// The run is not one the factory started. Never worth a retry.
+export class NotFactoryRunError extends Error {}
+
+export type RunKind = "build" | "finish";
+export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: boolean; buildRun?: string; run?: string; runUrl: string; payload?: unknown }
+export interface CiRunner {
+  vars: RunVars;
+  secret(name: string): string | undefined; // read once, then gone
+  start(run: { kind: RunKind; ticket: TicketRef; change?: ChangeRef; buildRun?: string; skipApply?: boolean }): Promise<void>;
+  buildRecord(run: string): Promise<RunRecord>; // throws NotFactoryRunError on a failed provenance check
+  restoreRun(run: string): Promise<void>;
 }
