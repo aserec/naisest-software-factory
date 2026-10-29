@@ -125,7 +125,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const w = {
     tracker, host, ci, chat, judge, harness, ran, ctx,
     // A change of ticket 8 that waits for a person, opened by an earlier build run.
-    openChange: () => void host.openChange("factory/8-add-a-loading-state", "Add a loading state", "Factory run: https://ci.example/runs/41", "8"),
+    openChange: (body = "Factory run 41: https://ci.example/runs/41") => void host.openChange("factory/8-add-a-loading-state", "Add a loading state", body, "8"),
     get states() { return ticket.state ? [ticket.state] : []; },
     get workItemComments() { return tracker.posted.map((p) => p.text); },
     get mrComments() { return host.mrComments; },

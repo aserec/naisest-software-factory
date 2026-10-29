@@ -26,6 +26,8 @@ const ADAPTERS = {
   chat: { teams: makeTeamsChat },
 };
 type Seam = keyof typeof ADAPTERS;
+// Log source names with no constructor yet (the watcher builds them). The watcher's rules depend on the exact name.
+const LOG_SOURCES = ["files"];
 
 function pick<S extends Seam>(seams: SeamsConfig, seam: S): (typeof ADAPTERS)[S][keyof (typeof ADAPTERS)[S]] {
   const all = ADAPTERS[seam];
@@ -47,6 +49,7 @@ const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string): StepContext {
   const seams = loadSeams(seamsPath);
   // Check every name before any adapter is built.
+  if (!LOG_SOURCES.includes(seams.logSource)) throw new Error(`seams.yml logSource: unknown adapter ${seams.logSource}`);
   const make = { ci: pick(seams, "ci"), tracker: pick(seams, "tracker"), codeHost: pick(seams, "codeHost"), judge: pick(seams, "judge"), chat: pick(seams, "chat") };
   const router = loadRouter(undefined, seams);
   const ci = make.ci(env, secretDir);

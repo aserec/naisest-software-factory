@@ -118,6 +118,16 @@ test("a developer's approval of a waiting MR starts the finish pipeline with the
   expect(w.states).toEqual(["running"]);
   expect(w.claudeCalls).toBe(0);
 });
+test("the build run is found in a change body edited in the web UI, with CRLF line ends", async () => {
+  const crlf = fakeWorld({ payload: mrEvent("merge"), state: "needs_approval" });
+  crlf.openChange("Factory run 41: https://ci.example/runs/41\r\nChanged tests, and why:\r\n");
+  await runBuildPipeline(crlf);
+  expect(crlf.finishVars).toMatchObject({ kind: "finish", buildRun: "41" });
+});
+test("the change body names the build run, so finish can load its record", async () => {
+  const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  expect(b.mrDescription).toMatch(/^Factory run 1: https:\/\/ci\.example\/runs\/1$/m);
+});
 test("a manual merge starts the finish pipeline with apply skipped", async () => {
   const w = await runBuildPipeline(fakeWorld({ payload: mrEvent("merge"), state: "needs_approval" }));
   expect(w.finishVars).toMatchObject({ change: "5", skipApply: true });
@@ -513,6 +523,8 @@ test("makeContext refuses an unknown adapter in seams.yml before it builds any",
   expect(existsSync(join(dir, "gl"))).toBe(true); // the CI adapter never ran, so it read no secret
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: jira", "tracker: toString"));
   expect(() => makeContext({}, dir, seams)).toThrow("seams.yml tracker: unknown adapter toString");
+  writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: toString", "tracker: gitlab").replace("logSource: files", "logSource: filez"));
+  expect(() => makeContext({}, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
 });
 test("makeContext builds a context on the adapters seams.yml names", () => {
   const dir = tmp();

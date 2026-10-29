@@ -24,7 +24,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const testChanges = ctx.repo.readFile("run/test-changes.md");
   // The finish run finds this run's record through the run link (approval and manual merge paths).
   // The code host adds the AI line and the closing line.
-  const body = [`Factory run: ${ctx.ci.vars.runUrl}`, ...(testChanges ? ["Changed tests, and why:", testChanges] : [])].join("\n\n");
+  const body = [`Factory run ${ctx.ci.vars.run}: ${ctx.ci.vars.runUrl}`, ...(testChanges ? ["Changed tests, and why:", testChanges] : [])].join("\n\n");
   // Scan before anything leaves the runner.
   if (findSecrets((await ctx.repo.diff()).text + body).length > 0) return block(ctx, "The change contains a secret-looking value, so the factory did not push it.");
   const branch = `factory/${ref}-${slug(title)}`;
