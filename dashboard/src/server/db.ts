@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_run ON events (run, seq);
 CREATE INDEX IF NOT EXISTS events_ticket ON events (target, ticket);
+CREATE INDEX IF NOT EXISTS events_type ON events (type, target, ticket);
 CREATE TABLE IF NOT EXISTS switches (
   scope TEXT NOT NULL, name TEXT NOT NULL, "on" INTEGER NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (scope, name)
 );
@@ -63,6 +64,8 @@ function toRequest(r: Row): ControlRequest {
   return q;
 }
 
+export const EVENTS_SQL = (run: boolean) => `SELECT * FROM events WHERE seq > ?${run ? " AND run = ?" : ""} ORDER BY seq LIMIT ?`;
+
 export function openDb(path: string): Db {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL");
@@ -73,6 +76,10 @@ export function openDb(path: string): Db {
   const finishStmt = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE ? END WHERE id = ?");
   const cancelStmt = db.prepare("UPDATE requests SET outcome = 'cancelled' WHERE id = ?");
   const finishStops = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE 'stopped' END WHERE run = ? AND kind = 'stop' AND done_at IS NULL");
+
+  // Prepared once per distinct SQL. Optional filters are added to the SQL, not tested with `? IS NULL`, so SQLite can pick an index.
+  const cache = new Map<string, ReturnType<typeof db.prepare>>();
+  const stmt = (sql: string) => cache.get(sql) ?? (cache.set(sql, db.prepare(sql)), cache.get(sql)!);
 
   function inTransaction(fn: () => void) {
     db.exec("BEGIN IMMEDIATE");
@@ -102,20 +109,18 @@ export function openDb(path: string): Db {
     addEvents,
 
     events({ run, after = 0, limit = 500 }) {
-      const rows = db.prepare("SELECT * FROM events WHERE seq > ? AND (? IS NULL OR run = ?) ORDER BY seq LIMIT ?").all(after, run ?? null, run ?? null, limit) as Row[];
+      const rows = stmt(EVENTS_SQL(run != null)).all(...(run != null ? [after, run, limit] : [after, limit])) as Row[];
       const events = rows.map(toEvent);
       return { events, cursor: events.length ? events[events.length - 1].seq : after };
     },
 
     runs({ target, ticket }) {
-      const rows = db
-        .prepare(
-          `SELECT seq, run, target, ticket, at, step, type, data FROM events
-           WHERE type IN ('run_start','run_end','usage','step_start','step_end')
-             AND run IN (SELECT run FROM events WHERE type = 'run_start' AND (? IS NULL OR target = ?) AND (? IS NULL OR ticket = ?))
-           ORDER BY seq`,
-        )
-        .all(target ?? null, target ?? null, ticket ?? null, ticket ?? null) as Row[];
+      const starts = [target != null && "target = ?", ticket != null && "ticket = ?"].filter(Boolean);
+      const sql = `SELECT seq, run, target, ticket, at, step, type, data FROM events
+        WHERE +type IN ('run_start','run_end','usage','step_start','step_end') -- "+" stops SQLite scanning the type index; the run index is better
+          AND run IN (SELECT run FROM events WHERE type = 'run_start'${starts.map((c) => ` AND ${c}`).join("")})
+        ORDER BY seq`;
+      const rows = stmt(sql).all(...[target, ticket].filter((v) => v != null)) as Row[];
       const byRun = new Map<string, RunSummary>();
       for (const r of rows) {
         const id = r.run as string;

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunEvent } from "software-factory/run-events";
 import { describe, expect, it } from "vitest";
-import { openDb } from "./db";
+import { DatabaseSync } from "node:sqlite";
+import { EVENTS_SQL, openDb } from "./db";
 
 const at = (day: number, hour = 0) => new Date(Date.UTC(2026, 0, day, hour)).toISOString();
 const ev = (type: RunEvent["type"], data: Record<string, unknown> = {}, o: Partial<RunEvent> = {}): RunEvent => ({
@@ -41,6 +42,15 @@ describe("events", () => {
     const limited = db.events({ limit: 1 });
     expect(limited.events).toHaveLength(1);
     expect(limited.cursor).toBe(1);
+  });
+});
+
+describe("indexes", () => {
+  it("a run-filtered read uses the (run, seq) index", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "ix-")), "f.db");
+    openDb(file);
+    const plan = new DatabaseSync(file).prepare(`EXPLAIN QUERY PLAN ${EVENTS_SQL(true)}`).all(0, "r1", 10) as { detail: string }[];
+    expect(plan.map((p) => p.detail).join(" ")).toContain("USING INDEX events_run");
   });
 });
 
