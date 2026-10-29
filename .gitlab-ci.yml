@@ -39,9 +39,23 @@ smoke:
   - if: $CI_PIPELINE_SOURCE != "trigger" && $CI_PIPELINE_SOURCE != "schedule"
   script:
   - corepack enable
-  - pnpm install --frozen-lockfile
+  - pnpm install --frozen-lockfile --filter software-factory
   - pnpm tsc --noEmit
   - pnpm vitest run
+
+# The dashboard is a separate Next.js app. Only this job installs the whole workspace.
+dashboard-test:
+  stage: test
+  tags: [factory]
+  image: node:22
+  rules:
+  - if: $CI_PIPELINE_SOURCE != "trigger" && $CI_PIPELINE_SOURCE != "schedule"
+  script:
+  - corepack enable
+  - pnpm install --frozen-lockfile
+  - pnpm --filter factory-dashboard typecheck
+  - pnpm --filter factory-dashboard test
+  - pnpm --filter factory-dashboard build
 
 # Runs the contracts against a real GitLab test project. Start it by hand from a web pipeline.
 contract-real:
@@ -53,7 +67,7 @@ contract-real:
     when: manual
   script:
   - corepack enable
-  - pnpm install --frozen-lockfile
+  - pnpm install --frozen-lockfile --filter software-factory
   - FACTORY_CONTRACT_REAL=1 pnpm vitest run factory/contracts
 
 # One job per step. State passes between jobs in run/: record.json, the target clone and the Claude session.
@@ -74,7 +88,7 @@ contract-real:
   timeout: 3h
   before_script:
   # The factory's own dependencies, installed with no job variables and no secrets.
-  - env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile
+  - env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile --filter software-factory
   artifacts:
     when: always
     paths: [run/]

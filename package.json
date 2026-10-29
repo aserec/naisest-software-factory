@@ -6,6 +6,10 @@
   "engines": {
     "node": ">=22"
   },
+  "exports": {
+    "./run-events": "./factory/run-events.ts",
+    "./config": "./factory/config.ts"
+  },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

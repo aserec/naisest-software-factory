@@ -18,7 +18,7 @@ const STEP_PREFIX = [
   ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_TRIGGER_TOKEN"].map(passed),
   ...["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"].map(passed),
 ].join(" ");
-const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile`;
+const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile --filter software-factory`;
 
 test("every factory job starts its step through the env -i allowlist", () => {
   const jobs = Object.keys(ci).filter((k) => !k.startsWith(".") && ["build", "finish", "factory"].some((t) => ci[k]?.extends === `.${t}`));
@@ -49,7 +49,18 @@ test("the poll and retry jobs run only in their own scheduled pipeline", () => {
 });
 
 test("the smoke job type-checks before it runs the tests", () => {
-  expect(ci.smoke.script).toEqual(["corepack enable", "pnpm install --frozen-lockfile", "pnpm tsc --noEmit", "pnpm vitest run"]);
+  expect(ci.smoke.script).toEqual(["corepack enable", "pnpm install --frozen-lockfile --filter software-factory", "pnpm tsc --noEmit", "pnpm vitest run"]);
+});
+
+test("the dashboard job runs in the same pipelines as smoke and installs the whole workspace", () => {
+  expect(ci["dashboard-test"].rules).toEqual(ci.smoke.rules);
+  expect(ci["dashboard-test"].script).toEqual([
+    "corepack enable",
+    "pnpm install --frozen-lockfile",
+    "pnpm --filter factory-dashboard typecheck",
+    "pnpm --filter factory-dashboard test",
+    "pnpm --filter factory-dashboard build",
+  ]);
 });
 
 test("the real contract job runs only when started by hand from a web pipeline", () => {
