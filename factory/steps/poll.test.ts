@@ -1,5 +1,5 @@
-import { expect, test } from "vitest";
-import { finishCancelledStops, handleRequests, pollReady } from "./poll";
+import { expect, test, vi } from "vitest";
+import { finishCancelledStops, handleRequests, main, pollReady } from "./poll";
 import { cancelNote, isCancelNote, stoppedNote } from "./context";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx } from "./test-helpers";
@@ -140,7 +140,7 @@ test("requests already answered are left alone, and handleRequests does nothing 
   const down = fakeDashboard({ requests: [request("resume", "7")] });
   down.down = true;
   ctx.dashboard = down;
-  await expect(handleRequests(ctx)).resolves.toBeUndefined();
+  await expect(handleRequests(ctx)).resolves.toEqual([]);
   expect(ctx.world.ci.started).toEqual([]);
   expect(ctx.world.tracker.tickets.get("7")!.state).toBe("stopped");
 });
@@ -163,4 +163,60 @@ test("a cancelled stop posts its comment before it sets the ticket stopped", asy
   ctx.tracker.setState = async (ref, state) => (order.push(state), setState(ref, state));
   await finishCancelledStops(ctx);
   expect(order).toEqual(["comment", "stopped"]);
+});
+
+// Fix round 1 for B6 (R42).
+test("the poller flushes the dashboard at the end, also after an error, and does not start a restarted ticket twice", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const ctx = stoppedCtx([personStop]);
+    ctx.tracker.startedBy = async () => BOT; // the restart's ready
+    const dash = fakeDashboard({ requests: [request("restart", "7")] });
+    let flushed = 0;
+    dash.flush = async () => void flushed++;
+    ctx.dashboard = dash;
+    await main(ctx);
+    expect(ctx.world.ci.started).toEqual([{ kind: "build", ticket: "7" }]);
+    expect(flushed).toBe(1);
+    ctx.tracker.list = async () => { throw new Error("tracker down"); };
+    await expect(main(ctx)).rejects.toThrow("tracker down");
+    expect(flushed).toBe(2);
+  } finally {
+    vi.unstubAllEnvs();
+    log.mockRestore();
+  }
+});
+test("a failed request does not stop the others, and a request for a ticket that is gone is refused", async () => {
+  const ctx = stoppedCtx([personStop]);
+  ctx.world.tracker.tickets.set("6", { ...ctx.world.tracker.tickets.get("7")!, ref: "6" });
+  const start = ctx.ci.start;
+  ctx.ci.start = async (run) => { if (run.ticket === "6") throw new Error("CI is down"); return start(run); };
+  const dash = fakeDashboard({ requests: [request("resume", "404"), request("restart", "6"), request("resume", "7")] });
+  ctx.dashboard = dash;
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  expect(await handleRequests(ctx)).toEqual(["7"]);
+  expect(log.mock.calls.map((c) => c[0])).toEqual(["Request q6 (restart of ticket 6) failed: Error: CI is down"]);
+  log.mockRestore();
+  expect(dash.done).toEqual([["q404", "refused"], ["q7", "done"]]);
+  // The failed start leaves the old run open on the dashboard.
+  expect(dash.events.filter((e) => e.type === "run_end")).toEqual([]);
+});
+test("run_end restarted names the old run and its ticket, not the poller's pipeline or job", async () => {
+  const ctx = stoppedCtx([]);
+  ctx.ci.vars = { ...ctx.ci.vars, run: "900", job: "poll" };
+  const dash = fakeDashboard({ requests: [request("restart", "7")] });
+  ctx.dashboard = dash;
+  await handleRequests(ctx);
+  const [end] = dash.events;
+  expect(end).toMatchObject({ type: "run_end", run: "run-1", ticket: "7", data: { outcome: "restarted" } });
+  expect(end.pipeline).toBeUndefined();
+  expect(end.job).toBeUndefined();
+});
+test("a restart request dated in the future does not make a factory-set ready trusted", async () => {
+  const ctx = fakeCtx({ ready: [3], running: 0 });
+  ctx.tracker.startedBy = async () => BOT;
+  ctx.tracker.trusted = async (actor) => actor === "ana";
+  ctx.dashboard = fakeDashboard({ requests: [request("restart", "3", { at: new Date(Date.now() + 60 * 60_000).toISOString() })] });
+  expect(await pollReady(ctx)).toEqual([]);
 });

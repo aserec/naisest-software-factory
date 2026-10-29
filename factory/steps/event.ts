@@ -45,9 +45,8 @@ const RESTART_MS = 15 * 60_000;
 export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<string> {
   if (!(await ctx.tracker.isFactory(actor))) return actor;
   const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
-  const restart = control?.requests.find(
-    (r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && Date.now() - Date.parse(r.at) <= RESTART_MS,
-  );
+  const age = (at: string) => Date.now() - Date.parse(at); // a future `at` (NaN or below 0) never counts
+  const restart = control?.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && age(r.at) >= 0 && age(r.at) <= RESTART_MS);
   return restart?.user ?? actor;
 }
 
