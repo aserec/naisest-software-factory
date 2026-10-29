@@ -1,9 +1,10 @@
-import { block, data, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { block, data, isMain, runStep, save, stopped, switchOn, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const change = ctx.ci.vars.change;
   if (!change) throw new Error("This finish run has no change");
+  if (!(await switchOn(ctx, "apply"))) return stopped(ctx, "apply", { reason: "switch off apply", change });
   // The record must belong to this ticket and this change, not to some other run.
   if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}` || data(ctx, "precommit-gate")?.change !== change) {
     return block(ctx, `The run record is for another ticket or change (${ctx.record.workItem || "none"}), so the factory did not merge change ${change}.`);

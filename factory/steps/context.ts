@@ -9,7 +9,7 @@ import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
-import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
+import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type ChangeRef, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
 import type { RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
@@ -106,18 +106,48 @@ export async function waiting(ctx: StepContext, step: string, sessionId: string,
   return "stop";
 }
 
-// A person stopped the run (`@factory stop`): keep the session so `@factory resume` can continue it.
-export const stoppedNote = (run: string | undefined) =>
-  `A person stopped this run. Comment the line @factory resume to continue it.\n\nStopped run: pipeline ${run ?? "unknown"}`;
-export const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
+// Is this dashboard switch on for this target? An unreachable dashboard counts as on, so a running step goes on,
+// except new_runs: no new run starts while the factory cannot see its switches.
+export async function switchOn(ctx: StepContext, name: SwitchName): Promise<boolean> {
+  try {
+    return (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).switches[name];
+  } catch {
+    return name !== "new_runs";
+  }
+}
 
-export async function stopped(ctx: StepContext, step: string, sessionId: string, extra: object = {}): Promise<StepResult> {
+// A person (`@factory stop`) or a dashboard switch stopped the run. The note names the run to resume:
+// `@factory resume` continues a person's stop, the poller a switch stop once the switch is on again.
+export interface StoppedNote { run: string; step: string; reason: string; change?: ChangeRef; buildRun?: string }
+export const stoppedNote = (n: StoppedNote) =>
+  [
+    n.reason.startsWith("switch off") ? "A dashboard switch stopped this run. The factory continues it when the switch is on again." : "A person stopped this run. Comment the line @factory resume to continue it.",
+    "",
+    `Stopped run: pipeline ${n.run}`,
+    `Stopped step: ${n.step}`,
+    `Reason: ${n.reason}`,
+    ...(n.change ? [`Change: ${n.change}`, `Build run: ${n.buildRun ?? "unknown"}`] : []),
+  ].join("\n");
+export const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
+// Reads a stopped note back. Only the factory's own comments may be passed in.
+export function parseStoppedNote(body: string): StoppedNote | undefined {
+  const field = (name: string) => new RegExp(`^${name}: (.+)$`, "m").exec(body)?.[1];
+  const run = STOPPED_RUN.exec(body)?.[1];
+  const step = field("Stopped step");
+  const reason = field("Reason");
+  if (!run || !step || !reason) return undefined;
+  const change = field("Change");
+  return { run, step, reason, ...(change ? { change, buildRun: field("Build run") } : {}) };
+}
+
+export async function stopped(ctx: StepContext, step: string, o: { session?: string; reason: string; change?: ChangeRef; extra?: object }): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  save(ctx, step, { ...extra, sessionId, stopped: true });
+  save(ctx, step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
   await ctx.tracker.setState(ref, "stopped");
-  await ctx.tracker.comment(ref, stoppedNote(ctx.ci.vars.run));
+  await ctx.tracker.comment(ref, stoppedNote({ run: ctx.ci.vars.run ?? "unknown", step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun }));
   return "stop";
 }
+export const PERSON_STOP = "stopped by @factory stop";
 
 // The ticket's inbox from the start of this run (the newest event step), so a stop posted
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.

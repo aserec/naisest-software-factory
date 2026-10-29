@@ -2,6 +2,10 @@ import { expect, test } from "vitest";
 import { pollReady } from "./poll";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx } from "./test-helpers";
+import { fakeDashboard } from "../fakes";
+import { SWITCHES, type SwitchName } from "../run-events";
+
+const on = (o: Partial<Record<SwitchName, boolean>>) => ({ ...(Object.fromEntries(SWITCHES.map((n) => [n, true])) as Record<SwitchName, boolean>), ...o });
 
 test("poller starts ready items up to the repo limit of 2", async () => {
   expect(await pollReady(fakeCtx({ ready: [3, 4, 5], running: 0 }))).toEqual(["3", "4"]);
@@ -35,4 +39,19 @@ test("poller starts a watcher ticket the factory set ready, but no other ticket 
   ctx.tracker.startedBy = async () => BOT;
   ctx.tracker.trusted = async (actor) => actor !== BOT; // the factory may not command itself
   expect(await pollReady(ctx)).toEqual(["3"]);
+});
+
+// Task B4: new runs only while new_runs is on. An unreachable dashboard counts as off for new runs.
+test("poller starts nothing while new_runs is off or the dashboard is down", async () => {
+  const off = fakeCtx({ ready: [3], running: 0 });
+  off.dashboard = fakeDashboard({ switches: on({ new_runs: false }) });
+  expect(await pollReady(off)).toEqual([]);
+  const down = fakeCtx({ ready: [3], running: 0 });
+  (down.dashboard as ReturnType<typeof fakeDashboard>).down = true;
+  expect(await pollReady(down)).toEqual([]);
+});
+test("retry resumes nothing while retry is off", async () => {
+  const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0 });
+  ctx.dashboard = fakeDashboard({ switches: on({ retry: false }) });
+  expect(await retryWaiting(ctx)).toEqual([]);
 });

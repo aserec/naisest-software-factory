@@ -9,7 +9,8 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { runStep, ticketText } from "./context";
+import { parseStoppedNote, runStep, stoppedNote, ticketText } from "./context";
+import { resumeSwitchedOff } from "./poll";
 import { makeContext } from "../compose";
 import { reviewerPrompt } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
@@ -17,7 +18,7 @@ import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError } from "../seams";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
-import { runEvent } from "../run-events";
+import { runEvent, SWITCHES, type SwitchName } from "../run-events";
 import * as apply from "./apply";
 import * as verify from "./verify";
 import { findSecrets } from "../rules";
@@ -761,12 +762,20 @@ test("a resumed run keeps the run ID of the run it continues", async () => {
   expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([runId]));
   expect(dash(w).events.some((e) => e.type === "run_start")).toBe(false);
 });
+// The dashboard goes down once the event step has claimed the run: with it down from the start, no new run starts (Task B4).
+const downOnceRunning = (w: ReturnType<typeof fakeWorld>) => {
+  const set = w.tracker.setState;
+  w.tracker.setState = async (ref, state) => {
+    await set(ref, state);
+    if (state === "running") dash(w).down = true;
+  };
+};
 test("a run ends the same while the dashboard is down", async () => {
   const up = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
   const w = fakeWorld({ jev1: { risk: "low" } });
-  dash(w).down = true;
+  downOnceRunning(w);
   await runAllJobs(w);
-  expect(dash(w).events).toEqual([]);
+  expect(dash(w).events.map((e) => e.type)).toEqual(["run_start", "step_start"]);
   expect([w.states, w.closed, w.merged, w.workItemComments.length]).toEqual([up.states, up.closed, up.merged, up.workItemComments.length]);
 });
 
@@ -812,4 +821,108 @@ test("an author's tool calls are sent as tool_call events under their step, a re
   expect(jobs.filter((j) => j.role !== "author").every((j) => j.onToolCall === undefined)).toBe(true);
   const usage = events.filter((e) => e.type === "usage" && e.data.role === "author");
   expect(usage[0].data).toMatchObject({ input: 100, output: 20, cacheRead: 7, cacheWrite: 3, contextTokens: 110 });
+});
+
+// Task B4: the dashboard switches. No saved value means on; an unreachable dashboard counts as on, except new_runs.
+const withSwitches = (w: ReturnType<typeof fakeWorld>, ...off: SwitchName[]) => {
+  const switches = Object.fromEntries(SWITCHES.map((n) => [n, !off.includes(n)])) as Record<SwitchName, boolean>;
+  w.ctx.dashboard = fakeDashboard({ switches });
+  return switches;
+};
+test("prepare_patch off stops the run before any author job, and turning it on resumes it at prepare-patch", async () => {
+  const first = fakeWorld({ jev1: { risk: "trivial" } });
+  const switches = withSwitches(first, "prepare_patch");
+  await runBuildJobs(first, tmp());
+  expect(first.states).toEqual(["stopped"]);
+  expect(first.harness.jobs).toEqual([]);
+  expect(first.ran).toEqual([]);
+  expect(first.workItemComments.at(-1)).toMatch(/^Stopped run: pipeline 1$/m);
+  expect(first.workItemComments.at(-1)).toMatch(/^Stopped step: prepare-patch$/m);
+  expect(first.workItemComments.at(-1)).toMatch(/^Reason: switch off prepare_patch$/m);
+  expect(first.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { stopped: true, switchOff: true } });
+  expect(stepEnds(first).at(-1)).toEqual(["prepare-patch", "stopped"]);
+  // Still off, or the dashboard cannot be reached: nothing starts.
+  expect(await resumeSwitchedOff(first.ctx)).toEqual([]);
+  switches.prepare_patch = true;
+  dash(first).down = true;
+  expect(await resumeSwitchedOff(first.ctx)).toEqual([]);
+  dash(first).down = false;
+  expect(await resumeSwitchedOff(first.ctx)).toEqual(["8"]);
+  expect(first.ci.started.at(-1)).toEqual({ kind: "build", ticket: "8", buildRun: "1" });
+  const w = resumeWorld({ jev1: { risk: "trivial" }, state: "stopped" }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual(["1"]);
+  expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
+  expect(w.claudeRuns[0].resume).toBeUndefined();
+  expect(w.claudeRuns[0].prompt).toContain(ticketText(w.ctx));
+  expect(w.finishTriggered).toBe(true);
+});
+test("a person's stop note gives its reason, and the poller does not resume it", async () => {
+  const w = await stopRecord();
+  expect(w.workItemComments.at(-1)).toMatch(/^Reason: stopped by @factory stop$/m);
+  expect(await resumeSwitchedOff(w.ctx)).toEqual([]);
+});
+test("questions off stops before the questions agent, and its resume asks the questions without triage again", async () => {
+  const first = fakeWorld({ jev1: { clarity: 4 } });
+  const switches = withSwitches(first, "questions");
+  await runBuildJobs(first, tmp());
+  expect(first.claudeCalls).toBe(0);
+  expect(first.states).toEqual(["stopped"]);
+  expect(first.workItemComments.at(-1)).toMatch(/^Reason: switch off questions$/m);
+  switches.questions = true;
+  expect(await resumeSwitchedOff(first.ctx)).toEqual(["8"]);
+  const w = resumeWorld({ jev1: { clarity: 4 }, state: "stopped" }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.jevAsked).toBe(0);
+  expect(w.claudeRuns).toHaveLength(1);
+  expect(w.claudeRuns[0].resume).toBeUndefined();
+  expect(w.states).toEqual(["needs_info"]);
+});
+test("auto_merge off sends a run that would merge alone to a person", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  withSwitches(w, "auto_merge");
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain("auto-merge is switched off");
+});
+test("new_runs off: a webhook ready starts nothing and the ticket stays ready", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  withSwitches(w, "new_runs");
+  await runBuildJobs(w, tmp());
+  expect(w.record.steps.map((s) => s.step)).toEqual(["event"]);
+  expect(w.record.steps[0].data).toMatchObject({ start: false, reason: "switch-off" });
+  expect(w.states).toEqual(["ready"]);
+  expect(w.jevAsked).toBe(0);
+});
+test("with the dashboard down a running run goes on and merges alone, and a new run does not start", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  downOnceRunning(w);
+  await runBuildJobs(w, tmp());
+  expect(w.claudeCalls).toBeGreaterThan(0);
+  expect(w.finishTriggered).toBe(true);
+  const fresh = fakeWorld({ jev1: { risk: "trivial" } });
+  dash(fresh).down = true;
+  await runBuildJobs(fresh, tmp());
+  expect(fresh.record.steps[0].data).toMatchObject({ start: false, reason: "switch-off" });
+  expect(fresh.states).toEqual(["ready"]);
+});
+test("apply off stops the finish run, and turning it on starts a finish run with the change", async () => {
+  const w = fakeWorld();
+  const switches = withSwitches(w, "apply");
+  w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
+  await runFinishPipeline(w);
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["stopped"]);
+  const note = w.workItemComments.at(-1)!;
+  for (const line of ["Stopped run: pipeline 2", "Stopped step: apply", "Reason: switch off apply", "Change: 5", "Build run: 41"]) expect(note).toContain(`\n${line}`);
+  switches.apply = true;
+  expect(await resumeSwitchedOff(w.ctx)).toEqual(["8"]);
+  expect(w.ci.started.at(-1)).toEqual({ kind: "finish", ticket: "8", change: "5", buildRun: "41" });
+  expect(w.states).toEqual(["running"]);
+});
+test("parseStoppedNote reads back the note stopped() writes", () => {
+  const body = stoppedNote({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
+  expect(parseStoppedNote(body)).toEqual({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
+  expect(parseStoppedNote("hello")).toBeUndefined();
 });

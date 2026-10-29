@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { emit } from "../emit";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO, decideStart } from "../event";
 import type { FactoryEvent, Ticket, TicketRef } from "../seams";
-import { block, data, isMain, runStep, save, STOPPED_RUN, type StepContext, type StepResult } from "./context";
+import { block, data, isMain, runStep, save, STOPPED_RUN, switchOn, type StepContext, type StepResult } from "./context";
 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
 // and the running state is set before the job ends.
@@ -39,16 +39,17 @@ export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket):
   return ticket.marks.includes("watcher") && (await ctx.tracker.isFactory(actor));
 }
 
-// The hourly retry asks to resume a run that stopped at the agent's usage limit, and a `@factory resume` comment
-// asks to resume a stopped run. The record is loaded already, through the provenance-checked loader. Never start over silently.
+// The hourly retry asks to resume a run that stopped at the agent's usage limit, a `@factory resume` comment
+// asks to resume a stopped run, and the poller a run a switch stopped (no session: that step starts afresh).
+// The record is loaded already, through the provenance-checked loader. Never start over silently.
 async function resume(ctx: StepContext, ref: TicketRef, buildRun: string): Promise<StepResult> {
   const quiet = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: ref }), "stop" as const);
   const state = (await ctx.tracker.ticket(ref)).state;
   if (state !== "waiting" && state !== "stopped") return quiet("not-waiting");
   const last = ctx.record.steps.at(-1);
-  const d = last?.data as { sessionId?: string; limit?: boolean; stopped?: boolean } | undefined;
+  const d = last?.data as { sessionId?: string; limit?: boolean; stopped?: boolean; switchOff?: boolean } | undefined;
   if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}`) return block(ctx, `The factory could not resume this run: the record of pipeline ${buildRun} is for another ticket. Add factory_ready to start again.`);
-  if (!(d?.limit || d?.stopped) || !d.sessionId) return block(ctx, `The factory could not resume this run: the record of pipeline ${buildRun} has no saved session. Add factory_ready to start again.`);
+  if (!(d?.limit || d?.stopped) || !(d.sessionId || d.switchOff)) return block(ctx, `The factory could not resume this run: the record of pipeline ${buildRun} has no saved session. Add factory_ready to start again.`);
   // A record from before the router named a harness per role cannot be continued.
   if (typeof data(ctx, "triage")?.row?.author !== "object") return block(ctx, `The factory could not resume this run: the record of pipeline ${buildRun} is from an older factory version. Add factory_ready to start again.`);
   // This ticket is waiting, so it is one of the active runs already.
@@ -96,6 +97,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (e.kind === "command") return commandEvent(ctx, e);
   if (e.kind !== "ready") {
     save(ctx, "event", { start: false, reason: e.kind === "ignored" ? e.reason : "not-added" });
+    return "stop";
+  }
+  // The ticket stays ready, so the poller starts it once new_runs is on again.
+  if (!(await switchOn(ctx, "new_runs"))) {
+    save(ctx, "event", { start: false, reason: "switch-off" });
     return "stop";
   }
   const t = await ctx.tracker.ticket(e.ticket);

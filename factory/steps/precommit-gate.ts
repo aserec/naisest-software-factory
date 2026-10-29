@@ -1,7 +1,7 @@
 import { emit } from "../emit";
 import { precommitGate } from "../loops";
 import { findSecrets } from "../rules";
-import { block, data, fix, install, isMain, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
+import { block, data, fix, install, isMain, PERSON_STOP, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
 
 // The CI skips the pipeline of a commit or change whose title says so, and the hard rules need that pipeline.
 const noSkipCi = (title: string) => title.replace(/\[(skip ci|ci skip)\]/gi, "").trim();
@@ -24,7 +24,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   );
   ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
   if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
-  if (result.kind === "stopped") return stopped(ctx, "precommit-gate", result.sessionId);
+  if (result.kind === "stopped") return stopped(ctx, "precommit-gate", { session: result.sessionId, reason: PERSON_STOP });
   if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.join("\n")}`);
 
   const title = noSkipCi(ctx.record.ticket!.title);

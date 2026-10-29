@@ -2,7 +2,7 @@ import { emit } from "../emit";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { RuleResult } from "../rules";
 import type { Ticket } from "../seams";
-import { block, data, inbox, isMain, modelRow, notify, person, runStep, save, session, stopped, ticketRef, type StepContext, type StepResult } from "./context";
+import { block, data, inbox, isMain, modelRow, notify, person, PERSON_STOP, runStep, save, session, stopped, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
 
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
 
@@ -33,10 +33,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const { change, changeUrl } = data(ctx, "precommit-gate");
   const ticket = await ctx.tracker.ticket(ref);
-  const d = decide(ctx, ticket);
+  let d = decide(ctx, ticket);
+  if (d.kind === "auto" && !(await switchOn(ctx, "auto_merge"))) d = { kind: "needs_approval", reasons: ["auto-merge is switched off"] };
   // A stop posted after the last author run (during review, the gate or the risk check) must not merge.
   // With no author session the resume blocks, which is still better than a merge.
-  if (d.kind === "auto" && (await inbox(ctx).poll()).stop) return stopped(ctx, "decision", session(ctx) ?? "");
+  if (d.kind === "auto" && (await inbox(ctx).poll()).stop) return stopped(ctx, "decision", { session: session(ctx), reason: PERSON_STOP });
   // The finish run loads this run's record from this run.
   if (d.kind === "auto" && !ctx.ci.vars.run) return block(ctx, "This run has no run id, so the finish run could not find this run's record.");
   save(ctx, "decision", d);
