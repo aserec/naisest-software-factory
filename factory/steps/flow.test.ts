@@ -9,8 +9,9 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { parseStoppedNote, runStep, stoppedNote, ticketText } from "./context";
-import { resumeSwitchedOff } from "./poll";
+import { cancelNote, parseStoppedNote, runStep, stoppedNote, ticketText } from "./context";
+import { handleRequests, resumeSwitchedOff } from "./poll";
+import * as event from "./event";
 import { makeContext } from "../compose";
 import { reviewerPrompt } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
@@ -18,7 +19,7 @@ import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError } from "../seams";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
-import { runEvent, SWITCHES, type SwitchName } from "../run-events";
+import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
 import * as apply from "./apply";
 import * as verify from "./verify";
 import { findSecrets } from "../rules";
@@ -963,4 +964,83 @@ test("parseStoppedNote reads back the note stopped() writes", () => {
   const body = stoppedNote({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
   expect(parseStoppedNote(body)).toEqual({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
   expect(parseStoppedNote("hello")).toBeUndefined();
+});
+
+// Task B6: resume and restart from the dashboard, and the open item of B4.
+const restartRequest = (run: string, o: Partial<ControlRequest> = {}): ControlRequest => ({ id: "q1", kind: "restart", run, target: "react_frontend", ticket: "8", user: "ana", at: new Date().toISOString(), ...o });
+test("a restart ends the old run as blocked, sets ready, and that build's event step starts a new run for the request's user", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  const oldRun = first.record.runId!;
+  const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped" });
+  const request = restartRequest(oldRun);
+  const d = fakeDashboard({ requests: [request] });
+  w.ctx.dashboard = d;
+  const states: string[] = [];
+  const set = w.tracker.setState;
+  w.tracker.setState = async (ref, state) => (states.push(state), set(ref, state));
+  await handleRequests(w.ctx);
+  expect(states).toEqual(["blocked", "ready"]);
+  expect(w.workItemComments).toEqual(["Restarted from the dashboard by @ana. This run ends as blocked and a new run starts."]);
+  expect(w.ci.started).toEqual([{ kind: "build", ticket: "8" }]);
+  expect(d.done).toEqual([["q1", "done"]]);
+  const ends = d.events.filter((e) => e.type === "run_end");
+  expect(ends.map((e) => [e.run, e.ticket, e.data])).toEqual([[oldRun, "8", { outcome: "restarted" }]]);
+  expect(runEvent.safeParse(ends[0]).success).toBe(true);
+  // The new build: no payload, and the factory set the ticket ready.
+  request.outcome = "done";
+  w.tracker.startedBy = async () => BOT;
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8" };
+  await runStep("event", event.run, { dir: tmp(), make: () => w.ctx });
+  expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true, actor: "ana" } });
+  expect(w.record.runId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(w.record.runId).not.toBe(oldRun);
+  expect(w.states).toEqual(["running"]);
+});
+test("a ready the factory set starts no run without a recent restart of that ticket by a trusted person", async () => {
+  const old = new Date(Date.now() - 16 * 60_000).toISOString();
+  for (const requests of [[], [restartRequest("run-1", { at: old })], [restartRequest("run-1", { ticket: "9" })], [restartRequest("run-1", { outcome: "refused" })]]) {
+    const w = fakeWorld({ payload: { kind: "ready", ticket: "8", actor: BOT } });
+    w.ctx.dashboard = fakeDashboard({ requests });
+    await runBuildPipeline(w);
+    expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: false, reason: "not-member" } });
+  }
+  const untrusted = fakeWorld({ payload: { kind: "ready", ticket: "8", actor: BOT }, actorLevel: 20 });
+  untrusted.ctx.dashboard = fakeDashboard({ requests: [restartRequest("run-1")] });
+  await runBuildPipeline(untrusted);
+  expect(untrusted.record.steps[0]).toMatchObject({ step: "event", data: { start: false, reason: "not-member" } });
+});
+// B4 open item: a run the apply switch stopped resumes as a finish run with its change, from a person or the dashboard.
+const applyStopped = async () => {
+  const w = fakeWorld();
+  withSwitches(w, "apply");
+  w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
+  await runFinishPipeline(w);
+  w.ci.started.length = 0;
+  return w;
+};
+test("@factory resume or a dashboard resume of a run the apply switch stopped starts a finish run with the change", async () => {
+  const w = await applyStopped();
+  w.ci.vars = { ...w.ci.vars, payload: command("resume"), ticket: undefined, change: undefined, buildRun: undefined, run: "3" };
+  await runStep("event", event.run, { dir: tmp(), make: () => w.ctx });
+  expect(w.ci.started).toEqual([{ kind: "finish", ticket: "8", change: "5", buildRun: "41" }]);
+  expect(w.restored).toEqual([]);
+  expect(w.states).toEqual(["running"]);
+  const viaDashboard = await applyStopped();
+  const d = fakeDashboard({ requests: [{ ...restartRequest("run-1"), kind: "resume" }] });
+  viaDashboard.ctx.dashboard = d;
+  await handleRequests(viaDashboard.ctx);
+  expect(viaDashboard.ci.started).toEqual([{ kind: "finish", ticket: "8", change: "5", buildRun: "41" }]);
+  expect(viaDashboard.states).toEqual(["running"]);
+  expect(d.done).toEqual([["q1", "done"]]);
+});
+// R30: after a cancel, the newest factory note is the cancel, so an older stop is not resumed.
+test("@factory resume after a cancel from the dashboard starts nothing", async () => {
+  const w = fakeWorld({ state: "stopped", payload: command("resume") });
+  await w.tracker.comment("8", "Stopped run: pipeline 1");
+  await w.tracker.comment("8", cancelNote("dev"));
+  w.ci.buildRecord = async () => (await stopRecord()).record;
+  await runBuildJobs(w, tmp());
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "cancelled" } });
+  expect(w.restored).toEqual([]);
+  expect(w.states).toEqual(["stopped"]);
 });

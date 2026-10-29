@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { finishCancelledStops, pollReady } from "./poll";
-import { isCancelNote } from "./context";
+import { finishCancelledStops, handleRequests, pollReady } from "./poll";
+import { cancelNote, isCancelNote, stoppedNote } from "./context";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx } from "./test-helpers";
 import { fakeDashboard } from "../fakes";
@@ -86,4 +86,81 @@ test("finishing cancelled stops does nothing while the dashboard is down", async
   ctx.dashboard = dash;
   expect(await finishCancelledStops(ctx)).toEqual([]);
   expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("running");
+});
+
+// Task B6: resume and restart requests from the dashboard. The poller serves them before it starts new runs.
+const request = (kind: "resume" | "restart", ticket: string, o: object = {}) => ({ id: `q${ticket}`, kind, run: "run-1", target: "react_frontend", ticket, user: "ana", at: new Date().toISOString(), ...o });
+const stoppedCtx = (notes: string[]) => {
+  const ctx = fakeCtx({ running: 1 });
+  ctx.world.tracker.tickets.set("7", { ...ctx.world.tracker.tickets.get("9")!, ref: "7", state: "stopped" });
+  // Newest first, as the tracker gives them.
+  ctx.tracker.comments = async () => notes.map((body) => ({ author: BOT, byFactory: true, body, at: "2026-10-29T00:00:00Z" }));
+  return ctx;
+};
+const personStop = stoppedNote({ run: "55", step: "prepare-patch", reason: "stopped by @factory stop" });
+test("a resume request on a stopped ticket starts one build with the stopped pipeline and is marked done", async () => {
+  const ctx = stoppedCtx([personStop]);
+  const dash = fakeDashboard({ requests: [request("resume", "7")] });
+  ctx.dashboard = dash;
+  await handleRequests(ctx);
+  expect(ctx.world.ci.started).toEqual([{ kind: "build", ticket: "7", buildRun: "55" }]);
+  expect(dash.done).toEqual([["q7", "done"]]);
+});
+test("a resume request on a running ticket, or after a cancel, is refused and starts nothing", async () => {
+  const running = stoppedCtx([personStop]);
+  const dash = fakeDashboard({ requests: [request("resume", "r0")] });
+  running.dashboard = dash;
+  await handleRequests(running);
+  expect(running.world.ci.started).toEqual([]);
+  expect(dash.done).toEqual([["qr0", "refused"]]);
+  // The cancel is newer than the stop: the stopped pipeline saved nothing after it.
+  const cancelled = stoppedCtx([cancelNote("dev"), personStop]);
+  const dash2 = fakeDashboard({ requests: [request("resume", "7")] });
+  cancelled.dashboard = dash2;
+  await handleRequests(cancelled);
+  expect(cancelled.world.ci.started).toEqual([]);
+  expect(dash2.done).toEqual([["q7", "refused"]]);
+});
+test("a restart request on a ticket that is not stopped is refused", async () => {
+  const ctx = stoppedCtx([]);
+  const dash = fakeDashboard({ requests: [request("restart", "r0")] });
+  ctx.dashboard = dash;
+  await handleRequests(ctx);
+  expect(ctx.world.ci.started).toEqual([]);
+  expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("running");
+  expect(dash.done).toEqual([["qr0", "refused"]]);
+});
+test("requests already answered are left alone, and handleRequests does nothing while the dashboard is down", async () => {
+  const ctx = stoppedCtx([personStop]);
+  const dash = fakeDashboard({ requests: [request("restart", "7", { outcome: "done" }), request("resume", "7", { outcome: "refused" })] });
+  ctx.dashboard = dash;
+  await handleRequests(ctx);
+  expect(ctx.world.ci.started).toEqual([]);
+  expect(dash.done).toEqual([]);
+  const down = fakeDashboard({ requests: [request("resume", "7")] });
+  down.down = true;
+  ctx.dashboard = down;
+  await expect(handleRequests(ctx)).resolves.toBeUndefined();
+  expect(ctx.world.ci.started).toEqual([]);
+  expect(ctx.world.tracker.tickets.get("7")!.state).toBe("stopped");
+});
+// R31: a ready the factory set counts only for a recent restart of that ticket, and as that restart's user.
+test("poller starts a ticket the factory set ready only for a recent restart request by a trusted person", async () => {
+  const ctx = fakeCtx({ ready: [3, 4, 5], running: 0 });
+  ctx.tracker.startedBy = async () => BOT;
+  ctx.tracker.trusted = async (actor) => actor === "ana";
+  const old = new Date(Date.now() - 16 * 60_000).toISOString();
+  ctx.dashboard = fakeDashboard({ requests: [request("restart", "3", { outcome: "done" }), request("restart", "4", { at: old, outcome: "done" }), request("restart", "5", { user: "eve" })] });
+  expect(await pollReady(ctx)).toEqual(["3"]);
+});
+// R41: the comment first, so a lost comment never leaves a stopped ticket whose newest note is an older stop.
+test("a cancelled stop posts its comment before it sets the ticket stopped", async () => {
+  const ctx = fakeCtx({ running: 1 });
+  ctx.dashboard = fakeDashboard({ requests: [cancelled("r0")] });
+  const order: string[] = [];
+  const { comment, setState } = ctx.tracker;
+  ctx.tracker.comment = async (ref, text) => (order.push("comment"), comment(ref, text));
+  ctx.tracker.setState = async (ref, state) => (order.push(state), setState(ref, state));
+  await finishCancelledStops(ctx);
+  expect(order).toEqual(["comment", "stopped"]);
 });

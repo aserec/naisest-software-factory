@@ -160,6 +160,30 @@ export const cancelNote = (user: string) =>
 // Only the factory's own comments may be passed in.
 export const isCancelNote = (body: string) => body.split("\n").includes(CANCEL_REASON);
 
+// The factory's newest stop comment on the ticket: a stopped note, or the cancel note. A resume reads only this one:
+// a person or the dashboard may have stopped the run again since an older note.
+export const lastStop = async (ctx: StepContext, ref: TicketRef): Promise<string | undefined> =>
+  (await ctx.tracker.comments(ref)).find((c) => c.byFactory && (STOPPED_RUN.test(c.body) || isCancelNote(c.body)))?.body;
+
+// Starts a stopped run again, in the kind of pipeline it stopped in. A build run resumes through its event step,
+// which checks the ticket and the record again. False when the note does not say enough to start it.
+export async function startStopped(ctx: StepContext, ref: TicketRef, note: StoppedNote): Promise<boolean> {
+  if (note.step !== "apply") {
+    await ctx.ci.start({ kind: "build", ticket: ref, buildRun: note.run });
+    return true;
+  }
+  if (!note.change || !/^\d+$/.test(note.buildRun ?? "")) return false;
+  // Also a guard against a second start by the next poll. Apply sets "running" again through its run, for the dashboard.
+  await ctx.tracker.setState(ref, "running");
+  try {
+    await ctx.ci.start({ kind: "finish", ticket: ref, change: note.change, buildRun: note.buildRun });
+  } catch (e) {
+    await ctx.tracker.setState(ref, "stopped"); // the next try starts it
+    throw e;
+  }
+  return true;
+}
+
 // The ticket's inbox from the start of this run (the newest event step), so a stop posted
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
 // It also asks the dashboard whether a person stopped this run there.
