@@ -86,7 +86,7 @@ describe("start", () => {
   let posted: { url: string; body: URLSearchParams }[] = [];
   const fetchFn = (async (url: string, init: RequestInit) => {
     posted.push({ url, body: init.body as URLSearchParams });
-    return new Response("{}", { status: url.includes("fail") ? 500 : 200 });
+    return new Response(JSON.stringify({ id: 77, web_url: "https://gitlab.example/p/-/pipelines/77" }), { status: url.includes("fail") ? 500 : 200 });
   }) as unknown as typeof fetch;
   const runner = (o: Record<string, string> = {}) => {
     const { dir, env } = setup({ CI_COMMIT_REF_NAME: "main", FACTORY_TRIGGER_TOKEN: "", ...o }, { gl: "glpat-x", teams: "https://t", trig: "trigger-token" });
@@ -95,7 +95,7 @@ describe("start", () => {
 
   test("maps the run to trigger variables as the bot, with the token in the body only", async () => {
     posted = [];
-    await runner().start({ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true });
+    expect(await runner().start({ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true })).toBe("https://gitlab.example/p/-/pipelines/77");
     expect(posted[0].url).toBe(`${GITLAB_URL}/api/v4/projects/3/trigger/pipeline`);
     expect(Object.fromEntries(posted[0].body)).toEqual({
       token: "trigger-token", ref: "main", "variables[FACTORY_PIPELINE]": "finish", "variables[FACTORY_TARGET]": "react_frontend",

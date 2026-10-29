@@ -95,6 +95,7 @@ export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn:
       for (const [k, v] of Object.entries(vars)) if (v !== undefined) body.set(`variables[${k}]`, v);
       const res = await fetchFn(`${GITLAB_URL}/api/v4/projects/${need(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
       if (!res.ok) throw new Error(`Starting a pipeline failed with status ${res.status}`);
+      return (await res.json()).web_url;
     },
     async buildRecord(run) {
       return (await gitlab().buildRecord(Number(need(env, "CI_PROJECT_ID")), Number(run))) as RunRecord;

@@ -245,3 +245,43 @@ test("a restart whose start failed is started by the next poll, once, and then e
     log.mockRestore();
   }
 });
+
+// Task F1.
+// R45: the dashboard checked the person's role on the factory project; the target project's trust is checked here.
+test("a resume request by a person the target project does not trust is refused and starts nothing", async () => {
+  const ctx = stoppedCtx([personStop]);
+  ctx.tracker.trusted = async (actor) => actor !== "ana";
+  const dash = fakeDashboard({ requests: [request("resume", "7")] });
+  ctx.dashboard = dash;
+  expect(await handleRequests(ctx)).toEqual([]);
+  expect(ctx.world.ci.started).toEqual([]);
+  expect(dash.done).toEqual([["q7", "refused"]]);
+});
+test("a restart of a run stopped at apply closes its change with a comment that links the new run", async () => {
+  const ctx = stoppedCtx([stoppedNote({ run: "55", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" })]);
+  const { ref } = await ctx.codeHost.openChange("factory/7-x", "Change", "Text.", "7");
+  ctx.dashboard = fakeDashboard({ requests: [request("restart", "7")] });
+  expect(await handleRequests(ctx)).toEqual(["7"]);
+  expect(ref).toBe("5");
+  expect(ctx.world.host.mrComments).toEqual(["This change was closed because the run was restarted from the dashboard by @ana. The new run: https://ci.example/runs/new"]);
+  expect((await ctx.codeHost.change("5")).open).toBe(false);
+  // A run that stopped before apply has no change to close.
+  const other = stoppedCtx([personStop]);
+  other.dashboard = fakeDashboard({ requests: [request("restart", "7")] });
+  await handleRequests(other);
+  expect(other.world.host.mrComments).toEqual([]);
+});
+// R47: a restart that could not start within RESTART_MS stops the ticket again instead of leaving a ready the event step refuses.
+test("a restart retry older than 15 minutes starts nothing, stops the ticket again and is refused", async () => {
+  const ctx = stoppedCtx([]);
+  ctx.world.tracker.tickets.get("7")!.state = "ready";
+  ctx.tracker.startedBy = async () => BOT; // the restart's ready
+  const dash = fakeDashboard({ requests: [request("restart", "7", { at: new Date(Date.now() - 16 * 60_000).toISOString() })] });
+  ctx.dashboard = dash;
+  expect(await handleRequests(ctx)).toEqual([]);
+  expect(ctx.world.ci.started).toEqual([]);
+  expect(ctx.world.tracker.tickets.get("7")!.state).toBe("stopped");
+  expect(ctx.world.tracker.posted.map((p) => p.text)).toEqual(["The restart could not start a new run within 15 minutes. The ticket is stopped again. Press Restart on the dashboard to try again."]);
+  expect(dash.done).toEqual([["q7", "refused"]]);
+  expect(dash.events.filter((e) => e.type === "run_end")).toEqual([]);
+});

@@ -67,6 +67,7 @@ export interface CodeHost {
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
+  closeChange(ref: ChangeRef): Promise<void>; // closes without merging
 }
 
 // The run is not one the factory started. Never worth a retry.
@@ -77,7 +78,7 @@ export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: bo
 export interface CiRunner {
   vars: RunVars;
   secret(name: string): string | undefined; // read once, then gone
-  start(run: { kind: RunKind; ticket: TicketRef; change?: ChangeRef; buildRun?: string; skipApply?: boolean }): Promise<void>;
+  start(run: { kind: RunKind; ticket: TicketRef; change?: ChangeRef; buildRun?: string; skipApply?: boolean }): Promise<string>; // the new run's web URL
   buildRecord(run: string): Promise<RunRecord>; // throws NotFactoryRunError on a failed provenance check
   restoreRun(run: string): Promise<void>;
 }

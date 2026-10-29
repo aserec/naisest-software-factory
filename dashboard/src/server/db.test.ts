@@ -101,6 +101,15 @@ describe("requests", () => {
     expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "run already ended" });
   });
 
+  // R46: a request acts on the ticket, so it must be for the ticket's newest run.
+  it("refuses resume and restart of a run that a newer run of the same ticket overtook", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("run_start"), ev("step_end", { outcome: "stopped" }, { step: "triage" }), ev("run_start", {}, { run: "r0", ticket: "T-2" })]);
+    expect(db.request({ ...stopReq, kind: "restart" })).toMatchObject({ kind: "restart" });
+    db.addEvents([ev("run_start", {}, { run: "r2" })]);
+    expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "run is not the ticket's newest run" });
+  });
+
   it("refuses a second restart once one is done, even after a pipeline cancel", () => {
     const db = openDb(":memory:");
     db.addEvents([ev("run_start"), ev("step_start", {}, { step: "triage" })]);

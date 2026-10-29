@@ -143,6 +143,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       host.mrComments.push(text);
     },
     assignChange: async (ref: ChangeRef, person: PersonRef) => void host.assigned.push({ ref, person }),
+    closeChange: async (ref: ChangeRef) => void (get(ref).open = false),
   } satisfies CodeHost & Record<string, unknown>;
   return host;
 }
@@ -172,6 +173,7 @@ export function fakeCi(o: FakeCiOptions = {}) {
     start: async (run: Start) => {
       ci.started.push(run);
       if (run.kind === "finish") Object.assign(ci, { finishTriggered: true, finishVars: run });
+      return "https://ci.example/runs/new";
     },
     buildRecord: async (run: string): Promise<RunRecord> => {
       const r = o.records?.[run];

@@ -39,7 +39,7 @@ export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket):
   return ticket.marks.includes("watcher") && (await ctx.tracker.isFactory(actor));
 }
 
-const RESTART_MS = 15 * 60_000;
+export const RESTART_MS = 15 * 60_000;
 // Who set the ticket ready. A ready the factory set for a dashboard restart of this ticket, pending or done
 // in the last 15 minutes, is that request's user's. mayStart still checks that person.
 export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<string> {

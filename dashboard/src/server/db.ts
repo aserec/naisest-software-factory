@@ -177,6 +177,9 @@ export function openDb(path: string): Db {
         if (r.kind !== "stop") {
           // A restart ends the run, so a second one would start a second new run.
           if (r.kind === "restart" && restarted(r.run)) return { refused: "run already restarted" };
+          // The poller acts on the ticket, so the run must be the ticket's newest (Ruling R46).
+          const newer = db.prepare("SELECT 1 FROM events WHERE type = 'run_start' AND target = ? AND ticket = ? AND run != ? AND seq > (SELECT MIN(seq) FROM events WHERE run = ? AND type = 'run_start')").get(r.target, r.ticket, r.run, r.run);
+          if (newer) return { refused: "run is not the ticket's newest run" };
           // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted (spec 6.1, Ruling R18).
           const cancelled = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'stop' AND outcome = 'cancelled'").get(r.run);
           if (cancelled && r.kind === "resume") return { refused: "the pipeline was cancelled, use Restart" };

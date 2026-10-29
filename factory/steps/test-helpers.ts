@@ -191,9 +191,10 @@ export function fakeCtx(o: { ready?: number[]; waiting?: { iid: number; sessionI
   const resumed: string[] = [];
   const start = world.ci.start;
   world.ci.start = async (run) => {
-    await start(run);
+    const url = await start(run);
     const from = waiting.find((x) => String(100 + x.iid) === run.buildRun);
     if (from) resumed.push(from.sessionId);
+    return url;
   };
   return Object.assign(world.ctx, { resumed, world });
 }

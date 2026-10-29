@@ -7,7 +7,7 @@ import type { ControlRequest } from "../run-events";
 import type { SwitchName, TicketRef } from "../seams";
 import { emit } from "../emit";
 import { cancelNote, isCancelNote, isMain, lastStop, parseStoppedNote, startStopped, switchOn, type StepContext } from "./context";
-import { activeRuns, mayStart, readyActor } from "./event";
+import { activeRuns, mayStart, readyActor, RESTART_MS } from "./event";
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
@@ -82,7 +82,7 @@ export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
       });
       // A restart whose start failed set the ticket ready already: only the start is left.
       const retry = r.kind === "restart" && t?.state === "ready" && (await ctx.tracker.isFactory((await ctx.tracker.startedBy(r.ticket)) ?? ""));
-      const ok = retry ? await startRestart(ctx, r) : t?.state === "stopped" && (r.kind === "resume" ? await resume(ctx, r.ticket) : await restart(ctx, r));
+      const ok = retry ? await retryRestart(ctx, r) : t?.state === "stopped" && (r.kind === "resume" ? await resume(ctx, r) : await restart(ctx, r));
       if (ok) started.push(r.ticket);
       await ctx.dashboard.requestDone(r.id, ok ? "done" : "refused");
     } catch (e) {
@@ -93,10 +93,12 @@ export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
 }
 
 // A cancelled pipeline saved nothing after the stop before it, so only a restart helps.
-async function resume(ctx: StepContext, ticket: TicketRef): Promise<boolean> {
-  const body = await lastStop(ctx, ticket);
+// The dashboard checked the role on the factory project; the target project must trust the person too (Ruling R45).
+async function resume(ctx: StepContext, r: ControlRequest): Promise<boolean> {
+  if (!(await ctx.tracker.trusted(r.user))) return false;
+  const body = await lastStop(ctx, r.ticket);
   const note = body && !isCancelNote(body) && parseStoppedNote(body);
-  return !!note && startStopped(ctx, ticket, note);
+  return !!note && startStopped(ctx, r.ticket, note);
 }
 
 // The old run ends as blocked and the ticket is ready again. The new build's event step takes the factory's ready
@@ -108,12 +110,33 @@ async function restart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
   return startRestart(ctx, r);
 }
 
+// Past RESTART_MS the event step no longer takes the factory's ready as the person's, so the ticket goes back
+// to stopped rather than wait as a ready nobody can start (Ruling R47). The same window as readyActor.
+async function retryRestart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
+  const age = Date.now() - Date.parse(r.at);
+  if (age >= 0 && age <= RESTART_MS) return startRestart(ctx, r);
+  await ctx.tracker.comment(r.ticket, "The restart could not start a new run within 15 minutes. The ticket is stopped again. Press Restart on the dashboard to try again.");
+  await ctx.tracker.setState(r.ticket, "stopped");
+  return false;
+}
+
 async function startRestart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
-  await ctx.ci.start({ kind: "build", ticket: r.ticket });
+  const url = await ctx.ci.start({ kind: "build", ticket: r.ticket });
   // Only once the new run is on its way. The old run's event names its own ticket and no poller pipeline or job.
   const vars = { ...ctx.ci.vars, ticket: r.ticket, run: undefined, job: undefined };
   emit({ ...ctx, record: { ...ctx.record, runId: r.run }, ci: { ...ctx.ci, vars } }, "run_end", { outcome: "restarted" });
+  // The new run is started: a failure here must not leave the request pending, or the next poll starts a second run.
+  await closeStoppedChange(ctx, r, url).catch((e) => console.log(`Closing the change of ticket ${r.ticket} failed: ${String(e).slice(0, 300)}`));
   return true;
+}
+
+// A run stopped at apply left its change open. The new run opens its own, so the old one is closed.
+async function closeStoppedChange(ctx: StepContext, r: ControlRequest, url: string): Promise<void> {
+  const body = await lastStop(ctx, r.ticket);
+  const change = body && parseStoppedNote(body)?.change;
+  if (!change || !(await ctx.codeHost.change(change)).open) return;
+  await ctx.codeHost.commentChange(change, `This change was closed because the run was restarted from the dashboard by @${r.user}. The new run: ${url}`);
+  await ctx.codeHost.closeChange(change);
 }
 
 // Tests pass their own context.
