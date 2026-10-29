@@ -57,6 +57,7 @@ async function resume(ctx: StepContext, ref: TicketRef, buildRun: string): Promi
   // The questions agent runs inside the triage job.
   const resumeAt = last!.step === "questions" ? "triage" : last!.step;
   save(ctx, "event", { start: true, resume: true, ticket: ref, fromPipeline: buildRun, resumeAt, sessionId: d.sessionId });
+  ctx.stepEvent = emit(ctx, "step_start", {});
   await ctx.tracker.setState(ref, "running");
   return "next";
 }
@@ -106,7 +107,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };
   save(ctx, "event", { ticket: e.ticket, actor: e.actor, ...decision });
   if (!decision.start) return "stop";
-  // A new run gets its ID here. runStep could not send this step's start before the run had one.
+  // A new run gets its ID here, then this step's start (runStep leaves it to this step).
   ctx.record = { ...ctx.record, runId: randomUUID() };
   emit(ctx, "run_start", {});
   ctx.stepEvent = emit(ctx, "step_start", {});

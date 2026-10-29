@@ -40,9 +40,14 @@ export function emit(ctx: StepContext, type: EventType, data: object, opts: { pa
   }) as RunEvent;
   e.data = cut(e.data);
   // The run dir holds the clone (ctx.dir) and the record. CI keeps it as an artifact.
-  const runDir = dirname(ctx.dir);
-  mkdirSync(runDir, { recursive: true });
-  appendFileSync(join(runDir, "events.jsonl"), `${JSON.stringify(e)}\n`);
+  // A failed write never fails a step: the event still goes to the dashboard.
+  try {
+    const runDir = dirname(ctx.dir);
+    mkdirSync(runDir, { recursive: true });
+    appendFileSync(join(runDir, "events.jsonl"), `${JSON.stringify(e)}\n`);
+  } catch (err) {
+    console.warn(`events.jsonl: could not write ${type} ${e.id}: ${String(err).slice(0, 200)}`);
+  }
   ctx.dashboard.send(e);
   return e.id;
 }

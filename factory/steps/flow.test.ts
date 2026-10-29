@@ -769,3 +769,26 @@ test("a run ends the same while the dashboard is down", async () => {
   expect(dash(w).events).toEqual([]);
   expect([w.states, w.closed, w.merged, w.workItemComments.length]).toEqual([up.states, up.closed, up.merged, up.workItemComments.length]);
 });
+
+// Fix round 1: step_end outcomes, and a declined resume sends nothing to the old run.
+const stepEnds = (w: ReturnType<typeof fakeWorld>) => dash(w).events.filter((e) => e.type === "step_end").map((e) => [e.step, e.data.outcome]);
+test("a step that stops for a person ends as stopped, and one at the usage limit as waiting", async () => {
+  const stopped = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  expect(stepEnds(stopped).at(-1)).toEqual(["prepare-patch", "stopped"]);
+  const limit = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }), tmp());
+  expect(stepEnds(limit).at(-1)).toEqual(["prepare-patch", "waiting"]);
+});
+test("a declined @factory resume sends no step start or end to the old run", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  const w = await resumeStopped({ otherRuns: 10 }, first);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "repo-full" } });
+  expect(dash(w).events.filter((e) => e.type === "step_start" || e.type === "step_end")).toEqual([]);
+});
+test("a successful @factory resume sends one paired start and end for the event step", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  const w = await resumeStopped({}, first);
+  expect(w.finishTriggered).toBe(true);
+  const ev = dash(w).events.filter((e) => e.step === "event" && (e.type === "step_start" || e.type === "step_end"));
+  expect(ev.map((e) => e.type)).toEqual(["step_start", "step_end"]);
+  expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([first.record.runId]));
+});

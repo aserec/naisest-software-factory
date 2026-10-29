@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { emit } from "./emit";
 import { MAX_FIELD } from "./run-events";
 import { addKnownSecrets } from "./rules";
@@ -44,4 +44,17 @@ test("a run with no ID sends no event and writes no file", () => {
   expect(emit(w.ctx, "run_start", {})).toBeUndefined();
   expect(dash.events).toEqual([]);
   expect(existsSync(file)).toBe(false);
+});
+
+test("a failed events.jsonl write does not throw: the event still goes to the dashboard, with one warning", () => {
+  const { w, dash } = world("run-1");
+  const notADir = join(mkdtempSync(join(tmpdir(), "emit-")), "file");
+  writeFileSync(notADir, "");
+  w.ctx.dir = join(notADir, "target"); // the run dir is a file, so the write fails
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const id = emit(w.ctx, "run_start", {});
+  expect(dash.events.map((e) => e.id)).toEqual([id]);
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(String(warn.mock.calls[0][0])).toContain(`run_start ${id}`);
+  warn.mockRestore();
 });

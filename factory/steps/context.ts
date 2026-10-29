@@ -251,14 +251,15 @@ export async function runStep(
       console.log(`Skipping ${name}: it finished before the run was resumed.`);
       return;
     }
-    ctx.stepEvent = emit(ctx, "step_start", {});
+    // The event step sends its own start once it knows the run goes on, so a declined start or resume sends nothing to the run.
+    if (name !== "event") ctx.stepEvent = emit(ctx, "step_start", {});
     result = await run(ctx);
-    emit(ctx, "step_end", { outcome: endOutcome(ctx, result) });
+    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: endOutcome(ctx, result) });
   } catch (e) {
     emit(ctx, "error", { message: String(e).slice(0, 500) });
     // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
     await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`).catch(() => {});
-    emit(ctx, "step_end", { outcome: "error" });
+    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: "error" });
     throw e;
   } finally {
     saveRecord(ctx.record, dir); // also creates the dir
