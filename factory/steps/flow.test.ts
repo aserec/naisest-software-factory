@@ -328,6 +328,7 @@ test("a poller start with no payload claims the run from live labels", async () 
 test("a resume continues at the limited step with the saved session", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
   expect(first.workItemComments.at(-1)).toContain("Waiting run: pipeline 1");
+  expect(first.workItemComments.at(-1)).toMatch(/^The author agent reached its usage limit\./); // the author may be any harness
   const w = fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit", state: "waiting" });
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "1" };
   w.ci.buildRecord = async () => first.record;

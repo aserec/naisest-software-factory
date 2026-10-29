@@ -41,6 +41,12 @@ test("scrubbed groups hold none of the planted values", async () => {
   for (const p of PLANTED) expect(after).not.toContain(p);
 });
 
+// The writer sees the whole group and the ticket prints the link, so the link is scrubbed too.
+test("scrubGroup scrubs the link", () => {
+  const g = { fingerprint: "f", message: "m", hourly: [], firstSeen: "a", lastSeen: "b", samples: [], link: "https://logs.example/e?user=jane.doe@corp.example" } as ErrorGroup;
+  expect(scrubGroup(g).link).toBe("https://logs.example/e?user=[removed]");
+});
+
 test("scrub keeps ordinary error text", () => {
   expect(scrub("TypeError at List.tsx:42")).toBe("TypeError at List.tsx:42");
   expect(scrub("a@b.co and token=abc and 0123456789abcdef0123 and +1 555-123-4567")).toBe("[removed] and token=[removed] and [removed] and [removed]");

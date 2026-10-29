@@ -38,6 +38,9 @@ const RULES = [
 ];
 
 /** Replaces customer data and secrets with "[removed]". Over-removing is fine; leaking is not. */
+// ponytail: only keyed values, emails, phones and tokens are caught. A name with no key ("Jane Doe <j@x.com>"
+// keeps "Jane Doe", and a free-standing name stays whole). Fine for the files log source, whose errors are fake.
+// Before a real log source adapter, solve it: keep only allowlisted fields, or scrub with a model.
 export function scrub(text: string): string {
   const hits = findSecrets(text);
   // A secret this process holds shows as a placeholder, so we cannot find it: drop the whole text.
@@ -52,5 +55,6 @@ export const scrubGroup = (g: ErrorGroup): ErrorGroup => ({
   ...g,
   message: scrub(g.message),
   samples: g.samples.map(scrub),
+  link: scrub(g.link), // the writer and the ticket both see it
   ...(g.stack === undefined ? {} : { stack: scrub(g.stack) }),
 });

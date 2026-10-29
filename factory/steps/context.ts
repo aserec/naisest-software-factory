@@ -89,7 +89,7 @@ export async function block(ctx: StepContext, reason: string): Promise<StepResul
 
 // The hourly retry finds the run to resume from in this comment.
 export const waitingNote = (run: string | undefined) =>
-  `Claude reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline ${run ?? "unknown"}`;
+  `The author agent reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline ${run ?? "unknown"}`;
 export const WAITING_RUN = /^Waiting run: pipeline (\d+)$/m;
 
 // The agent hit a usage limit: keep the session so a later run can resume it.
