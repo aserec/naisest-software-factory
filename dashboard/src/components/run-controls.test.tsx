@@ -8,7 +8,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const state = (o: object) => ({ cancelled: false, pending: [], ...o });
+const state = (o: object) => ({ cancelled: false, restarted: false, pending: [], ...o });
 const names = () => screen.queryAllByRole("button").map((b) => b.textContent);
 
 // A fake server: GET state returns `s`, a POST answers `post`.
@@ -57,6 +57,13 @@ test("a run in any other state has no buttons, and a waiting request replaces th
   server({ label: "factory_running", pending: ["stop"] });
   renderWithQuery(<RunControls run="r1" />);
   expect((await screen.findByText(/Stop requested/)).textContent).toBeTruthy();
+  expect(names()).toEqual([]);
+});
+
+test("a run with a done restart has no buttons, even after a pipeline cancel", async () => {
+  server({ label: "factory_stopped", cancelled: true, restarted: true });
+  const { container } = renderWithQuery(<RunControls run="r1" />);
+  await waitFor(() => expect(container.firstChild).not.toBeNull()); // the state arrived
   expect(names()).toEqual([]);
 });
 

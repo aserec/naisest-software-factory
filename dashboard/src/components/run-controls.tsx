@@ -9,6 +9,7 @@ type Action = "stop" | "resume" | "restart";
 interface RunState {
   label?: string;
   cancelled: boolean;
+  restarted: boolean;
   pending: Action[];
 }
 
@@ -72,7 +73,8 @@ export function RunControls({ run }: { run: string }) {
   });
   if (!data) return null;
   // A cancel means the run is over even before the poller sets the stopped label, so only Restart is left (Ruling R18).
-  const buttons: Action[] = data.pending.length ? [] : data.cancelled ? ["restart"] : data.label === "factory_running" ? ["stop"] : data.label === "factory_stopped" ? ["resume", "restart"] : [];
+  // A done restart ended the run: a new run carries on, so this one shows no buttons.
+  const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : data.label === "factory_running" ? ["stop"] : data.label === "factory_stopped" ? ["resume", "restart"] : [];
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
       {buttons.map((a) => (

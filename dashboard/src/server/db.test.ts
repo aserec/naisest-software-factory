@@ -94,6 +94,33 @@ describe("requests", () => {
     expect(db.request(stopReq)).toEqual({ refused: "run already ended" });
   });
 
+  it("refuses resume and restart once the run has a run_end, even after a stop", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("run_start"), ev("step_end", { outcome: "stopped" }, { step: "triage" }), ev("run_end", { outcome: "restarted" })]);
+    expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "run already ended" });
+    expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "run already ended" });
+  });
+
+  it("refuses a second restart once one is done, even after a pipeline cancel", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("run_start"), ev("step_start", {}, { step: "triage" })]);
+    db.finish((db.request(stopReq) as { id: string }).id, "cancelled");
+    const restart = db.request({ ...stopReq, kind: "restart" }) as { id: string };
+    expect(db.restarted("r1")).toBe(false);
+    db.finish(restart.id, "done");
+    expect(db.restarted("r1")).toBe(true);
+    expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "run already restarted" });
+  });
+
+  it("saves the audit event with the request, and neither when refused", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("run_start")]);
+    const row = db.request(stopReq) as { at: string };
+    expect(db.events({ run: "r1" }).events.at(-1)).toMatchObject({ type: "stop", at: row.at, data: { user: "ana" } });
+    db.request(stopReq);
+    expect(db.events({ run: "r1" }).events.filter((e) => e.type === "stop")).toHaveLength(1);
+  });
+
   it("a stopped step_end finishes the pending stop request", () => {
     const db = openDb(":memory:");
     db.addEvents([ev("run_start")]);

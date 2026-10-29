@@ -21,8 +21,13 @@ export interface Db {
   runs(q: { target?: string; ticket?: string }): RunSummary[];
   switches(target: string): Record<SwitchName, boolean>;
   setSwitch(scope: string, name: SwitchName, on: boolean, user: string): void;
+  /** Saves the request and its audit event (type = kind) in one transaction. */
   request(r: Omit<ControlRequest, "id" | "at">): ControlRequest | { refused: string };
   requests(q: { target?: string; pending?: boolean; sinceMinutes?: number }): ControlRequest[];
+  /** True when a restart of this run is done. */
+  restarted(run: string): boolean;
+  /** True when the run has a run_end event. */
+  ended(run: string): boolean;
   finish(id: string, outcome: NonNullable<ControlRequest["outcome"]>): void;
   isImported(job: string): boolean;
   markImported(job: string): void;
@@ -78,35 +83,38 @@ export function openDb(path: string): Db {
   // A pending request is one with no done_at. "cancelled" keeps it pending (Ruling R4) and is never overwritten.
   const finishStmt = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE ? END WHERE id = ?");
   const cancelStmt = db.prepare("UPDATE requests SET outcome = 'cancelled' WHERE id = ?");
+  const restarted = (run: string) => db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'restart' AND outcome = 'done'").get(run) !== undefined;
+  const ended = (run: string) => db.prepare("SELECT 1 FROM events WHERE run = ? AND type = 'run_end'").get(run) !== undefined;
   const finishStops = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE 'stopped' END WHERE run = ? AND kind = 'stop' AND done_at IS NULL");
 
   // Prepared once per distinct SQL. Optional filters are added to the SQL, not tested with `? IS NULL`, so SQLite can pick an index.
   const cache = new Map<string, ReturnType<typeof db.prepare>>();
   const stmt = (sql: string) => cache.get(sql) ?? (cache.set(sql, db.prepare(sql)), cache.get(sql)!);
 
-  function inTransaction(fn: () => void) {
+  function inTransaction<T>(fn: () => T): T {
     db.exec("BEGIN IMMEDIATE");
     try {
-      fn();
+      const out = fn();
       db.exec("COMMIT");
+      return out;
     } catch (err) {
       db.exec("ROLLBACK");
       throw err;
     }
   }
 
-  function addEvents(events: RunEvent[]): number {
+  // Call inside a transaction.
+  function insertEvents(events: RunEvent[]): number {
     let added = 0;
-    inTransaction(() => {
-      for (const e of events) {
-        const r = insertEvent.run(e.id, e.run, e.parent ?? null, e.at, e.target, e.ticket, e.pipeline ?? null, e.job ?? null, e.step ?? null, e.type, JSON.stringify(e.data));
-        if (r.changes === 0) continue;
-        added++;
-        if (e.type === "step_end" && e.data.outcome === "stopped") finishStops.run(new Date().toISOString(), e.run);
-      }
-    });
+    for (const e of events) {
+      const r = insertEvent.run(e.id, e.run, e.parent ?? null, e.at, e.target, e.ticket, e.pipeline ?? null, e.job ?? null, e.step ?? null, e.type, JSON.stringify(e.data));
+      if (r.changes === 0) continue;
+      added++;
+      if (e.type === "step_end" && e.data.outcome === "stopped") finishStops.run(new Date().toISOString(), e.run);
+    }
     return added;
   }
+  const addEvents = (events: RunEvent[]) => inTransaction(() => insertEvents(events));
 
   return {
     addEvents,
@@ -152,27 +160,36 @@ export function openDb(path: string): Db {
 
     setSwitch(scope, name, on, user) {
       const at = new Date().toISOString();
-      db.prepare(`INSERT INTO switches (scope, name, "on", user, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (scope, name) DO UPDATE SET "on" = excluded."on", user = excluded.user, at = excluded.at`).run(scope, name, on ? 1 : 0, user, at);
-      // A switch change belongs to no run, so run and ticket stay empty.
-      addEvents([{ id: randomUUID(), run: "", at, target: scope, ticket: "", type: "switch_change", data: { user, name, scope, on } }]);
+      inTransaction(() => {
+        db.prepare(`INSERT INTO switches (scope, name, "on", user, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (scope, name) DO UPDATE SET "on" = excluded."on", user = excluded.user, at = excluded.at`).run(scope, name, on ? 1 : 0, user, at);
+        // A switch change belongs to no run, so run and ticket stay empty.
+        insertEvents([{ id: randomUUID(), run: "", at, target: scope, ticket: "", type: "switch_change", data: { user, name, scope, on } }]);
+      });
     },
 
     request(r) {
-      const pending = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = ? AND done_at IS NULL").get(r.run, r.kind);
-      if (pending) return { refused: "already requested" };
-      if (r.kind === "stop") {
-        if (db.prepare("SELECT 1 FROM events WHERE run = ? AND type = 'run_end'").get(r.run)) return { refused: "run already ended" };
-      } else {
-        // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted (spec 6.1, Ruling R18).
-        const cancelled = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'stop' AND outcome = 'cancelled'").get(r.run);
-        if (cancelled && r.kind === "resume") return { refused: "the pipeline was cancelled, use Restart" };
-        const last = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'step_end' ORDER BY seq DESC LIMIT 1").get(r.run) as Row | undefined;
-        if (!cancelled && (!last || JSON.parse(last.data as string).outcome !== "stopped")) return { refused: "run is not stopped" };
-      }
-      const row: ControlRequest = { id: randomUUID(), at: new Date().toISOString(), kind: r.kind, run: r.run, target: r.target, ticket: r.ticket, user: r.user };
-      db.prepare("INSERT INTO requests (id, kind, run, target, ticket, user, at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(row.id, row.kind, row.run, row.target, row.ticket, row.user, row.at);
-      return row;
+      return inTransaction(() => {
+        const pending = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = ? AND done_at IS NULL").get(r.run, r.kind);
+        if (pending) return { refused: "already requested" };
+        if (ended(r.run)) return { refused: "run already ended" };
+        if (r.kind !== "stop") {
+          // A restart ends the run, so a second one would start a second new run.
+          if (r.kind === "restart" && restarted(r.run)) return { refused: "run already restarted" };
+          // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted (spec 6.1, Ruling R18).
+          const cancelled = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'stop' AND outcome = 'cancelled'").get(r.run);
+          if (cancelled && r.kind === "resume") return { refused: "the pipeline was cancelled, use Restart" };
+          const last = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'step_end' ORDER BY seq DESC LIMIT 1").get(r.run) as Row | undefined;
+          if (!cancelled && (!last || JSON.parse(last.data as string).outcome !== "stopped")) return { refused: "run is not stopped" };
+        }
+        const row: ControlRequest = { id: randomUUID(), at: new Date().toISOString(), kind: r.kind, run: r.run, target: r.target, ticket: r.ticket, user: r.user };
+        db.prepare("INSERT INTO requests (id, kind, run, target, ticket, user, at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(row.id, row.kind, row.run, row.target, row.ticket, row.user, row.at);
+        insertEvents([{ id: randomUUID(), run: r.run, at: row.at, target: r.target, ticket: r.ticket, type: r.kind, data: { user: r.user } }]);
+        return row;
+      });
     },
+
+    restarted,
+    ended,
 
     requests({ target, pending, sinceMinutes }) {
       const since = sinceMinutes == null ? null : new Date(Date.now() - sinceMinutes * 60_000).toISOString();

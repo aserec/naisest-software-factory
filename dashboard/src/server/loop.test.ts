@@ -43,6 +43,15 @@ describe("tick: stop fallback", () => {
     expect(gitlab.cancelPipeline).not.toHaveBeenCalled();
   });
 
+  it("finishes the stop as done without a cancel when the run ended on its own", async () => {
+    stop();
+    db.addEvents([ev("run_end", "r1", { data: { outcome: "done" } })]);
+    await tick({ db, gitlab, now: later(120) }, state);
+    expect(gitlab.cancelPipeline).not.toHaveBeenCalled();
+    expect(db.requests({})).toMatchObject([{ kind: "stop", outcome: "done" }]);
+    expect(db.requests({ pending: true })).toEqual([]);
+  });
+
   it("leaves the stop pending when the run has no pipeline yet, and cancels once one arrives", async () => {
     db.addEvents([ev("run_start", "r2")]);
     db.request({ kind: "stop", run: "r2", target: "demo", ticket: "7", user: "ann" });

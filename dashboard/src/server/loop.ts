@@ -39,6 +39,11 @@ export async function tick({ db, gitlab, now }: LoopDeps, state: LoopState = sha
     for (const r of db.requests({ pending: true })) {
       if (r.kind !== "stop" || r.outcome === "cancelled" || now.getTime() - Date.parse(r.at) < STOP_WAIT_MS) continue;
       try {
+        // The run ended on its own (no stopped step_end came), so there is nothing to cancel.
+        if (db.ended(r.run)) {
+          db.finish(r.id, "done");
+          continue;
+        }
         const pipeline = newestPipeline(db, r.run);
         if (!pipeline) {
           console.error(`loop: stop ${r.id} for run ${r.run} has no pipeline yet`);
