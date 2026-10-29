@@ -91,6 +91,12 @@ describe("GET /api/runs/[run]/state", () => {
     expect([again.status, await again.text()]).toEqual([409, "run already restarted"]);
   });
 
+  it("gives the newest label of a run with more than 500 events", async () => {
+    getDb().addEvents(Array.from({ length: 600 }, () => ev("tool_call", run, { name: "x", input: "", result: "", ms: 1, ok: true })));
+    getDb().addEvents([ev("label_change", run, { to: "factory_stopped" })]);
+    expect(await (await state(run)).json()).toMatchObject({ label: "factory_stopped" });
+  });
+
   it("answers 401 without a session", async () => {
     who.session = false;
     expect((await state(run)).status).toBe(401);

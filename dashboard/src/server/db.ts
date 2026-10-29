@@ -28,6 +28,8 @@ export interface Db {
   restarted(run: string): boolean;
   /** True when the run has a run_end event. */
   ended(run: string): boolean;
+  /** The state label of the run's newest label_change. */
+  label(run: string): string | undefined;
   finish(id: string, outcome: NonNullable<ControlRequest["outcome"]>): void;
   isImported(job: string): boolean;
   markImported(job: string): void;
@@ -190,6 +192,11 @@ export function openDb(path: string): Db {
 
     restarted,
     ended,
+
+    label(run) {
+      const r = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'label_change' ORDER BY seq DESC LIMIT 1").get(run) as Row | undefined;
+      return r && (JSON.parse(r.data as string).to as string);
+    },
 
     requests({ target, pending, sinceMinutes }) {
       const since = sinceMinutes == null ? null : new Date(Date.now() - sinceMinutes * 60_000).toISOString();

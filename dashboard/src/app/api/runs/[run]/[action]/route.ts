@@ -15,9 +15,8 @@ export async function GET(_req: Request, { params }: Ctx) {
   const first = db.events({ run, limit: 1 }).events[0];
   if (!first) return new Response("run not found", { status: 404 });
   const mine = db.requests({ target: first.target }).filter((r) => r.run === run);
-  const labels = db.events({ run }).events.filter((e) => e.type === "label_change"); // ponytail: the first 500 events only; add paging if a run passes that before its last label
   return Response.json({
-    label: labels.at(-1)?.data.to as string | undefined,
+    label: db.label(run),
     cancelled: mine.some((r) => r.outcome === "cancelled"),
     // A done restart ended this run, so nothing is left to press.
     restarted: db.restarted(run),
