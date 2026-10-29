@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { expect, test } from "vitest";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sandboxSettings } from "./steps/repo";
-import { SETTINGS_PATH, agentEnv, buildClaudeArgs, factorySettings, parseFindings, parseStream, reviewerModels, reviewerArgs, reviewerEnv, wrapTicket } from "./agents";
+import { HOOKS_DIR, SETTINGS_PATH, agentEnv, buildClaudeArgs, factorySettings, guardReady, parseFindings, parseStream, reviewerModels, reviewerArgs, reviewerEnv, wrapTicket } from "./agents";
 
 const load = (f: string) => readFileSync(new URL(`./fixtures/${f}`, import.meta.url), "utf8");
 
@@ -87,4 +88,14 @@ test("the agent sandbox denies the same reads as the gate sandbox", () => {
   const s = factorySettings({}, "/opt/hooks", "/w/run/target");
   expect(s.sandbox.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home"]);
   expect(s.sandbox.filesystem.denyRead).toEqual(sandboxSettings("/w/run/target", "/tmp/h").filesystem.denyRead);
+});
+test("guardReady throws when the hook, the patterns file or jq is missing", () => {
+  expect(() => guardReady("/no/such/dir")).toThrow(/deny-dangerous\.sh/);
+  expect(() => guardReady(HOOKS_DIR, "/nonexistent-bin")).toThrow(/jq/);
+  expect(() => guardReady(HOOKS_DIR)).not.toThrow();
+});
+test("the committed guard blocks rm -rf / and allows ls", () => {
+  const run = (cmd: string) => spawnSync(`${HOOKS_DIR}/deny-dangerous.sh`, { input: JSON.stringify({ tool_input: { command: cmd } }) }).status;
+  expect(run("rm -rf /")).toBe(2);
+  expect(run("ls")).toBe(0);
 });

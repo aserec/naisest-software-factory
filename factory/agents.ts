@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,7 +11,7 @@ export interface Finding { blocking: boolean; file?: string; text: string }
 // Absolute paths in the factory checkout. Never relative to the agent cwd, which is the target clone.
 export const SETTINGS_PATH = fileURLToPath(new URL("../.claude/factory-settings.json", import.meta.url));
 // Never from an env variable: trigger callers can set any variable.
-const HOOKS_DIR = fileURLToPath(new URL("../.agents/hooks", import.meta.url));
+export const HOOKS_DIR = fileURLToPath(new URL("../.agents/hooks", import.meta.url));
 // A fixed host, so the TensorX key never goes anywhere else. Placeholder: confirm it in the TensorX console at go-live.
 export const TENSORX_BASE_URL = "https://api.tensorx.ai/v1";
 const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
@@ -90,8 +90,16 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   return settings;
 }
 
+// Fail closed: no agent starts unless the command guard is in place and can run.
+export function guardReady(hooksDir: string, path = process.env.PATH): void {
+  for (const f of ["deny-dangerous.sh", "dangerous-patterns.txt"]) {
+    if (!existsSync(join(hooksDir, f))) throw new Error(`Guard missing: ${join(hooksDir, f)}`);
+  }
+  if (spawnSync("sh", ["-c", "command -v jq"], { env: { PATH: path } }).status !== 0) throw new Error(`jq not found on PATH, the command guard cannot run`);
+}
+
 export async function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
-  if (!existsSync(`${HOOKS_DIR}/deny-dangerous.sh`)) throw new Error(`Hook missing: ${HOOKS_DIR}/deny-dangerous.sh`);
+  guardReady(HOOKS_DIR);
   const dir = mkdtempSync(join(tmpdir(), "claude-settings-"));
   try {
     const path = join(dir, "settings.json");

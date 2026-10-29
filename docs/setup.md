@@ -60,6 +60,7 @@ Attach a firewall to the runner VMs (for example by label):
 
 - [ ] From the repo root, run `bash /path/to/agent-config/sync.sh`. It copies `.agents/`.
 - [ ] In the job image, install the `claude` CLI and Pi (`@earendil-works/pi-coding-agent`, binary `pi`) at exact pinned versions, in a system path such as `/usr/local/bin`. Factory jobs run with a fixed `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), so a CLI in another place is not found.
+- [ ] The job image must have `jq`, or every agent job fails at `guardReady`.
 
 ## 7. Target webhook
 
