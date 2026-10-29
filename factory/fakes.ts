@@ -2,7 +2,7 @@ import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
 import { findSecrets } from "./rules";
 import { NotFactoryRunError } from "./seams";
-import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, Mark, Notice, PersonRef, Repo, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
+import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
@@ -212,4 +212,9 @@ export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<Harn
       return { session: `fake-session-${n}`, ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: "", ...script(job, n) };
     },
   };
+}
+
+// A LogSource for tests: it returns the groups last seen at or after `since`.
+export function fakeLogs(groups: ErrorGroup[]): LogSource {
+  return { errors: async (since) => groups.filter((g) => Date.parse(g.lastSeen) >= since.getTime()) };
 }

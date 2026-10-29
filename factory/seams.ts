@@ -96,3 +96,7 @@ export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cw
 // `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
 export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number }; text: string }
 export interface Harness { readonly apis: ApiStyle[]; run(job: HarnessJob): Promise<HarnessResult> }
+
+// Error logs. One group is one kind of error; hourly[0] is the last hour, 24 entries.
+export interface ErrorGroup { fingerprint: string; message: string; component?: string; hourly: number[]; firstSeen: string; lastSeen: string; samples: string[]; stack?: string; link: string }
+export interface LogSource { errors(since: Date): Promise<ErrorGroup[]> }
