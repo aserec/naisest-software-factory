@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { RunControls } from "@/components/run-controls";
 import { RunTimeline } from "@/components/run-timeline";
 import { getDb } from "@/server/db-instance";
 import { readTargets } from "@/server/targets";
@@ -15,6 +16,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         Back to the board
       </Link>
       <h1 className="mb-4 text-2xl font-semibold">Run {run}</h1>
+      <RunControls run={run} />
       <RunTimeline run={run} limits={limits} />
     </main>
   );

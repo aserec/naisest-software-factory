@@ -1,5 +1,12 @@
+import { encode } from "next-auth/jwt";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// auth() reads the request through next/headers; the test sets what it sees.
+const request = vi.hoisted(() => ({ cookie: "" }));
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ cookie: request.cookie, host: "dash.test", "x-forwarded-proto": "https" }),
+}));
 
 beforeEach(() => {
   vi.stubEnv("FACTORY_PROJECT_ID", "42");
@@ -145,5 +152,34 @@ describe("Auth.js wiring", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("/sign-in?error=");
     expect(res.headers.get("set-cookie") ?? "").not.toContain("session-token");
+  });
+});
+
+describe("sessionActor (Ruling R13)", () => {
+  const SECRET = "test-secret-test-secret-test-secret";
+  const cookieFor = async (token: Record<string, unknown>) => {
+    const name = "__Secure-authjs.session-token";
+    return `${name}=${await encode({ token: { name: "Dev", ...token }, secret: SECRET, salt: name })}`;
+  };
+
+  it("uses the token that auth() refreshed, not the old one in the cookie", async () => {
+    const { sessionActor } = await load();
+    const f = fakeGitlab(30);
+    vi.stubGlobal("fetch", f);
+    // The GitLab token in the cookie ended an hour ago.
+    request.cookie = await cookieFor({ userId: 7, accessToken: "old-at", refreshToken: "rt", expiresAt: Date.now() - 3_600_000, loginAt: Date.now() - 7_200_000 });
+    const who = await sessionActor();
+    vi.unstubAllGlobals();
+    expect(who).toEqual({ user: "Dev", accessToken: "new-at" });
+  });
+
+  it("is undefined without a cookie, and when the refresh failed", async () => {
+    const { sessionActor } = await load();
+    request.cookie = "";
+    expect(await sessionActor()).toBeUndefined();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 400 })));
+    request.cookie = await cookieFor({ userId: 8, accessToken: "old-at", refreshToken: "rt", expiresAt: 1000, loginAt: Date.now() });
+    expect(await sessionActor()).toBeUndefined();
+    vi.unstubAllGlobals();
   });
 });

@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import NextAuth from "next-auth";
 import { getToken } from "next-auth/jwt";
 import GitLab from "next-auth/providers/gitlab";
+import { gitlab } from "./gitlab";
 
 // Hash both sides so the compare has equal lengths and the token length does not leak.
 const digest = (s: string) => createHash("sha256").update(s).digest();
@@ -35,7 +36,6 @@ export type AppToken = {
 // Pin the public origin: Auth.js then ignores the Host header for redirects (and trusts the host because of it).
 process.env.AUTH_URL ??= process.env.DASHBOARD_URL;
 
-export const gitlab = () => (process.env.GITLAB_URL ?? "https://gitlab.example.com").replace(/\/+$/, "");
 const api = (path: string) => `${gitlab()}/api/v4${path}`;
 
 // Reads who the token belongs to and their level on the factory project. Undefined on any non-OK answer.
@@ -104,6 +104,10 @@ export async function actor(req: Request): Promise<Actor | undefined> {
   return { accessToken: t.accessToken, error: t.error };
 }
 
+// The token the jwt callback refreshed, per GitLab user id. The session callback fills it on every auth() call.
+// Any live token of the same user has the same role, so one entry per user is enough.
+const freshTokens = new Map<number, string>();
+
 declare module "next-auth" {
   interface Session {
     userId?: number;
@@ -141,12 +145,22 @@ export const authConfig = {
       }
       return refreshed(token as AppToken);
     },
-    // The client sees the name and id only, never a GitLab token.
+    // The client sees the name and id only, never a GitLab token. The token stays in this process, see sessionActor.
     async session({ session, token }: { session: any; token: any }) {
       session.userId = token.userId;
+      if (token.error) freshTokens.delete(token.userId);
+      else freshTokens.set(token.userId, token.accessToken);
       return session;
     },
   },
 };
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+
+// For control routes (Ruling R13): the user in the session and their refreshed GitLab token. Undefined without a live session.
+export async function sessionActor(): Promise<{ user: string; accessToken: string } | undefined> {
+  const session = await auth(); // runs the jwt callback, which refreshes an old token
+  const accessToken = session?.userId === undefined ? undefined : freshTokens.get(session.userId);
+  const user = currentUser(session);
+  return user && accessToken ? { user, accessToken } : undefined;
+}
