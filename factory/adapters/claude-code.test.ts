@@ -122,12 +122,16 @@ test("a stop in the inbox gives stopped, never ok, and keeps the session for a r
   const r = await claudeCode.run(job({ inbox: { poll: async () => ({ comments: [], stop: true }) } }));
   expect(r).toMatchObject({ ok: false, stopped: true, session: "11111111-1111-4111-8111-111111111111" });
 });
-test("an inbox with no stop leaves the run as it was, and a job with no inbox has no polling", async () => {
+test("an inbox with no stop leaves the run ok, and it is polled once at the start", async () => {
   fakeClaude("stream-ok.jsonl");
   let polls = 0;
   const r = await claudeCode.run(job({ inbox: { poll: async () => (polls++, { comments: ["c"], stop: false }) } }));
   expect(r).toMatchObject({ ok: true, stopped: false });
   expect(polls).toBe(1); // at once, and the next one is 60 s away
+});
+test("a job with no inbox is not polled and its result is not stopped", async () => {
+  fakeClaude("stream-ok.jsonl");
+  expect(await claudeCode.run(job())).toMatchObject({ ok: true, stopped: false });
 });
 test("the run's settings carry the inbox hook only when the job has an inbox", async () => {
   const bin = fakeClaude("stream-ok.jsonl");

@@ -1,9 +1,9 @@
 // Loaded by Pi (--extension) for author runs: every bash call goes through the same command guard as Claude Code.
-// Self-contained on purpose: Pi loads this file by itself, so it imports only node modules.
+// Pi loads this file by itself, so it imports only node modules and ../inbox-file (a relative import, which Pi's loader resolves; confirm on the runner).
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readNew } from "../inbox-file";
 
 const HOOKS_DIR = fileURLToPath(new URL("../../.agents/hooks", import.meta.url));
 
@@ -14,24 +14,7 @@ export function guardCheck(command: string, hooksDir = HOOKS_DIR): { block: bool
   return { block: true, reason: (r.stderr ?? "").trim() || `command guard failed (${r.error?.message ?? `exit ${r.status}`})` };
 }
 
-// The inbox file is in Pi's home (PI_CODING_AGENT_DIR). The harness writes one JSON line per poll with news;
-// `<file>.read` holds how many lines were read. Same format as claude-inbox-hook.ts, copied because this file stands alone.
-export function readNew(file: string): { comments: string[]; stop: boolean } {
-  const out = { comments: [] as string[], stop: false };
-  if (!existsSync(file)) return out;
-  const lines = readFileSync(file, "utf8").split("\n").slice(0, -1); // a last line without its newline is still being written
-  const read = existsSync(`${file}.read`) ? Number(readFileSync(`${file}.read`, "utf8")) || 0 : 0;
-  writeFileSync(`${file}.read`, String(lines.length));
-  for (const line of lines.slice(read)) {
-    try {
-      const r = JSON.parse(line);
-      out.comments.push(...r.comments);
-      out.stop ||= r.stop === true;
-    } catch { /* skip a broken line */ }
-  }
-  return out;
-}
-
+// The inbox file is in Pi's home (PI_CODING_AGENT_DIR). The format is read by ../inbox-file, the same code the Claude hook uses.
 // ponytail: the event names "tool_call" and "tool_result", event.toolName, event.input.command, pi.sendMessage({ customType, content, display }, { deliverAs: "steer" })
 // and ctx.abort() follow Pi's extension docs. ctx.abort()'s behavior is not documented there.
 // Confirm all of them on the runner's Pi version (`pi --help`, extension docs) before the first real author run.
@@ -44,7 +27,10 @@ export default function (pi: { on(event: string, handler: (e: any, ctx?: any) =>
   // After each tool call: hand new comments to the agent, or stop it.
   pi.on("tool_result", (_e, ctx) => {
     const { comments, stop } = readNew(join(process.env.PI_CODING_AGENT_DIR ?? "", "inbox.jsonl"));
-    if (stop) ctx?.abort?.();
+    if (stop) {
+      if (typeof ctx?.abort === "function") ctx.abort();
+      else console.error("factory inbox: @factory stop found, but this Pi has no ctx.abort(); the agent keeps running");
+    }
     else if (comments.length > 0) pi.sendMessage?.({ customType: "factory-inbox", content: comments.join("\n\n"), display: true }, { deliverAs: "steer" });
     return undefined;
   });

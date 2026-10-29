@@ -5,7 +5,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { HarnessJob, Provider } from "../seams";
 import { sandboxDenyRead } from "../sandbox";
 import { agentEnv, pi, piArgs, piModels, piSandboxSettings } from "./pi";
-import piExtension, { guardCheck, readNew } from "./pi-extension";
+import { readNew } from "../inbox-file";
+import piExtension, { guardCheck } from "./pi-extension";
 
 // The harness runs srt by absolute path, so the fake srt replaces that path here.
 const fake = vi.hoisted(() => ({ srt: "" }));
@@ -215,6 +216,17 @@ test("the extension hands new comments to the agent after a tool result, once", 
   expect(x.sent[0][0].content).toBe("c1\n\nc2");
   expect(x.sent[0][1]).toEqual({ deliverAs: "steer" });
   expect(x.ctx.aborted).toBe(false);
+});
+test("a stop with no ctx.abort() says so on stderr instead of doing nothing silently", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "ext-")), "inbox.jsonl");
+  writeFileSync(file, '{"comments":[],"stop":true}\n');
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.stubEnv("PI_CODING_AGENT_DIR", join(file, ".."));
+  const handlers: Record<string, (e: any, ctx?: any) => unknown> = {};
+  piExtension({ on: (name, h) => void (handlers[name] = h) });
+  handlers.tool_result({}, {});
+  expect(err).toHaveBeenCalledWith(expect.stringContaining("no ctx.abort()"));
+  err.mockRestore();
 });
 test("the extension aborts the agent on a stop line, and does nothing without an inbox file", () => {
   const dir = mkdtempSync(join(tmpdir(), "ext-"));
