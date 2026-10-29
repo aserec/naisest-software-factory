@@ -6,9 +6,10 @@ import { claudeCode } from "./adapters/claude-code";
 import { makeGitLabCi } from "./adapters/gitlab-ci";
 import { makeGitLabCodeHost } from "./adapters/gitlab-code-host";
 import { makeGitLabTracker } from "./adapters/gitlab-tracker";
+import { makeModelJudge } from "./adapters/model-judge";
 import { pi } from "./adapters/pi";
 import { makeTeamsChat } from "./adapters/teams-chat";
-import { loadRouter, loadSeams, loadTarget } from "./config";
+import { loadRouter, loadSeams, loadTarget, modelChoice } from "./config";
 import { GitLab, GITLAB_URL } from "./gitlab";
 import { makeJevClient } from "./jev";
 import { newRecord, RUN_DIR } from "./record";
@@ -22,7 +23,10 @@ const ADAPTERS = {
   ci: { gitlab: makeGitLabCi },
   tracker: { gitlab: (token: string, target: Target) => makeGitLabTracker(new GitLab(GITLAB_URL, token), target.projectPath) },
   codeHost: { gitlab: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitLabCodeHost(new GitLab(GITLAB_URL, token), target.projectPath, token, env) },
-  judge: { "jev-berget": makeJevClient },
+  judge: {
+    "jev-berget": (env: NodeJS.ProcessEnv) => makeJevClient(env),
+    "model-call": (env: NodeJS.ProcessEnv, seams: SeamsConfig) => makeModelJudge(modelChoice(seams.judgeModel, seams), env),
+  },
   chat: { teams: makeTeamsChat },
 };
 type Seam = keyof typeof ADAPTERS;
@@ -70,7 +74,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     tracker: make.tracker(token, target),
     codeHost,
     ci,
-    judge: make.judge(env),
+    judge: make.judge(env, seams),
     chat: make.chat(webhook),
     harnesses: { "claude-code": claudeCode, pi },
     seams,

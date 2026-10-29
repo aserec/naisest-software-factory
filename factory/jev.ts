@@ -6,7 +6,7 @@ export type JevQuestion =
   | { id: string; kind: "choice"; text: string; options: string[] }
   | { id: string; kind: "score"; text: string; levels: number; min?: number };
 export interface JevAnswer { id: string; value: string | number | boolean; probability: number; confidence: number }
-export interface JevClient { readonly provider: "berget" | "mock"; ask(state: unknown, questions: JevQuestion[]): Promise<JevAnswer[]> }
+export interface JevClient { readonly provider: "berget" | "mock" | "model"; ask(state: unknown, questions: JevQuestion[]): Promise<JevAnswer[]> }
 
 // Fixed, never from an env variable: trigger callers can set any variable, and the key goes to this host.
 export const BERGET_BASE_URL = "https://api.berget.ai";
@@ -21,7 +21,7 @@ export const MOCK_ANSWERS = {
   score: { value: 7, probability: 0.6, confidence: 0.6 },
 };
 
-type ApiAnswer = {
+export type ApiAnswer = {
   type: "noul" | "choice" | "score";
   noul?: number;
   choice?: string;
@@ -36,7 +36,7 @@ function toApiQuestion(q: JevQuestion) {
   return { type: "score", instructions: q.text, criteria: Array.from({ length: q.levels }, (_, i) => `Score ${(q.min ?? 2) + i}`) };
 }
 
-function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnswer {
+export function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnswer {
   if (!a || a.type !== q.kind) throw new Error(`Jev answer missing or wrong type for "${q.id}"`);
   if (q.kind === "noul") {
     const p = a.noul;
@@ -48,7 +48,7 @@ function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnswer {
   if (best === undefined) throw new Error(`Jev answer for "${q.id}" has no probabilities`);
   // An answer outside the question fails closed: the caller blocks instead of guessing.
   if (q.kind === "choice" && !q.options.includes(best)) throw new Error(`Jev answer for "${q.id}" is not one of the options: ${JSON.stringify(best)}`);
-  if (q.kind === "score" && !Number.isInteger(Number(best))) throw new Error(`Jev score answer for "${q.id}" is not a number: ${JSON.stringify(best)}`);
+  if (q.kind === "score" && !(Number.isInteger(Number(best)) && Number(best) >= 0 && Number(best) < q.levels)) throw new Error(`Jev score answer for "${q.id}" is not a number in the question range: ${JSON.stringify(best)}`);
   const value = q.kind === "choice" ? best : (q.min ?? 2) + Number(best);
   return { id: q.id, value, probability: p, confidence: a.confidence ?? p };
 }

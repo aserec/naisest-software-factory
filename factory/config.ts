@@ -99,7 +99,7 @@ export function loadRouter(path = `${root}router.yml`, seams = loadSeams()): Rou
 }
 
 // The provider and model a harness gets for one role.
-export function modelChoice(c: RoleChoice, seams: SeamsConfig): ModelChoice {
+export function modelChoice(c: Pick<RoleChoice, "provider" | "model" | "effort">, seams: SeamsConfig): ModelChoice {
   return { provider: { name: c.provider, ...seams.providers[c.provider] }, model: c.model, effort: c.effort };
 }
 

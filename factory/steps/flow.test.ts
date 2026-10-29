@@ -534,6 +534,17 @@ test("makeContext builds a context on the adapters seams.yml names", () => {
   expect(ctx.seams.tracker).toBe("gitlab");
   expect(Object.keys(ctx.harnesses).sort()).toEqual(["claude-code", "pi"]);
 });
+test("seams.yml judge: model-call builds the model judge from judgeModel, and needs that provider's key", () => {
+  const dir = tmp();
+  const seams = join(dir, "seams.yml");
+  writeFileSync(seams, readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8").replace("judge: jev-berget", "judge: model-call"));
+  const files = () => { for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams") };
+  files();
+  expect(() => makeContext(env, dir, seams)).toThrow("TENSORX_API_KEY is not set");
+  files();
+  expect(makeContext({ ...env, TENSORX_API_KEY: "tx-key-0123456789" }, dir, seams).judge.provider).toBe("model");
+});
 
 // Task 8: the inbox. A stop comment ends an author run; a resume comment continues it.
 const stopRecord = async (o: WorldOptions = {}) => runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop", ...o }));
