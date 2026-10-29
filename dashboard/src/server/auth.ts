@@ -32,6 +32,9 @@ export type AppToken = {
   error?: string;
 };
 
+// Pin the public origin: Auth.js then ignores the Host header for redirects (and trusts the host because of it).
+process.env.AUTH_URL ??= process.env.DASHBOARD_URL;
+
 const gitlab = () => (process.env.GITLAB_URL ?? "https://gitlab.example.com").replace(/\/+$/, "");
 const api = (path: string) => `${gitlab()}/api/v4${path}`;
 
@@ -42,6 +45,8 @@ export async function readRole(accessToken: string, fetchFn: FetchFn = fetch): P
   if (!u.ok) return undefined;
   const { id, username } = (await u.json()) as { id: number; username: string };
   const m = await get(`/projects/${process.env.FACTORY_PROJECT_ID}/members/all/${id}`);
+  // GitLab answers 404 for someone who is not a member: that is level 0, not an error.
+  if (m.status === 404) return { user: username, userId: id, level: 0 };
   if (!m.ok) return undefined;
   const { access_level } = (await m.json()) as { access_level: number };
   return { user: username, userId: id, level: access_level };
@@ -117,7 +122,6 @@ export const authConfig = {
   ],
   session: { strategy: "jwt" as const, maxAge: SESSION_HOURS * 3600 },
   pages: { signIn: "/sign-in", error: "/sign-in" },
-  trustHost: true,
   callbacks: {
     async signIn({ account }: { account?: { access_token?: string } | null }) {
       const r = await checkRole(account?.access_token ?? "");

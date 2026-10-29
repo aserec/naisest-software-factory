@@ -1,8 +1,10 @@
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
   vi.stubEnv("FACTORY_PROJECT_ID", "42");
   vi.stubEnv("GITLAB_URL", "https://gitlab.test");
+  vi.stubEnv("DASHBOARD_URL", "https://dash.test");
   vi.stubEnv("AUTH_SECRET", "test-secret-test-secret-test-secret");
   vi.stubEnv("GITLAB_OAUTH_CLIENT_ID", "id");
   vi.stubEnv("GITLAB_OAUTH_CLIENT_SECRET", "secret");
@@ -34,11 +36,21 @@ describe("sign-in role check", () => {
     expect(await checkRole("t", fakeGitlab(20))).toEqual({ refused: "You need the Developer role on the factory project." });
   });
 
-  it("refuses when GitLab does not answer OK, with a different text", async () => {
+  it("refuses a non-member (GitLab answers 404) with the exact text", async () => {
     const { checkRole, REFUSAL } = await load();
-    const r = await checkRole("t", fakeGitlab({ status: 404 }));
-    expect(r).toHaveProperty("refused");
-    expect((r as { refused: string }).refused).not.toBe(REFUSAL);
+    expect(await checkRole("t", fakeGitlab({ status: 404 }))).toEqual({ refused: REFUSAL });
+  });
+
+  it("says GitLab did not confirm the role on a 500 or a thrown error", async () => {
+    const { checkRole, REFUSAL } = await load();
+    const down = vi.fn(async () => {
+      throw new Error("network");
+    }) as unknown as typeof fetch;
+    for (const f of [fakeGitlab({ status: 500 }), down]) {
+      const r = (await checkRole("t", f)) as { refused: string };
+      expect(r.refused).toMatch(/did not confirm/);
+      expect(r.refused).not.toBe(REFUSAL);
+    }
   });
 });
 
@@ -58,6 +70,7 @@ describe("canAct", () => {
     expect(await canAct({ accessToken: "t" }, fakeGitlab(30))).toBe(true);
     expect(await canAct({ accessToken: "t" }, fakeGitlab(20))).toBe(false);
     expect(await canAct({ accessToken: "t" }, fakeGitlab({ status: 401 }))).toBe(false);
+    expect(await canAct({ accessToken: "t" }, fakeGitlab({ status: 404 }))).toBe(false);
   });
 
   it("is false with no session or a failed token refresh", async () => {
@@ -101,19 +114,20 @@ describe("token refresh", () => {
 describe("Auth.js wiring", () => {
   it("sends the user to GitLab with read_api, a PKCE challenge and a state", async () => {
     const { handlers } = await load();
-    const origin = "https://dash.test";
-    const csrf = await handlers.GET(new Request(`${origin}/api/auth/csrf`) as never);
+    const origin = "https://evil.test"; // a forged Host must not reach the redirect
+    const csrf = await handlers.GET(new NextRequest(`${origin}/api/auth/csrf`));
     const { csrfToken } = (await csrf.json()) as { csrfToken: string };
     const cookie = csrf.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
     const res = await handlers.POST(
-      new Request(`${origin}/api/auth/signin/gitlab`, {
+      new NextRequest(`${origin}/api/auth/signin/gitlab`, {
         method: "POST",
         headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ csrfToken }),
-      }) as never,
+      }),
     );
     const to = new URL(res.headers.get("location") ?? "");
     expect(`${to.origin}${to.pathname}`).toBe("https://gitlab.test/oauth/authorize");
+    expect(to.searchParams.get("redirect_uri")).toBe("https://dash.test/api/auth/callback/gitlab");
     expect(to.searchParams.get("scope")).toBe("read_api");
     expect(to.searchParams.get("code_challenge_method")).toBe("S256");
     expect(to.searchParams.get("code_challenge")).toBeTruthy();
@@ -124,7 +138,7 @@ describe("Auth.js wiring", () => {
     const { handlers } = await load();
     const f = fakeGitlab(30);
     vi.stubGlobal("fetch", f);
-    const res = await handlers.GET(new Request("https://dash.test/api/auth/callback/gitlab?code=x&state=wrong") as never);
+    const res = await handlers.GET(new NextRequest("https://dash.test/api/auth/callback/gitlab?code=x&state=wrong"));
     vi.unstubAllGlobals();
     expect(f).not.toHaveBeenCalled();
     // Auth.js answers a bad state with a redirect to the error page, not a 400.
