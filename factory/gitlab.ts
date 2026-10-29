@@ -28,6 +28,24 @@ export class GitLab {
     return (await this.call(method, endpoint, body)).json();
   }
 
+  // A GET that returns GitLab's own JSON. The tracker adapter maps it to factory words.
+  async getJson(endpoint: string) {
+    return this.json("GET", endpoint);
+  }
+
+  // How many work items with this label were created since the date, open or closed.
+  async countCreatedSince(projectId: number, label: string, since: Date): Promise<number> {
+    const res = await this.call("GET", `/projects/${projectId}/issues?labels=${label}&created_after=${encodeURIComponent(since.toISOString())}&per_page=1`);
+    return Number(res.headers.get("X-Total") ?? 0);
+  }
+
+  async createWorkItem(projectId: number, title: string, description: string, labels: string[]) {
+    const full = noQuickActions(description);
+    if (findSecrets(`${title}\n${full}`).length > 0) throw new Error("Work item refused: it contains a secret");
+    const w = await this.json("POST", `/projects/${projectId}/issues`, { title, description: full, labels: labels.join(",") });
+    return { iid: w.iid as number, webUrl: w.web_url as string };
+  }
+
   async getProject(path: string) {
     const p = await this.json("GET", `/projects/${encodeURIComponent(path)}`);
     return { id: p.id as number, defaultBranch: p.default_branch as string };

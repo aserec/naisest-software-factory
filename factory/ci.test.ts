@@ -50,3 +50,7 @@ test("the poll and retry jobs run only in their own scheduled pipeline", () => {
 test("the smoke job type-checks before it runs the tests", () => {
   expect(ci.smoke.script).toEqual(["corepack enable", "pnpm install --frozen-lockfile", "pnpm tsc --noEmit", "pnpm vitest run"]);
 });
+
+test("the real contract job runs only when started by hand from a web pipeline", () => {
+  expect(ci["contract-real"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "web"', when: "manual" }]);
+});

@@ -43,6 +43,19 @@ smoke:
   - pnpm tsc --noEmit
   - pnpm vitest run
 
+# Runs the contracts against a real GitLab test project. Start it by hand from a web pipeline.
+contract-real:
+  stage: test
+  tags: [factory]
+  image: node:22
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "web"
+    when: manual
+  script:
+  - corepack enable
+  - pnpm install --frozen-lockfile
+  - FACTORY_CONTRACT_REAL=1 pnpm vitest run factory/contracts
+
 # One job per step. State passes between jobs in run/: record.json, the target clone and the Claude session.
 #
 # Trigger callers can set any variable (NODE_OPTIONS, npm_config_*, PATH, ...). So every command starts

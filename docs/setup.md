@@ -94,6 +94,15 @@ Two scheduled pipelines in the factory project (Build > Pipeline schedules). Cre
 
 Make one pair of schedules for each target. `FACTORY_SCHEDULE` accepts only `poll` or `retry`. The `SAST_DISABLED` and `SECRET_DETECTION_DISABLED` variables keep the security scans from running every 5 minutes.
 
+## 9. Contract tests against real tools
+
+Every push runs the contract tests against fakes. A manual job, `contract-real`, runs them against the real tools. Start it from Build > Pipelines > Run pipeline (a web pipeline), then press play on the job.
+
+- [ ] Make a GitLab test project that holds no real work. The test creates and closes tickets in it.
+- [ ] `CONTRACT_GITLAB_PROJECT`: the path of that test project, for example `Ceresa/factory-contract-test`. A plain CI variable.
+- [ ] `CONTRACT_GITLAB_TOKEN`: a token of a bot user with the `api` scope and Developer role (or higher) on the test project only. Masked and protected, type **Variable**. Never reuse `FACTORY_GITLAB_TOKEN`.
+- [ ] Test webhooks: none yet. If a later contract needs one, add it to the test project only, never to a target repo.
+
 ## Local use
 
 ```bash
