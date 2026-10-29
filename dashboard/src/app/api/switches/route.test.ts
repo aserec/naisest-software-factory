@@ -6,18 +6,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const who = vi.hoisted(() => ({ session: true, canAct: true }));
 vi.mock("@/server/auth", () => ({
   auth: async () => (who.session ? { user: { name: "ann" } } : null),
-  sessionActor: async () => (who.session ? { user: "ann", accessToken: "tok" } : undefined),
+  sessionUser: async () => (who.session ? { userId: 1, username: "ann" } : undefined),
   canAct: async () => who.canAct,
 }));
 
 process.env.DASHBOARD_DB = ":memory:";
+process.env.AUTH_URL = "https://dash.test";
 const dir = mkdtempSync(join(tmpdir(), "targets-"));
 writeFileSync(join(dir, "demo.yml"), "name: demo\nprojectPath: g/demo\n");
 process.env.TARGETS_DIR = dir;
 const { getDb } = await import("@/server/db-instance");
 const { GET, PUT } = await import("./route");
 
-const put = (body: unknown) => PUT(new Request("http://x", { method: "PUT", body: JSON.stringify(body) }));
+const put = (body: unknown) => PUT(new Request("http://x", { method: "PUT", headers: { origin: "https://dash.test" }, body: JSON.stringify(body) }));
 
 beforeEach(() => {
   who.session = who.canAct = true;

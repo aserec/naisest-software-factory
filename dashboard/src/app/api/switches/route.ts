@@ -14,7 +14,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const user = await controlUser();
+  const user = await controlUser(req);
   if (typeof user !== "string") return user;
   const body = (await req.json().catch(() => undefined)) as { scope?: unknown; name?: unknown; on?: unknown } | undefined;
   const { scope, name, on } = body ?? {};

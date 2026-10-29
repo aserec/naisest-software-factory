@@ -15,111 +15,94 @@ beforeEach(() => {
   vi.stubEnv("AUTH_SECRET", "test-secret-test-secret-test-secret");
   vi.stubEnv("GITLAB_OAUTH_CLIENT_ID", "id");
   vi.stubEnv("GITLAB_OAUTH_CLIENT_SECRET", "secret");
+  vi.stubEnv("GITLAB_READ_TOKEN", "read-token");
 });
 
-// A fake GitLab: /user, the member read (level or status) and the token refresh.
-function fakeGitlab(member: number | { status: number }) {
-  return vi.fn(async (url: string | URL | Request) => {
+// A fake GitLab: /user answers only the user's token, the member read answers only the server's read token.
+function fakeGitlab(member: number | { status: number } | { level: number; state: string }) {
+  return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
-    if (u.endsWith("/api/v4/user")) return Response.json({ id: 7, username: "dev" });
-    if (u.includes("/projects/42/members/all/7")) {
-      return typeof member === "number" ? Response.json({ access_level: member }) : new Response("no", { status: member.status });
+    const h = new Headers(init?.headers);
+    if (u.endsWith("/api/v4/user")) return h.get("authorization") === "Bearer user-token" ? Response.json({ id: 7, username: "dev" }) : new Response("no", { status: 401 });
+    if (u.endsWith("/projects/42/members/all/7")) {
+      if (h.get("private-token") !== "read-token" || h.has("authorization")) return new Response("no", { status: 401 });
+      if (typeof member === "number") return Response.json({ access_level: member, state: "active" });
+      return "status" in member ? new Response("no", { status: member.status }) : Response.json({ access_level: member.level, state: member.state });
     }
-    if (u.endsWith("/oauth/token")) return Response.json({ access_token: "new-at", refresh_token: "new-rt", expires_in: 7200 });
     return new Response("?", { status: 404 });
   }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
 }
 
 const load = () => import("./auth");
+const down = vi.fn(async () => {
+  throw new Error("network");
+}) as unknown as typeof fetch;
 
 describe("sign-in role check", () => {
-  it("accepts a Developer (30)", async () => {
+  it("accepts a Developer (30), reading the member with the read token", async () => {
     const { checkRole } = await load();
-    expect(await checkRole("t", fakeGitlab(30))).toEqual({ user: "dev", userId: 7, level: 30 });
+    expect(await checkRole("user-token", fakeGitlab(30))).toEqual({ user: "dev", userId: 7, level: 30 });
   });
 
-  it("refuses a Reporter (20) with the exact text", async () => {
-    const { checkRole } = await load();
-    expect(await checkRole("t", fakeGitlab(20))).toEqual({ refused: "You need the Developer role on the factory project." });
-  });
-
-  it("refuses a non-member (GitLab answers 404) with the exact text", async () => {
+  it("refuses a Reporter (20), a non-member (404) and a blocked Developer with the exact text", async () => {
     const { checkRole, REFUSAL } = await load();
-    expect(await checkRole("t", fakeGitlab({ status: 404 }))).toEqual({ refused: REFUSAL });
+    expect(REFUSAL).toBe("You need the Developer role on the factory project.");
+    for (const m of [20, { status: 404 }, { level: 30, state: "blocked" }]) expect(await checkRole("user-token", fakeGitlab(m))).toEqual({ refused: REFUSAL });
   });
 
-  it("says GitLab did not confirm the role on a 500 or a thrown error", async () => {
+  it("says GitLab did not confirm the role on a 500, a thrown error, or a refused user token", async () => {
     const { checkRole, REFUSAL } = await load();
-    const down = vi.fn(async () => {
-      throw new Error("network");
-    }) as unknown as typeof fetch;
-    for (const f of [fakeGitlab({ status: 500 }), down]) {
-      const r = (await checkRole("t", f)) as { refused: string };
+    for (const [token, f] of [["user-token", fakeGitlab({ status: 500 })], ["user-token", down], ["wrong", fakeGitlab(30)]] as const) {
+      const r = (await checkRole(token, f)) as { refused: string };
       expect(r.refused).toMatch(/did not confirm/);
       expect(r.refused).not.toBe(REFUSAL);
     }
   });
 });
 
-describe("current user", () => {
-  it("gives the name while the session lasts and nothing after it ended", async () => {
-    const { currentUser } = await load();
-    const now = Date.parse("2026-10-29T10:00:00Z");
-    expect(currentUser({ user: { name: "dev" }, expires: "2026-10-29T18:00:00Z" }, now)).toBe("dev");
-    expect(currentUser({ user: { name: "dev" }, expires: "2026-10-29T09:00:00Z" }, now)).toBeUndefined();
-    expect(currentUser(null, now)).toBeUndefined();
+describe("canAct (Ruling R22)", () => {
+  it("is true at 30 and active, read with the server's read token", async () => {
+    const { canAct } = await load();
+    const f = fakeGitlab(30);
+    expect(await canAct(7, f)).toBe(true);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("is false at 20, on a 404, for a blocked user, on a non-OK answer and on a thrown error", async () => {
+    const { canAct } = await load();
+    for (const f of [fakeGitlab(20), fakeGitlab({ status: 404 }), fakeGitlab({ level: 40, state: "blocked" }), fakeGitlab({ status: 500 }), down]) expect(await canAct(7, f)).toBe(false);
   });
 });
 
-describe("canAct", () => {
-  it("is true for 30 and false for 20 and for a 401", async () => {
-    const { canAct } = await load();
-    expect(await canAct({ accessToken: "t" }, fakeGitlab(30))).toBe(true);
-    expect(await canAct({ accessToken: "t" }, fakeGitlab(20))).toBe(false);
-    expect(await canAct({ accessToken: "t" }, fakeGitlab({ status: 401 }))).toBe(false);
-    expect(await canAct({ accessToken: "t" }, fakeGitlab({ status: 404 }))).toBe(false);
+describe("session", () => {
+  const SECRET = "test-secret-test-secret-test-secret";
+  const cookieFor = async (token: Record<string, unknown>) => {
+    const name = "__Secure-authjs.session-token";
+    return `${name}=${await encode({ token, secret: SECRET, salt: name })}`;
+  };
+
+  it("the jwt callback keeps only the user id, the username and the sign-in time", async () => {
+    const { authConfig } = await load();
+    const t = await authConfig.callbacks.jwt({ token: { name: "Dev Name", email: "d@x" }, account: { access_token: "at", refresh_token: "rt" }, profile: { id: 7, username: "dev" } });
+    expect(Object.keys(t!).sort()).toEqual(["loginAt", "userId", "username"]);
+    expect(t).toMatchObject({ userId: 7, username: "dev" });
   });
 
-  it("is false with no session or a failed token refresh", async () => {
-    const { canAct } = await load();
-    const f = fakeGitlab(30);
-    expect(await canAct(undefined, f)).toBe(false);
-    expect(await canAct({ accessToken: "t", error: "RefreshFailed" }, f)).toBe(false);
-    expect(f).not.toHaveBeenCalled();
-  });
-});
-
-describe("token refresh", () => {
-  const base = { userId: 7, accessToken: "old", refreshToken: "rt", expiresAt: 0, loginAt: 0 };
-
-  it("keeps a fresh token and does not call GitLab", async () => {
-    const { refreshed } = await load();
-    const f = fakeGitlab(30);
-    const t = { ...base, expiresAt: 10 * 60_000 };
-    expect(await refreshed(t, 1000, f)).toBe(t);
-    expect(f).not.toHaveBeenCalled();
-  });
-
-  it("swaps both tokens when the GitLab token is about to end", async () => {
-    const { refreshed } = await load();
-    const t = await refreshed({ ...base, expiresAt: 1000 }, 1000, fakeGitlab(30));
-    expect(t).toMatchObject({ accessToken: "new-at", refreshToken: "new-rt", expiresAt: 1000 + 7200_000 });
-  });
-
-  it("marks the token failed when GitLab refuses the refresh", async () => {
-    const { refreshed } = await load();
-    const f = vi.fn(async () => new Response("no", { status: 400 })) as unknown as typeof fetch;
-    expect(await refreshed({ ...base, expiresAt: 1000 }, 1000, f)).toMatchObject({ error: "RefreshFailed" });
-  });
-
-  it("ends the session 8 h after sign-in even if it was used since", async () => {
-    const { refreshed } = await load();
-    expect(await refreshed({ ...base, expiresAt: 9e12 }, 8 * 3_600_000 + 1)).toBeNull();
+  it("sessionUser gives the id and username from the cookie, and nothing without one or 8 h after sign-in", async () => {
+    const { sessionUser } = await load();
+    request.cookie = await cookieFor({ userId: 7, username: "dev", loginAt: Date.now() - 7 * 3_600_000 });
+    expect(await sessionUser()).toEqual({ userId: 7, username: "dev" });
+    request.cookie = await cookieFor({ userId: 7, username: "dev", loginAt: Date.now() - 8 * 3_600_000 - 1000 });
+    expect(await sessionUser()).toBeUndefined();
+    request.cookie = await cookieFor({ userId: 7, accessToken: "old", loginAt: Date.now() }); // a cookie from before R22
+    expect(await sessionUser()).toBeUndefined();
+    request.cookie = "";
+    expect(await sessionUser()).toBeUndefined();
   });
 });
 
 describe("Auth.js wiring", () => {
-  it("sends the user to GitLab with read_api, a PKCE challenge and a state", async () => {
+  it("sends the user to GitLab with read_user, a PKCE challenge and a state", async () => {
     const { handlers } = await load();
     const origin = "https://evil.test"; // a forged Host must not reach the redirect
     const csrf = await handlers.GET(new NextRequest(`${origin}/api/auth/csrf`));
@@ -135,7 +118,7 @@ describe("Auth.js wiring", () => {
     const to = new URL(res.headers.get("location") ?? "");
     expect(`${to.origin}${to.pathname}`).toBe("https://gitlab.test/oauth/authorize");
     expect(to.searchParams.get("redirect_uri")).toBe("https://dash.test/api/auth/callback/gitlab");
-    expect(to.searchParams.get("scope")).toBe("read_api");
+    expect(to.searchParams.get("scope")).toBe("read_user");
     expect(to.searchParams.get("code_challenge_method")).toBe("S256");
     expect(to.searchParams.get("code_challenge")).toBeTruthy();
     expect(to.searchParams.get("state")).toBeTruthy();
@@ -152,34 +135,5 @@ describe("Auth.js wiring", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("/sign-in?error=");
     expect(res.headers.get("set-cookie") ?? "").not.toContain("session-token");
-  });
-});
-
-describe("sessionActor (Ruling R13)", () => {
-  const SECRET = "test-secret-test-secret-test-secret";
-  const cookieFor = async (token: Record<string, unknown>) => {
-    const name = "__Secure-authjs.session-token";
-    return `${name}=${await encode({ token: { name: "Dev", ...token }, secret: SECRET, salt: name })}`;
-  };
-
-  it("uses the token that auth() refreshed, not the old one in the cookie", async () => {
-    const { sessionActor } = await load();
-    const f = fakeGitlab(30);
-    vi.stubGlobal("fetch", f);
-    // The GitLab token in the cookie ended an hour ago.
-    request.cookie = await cookieFor({ userId: 7, accessToken: "old-at", refreshToken: "rt", expiresAt: Date.now() - 3_600_000, loginAt: Date.now() - 7_200_000 });
-    const who = await sessionActor();
-    vi.unstubAllGlobals();
-    expect(who).toEqual({ user: "Dev", accessToken: "new-at" });
-  });
-
-  it("is undefined without a cookie, and when the refresh failed", async () => {
-    const { sessionActor } = await load();
-    request.cookie = "";
-    expect(await sessionActor()).toBeUndefined();
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 400 })));
-    request.cookie = await cookieFor({ userId: 8, accessToken: "old-at", refreshToken: "rt", expiresAt: 1000, loginAt: Date.now() });
-    expect(await sessionActor()).toBeUndefined();
-    vi.unstubAllGlobals();
   });
 });

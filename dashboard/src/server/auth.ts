@@ -1,6 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import NextAuth from "next-auth";
-import { getToken } from "next-auth/jwt";
 import GitLab from "next-auth/providers/gitlab";
 import { gitlab } from "./gitlab";
 
@@ -23,94 +22,46 @@ const HOUR = 3_600_000;
 
 type FetchFn = typeof fetch;
 type Role = { user: string; userId: number; level: number };
-export type Actor = { accessToken: string; error?: string };
-export type AppToken = {
-  userId: number;
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt: number; // ms
-  loginAt: number; // ms
-  error?: string;
-};
 
 // Pin the public origin: Auth.js then ignores the Host header for redirects (and trusts the host because of it).
-process.env.AUTH_URL ??= process.env.DASHBOARD_URL;
+if (process.env.DASHBOARD_URL) process.env.AUTH_URL ??= process.env.DASHBOARD_URL;
 
 const api = (path: string) => `${gitlab()}/api/v4${path}`;
 
-// Reads who the token belongs to and their level on the factory project. Undefined on any non-OK answer.
-export async function readRole(accessToken: string, fetchFn: FetchFn = fetch): Promise<Role | undefined> {
-  const get = (path: string) => fetchFn(api(path), { headers: { authorization: `Bearer ${accessToken}` } });
-  const u = await get("/user");
-  if (!u.ok) return undefined;
-  const { id, username } = (await u.json()) as { id: number; username: string };
-  const m = await get(`/projects/${process.env.FACTORY_PROJECT_ID}/members/all/${id}`);
-  // GitLab answers 404 for someone who is not a member: that is level 0, not an error.
-  if (m.status === 404) return { user: username, userId: id, level: 0 };
+// Reads a user's level on the factory project with the server's read token (Ruling R22), so the user's own GitLab token
+// is needed only once, at sign-in. A user who is not a member (GitLab answers 404) is level 0. A blocked user counts as 0 too.
+// Undefined on any other non-OK answer.
+async function memberLevel(userId: number, fetchFn: FetchFn): Promise<number | undefined> {
+  const m = await fetchFn(api(`/projects/${process.env.FACTORY_PROJECT_ID}/members/all/${userId}`), { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" } });
+  if (m.status === 404) return 0;
   if (!m.ok) return undefined;
-  const { access_level } = (await m.json()) as { access_level: number };
-  return { user: username, userId: id, level: access_level };
+  const { access_level, state } = (await m.json()) as { access_level: number; state: string };
+  return state === "active" ? access_level : 0;
 }
 
-// Sign-in check: the role, or the text to show.
+// Sign-in check: who the user's token belongs to (read_user scope), then their level. The role, or the text to show.
 export async function checkRole(accessToken: string, fetchFn: FetchFn = fetch): Promise<Role | { refused: string }> {
-  const role = await readRole(accessToken, fetchFn).catch(() => undefined);
+  const role = await (async () => {
+    const u = await fetchFn(api("/user"), { headers: { authorization: `Bearer ${accessToken}` } });
+    if (!u.ok) return undefined;
+    const { id, username } = (await u.json()) as { id: number; username: string };
+    const level = await memberLevel(id, fetchFn);
+    return level === undefined ? undefined : { user: username, userId: id, level };
+  })().catch(() => undefined);
   if (!role) return { refused: "GitLab did not confirm your role. Try again." };
   return role.level >= MIN_LEVEL ? role : { refused: REFUSAL };
 }
 
-// The user in a session, or undefined when there is none or it ended.
-export function currentUser(session: { user?: { name?: string | null }; expires: string } | null | undefined, now = Date.now()) {
-  if (!session?.user?.name || Date.parse(session.expires) <= now) return undefined;
-  return session.user.name;
+// Re-reads the level on every control action, so a role removed in GitLab stops working at once.
+export async function canAct(userId: number, fetchFn: FetchFn = fetch): Promise<boolean> {
+  const level = await memberLevel(userId, fetchFn).catch(() => undefined);
+  return level !== undefined && level >= MIN_LEVEL;
 }
-
-// Re-reads the level with the user's own token, so a role removed in GitLab stops working at once.
-export async function canAct(actor: Actor | undefined, fetchFn: FetchFn = fetch): Promise<boolean> {
-  if (!actor || actor.error) return false;
-  const role = await readRole(actor.accessToken, fetchFn).catch(() => undefined);
-  return !!role && role.level >= MIN_LEVEL;
-}
-
-// Keeps the token fresh: null after 8 h in total, a new GitLab token when the old one is about to end.
-export async function refreshed(token: AppToken, now = Date.now(), fetchFn: FetchFn = fetch): Promise<AppToken | null> {
-  if (now - token.loginAt > SESSION_HOURS * HOUR) return null;
-  if (now < token.expiresAt - 60_000) return token;
-  if (!token.refreshToken) return { ...token, error: "RefreshFailed" };
-  try {
-    const res = await fetchFn(`${gitlab()}/oauth/token`, {
-      method: "POST",
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: token.refreshToken,
-        client_id: process.env.GITLAB_OAUTH_CLIENT_ID ?? "",
-        client_secret: process.env.GITLAB_OAUTH_CLIENT_SECRET ?? "",
-      }),
-    });
-    if (!res.ok) return { ...token, error: "RefreshFailed" };
-    const r = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number };
-    // GitLab rotates the refresh token, so the new one replaces the old one.
-    return { ...token, accessToken: r.access_token, refreshToken: r.refresh_token ?? token.refreshToken, expiresAt: now + r.expires_in * 1000, error: undefined };
-  } catch {
-    return { ...token, error: "RefreshFailed" };
-  }
-}
-
-// The GitLab token for the request's session cookie. Server only: the client session never carries it.
-export async function actor(req: Request): Promise<Actor | undefined> {
-  const secureCookie = new URL(req.url).protocol === "https:" || req.headers.get("x-forwarded-proto") === "https";
-  const t = (await getToken({ req, secret: process.env.AUTH_SECRET, secureCookie })) as Partial<AppToken> | null;
-  if (!t?.accessToken || !t.loginAt || Date.now() - t.loginAt > SESSION_HOURS * HOUR) return undefined;
-  return { accessToken: t.accessToken, error: t.error };
-}
-
-// The token the jwt callback refreshed, per GitLab user id. The session callback fills it on every auth() call.
-// Any live token of the same user has the same role, so one entry per user is enough.
-const freshTokens = new Map<number, string>();
 
 declare module "next-auth" {
   interface Session {
     userId?: number;
+    username?: string;
   }
 }
 
@@ -120,7 +71,7 @@ export const authConfig = {
       baseUrl: `${gitlab()}/`,
       clientId: process.env.GITLAB_OAUTH_CLIENT_ID,
       clientSecret: process.env.GITLAB_OAUTH_CLIENT_SECRET,
-      authorization: `${gitlab()}/oauth/authorize?scope=read_api`,
+      authorization: `${gitlab()}/oauth/authorize?scope=read_user`,
       checks: ["pkce", "state"],
     }),
   ],
@@ -132,24 +83,17 @@ export const authConfig = {
       if (!("refused" in r)) return true;
       return `/sign-in?error=${r.refused === REFUSAL ? "role" : "unconfirmed"}`;
     },
+    // The cookie keeps the GitLab user id, the username and the sign-in time only. No GitLab token is kept.
+    // The session ends 8 h after sign-in, even if it was used since.
     async jwt({ token, account, profile }: { token: any; account?: any; profile?: any }) {
-      if (account) {
-        return {
-          ...token,
-          userId: Number(profile?.id),
-          accessToken: account.access_token,
-          refreshToken: account.refresh_token,
-          expiresAt: (account.expires_at ?? 0) * 1000,
-          loginAt: Date.now(),
-        };
-      }
-      return refreshed(token as AppToken);
+      if (account) return { userId: Number(profile?.id), username: String(profile?.username), loginAt: Date.now() };
+      if (!token.username || !token.loginAt || Date.now() - token.loginAt > SESSION_HOURS * HOUR) return null;
+      return token;
     },
-    // The client sees the name and id only, never a GitLab token. The token stays in this process, see sessionActor.
     async session({ session, token }: { session: any; token: any }) {
       session.userId = token.userId;
-      if (token.error) freshTokens.delete(token.userId);
-      else freshTokens.set(token.userId, token.accessToken);
+      session.username = token.username;
+      session.user = { name: token.username };
       return session;
     },
   },
@@ -157,10 +101,8 @@ export const authConfig = {
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
 
-// For control routes (Ruling R13): the user in the session and their refreshed GitLab token. Undefined without a live session.
-export async function sessionActor(): Promise<{ user: string; accessToken: string } | undefined> {
-  const session = await auth(); // runs the jwt callback, which refreshes an old token
-  const accessToken = session?.userId === undefined ? undefined : freshTokens.get(session.userId);
-  const user = currentUser(session);
-  return user && accessToken ? { user, accessToken } : undefined;
+// The user in the request's session, or undefined without a live session.
+export async function sessionUser(): Promise<{ userId: number; username: string } | undefined> {
+  const s = await auth();
+  return s?.userId !== undefined && s.username ? { userId: s.userId, username: s.username } : undefined;
 }

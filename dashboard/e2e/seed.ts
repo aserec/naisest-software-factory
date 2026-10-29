@@ -6,10 +6,10 @@ import { APP, STUB_PORT } from "../playwright.config";
 export const RUN = "run-e2e";
 export const COOKIE = "authjs.session-token"; // the plain name, because the app runs on http
 
-// A session as the jwt callback in src/server/auth.ts stores it. The GitLab token never expires here, so nothing refreshes.
+// A session as the jwt callback in src/server/auth.ts stores it.
 export function sessionToken() {
   return encode({
-    token: { name: "ann", sub: "1", userId: 1, accessToken: "stub", refreshToken: "stub", expiresAt: Date.now() + 365 * 864e5, loginAt: Date.now() },
+    token: { userId: 1, username: "ann", loginAt: Date.now() },
     secret: process.env.AUTH_SECRET!,
     salt: COOKIE,
     maxAge: 8 * 3600,
