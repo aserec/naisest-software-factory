@@ -26,15 +26,15 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] Create the Hetzner firewall: no inbound rules, outbound internet only, no internal networks. Attach it.
 - [ ] Push the repo. Check that the `smoke` job runs on a fresh VM and the VM is deleted after the job.
 - [ ] Run `sync.sh` from agent-config to copy `.agents/`.
-- [ ] Job image: install the `claude` and `opencode` CLIs at pinned versions in `/usr/local/bin`. Add `unzip`. Pin `node:22` by digest.
+- [ ] Job image: install the `claude` CLI and Pi (`@earendil-works/pi-coding-agent@1.4.0`, binary `pi`) at pinned versions in `/usr/local/bin`. Add `unzip`. Pin `node:22` by digest.
 - [ ] Check that bubblewrap works in the job image for the sandbox. Check `enableWeakerNestedSandbox` and the `/proc` read deny against Node and pnpm.
 - [ ] Check the image user, HOME, PATH and proxy settings with the `env -i` line in `.gitlab-ci.yml`.
 - [ ] Check the runner's `<project>.tmp` secret directory layout, and the `TRIGGER_PAYLOAD` path.
 - [ ] Check that the job artifact size limit is big enough, and that resumed runs use the same `CI_PROJECT_DIR`.
 - [ ] Check the Hetzner plugin: the image tag `:1.4.7` format, the `token` and `user_data_file` keys, and that the SAST and secret detection jobs inherit the `factory` tag.
-- [ ] Run `pnpm test` and `pnpm build` of `react_frontend` under the real sandbox. The `/proc` deny may break Node. Keep the image's user settings empty. Check that the reviewer's temporary HOME does not reinstall the provider package every run.
+- [ ] Run `pnpm test` and `pnpm build` of `react_frontend` under the real sandbox. The `/proc` deny may break Node. Keep the image's user settings empty.
 - [ ] On the first VM run, check that the `/effort <level>` line at the start of the `claude -p` prompt really sets the effort (see `buildClaudeArgs` in `factory/agents.ts`). If it does not, remove that line and set the `effortLevel` setting in the agent settings file instead.
-- [ ] Confirm the OpenCode tool names (`websearch`, `task`) and the openai-compatible provider config.
+- [ ] Run one real review through Pi against TensorX and check that the findings array comes back. A TensorX outage makes Pi retry until the job timeout, so check that the job timeout is short enough.
 - [ ] Small config checks: the router `effortBump` limit, `loadTarget` name validation, and that the placeholder approver is replaced.
 
 ## 4. Written confirmations
@@ -63,3 +63,12 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 6). The mock Jev never passes Jev 2 (its scores have confidence 0.6), so with the mock every change goes to a person and run 1 cannot auto-merge.
 - [ ] **Run 1:** label a trivial ticket in `react_frontend`. Expected: merged with a green main pipeline, `factory_done`, a result comment, no person involved.
 - [ ] **Run 2:** label a medium-risk ticket. Expected: `factory_needs_approval`, reasons on the merge request, one Teams card.
+
+## 8. Watcher (phase 4, not part of the react_frontend go-live)
+
+The watcher reads `dev.example.com` until a production environment exists. When production is installed, point `GLITCHTIP_URL` and the Grafana host at it.
+
+- [ ] Create a GlitchTip API token with read-only scopes on `https://errors.dev.example.com`. Store it as `GLITCHTIP_TOKEN`. Consider adding the account to the backend's `.service-users` CI job.
+- [ ] Create a Grafana service account with the Viewer role on `https://ops.dev.example.com` and a token for it. Store it as `GRAFANA_TOKEN`. Consider adding it to `.service-users` as well.
+- [ ] Find the frontend's GlitchTip project slug. The backend's is `acme/backend`.
+- [ ] Build the script that removes customer data, and get the team's sign-off on what the watcher may send to Jev and Claude.

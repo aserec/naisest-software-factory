@@ -85,10 +85,10 @@ The factory has failed, even if it runs, when any of these happen:
 
 ### Other tools
 
-- **Decided:** the code reviewer is DeepSeek through the team's existing TensorX subscription, run in OpenCode as an OpenAI-compatible provider. Before go-live, check where TensorX processes data and that its terms fit the GDPR and sovereignty rule. agent-config already wires its skills for OpenCode.
+- **Decided:** the code reviewer is DeepSeek through the team's existing TensorX subscription, run in Pi (`pi --print` with no tools) as an OpenAI-compatible provider. Before go-live, check where TensorX processes data and that its terms fit the GDPR and sovereignty rule.
 - Chat is Microsoft Teams.
 - The factory repo gets a copy of agent-config at `.agents/` with `sync.sh`, like any project. The factory uses these skills: `tdd`, `implement`, `useful-tests`, `code-review`, `diagnosing-bugs`, `playwright-cli`, and the guard hook from `global-agent-guardrails`.
-- The technology behind the server logs is not decided yet.
+- **Decided:** errors come from the self-hosted GlitchTip (`errors.<domain>`). Backend logs come from the self-hosted Loki 2.9, read through Grafana (`ops.<domain>`). Both are set up in `fastapi_backend/infrastructure/`. The frontend also reports to GlitchTip. No production environment exists yet, so the watcher reads `dev.example.com` for now.
 
 ## 6. The flow
 
@@ -313,8 +313,8 @@ Anyone can work on a ticket with their own Claude Code, on desktop, in the termi
 The watcher is off by default. The factory repo's docs must say so, and must list what is needed to turn it on:
 
 - `FACTORY_WATCHER_ENABLED=true`.
-- For GlitchTip: `GLITCHTIP_URL`, `GLITCHTIP_TOKEN`, and the organization and project slugs.
-- For server logs: the log technology, how a runner reaches it, its credentials, and a small adapter script for it. None of this is decided yet. Until it is, the server log source stays off even when the watcher is on.
+- For GlitchTip: `GLITCHTIP_URL` (`https://errors.<domain>`), `GLITCHTIP_TOKEN` (a read-only API token), and the organization and project slugs (`acme`, `backend`). GlitchTip speaks the Sentry API under `/api/0/`.
+- For backend logs, Loki: Loki has no port and no auth of its own; it sits on the server's internal `ops` network. The watcher reads it through Grafana's data source proxy, `https://ops.<domain>/api/datasources/proxy/uid/acme-loki/loki/api/v1/query_range`, with `GRAFANA_TOKEN`, a service account token with the Viewer role. Error query: `{container=~".*(api|worker).*", level=~"ERROR|CRITICAL"}`. Promtail sets the `level` label only on API containers, so worker errors need a `|= "\"level\": \"ERROR\""` line filter instead. Log lines are JSON with `level`, `logger`, `msg`, and `request_id`.
 
 Each source is turned on by itself.
 
@@ -324,7 +324,7 @@ How it works:
 - For each source, it fetches error groups that are new or changed since the last run.
 - Code decides from the counts whether an error is escalating, for example events in the last hour against the hourly average of the last 24 hours, or a new error after a deploy. Jev does not do this arithmetic.
 - For an escalating error, Jev answers `severity` (choice: low, medium, high, critical) and `fixable` (yes/no: can a code change fix this?).
-- It skips errors that already have an open work item. It matches on the GlitchTip issue id or the log fingerprint, which it stores in each work item it opens.
+- It skips errors that already have an open work item. It matches on the GlitchTip issue id or the Loki log fingerprint (`logger` plus `msg` with numbers, IDs and timestamps removed). The backend sends an exception to GlitchTip and also logs it, so a Loki line whose `request_id` appears in a GlitchTip event is skipped, which it stores in each work item it opens.
 - It opens a work item with the evidence as quoted data: counts, first and last seen, the stack trace, and sample log lines with secrets removed. It adds `factory_watcher` and `factory_ready`, and tells Teams.
 - At most 5 watcher tickets a day get `factory_ready`. After that, the watcher still opens tickets without the label and says so in Teams.
 - Log text is untrusted. It goes through the Jev 1 `injection` question like any ticket text.
@@ -419,13 +419,14 @@ All are masked, protected CI variables:
 | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code, Kirill's seat |
 | `BERGET_API_KEY` | Jev client |
-| `TENSORX_API_KEY` | OpenCode reviewer |
+| `TENSORX_API_KEY` | Pi reviewer |
 | `FACTORY_GITLAB_TOKEN` | Scripts, as the factory's GitLab bot |
 | `TEAMS_WEBHOOK_URL` | Scripts |
 | Trigger token | GitLab webhooks |
 | `GLITCHTIP_TOKEN` | Watcher, when on |
+| `GRAFANA_TOKEN` | Watcher, when on |
 
-GitLab CI gives every variable to the whole job. The scripts start agents with a clean environment that holds only the variables the agent needs. Agents never see the GitLab, Teams or GlitchTip tokens.
+GitLab CI gives every variable to the whole job. The scripts start agents with a clean environment that holds only the variables the agent needs. Agents never see the GitLab, Teams, GlitchTip or Grafana tokens.
 
 ### Plan limits
 
@@ -449,7 +450,7 @@ GitLab CI gives every variable to the whole job. The scripts start agents with a
 1. **Phase 1:** `react_frontend`, the label trigger, all ten steps, and Teams messages out. Watcher off.
 2. **Phase 2:** `@factory` comments, the comment hook during runs, stop and continue, and Teams messages in.
 3. **Phase 3:** `fastapi_backend` and `ai_gateway`, starting with turning on GitLab work items in both.
-4. **Phase 4:** the watcher with GlitchTip. Server logs follow once their technology is decided.
+4. **Phase 4:** the watcher with GlitchTip, then Loki.
 
 Phase 1 is done when:
 

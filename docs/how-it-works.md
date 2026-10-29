@@ -13,7 +13,7 @@ Build pipeline:
 1. **Event.** Checks the event. The run stops quietly unless the label was just added, the person is a Developer or higher, and the work item has no active run.
 2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
 3. **Prepare patch.** Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`. The router picks the model.
-4. **Code review.** A reviewer (DeepSeek through TensorX, in OpenCode) reads the diff and returns findings. The author fixes blocking findings. At most 3 rounds.
+4. **Code review.** A reviewer (DeepSeek through TensorX, in Pi with no tools) reads the diff and returns findings. The author fixes blocking findings. At most 3 rounds.
 5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures. At most 3 rounds. Then the script pushes the branch and opens a merge request.
 6. **Risk check.** Hard rules first: protected paths, dependency files, more than 300 changed lines, a secret scanner hit, a red merge request pipeline. Then Jev 2 reads the diff and answers `diff_risk`, `scope` and `sensitive`.
 7. **Decision.** Merge without a person, or ask for approval. See the merge rule below.
@@ -75,8 +75,8 @@ At most 2 runs at once per target, and one run per work item.
 The watcher opens work items from production errors. It is off by default and not built in phase 1. Turning it on needs all of this:
 
 - `FACTORY_WATCHER_ENABLED=true`.
-- For GlitchTip: `GLITCHTIP_URL`, `GLITCHTIP_TOKEN`, and the organization and project slugs.
-- For server logs: the log technology, how a runner reaches it, its credentials, and a small adapter script. None of this is decided. Until it is, the server log source stays off even when the watcher is on.
+- For GlitchTip (self-hosted, `errors.<domain>`): `GLITCHTIP_URL`, a read-only `GLITCHTIP_TOKEN`, and the organization and project slugs.
+- For backend logs, Loki (self-hosted, read through Grafana at `ops.<domain>`): `GRAFANA_TOKEN`, a Grafana service account token with the Viewer role.
 - The team's sign-off on what data the watcher may send to Jev or Claude. Error data and log lines can hold customer data. A script must remove it first.
 
 Each source is turned on by itself. The watcher runs in a scheduled pipeline every 10 minutes, opens at most 5 tickets a day with `factory_ready`, and marks its tickets with `factory_watcher`.

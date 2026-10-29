@@ -59,7 +59,7 @@ Attach a firewall to the runner VMs (for example by label):
 ## 6. Agent files
 
 - [ ] From the repo root, run `bash /path/to/agent-config/sync.sh`. It copies `.agents/`.
-- [ ] In the job image, install the `claude` and `opencode` CLIs at exact pinned versions, in a system path such as `/usr/local/bin`. Factory jobs run with a fixed `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), so a CLI in another place is not found.
+- [ ] In the job image, install the `claude` CLI and Pi (`@earendil-works/pi-coding-agent`, binary `pi`) at exact pinned versions, in a system path such as `/usr/local/bin`. Factory jobs run with a fixed `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), so a CLI in another place is not found.
 
 ## 7. Target webhook
 

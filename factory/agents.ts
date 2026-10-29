@@ -118,42 +118,38 @@ export function parseFindings(out: string): Finding[] {
 
 const reviewPrompt = readFileSync(fileURLToPath(new URL("../prompts/review.md", import.meta.url)), "utf8");
 
-const offTools = ["bash", "edit", "write", "read", "grep", "glob", "list", "patch", "todowrite", "todoread", "webfetch", "websearch", "task", "skill"];
-
-// OpenCode config for the reviewer: no tools at all (the diff is in the prompt), TensorX as the only provider.
-export function reviewerConfig(model: string, baseURL: string) {
+// Pi config for the reviewer: TensorX as the only provider. Tools are turned off by flags in reviewerArgs.
+export function reviewerModels(model: string, baseUrl: string) {
   return {
-    $schema: "https://opencode.ai/config.json",
-    tools: Object.fromEntries(offTools.map((t) => [t, false])),
-    permission: { edit: "deny", bash: "deny", webfetch: "deny" },
-    provider: {
-      tensorx: {
-        npm: "@ai-sdk/openai-compatible",
-        name: "TensorX",
-        options: { baseURL, apiKey: "{env:TENSORX_API_KEY}" },
-        models: { [model]: { name: model } },
-      },
+    providers: {
+      tensorx: { name: "TensorX", baseUrl, api: "openai-completions", apiKey: "$TENSORX_API_KEY", models: [{ id: model }] },
     },
   };
 }
 
+// No tools (the diff is in the prompt), no session file, and nothing loaded from the cwd or the agent dir.
+export const reviewerArgs = (model: string, prompt: string) => [
+  "--print", "--no-tools", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
+  "--no-context-files", "--no-mcp", "--no-approve", "--offline", "--provider", "tensorx", "--model", model, "--", prompt,
+];
+
 // ticketText comes already wrapped (context.ticketText), so it is not wrapped again here.
 export const reviewerPrompt = (ticketText: string, diffText: string) => `${reviewPrompt}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>`;
 
-// Nothing secret except the TensorX key. No Claude token, no GitLab token.
-export function reviewerEnv(env: NodeJS.ProcessEnv, dir: string, configPath: string): NodeJS.ProcessEnv {
-  return { PATH: env.PATH, HOME: dir, OPENCODE_CONFIG: configPath, TENSORX_API_KEY: env.TENSORX_API_KEY };
+// Nothing secret except the TensorX key, which Pi reads through models.json. No Claude token, no GitLab token.
+export function reviewerEnv(env: NodeJS.ProcessEnv, dir: string): NodeJS.ProcessEnv {
+  return { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", TENSORX_API_KEY: env.TENSORX_API_KEY };
 }
 
 export async function runReviewer(input: { model: string; cwd: string; diffText: string; ticketText: string }): Promise<Finding[]> {
   // The reviewer runs in an empty temp dir, so no project config or plugin from the target clone loads. input.cwd is not used.
-  const dir = mkdtempSync(join(tmpdir(), "opencode-"));
+  // The dir is also Pi's agent dir, so no auth.json, settings or extensions from the runner's home load.
+  const dir = mkdtempSync(join(tmpdir(), "pi-"));
   try {
-    const configPath = join(dir, "opencode.json");
-    writeFileSync(configPath, JSON.stringify(reviewerConfig(input.model, TENSORX_BASE_URL)));
+    writeFileSync(join(dir, "models.json"), JSON.stringify(reviewerModels(input.model, TENSORX_BASE_URL)));
     const prompt = reviewerPrompt(input.ticketText, input.diffText);
-    const { code, out } = await run("opencode", ["run", "--model", `tensorx/${input.model}`, prompt], reviewerEnv(process.env, dir, configPath), dir);
-    if (code !== 0) throw new Error(`opencode exited with code ${code}`);
+    const { code, out } = await run("pi", reviewerArgs(input.model, prompt), reviewerEnv(process.env, dir), dir);
+    if (code !== 0) throw new Error(`pi exited with code ${code}`);
     return parseFindings(out);
   } finally {
     rmSync(dir, { recursive: true, force: true });
