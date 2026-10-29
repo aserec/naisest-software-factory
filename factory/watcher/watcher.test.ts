@@ -56,12 +56,21 @@ test("a text that holds the placeholder literal and a held secret still drops wh
 });
 
 test("very long runs finish fast and keep nothing planted", () => {
-  for (const run of ["a", "a.", "a1", "1 ", "a@", "-"]) {
-    const text = `Login jane.doe@example.com token=fake-query-token-1111 ${run.repeat(100_000)} Bearer fake-nested-token-2222`;
+  for (const run of ["a", "a.", "a1", "1 ", "a@", "-", "eyJa.b.", "name", "a@b.c("]) {
+    const text = `Login jane.doe@example.com token=fake-query-token-1111 Bearer fake-nested-token-2222 ${run.repeat(100_000)}`;
     const t0 = Date.now();
     const out = scrub(text);
     expect(Date.now() - t0).toBeLessThan(500);
     for (const p of ["jane.doe@example.com", "fake-query-token-1111", "fake-nested-token-2222"]) expect(out).not.toContain(p);
     expect(out.length).toBeLessThan(25_000);
+  }
+});
+
+test("a cut at the size limit leaves no half of a customer value", () => {
+  for (const planted of ['{"name": "Jane Doe", "x": 1}', "jane.doe@example.com (Jane Doe, +46 70 000 00 00)"]) {
+    // The input is cut right after "Jane ", so a cut before scrubbing would leave it.
+    const out = scrub(" ".repeat(20_000 - planted.indexOf("Doe")) + planted + " ".repeat(30_000));
+    expect(out).toContain("[truncated]");
+    expect(out).not.toMatch(/jane/i);
   }
 });
