@@ -85,3 +85,14 @@ export type Notice = "needs_info" | "needs_approval" | "blocked" | "done" | "wai
 export interface Chat { notify(kind: Notice, title: string, lines: string[], url: string): Promise<void> }
 
 export type { JevClient as Judge, JevQuestion, JevAnswer } from "./jev";
+
+// An agent harness: the program that runs a model with tools. Steps give it a job and get a result.
+export type ApiStyle = "anthropic" | "openai";
+export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string> } // model id -> family
+export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
+export type Role = "author" | "reviewer" | "writer";
+export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
+export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number }
+// `stopped` tells a `@factory stop` from a failure. Adapters return false until Task 8 wires the inbox.
+export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number }; text: string }
+export interface Harness { readonly apis: ApiStyle[]; run(job: HarnessJob): Promise<HarnessResult> }

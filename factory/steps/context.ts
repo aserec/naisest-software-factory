@@ -2,7 +2,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { runClaude, runReviewer, wrapTicket, type ClaudeResult, type ClaudeRun } from "../agents";
+import { TENSORX_BASE_URL, parseFindings, reviewerPrompt, wrapTicket, type ClaudeResult, type ClaudeRun, type Finding } from "../agents";
+import { claudeCode } from "../adapters/claude-code";
+import { pi } from "../adapters/pi";
 import { loadRouter, loadTarget } from "../config";
 import { extractRun, GITLAB_URL, makeGitLabCi, RUN_DIR } from "../adapters/gitlab-ci";
 import { GitLab } from "../gitlab";
@@ -17,6 +19,19 @@ import type { Router, RouterRow, Target } from "../types";
 // Until the steps use the seams, these names stay importable from here.
 export { extractRun, GITLAB_URL, RUN_DIR };
 export type { Repo };
+
+// Thin wrappers over the harnesses. Task 6 moves the steps onto Harness and removes them.
+const teamPlan = (model: string) => ({ name: "team-plan", api: "anthropic" as const, keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { [model]: "claude" } });
+export async function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
+  const h = await claudeCode.run({ role: "author", prompt: r.prompt, model: { provider: teamPlan(r.model), model: r.model, effort: r.effort }, cwd: r.cwd, tools: "code", resume: r.resumeSessionId, maxTurns: r.maxTurns });
+  return { sessionId: h.session, isError: !h.ok, limitHit: h.limitHit, costUsd: h.costUsd, tokens: h.tokens, resultText: h.text };
+}
+export async function runReviewer(input: { model: string; cwd: string; diffText: string; ticketText: string }): Promise<Finding[]> {
+  const provider = { name: "tensorx", api: "openai" as const, baseUrl: TENSORX_BASE_URL, keyEnv: "TENSORX_API_KEY", models: { [input.model]: "unknown" } };
+  const h = await pi.run({ role: "reviewer", prompt: reviewerPrompt(input.ticketText, input.diffText), model: { provider, model: input.model }, cwd: input.cwd, tools: "none", maxTurns: 1 });
+  if (!h.ok) throw new Error("pi failed");
+  return parseFindings(h.text);
+}
 
 export interface StepContext {
   gitlab: GitLab;

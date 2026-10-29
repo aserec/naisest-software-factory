@@ -2,7 +2,7 @@ import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
 import { findSecrets } from "./rules";
 import { NotFactoryRunError } from "./seams";
-import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, FactoryEvent, FactoryState, Judge, JevAnswer, JevQuestion, Mark, Notice, PersonRef, Repo, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
+import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, Mark, Notice, PersonRef, Repo, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
@@ -197,4 +197,17 @@ export function fakeJudge(answer: (q: JevQuestion, state: unknown) => JevAnswer)
     },
   };
   return judge;
+}
+
+// A Harness for tests. `script` gives the result of job n (from 0); the rest is filled with an ok answer.
+export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<HarnessResult> = () => ({})): Harness & { jobs: HarnessJob[] } {
+  const jobs: HarnessJob[] = [];
+  return {
+    apis: ["anthropic", "openai"],
+    jobs,
+    run: async (job) => {
+      const n = jobs.push(job) - 1;
+      return { session: `fake-session-${n}`, ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: "", ...script(job, n) };
+    },
+  };
 }
