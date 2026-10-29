@@ -80,3 +80,8 @@ export interface CiRunner {
   buildRecord(run: string): Promise<RunRecord>; // throws NotFactoryRunError on a failed provenance check
   restoreRun(run: string): Promise<void>;
 }
+
+export type Notice = "needs_info" | "needs_approval" | "blocked" | "done" | "waiting" | "watcher_ticket";
+export interface Chat { notify(kind: Notice, title: string, lines: string[], url: string): Promise<void> }
+
+export type { JevClient as Judge, JevQuestion, JevAnswer } from "./jev";

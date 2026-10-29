@@ -1,6 +1,6 @@
-export type CardKind = "needs_info" | "needs_approval" | "blocked" | "done";
+export type CardKind = "needs_info" | "needs_approval" | "blocked" | "done" | "waiting" | "watcher_ticket";
 
-const KIND_TEXT: Record<CardKind, string> = { needs_info: "Needs info", needs_approval: "Needs approval", blocked: "Blocked", done: "Done" };
+const KIND_TEXT: Record<CardKind, string> = { needs_info: "Needs info", needs_approval: "Needs approval", blocked: "Blocked", done: "Done", waiting: "Waiting", watcher_ticket: "New watcher ticket" };
 
 // Adaptive Card message for a Teams Workflows webhook.
 export function buildCard(kind: CardKind, title: string, lines: string[], url: string): object {
@@ -18,7 +18,7 @@ export function buildCard(kind: CardKind, title: string, lines: string[], url: s
             { type: "TextBlock", text: `${KIND_TEXT[kind]}: ${title}`, weight: "Bolder", size: "Medium", wrap: true },
             ...lines.map((text) => ({ type: "TextBlock", text, wrap: true })),
           ],
-          actions: [{ type: "Action.OpenUrl", title: "Open in GitLab", url }],
+          actions: [{ type: "Action.OpenUrl", title: "Open", url }],
         },
       },
     ],

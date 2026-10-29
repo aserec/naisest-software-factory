@@ -2,7 +2,7 @@ import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
 import { findSecrets } from "./rules";
 import { NotFactoryRunError } from "./seams";
-import type { Change, ChangeRef, Checks, CiRunner, CodeHost, Comment, FactoryEvent, FactoryState, Mark, PersonRef, Repo, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
+import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, FactoryEvent, FactoryState, Judge, JevAnswer, JevQuestion, Mark, Notice, PersonRef, Repo, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
@@ -178,4 +178,23 @@ export function fakeCi(o: FakeCiOptions = {}) {
     restoreRun: async (run: string) => void ci.restored.push(run),
   } satisfies CiRunner & Record<string, unknown>;
   return ci;
+}
+
+// A Chat for tests. It keeps every notice it was given.
+export function fakeChat(): Chat & { sent: { kind: Notice; title: string; lines: string[]; url: string }[] } {
+  const sent: { kind: Notice; title: string; lines: string[]; url: string }[] = [];
+  return { sent, notify: async (kind, title, lines, url) => void sent.push({ kind, title, lines, url }) };
+}
+
+// A Judge for tests. `answer` gives the answer to one question; `asked` counts the ask calls.
+export function fakeJudge(answer: (q: JevQuestion, state: unknown) => JevAnswer): Judge & { asked: number } {
+  const judge = {
+    provider: "mock" as const,
+    asked: 0,
+    ask: async (state: unknown, questions: JevQuestion[]) => {
+      judge.asked++;
+      return questions.map((q) => answer(q, state));
+    },
+  };
+  return judge;
 }

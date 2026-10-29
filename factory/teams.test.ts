@@ -8,7 +8,7 @@ test("cards use the Adaptive Card attachment format", () => {
   const card = c.attachments[0].content;
   expect(card.body[0].text).toBe("Needs approval: react_frontend #8");
   expect(card.body[1]).toMatchObject({ text: "size: 412 lines", wrap: true });
-  expect(card.actions[0]).toEqual({ type: "Action.OpenUrl", title: "Open in GitLab", url: "https://x" });
+  expect(card.actions[0]).toEqual({ type: "Action.OpenUrl", title: "Open", url: "https://x" });
 });
 test("sendCard throws with the status and never shows the webhook URL", async () => {
   const f = vi.fn().mockResolvedValue({ ok: false, status: 400 });
