@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { makeFileLogs } from "../adapters/file-logs";
 import type { ErrorGroup } from "../seams";
-import { addKnownSecrets } from "../rules";
+import { addKnownSecrets, HELD_SECRET } from "../rules";
 import { escalating } from "./escalation";
 import { scrub, scrubGroup } from "./scrub";
 
@@ -48,4 +48,20 @@ test("scrub keeps ordinary error text", () => {
 test("a secret this process holds drops the whole text", () => {
   addKnownSecrets("held-secret-value-123456");
   expect(scrub("boom held-secret-value-123456")).toBe("[removed]");
+});
+
+test("a text that holds the placeholder literal and a held secret still drops whole", () => {
+  addKnownSecrets("held-secret-value-123456");
+  expect(scrub(`${HELD_SECRET} then held-secret-value-123456`)).toBe("[removed]");
+});
+
+test("very long runs finish fast and keep nothing planted", () => {
+  for (const run of ["a", "a.", "a1", "1 ", "a@", "-"]) {
+    const text = `Login jane.doe@example.com token=fake-query-token-1111 ${run.repeat(100_000)} Bearer fake-nested-token-2222`;
+    const t0 = Date.now();
+    const out = scrub(text);
+    expect(Date.now() - t0).toBeLessThan(500);
+    for (const p of ["jane.doe@example.com", "fake-query-token-1111", "fake-nested-token-2222"]) expect(out).not.toContain(p);
+    expect(out.length).toBeLessThan(25_000);
+  }
 });

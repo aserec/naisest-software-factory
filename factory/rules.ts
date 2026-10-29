@@ -11,9 +11,12 @@ export function addKnownSecrets(...values: (string | undefined)[]): void {
   for (const v of values) if (v && v.length >= 16) known.add(v);
 }
 
+/** What findSecrets returns in place of a secret value this process holds. */
+export const HELD_SECRET = "[a secret value this process holds]";
+
 /** Returns the secret-looking strings found in the text. A known secret value shows as a placeholder, never as itself. */
 export function findSecrets(text: string): string[] {
-  const held = [...known].filter((v) => text.includes(v)).map(() => "[a secret value this process holds]");
+  const held = [...known].filter((v) => text.includes(v)).map(() => HELD_SECRET);
   return [...SECRET_PATTERNS.flatMap((re) => text.match(re) ?? []), ...held];
 }
 
