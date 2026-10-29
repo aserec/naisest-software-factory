@@ -95,7 +95,7 @@ export function guardReady(hooksDir: string, path = process.env.PATH): void {
   for (const f of ["deny-dangerous.sh", "dangerous-patterns.txt"]) {
     if (!existsSync(join(hooksDir, f))) throw new Error(`Guard missing: ${join(hooksDir, f)}`);
   }
-  if (spawnSync("sh", ["-c", "command -v jq"], { env: { PATH: path } }).status !== 0) throw new Error(`jq not found on PATH, the command guard cannot run`);
+  if (spawnSync("/bin/sh", ["-c", "command -v jq"], { env: { PATH: path } }).status !== 0) throw new Error(`jq not found on PATH, the command guard cannot run`);
 }
 
 export async function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
