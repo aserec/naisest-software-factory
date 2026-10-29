@@ -6,9 +6,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { wrapTicket } from "../agents";
 import { makeInbox } from "../inbox";
 import { makeContext } from "../compose";
+import { emit } from "../emit";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
-import { NotFactoryRunError, type Chat, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type TicketRef, type Tracker } from "../seams";
+import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type TicketRef, type Tracker } from "../seams";
 import type { RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
@@ -26,6 +27,8 @@ export interface StepContext {
   dir: string; // the target clone, cwd for agents
   repo: Repo;
   sleep(ms: number): Promise<void>;
+  step?: string; // the step runStep runs
+  stepEvent?: string; // the ID of its step_start event, the parent of what the step sends
 }
 export type StepResult = "next" | "stop";
 
@@ -82,6 +85,7 @@ export async function block(ctx: StepContext, reason: string): Promise<StepResul
   save(ctx, "blocked", { reason });
   if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
   await ctx.tracker.setState(ref, "blocked");
+  emit(ctx, "run_end", { outcome: "blocked" });
   await ctx.tracker.comment(ref, `The factory stopped. A person must look at this.\n\n${reason}`);
   await ctx.tracker.assign(ref, person(ctx, t));
   await ctx.chat.notify("blocked", t.title, [reason], t.url);
@@ -125,6 +129,8 @@ export const inbox = (ctx: StepContext) =>
 export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, job: Omit<HarnessJob, "role" | "model">): Promise<HarnessResult> {
   const box = role === "author" && job.tools === "code" ? inbox(ctx) : undefined;
   const r = await ctx.harnesses[choice.harness].run({ ...job, ...(box ? { inbox: box } : {}), role, model: modelChoice(choice, ctx.seams) });
+  // ponytail: cache and context tokens are 0 until the harnesses report them (Task B3).
+  emit(ctx, "usage", { role, model: choice.model, input: r.tokens.input, output: r.tokens.output, cacheRead: 0, cacheWrite: 0, costUsd: r.costUsd, contextTokens: 0 });
   const t = ctx.record.tokens ?? { input: 0, output: 0 };
   ctx.record = {
     ...ctx.record,
@@ -182,6 +188,35 @@ function doneBeforeResume(ctx: StepContext, name: string): boolean {
   return i > 0 && i < BUILD_JOBS.indexOf(data(ctx, "event")?.resumeAt);
 }
 
+// A stop saved by stopped() or waiting() ends the step as "stopped" or "waiting".
+function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
+  if (result === "next") return "next";
+  const last = ctx.record.steps.at(-1)?.data as { stopped?: boolean; limit?: boolean } | undefined;
+  return last?.stopped ? "stopped" : last?.limit ? "waiting" : "stop";
+}
+
+// Sends a label_change for every state the steps set and a jev_answer for every Jev answer, so no step has to.
+// The dashboard names states factory_<state>, as the ticket labels do, and picks the run's buttons by the last one.
+const WATCHED = Symbol("watched");
+function watch(ctx: StepContext): void {
+  const { tracker, judge } = ctx;
+  if (WATCHED in tracker) return; // a test may run every step on one context
+  ctx.tracker = Object.assign(Object.create(tracker) as Tracker, {
+    [WATCHED]: true,
+    setState: async (ref: TicketRef, state: FactoryState) => {
+      await tracker.setState(ref, state);
+      emit(ctx, "label_change", { to: `factory_${state}` });
+    },
+  });
+  ctx.judge = Object.assign(Object.create(judge) as Judge, {
+    ask: async (state: unknown, questions: JevQuestion[]) => {
+      const answers = await judge.ask(state, questions);
+      for (const a of answers) emit(ctx, "jev_answer", { question: questions.find((q) => q.id === a.id)?.text ?? a.id, answer: String(a.value), confidence: String(a.confidence) });
+      return answers;
+    },
+  });
+}
+
 // The CI job body: skip if an earlier job stopped the run, run the step, save the record.
 // A "stop" is a normal end. Only unexpected errors fail the job, and they block the ticket first.
 export async function runStep(
@@ -196,6 +231,9 @@ export async function runStep(
     return;
   }
   const ctx = (opts.make ?? makeContext)(opts.env ?? process.env);
+  watch(ctx);
+  ctx.step = name;
+  ctx.stepEvent = undefined;
   let result: StepResult;
   try {
     try {
@@ -213,13 +251,18 @@ export async function runStep(
       console.log(`Skipping ${name}: it finished before the run was resumed.`);
       return;
     }
+    ctx.stepEvent = emit(ctx, "step_start", {});
     result = await run(ctx);
+    emit(ctx, "step_end", { outcome: endOutcome(ctx, result) });
   } catch (e) {
+    emit(ctx, "error", { message: String(e).slice(0, 500) });
     // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
     await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`).catch(() => {});
+    emit(ctx, "step_end", { outcome: "error" });
     throw e;
   } finally {
     saveRecord(ctx.record, dir); // also creates the dir
+    await ctx.dashboard.flush();
   }
   if (result === "stop") writeFileSync(stopFile, name);
 }

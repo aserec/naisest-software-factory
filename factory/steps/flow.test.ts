@@ -15,7 +15,11 @@ import { reviewerPrompt } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError } from "../seams";
-import type { RunRecord } from "../record";
+import { loadRecord, type RunRecord } from "../record";
+import { fakeDashboard } from "../fakes";
+import { runEvent } from "../run-events";
+import * as apply from "./apply";
+import * as verify from "./verify";
 import { findSecrets } from "../rules";
 import * as resultSaved from "./result-saved";
 import { BOT, B, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
@@ -710,4 +714,58 @@ test("makeContext needs the dashboard token and a real dashboardUrl", () => {
   expect(() => makeContext({ ...env, FACTORY_DASHBOARD_TOKEN: "" }, dir, seamsFile(dir))).toThrow("FACTORY_DASHBOARD_TOKEN is not set");
   files("gl", "teams", "dash");
   expect(() => makeContext(env, dir)).toThrow(/dashboardUrl is still a placeholder/); // the real seams.yml, until go-live
+});
+
+// Task B2: each run has an ID, and its steps send events to the dashboard.
+const dash = (w: ReturnType<typeof fakeWorld>) => w.ctx.dashboard as ReturnType<typeof fakeDashboard>;
+// The whole run as CI runs it: the build jobs, then the finish jobs that load the build record.
+async function runAllJobs(w: ReturnType<typeof fakeWorld>) {
+  const buildDir = tmp();
+  await runBuildJobs(w, buildDir);
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", change: "5", buildRun: "1", run: "2" };
+  w.ci.buildRecord = async () => loadRecord(buildDir);
+  const finishDir = tmp();
+  for (const [name, s] of [["apply", apply], ["verify", verify], ["result-saved", resultSaved]] as const) await runStep(name, s.run, { dir: finishDir, make: () => w.ctx });
+  return w;
+}
+test("a low-risk run sends run_start, a start and an end per step, usage, Jev answers, the decision and run_end done, all with one run ID", async () => {
+  const w = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
+  const events = dash(w).events;
+  expect(w.closed).toBe(true);
+  expect(events[0].type).toBe("run_start");
+  expect(new Set(events.map((e) => e.run))).toEqual(new Set([w.record.runId]));
+  expect(w.record.runId).toMatch(/^[0-9a-f-]{36}$/);
+  const steps = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+  expect(events.filter((e) => e.type === "step_start").map((e) => e.step)).toEqual(steps);
+  expect(events.filter((e) => e.type === "step_end").map((e) => [e.step, e.data.outcome])).toEqual(steps.map((s) => [s, "next"]));
+  for (const s of steps) expect(events.findIndex((e) => e.type === "step_start" && e.step === s)).toBeLessThan(events.findIndex((e) => e.type === "step_end" && e.step === s));
+  expect(events.filter((e) => e.type === "usage").length).toBeGreaterThan(0);
+  expect(new Set(events.filter((e) => e.type === "jev_answer").map((e) => e.step))).toEqual(new Set(["triage", "risk-check"]));
+  expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [] }]);
+  expect(events.filter((e) => e.type === "label_change").at(-1)?.data).toEqual({ to: "factory_done" });
+  // run_end is the last event of the run; only its own step's end comes after it.
+  expect(events.slice(-2).map((e) => [e.type, e.data.outcome])).toEqual([["run_end", "done"], ["step_end", "next"]]);
+  // Every event passes the dashboard's own check.
+  for (const e of events) expect(runEvent.safeParse(e).success, e.type).toBe(true);
+});
+test("a resumed run keeps the run ID of the run it continues", async () => {
+  const first = fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" });
+  await runBuildJobs(first, tmp());
+  const runId = first.record.runId;
+  expect(runId).toBeDefined();
+  const w = resumeWorld({ jev1: { risk: "trivial" } }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.finishTriggered).toBe(true);
+  expect(w.record.runId).toBe(runId);
+  expect(dash(w).events.length).toBeGreaterThan(0);
+  expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([runId]));
+  expect(dash(w).events.some((e) => e.type === "run_start")).toBe(false);
+});
+test("a run ends the same while the dashboard is down", async () => {
+  const up = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
+  const w = fakeWorld({ jev1: { risk: "low" } });
+  dash(w).down = true;
+  await runAllJobs(w);
+  expect(dash(w).events).toEqual([]);
+  expect([w.states, w.closed, w.merged, w.workItemComments.length]).toEqual([up.states, up.closed, up.merged, up.workItemComments.length]);
 });

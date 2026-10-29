@@ -1,3 +1,4 @@
+import { emit } from "../emit";
 import { pickModels } from "../router";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
@@ -44,6 +45,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
   await ctx.tracker.comment(ref, `This ticket is not clear enough to build yet. Please answer these questions, then add factory_ready again.\n\n${r.text}`);
   await ctx.tracker.setState(ref, "needs_info");
+  emit(ctx, "run_end", { outcome: "needs_info" });
   await notify(ctx, "needs_info", ["The factory asked questions on the ticket."], "");
   return "stop";
 }

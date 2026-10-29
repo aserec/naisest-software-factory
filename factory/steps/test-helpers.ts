@@ -121,7 +121,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     record: newRecord(),
     target: loadTarget("react_frontend", { defaultApprover: "approver" }),
     router: loadRouter(undefined, seams),
-    dir: "/fake/run/target",
+    dir: join(mkdtempSync(join(tmpdir(), "run-")), "target"), // emit writes events.jsonl in its parent
     repo,
     sleep: async () => {},
   };

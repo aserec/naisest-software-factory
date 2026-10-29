@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { emit } from "../emit";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO, decideStart } from "../event";
 import type { FactoryEvent, Ticket, TicketRef } from "../seams";
 import { block, data, isMain, runStep, save, STOPPED_RUN, type StepContext, type StepResult } from "./context";
@@ -104,6 +106,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };
   save(ctx, "event", { ticket: e.ticket, actor: e.actor, ...decision });
   if (!decision.start) return "stop";
+  // A new run gets its ID here. runStep could not send this step's start before the run had one.
+  ctx.record = { ...ctx.record, runId: randomUUID() };
+  emit(ctx, "run_start", {});
+  ctx.stepEvent = emit(ctx, "step_start", {});
   await ctx.tracker.setState(e.ticket, "running");
   return "next";
 }

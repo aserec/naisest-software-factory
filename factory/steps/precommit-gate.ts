@@ -1,3 +1,4 @@
+import { emit } from "../emit";
 import { precommitGate } from "../loops";
 import { findSecrets } from "../rules";
 import { block, data, fix, install, isMain, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
@@ -11,7 +12,12 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const stop = await install(ctx);
   if (stop) return stop;
   const result = await precommitGate(
-    { review: async () => [], fix: (feedback) => fix(ctx, feedback), run: (cmd) => ctx.repo.run(cmd) },
+    { review: async () => [], fix: (feedback) => fix(ctx, feedback), run: async (cmd) => {
+      const r = await ctx.repo.run(cmd);
+      // ponytail: the Repo seam gives ok, not the exit code; add it to Repo.run if the dashboard needs the real code.
+      emit(ctx, "gate_check", { command: cmd, exitCode: r.ok ? 0 : 1, outputTail: r.output });
+      return r;
+    } },
     data(ctx, "prepare-patch").commands,
     3,
     ctx.record.rounds.gate + 1, // a resumed run goes on from its last round

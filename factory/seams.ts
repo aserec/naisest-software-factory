@@ -73,7 +73,7 @@ export interface CodeHost {
 export class NotFactoryRunError extends Error {}
 
 export type RunKind = "build" | "finish";
-export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: boolean; buildRun?: string; run?: string; runUrl: string; payload?: unknown }
+export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: boolean; buildRun?: string; run?: string; job?: string; runUrl: string; payload?: unknown }
 export interface CiRunner {
   vars: RunVars;
   secret(name: string): string | undefined; // read once, then gone

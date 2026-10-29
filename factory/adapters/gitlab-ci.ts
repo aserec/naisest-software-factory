@@ -11,6 +11,7 @@ import { sh } from "../steps/repo";
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
   CI_PROJECT_ID: /^[0-9]+$/,
+  CI_JOB_ID: /^([0-9]+)?$/, // empty only outside CI
   FACTORY_PIPELINE: /^(build|finish)?$/, // empty only in a scheduled pipeline
   FACTORY_SCHEDULE: /^(poll|retry|watch)?$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
@@ -69,6 +70,7 @@ export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn:
       skipApply: env.FACTORY_SKIP_APPLY === "1",
       buildRun: env.FACTORY_BUILD_PIPELINE_ID || undefined,
       run: env.CI_PIPELINE_ID || undefined,
+      job: env.CI_JOB_ID || undefined,
       runUrl: env.CI_PIPELINE_URL ?? "",
       payload: env.TRIGGER_PAYLOAD ? JSON.parse(readFileSync(env.TRIGGER_PAYLOAD, "utf8")) : undefined,
     },
