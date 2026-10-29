@@ -10,7 +10,7 @@ export interface TriageAnswers { injectionYes: number; type: Answer<string>; ris
 export type TriageOutcome = { kind: "blocked"; reason: string } | { kind: "needs_info" } | { kind: "build"; risk: Risk; effort: number };
 
 const MAX_DESCRIPTION = 8000;
-const INJECTION_LIMIT = 0.3;
+export const INJECTION_LIMIT = 0.3;
 const CLARITY_MIN = 6;
 const RISK_CONFIDENCE_MIN = 0.7;
 const RISKS: Risk[] = ["trivial", "low", "medium", "high"];

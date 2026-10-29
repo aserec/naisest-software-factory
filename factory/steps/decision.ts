@@ -1,8 +1,18 @@
 import { decideMerge, type MergeDecision } from "../decision";
 import type { RuleResult } from "../rules";
+import type { Ticket } from "../seams";
 import { block, data, isMain, modelRow, notify, person, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
 
-function decide(ctx: StepContext): MergeDecision {
+const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
+
+// A fix for an error that does not exist must never reach the default branch alone.
+function decide(ctx: StepContext, ticket: Ticket): MergeDecision {
+  const d = decideByChecks(ctx);
+  if (!ticket.marks.includes("watcher") || ctx.seams.logSource !== "files") return d;
+  return { kind: "needs_approval", reasons: [...(d.kind === "needs_approval" ? d.reasons : []), FAKE_ERRORS] };
+}
+
+function decideByChecks(ctx: StepContext): MergeDecision {
   const rc = data(ctx, "risk-check");
   const failedRules = (rc.rules as RuleResult[]).filter((r) => !r.passed).map((r) => `hard rule ${r.rule} failed: ${r.detail}`);
   if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules] };
@@ -21,7 +31,8 @@ function decide(ctx: StepContext): MergeDecision {
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const { change, changeUrl } = data(ctx, "precommit-gate");
-  const d = decide(ctx);
+  const ticket = await ctx.tracker.ticket(ref);
+  const d = decide(ctx, ticket);
   // The finish run loads this run's record from this run.
   if (d.kind === "auto" && !ctx.ci.vars.run) return block(ctx, "This run has no run id, so the finish run could not find this run's record.");
   save(ctx, "decision", d);
@@ -31,7 +42,6 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     await ctx.ci.start({ kind: "finish", ticket: ref, change, buildRun: ctx.ci.vars.run });
     return "next";
   }
-  const ticket = await ctx.tracker.ticket(ref);
   await ctx.tracker.setState(ref, "needs_approval");
   await ctx.codeHost.commentChange(change, `This change needs a person to approve it:\n\n${d.reasons.map((r) => `- ${r}`).join("\n")}`);
   await ctx.codeHost.assignChange(change, person(ctx, ticket));

@@ -4,14 +4,15 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
+import { main as watcher } from "./steps/watcher";
 
 const ci = parse(readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "utf8"));
-const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved", "poll", "retry-waiting"];
+const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved", "poll", "retry-waiting", "watcher"];
 const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const passed = (name: string) => `${name}="$${name}"`;
 const STEP_PREFIX = [
   "env -i", PATH, "HOME=/root", 'CLAUDE_CONFIG_DIR="$PWD/run/claude-home"',
-  ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE"].map(passed),
+  ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE", "CI_PIPELINE_SOURCE"].map(passed),
   ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY", "FACTORY_SCHEDULE"].map(passed),
   // File variables: only their paths pass.
   ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_TRIGGER_TOKEN"].map(passed),
@@ -53,4 +54,13 @@ test("the smoke job type-checks before it runs the tests", () => {
 
 test("the real contract job runs only when started by hand from a web pipeline", () => {
   expect(ci["contract-real"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "web"', when: "manual" }]);
+});
+
+test("the watcher runs only from a pipeline started by hand", async () => {
+  expect(ci.watcher.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "web" && $FACTORY_SCHEDULE == "watch"' }]);
+  expect(ci.watcher.stage).toBe("test");
+  // With logSource files, main refuses any other pipeline before it reads a secret.
+  await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "schedule" })).rejects.toThrow(/started by hand/);
+  // From a web pipeline it goes on to build the context.
+  await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "web" })).rejects.toThrow(/CI_SERVER_URL/);
 });

@@ -74,13 +74,11 @@ Two scheduled pipelines run for each target (see `docs/add-a-repo.md`).
 
 At most 2 runs at once per target, and one run per work item.
 
-## The watcher is off
+## The watcher
 
-The watcher opens work items from production errors. It is off by default and not built in phase 1. Turning it on needs all of this:
+The watcher opens tickets from error logs. Today it reads fake errors from `watcher/fixtures/` (`logSource: files` in `seams.yml`). Loki and GlitchTip come later as their own adapters.
 
-- `FACTORY_WATCHER_ENABLED=true`.
-- For GlitchTip (self-hosted, `errors.<domain>`): `GLITCHTIP_URL`, a read-only `GLITCHTIP_TOKEN`, and the organization and project slugs.
-- For backend logs, Loki (self-hosted, read through Grafana at `ops.<domain>`): `GRAFANA_TOKEN`, a Grafana service account token with the Viewer role.
-- The team's sign-off on what data the watcher may send to Jev or Claude. Error data and log lines can hold customer data. A script must remove it first.
-
-Each source is turned on by itself. The watcher runs in a scheduled pipeline every 10 minutes, opens at most 5 tickets a day with `factory_ready`, and marks its tickets with `factory_watcher`.
+- **Manual run only.** With `logSource: files`, start it by hand: Run pipeline in the web UI with `FACTORY_SCHEDULE=watch` and `FACTORY_TARGET`. The fixtures stay recent forever, so a schedule would open the same tickets again after each one closes. The step refuses any other pipeline source.
+- **What it does.** It takes the error groups seen in the last hour, keeps the escalating ones (code decides, from the hourly counts), removes customer data, and skips a group that already has an open ticket. The judge checks the text for prompt injection: a likely injection opens a `blocked` ticket, written by code only, and a chat notice. Otherwise the judge answers severity and fixable, the writer model writes the human part, and code adds the agent part below a marker line.
+- **At most 5 a day.** A watcher ticket gets `ready` only while fewer than 5 watcher tickets were opened today (UTC) and the judge thinks a code change can fix it. Otherwise it opens with no state, and the chat notice says why.
+- **No merge without a person.** A ticket with the watcher mark never merges alone while `logSource` is `files`. The decision step sends it to approval: a fix for an error that does not exist must not reach `main` by itself.

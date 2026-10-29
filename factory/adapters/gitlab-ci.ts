@@ -12,7 +12,7 @@ import { sh } from "../steps/repo";
 const PATTERNS: Record<string, RegExp> = {
   CI_PROJECT_ID: /^[0-9]+$/,
   FACTORY_PIPELINE: /^(build|finish)?$/, // empty only in a scheduled pipeline
-  FACTORY_SCHEDULE: /^(poll|retry)?$/,
+  FACTORY_SCHEDULE: /^(poll|retry|watch)?$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
   FACTORY_MR_IID: /^([0-9]+)?$/,
   FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,

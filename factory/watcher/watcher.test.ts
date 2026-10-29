@@ -1,9 +1,12 @@
 import { expect, test } from "vitest";
 import { makeFileLogs } from "../adapters/file-logs";
-import type { ErrorGroup } from "../seams";
+import { fakeChat, fakeJudge, fakeLogs, fakeTracker } from "../fakes";
+import type { ErrorGroup, HarnessResult, JevAnswer, LogSource } from "../seams";
 import { addKnownSecrets, HELD_SECRET } from "../rules";
 import { escalating } from "./escalation";
+import { runWatcher } from "./run";
 import { scrub, scrubGroup } from "./scrub";
+import { AGENT_PART, agentPart, ticketBody } from "./ticket";
 
 const NOW = new Date("2026-06-01T12:00:00Z");
 const groups = () => makeFileLogs("watcher/fixtures", () => NOW).errors(new Date(0));
@@ -89,4 +92,105 @@ test("a private pair inside the value of another key is still removed", () => {
   ];
   for (const [text, value] of cases) expect(scrub(text), text).not.toContain(value);
   expect(scrub("next=/cb?token=abc&x=1")).toBe("next=/cb?token=[removed]&x=1");
+});
+
+// The watcher run, on the fixtures, with fake seams.
+const MATCHING = "c07f5c4a57e7"; // the AuthProvider group, pinned in factory/adapters/file-logs.test.ts
+const HUMAN = "Human part.\n\n## Acceptance criteria\n\n- [ ] The error stops.";
+
+async function watch(o: { logs?: LogSource; createdToday?: number; tracker?: ReturnType<typeof fakeTracker> } = {}) {
+  const tracker = o.tracker ?? fakeTracker();
+  if (!o.tracker) {
+    await tracker.create({ title: "Token refresh fails", body: "", marks: [], fingerprint: MATCHING });
+    for (let i = 0; i < (o.createdToday ?? 0); i++) await tracker.create({ title: `old ${i}`, body: "", marks: ["watcher"], fingerprint: `old-${i}` });
+  }
+  const before = tracker.created.length;
+  const states: string[] = [];
+  const judge = fakeJudge((q, state): JevAnswer => {
+    const text = JSON.stringify(state);
+    states.push(text);
+    if (q.id === "injection") {
+      const p = text.includes("IGNORE ALL PREVIOUS") ? 0.9 : 0.05;
+      return { id: q.id, value: p >= 0.5, probability: p, confidence: 0.9 };
+    }
+    return { id: q.id, value: q.id === "severity" ? "high" : true, probability: 0.9, confidence: 0.9 };
+  });
+  const chat = fakeChat();
+  const prompts: string[] = [];
+  const writer = async (prompt: string): Promise<HarnessResult> => {
+    prompts.push(prompt);
+    return { session: "w", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: HUMAN };
+  };
+  const r = await runWatcher({ logs: o.logs ?? makeFileLogs("watcher/fixtures", () => NOW), tracker, judge, chat, writer, now: NOW });
+  return { r, tracker, chat, prompts, states, made: tracker.created.slice(before) };
+}
+const component = (t: ReturnType<typeof fakeTracker>, ref: string) => t.tickets.get(ref)!.title;
+
+test("the watcher opens the growing group, blocks the injection and skips the open one", async () => {
+  const { r, tracker, chat, prompts, made } = await watch();
+  expect(r.opened.map((ref) => component(tracker, ref))).toEqual([expect.stringContaining("NotificationCenter")]);
+  expect(r.blocked.map((ref) => component(tracker, ref))).toEqual([expect.stringContaining("NotificationToasts")]);
+  expect(r.skipped).toEqual([MATCHING]);
+  const blocked = tracker.tickets.get(r.blocked[0])!;
+  expect(blocked.state).toBe("blocked");
+  expect(tracker.tickets.get(r.opened[0])!.state).toBe("ready");
+  expect(made.every((d) => d.marks.includes("watcher"))).toBe(true);
+  // Only the growing group reached the writer.
+  expect(prompts).toHaveLength(1);
+  expect(prompts.join()).not.toContain("IGNORE ALL PREVIOUS");
+  expect(chat.sent.map((n) => [n.kind, n.title])).toEqual(
+    expect.arrayContaining([["blocked", blocked.title], ["watcher_ticket", tracker.tickets.get(r.opened[0])!.title]]),
+  );
+  expect(chat.sent).toHaveLength(2);
+});
+
+test("every ticket body has the human part on top and the agent part below", async () => {
+  const { made } = await watch();
+  expect(made).toHaveLength(2);
+  for (const d of made) {
+    expect(d.body.split(AGENT_PART)).toHaveLength(2);
+    const [, agent] = d.body.split(AGENT_PART);
+    for (const h of ["## Source", "## Evidence", "## Acceptance criteria", "## Constraints", "## Definition of done"]) expect(agent).toContain(h);
+  }
+  const written = made.find((d) => d.state === "ready")!;
+  const [human] = written.body.split(AGENT_PART);
+  expect(human).toContain("Human part.");
+  expect(human).toContain("## Acceptance criteria");
+});
+
+test("no planted value reaches a ticket body, the judge or the writer", async () => {
+  // The fixture groups with customer data are old. Make them escalate, so they really go through the run.
+  const hot = (await groups()).filter((g) => PLANTED.some((p) => JSON.stringify(g).includes(p)));
+  expect(hot.length).toBeGreaterThan(0);
+  const logs = fakeLogs(hot.map((g) => ({ ...g, hourly: [5, ...Array(23).fill(0)], lastSeen: NOW.toISOString() })));
+  for (const run of [await watch(), await watch({ logs })]) {
+    const seen = JSON.stringify([run.made, run.states, run.prompts]);
+    for (const p of PLANTED) expect(seen).not.toContain(p);
+  }
+  expect((await watch({ logs })).made.length).toBe(hot.length);
+});
+
+test("after 5 watcher tickets today a new ticket gets no state and chat says why", async () => {
+  const { r, tracker, chat } = await watch({ createdToday: 5 });
+  expect(r.opened).toHaveLength(1);
+  expect(tracker.tickets.get(r.opened[0])!.state).toBeUndefined();
+  expect(chat.sent.find((n) => n.kind === "watcher_ticket")!.lines.join(" ")).toContain("daily limit");
+});
+
+test("a second run on the same files opens nothing new", async () => {
+  const first = await watch();
+  const second = await watch({ tracker: first.tracker });
+  expect(second.made).toEqual([]);
+  expect(second.r.skipped).toHaveLength(3);
+});
+
+test("ticketBody keeps one marker even when a part holds it", () => {
+  const body = ticketBody(`a ${AGENT_PART}`, `b ${AGENT_PART}`);
+  expect(body.split(AGENT_PART)).toHaveLength(2);
+  expect(body.startsWith("a ")).toBe(true);
+});
+
+test("evidence is fenced so a sample cannot close the block", () => {
+  const g = { fingerprint: "f", message: "m", hourly: [3, ...Array(23).fill(0)], firstSeen: "a", lastSeen: "b", samples: ["x ``` y"], link: "l" } as ErrorGroup;
+  expect(agentPart(g, "low")).toContain("````\nx ``` y\n````");
 });

@@ -6,6 +6,7 @@ import { claudeCode } from "./adapters/claude-code";
 import { makeGitLabCi } from "./adapters/gitlab-ci";
 import { makeGitLabCodeHost } from "./adapters/gitlab-code-host";
 import { makeGitLabTracker } from "./adapters/gitlab-tracker";
+import { makeFileLogs } from "./adapters/file-logs";
 import { makeModelJudge } from "./adapters/model-judge";
 import { pi } from "./adapters/pi";
 import { makeTeamsChat } from "./adapters/teams-chat";
@@ -28,11 +29,10 @@ const ADAPTERS = {
     "model-call": (env: NodeJS.ProcessEnv, seams: SeamsConfig) => makeModelJudge(modelChoice(seams.judgeModel, seams), env),
   },
   chat: { teams: makeTeamsChat },
+  // The watcher's rules depend on the exact name "files": fake errors from this checkout.
+  logSource: { files: () => makeFileLogs(resolve(FACTORY_ROOT, "watcher/fixtures")) },
 };
 type Seam = keyof typeof ADAPTERS;
-// Log source names with no constructor yet (the watcher builds them). The watcher's rules depend on the exact name.
-const LOG_SOURCES = ["files"];
-
 function pick<S extends Seam>(seams: SeamsConfig, seam: S): (typeof ADAPTERS)[S][keyof (typeof ADAPTERS)[S]] {
   const all = ADAPTERS[seam];
   const name = seams[seam];
@@ -53,8 +53,7 @@ const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string): StepContext {
   const seams = loadSeams(seamsPath);
   // Check every name before any adapter is built.
-  if (!LOG_SOURCES.includes(seams.logSource)) throw new Error(`seams.yml logSource: unknown adapter ${seams.logSource}`);
-  const make = { ci: pick(seams, "ci"), tracker: pick(seams, "tracker"), codeHost: pick(seams, "codeHost"), judge: pick(seams, "judge"), chat: pick(seams, "chat") };
+  const make = { ci: pick(seams, "ci"), tracker: pick(seams, "tracker"), codeHost: pick(seams, "codeHost"), judge: pick(seams, "judge"), chat: pick(seams, "chat"), logSource: pick(seams, "logSource") };
   const router = loadRouter(undefined, seams);
   const ci = make.ci(env, secretDir);
   const token = ci.secret("FACTORY_GITLAB_TOKEN");
@@ -91,3 +90,6 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
 export function makeTracker(token: string, target: Target, seamsPath?: string) {
   return pick(loadSeams(seamsPath), "tracker")(token, target);
 }
+
+// The watcher's log source, as seams.yml names it. Only the watcher step needs one.
+export const makeLogSource = (seams: SeamsConfig) => pick(seams, "logSource")();

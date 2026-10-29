@@ -26,6 +26,17 @@ test("trivial ticket: build pipeline ends in auto-merge with no person", async (
   expect(w.finishTriggered).toBe(true);
   expect(w.cards).toHaveLength(0);
 });
+test("a watcher ticket from fake errors stops at needs_approval even when it could merge alone", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.tracker.tickets.get("8")!.marks = ["watcher"];
+  expect(w.ctx.seams.logSource).toBe("files");
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  const reason = "this ticket comes from fake errors (logSource files), so a person must merge it";
+  expect(w.record.steps.find((s) => s.step === "decision")?.data).toEqual({ kind: "needs_approval", reasons: [reason] });
+  expect(w.cards.map((c) => [c.kind, c.lines])).toEqual([["needs_approval", [reason]]]);
+});
 test("medium ticket: stops at decision with reasons on the MR and a Teams card", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass" }));
   expect(w.states).toEqual(["needs_approval"]);
