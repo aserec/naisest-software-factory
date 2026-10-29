@@ -30,7 +30,7 @@ test("output with no findings array throws", () => expect(() => parseFindings("a
 test("the agent sandbox denies the same reads as the gate sandbox", () => {
   const root = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
   const s = factorySettings({}, "/opt/hooks", "/w/run/target");
-  expect(s.sandbox.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home"]);
+  expect(s.sandbox.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home", "/w/run/pi-home"]);
   expect(s.sandbox.filesystem.denyRead).toEqual(sandboxSettings("/w/run/target", "/tmp/h").filesystem.denyRead);
 });
 test("guardReady throws when the hook, the patterns file or jq is missing", () => {

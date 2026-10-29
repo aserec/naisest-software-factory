@@ -1,6 +1,12 @@
-import { describe } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, test } from "vitest";
 import { claudeCode } from "../adapters/claude-code";
-import { pi } from "../adapters/pi";
+import { pi, piSandboxSettings } from "../adapters/pi";
+import { piHome } from "../sandbox";
 import type { Provider } from "../seams";
 import { harnessContract } from "./harness.contract";
 
@@ -18,4 +24,23 @@ describe.skipIf(!process.env.FACTORY_CONTRACT_REAL)("real Pi harness", () => {
   const model = process.env.CONTRACT_PI_MODEL ?? "";
   if (process.env.FACTORY_CONTRACT_REAL && !model) throw new Error("CONTRACT_PI_MODEL is not set");
   harnessContract(() => pi, { model: { provider: tensorx, model }, unserved: { provider: tensorx, model: "no-such-model" }, author: false });
+});
+
+// Sandbox proof: srt with the Pi author settings. Needs a working srt (not inside another sandbox), no model call.
+describe.skipIf(!process.env.FACTORY_CONTRACT_REAL)("pi author sandbox", () => {
+  const root = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+  const srt = `${root}/node_modules/.bin/srt`;
+  const run = (cmd: string) => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "pi-sandbox-")));
+    const cwd = join(base, "target");
+    mkdirSync(cwd);
+    mkdirSync(piHome(cwd));
+    writeFileSync(join(piHome(cwd), "marker"), "session");
+    const settings = join(base, "srt-settings.json");
+    writeFileSync(settings, JSON.stringify(piSandboxSettings(cwd, piHome(cwd), tensorx)));
+    return spawnSync(srt, ["--settings", settings, "-c", cmd.replaceAll("<pi-home>", piHome(cwd))], { cwd, env: { PATH: process.env.PATH, HOME: piHome(cwd) } }).status;
+  };
+  test("sandbox: the factory checkout's .git is not readable", () => expect(run(`cat ${root}/.git/config`)).not.toBe(0));
+  test("sandbox: a host that is not allowed cannot be reached", () => expect(run(`node -e "fetch('https://example.com').then(()=>process.exit(0),()=>process.exit(1))"`)).not.toBe(0));
+  test("sandbox: pi can still read its own home", () => expect(run("cat <pi-home>/marker")).toBe(0));
 });

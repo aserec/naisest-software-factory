@@ -1,9 +1,11 @@
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import type { HarnessJob, Provider } from "../seams";
-import { agentEnv, pi, piArgs, piModels } from "./pi";
+import { sandboxDenyRead } from "../sandbox";
+import { agentEnv, pi, piArgs, piModels, piSandboxSettings } from "./pi";
+import { guardCheck } from "./pi-extension";
 
 const tensorx: Provider = { name: "tensorx", api: "openai", baseUrl: "https://t.example/v1", keyEnv: "TENSORX_API_KEY", models: { m1: "other" } };
 const anthropic: Provider = { name: "gw", api: "anthropic", baseUrl: "https://gw.example", keyEnv: "GW_KEY", models: { m1: "claude" } };
@@ -66,10 +68,100 @@ test("a pi that exits 1 with no output is a failed run, not a throw", async () =
   expect(await pi.run(job())).toMatchObject({ ok: false, limitHit: false, text: "" });
 });
 
-test("a pi author job needs the sandbox", async () => {
+// --- the author path: `pi` runs inside `srt` (a fake srt that runs the command, so quoting is tested too) ---
+function fakeSrt() {
+  const bin = realpathSync(mkdtempSync(join(tmpdir(), "fake-srt-")));
+  const script = join(bin, "srt");
+  writeFileSync(script, `#!/bin/sh\ncp "$2" "${bin}/settings.json"\nprintf '%s' "$4" > "${bin}/cmd"\nexec sh -c "$4"\n`);
+  chmodSync(script, 0o755);
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+  return bin;
+}
+// run/target and its sibling run/pi-home, like a real run.
+const runDir = () => { const root = realpathSync(mkdtempSync(join(tmpdir(), "pi-run-"))); mkdirSync(join(root, "target")); return join(root, "target"); };
+const authorJob = (cwd: string, over: Partial<HarnessJob> = {}) => job({ role: "author", tools: "code", cwd, maxTurns: 5, ...over });
+const events = (...e: object[]) => `printf '%s\\n' '${e.map((x) => JSON.stringify(x)).join("\n")}'`;
+const header = { type: "session", id: "sess-1" };
+const answer = (text: string, usage = { input: 10, output: 3, cost: { total: 0.02 } }) => ({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text }], usage } });
+
+test("the guard blocks rm -rf / and allows pnpm test", () => {
+  expect(guardCheck("rm -rf /").block).toBe(true);
+  expect(guardCheck("rm -rf /").reason).toBeTruthy();
+  expect(guardCheck("pnpm test")).toEqual({ block: false });
+});
+test("the guard fails closed when it cannot run", () => expect(guardCheck("ls", "/no/such/dir").block).toBe(true));
+
+test("pi sandbox settings: the shared read denies, the provider host, writes only to the clone and the pi home", () => {
+  const s: any = piSandboxSettings("/w/run/target", "/w/run/pi-home", tensorx);
+  expect(s.filesystem.denyRead).toEqual(sandboxDenyRead("/w/run/target"));
+  expect(s.filesystem.denyRead).toContain("/w/run/pi-home");
+  expect(s.filesystem.allowRead).toEqual(["/w/run/pi-home"]); // pi must read its own sessions
+  expect(s.filesystem.allowWrite).toEqual(["/w/run/target", "/w/run/pi-home", "/tmp"]);
+  expect(s.network.allowedDomains).toContain("t.example");
+  expect(s.network.allowedDomains).toContain("registry.npmjs.org");
+});
+test("a provider with no base URL adds no host", () => {
+  const s: any = piSandboxSettings("/w/run/target", "/w/run/pi-home", { ...tensorx, baseUrl: undefined });
+  expect(s.network.allowedDomains).not.toContain(undefined);
+  expect(s.network.allowedDomains).toEqual((piSandboxSettings("/w/run/target", "/w/run/pi-home", tensorx) as any).network.allowedDomains.filter((d: string) => d !== "t.example"));
+});
+
+test("an author job runs pi in srt with the guard extension, the sandbox settings and a session", async () => {
+  const bin = fakePi(events(header, answer("done")));
+  const srt = fakeSrt();
+  vi.stubEnv("TENSORX_API_KEY", "tx-key");
+  const cwd = runDir();
+  const r = await pi.run(authorJob(cwd, { prompt: "fix 'it'; $(x)" }));
+  expect(r).toEqual({ session: "sess-1", ok: true, limitHit: false, stopped: false, costUsd: 0.02, tokens: { input: 10, output: 3 }, text: "done" });
+  const args = readFileSync(join(bin, "args"), "utf8").split("\n");
+  expect(args).toEqual(expect.arrayContaining(["--print", "--mode", "json", "--no-extensions", "--extension", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-mcp", "--provider", "tensorx", "--model", "m1"]));
+  expect(args).not.toContain("--no-tools");
+  expect(args).not.toContain("--continue");
+  expect(args[args.indexOf("--extension") + 1]).toMatch(/^\/.*pi-extension\.ts$/); // absolute
+  expect(args[args.indexOf("--") + 1]).toBe("fix 'it'; $(x)"); // quoting keeps the prompt whole
+  expect(readFileSync(join(bin, "cwd"), "utf8").trim()).toBe(cwd);
+  const home = join(cwd, "..", "pi-home");
+  expect(JSON.parse(readFileSync(join(home, "models.json"), "utf8")).providers.tensorx.models).toEqual([{ id: "m1" }]);
+  expect(readFileSync(join(bin, "env"), "utf8")).toContain(`PI_CODING_AGENT_DIR=${realpathSync(home)}`);
+  const settings = JSON.parse(readFileSync(join(srt, "settings.json"), "utf8"));
+  expect(settings.filesystem.denyRead).toEqual(sandboxDenyRead(cwd));
+  expect(settings.network.allowedDomains).toContain("t.example");
+});
+
+test("a resume continues the session kept in the pi home", async () => {
+  const bin = fakePi(events(header, answer("again")));
+  fakeSrt();
+  const cwd = runDir();
+  await pi.run(authorJob(cwd, { resume: "sess-1" }));
+  const args = readFileSync(join(bin, "args"), "utf8").split("\n");
+  expect(args).toEqual(expect.arrayContaining(["--session", "--continue"]));
+  expect(args[args.indexOf("--session") + 1]).toBe(join(cwd, "..", "pi-home"));
+});
+
+test("a provider 429 in the output is a limit hit", async () => {
+  fakePi(`${events(header, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "429 Too Many Requests: quota exceeded" } })}\nexit 1`);
+  fakeSrt();
+  expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: true });
+});
+
+test("a model that is not served is a failed run, not a limit", async () => {
+  fakePi(`${events(header, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "404 model not found" } })}\nexit 1`);
+  fakeSrt();
+  expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: false });
+});
+
+test("a pi cut in the middle of a JSON line is a failed run, not a throw and not a limit", async () => {
+  fakePi(`printf '%s\\n' '${JSON.stringify(header)}'\nprintf '{"type":"message_end","mess'\nexit 1`);
+  fakeSrt();
+  expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: false });
+});
+
+test("an author run that fails still leaves no settings dir behind, and the guard runs first", async () => {
   const bin = fakePi("echo x");
-  await expect(pi.run(job({ role: "author", tools: "code" }))).rejects.toThrow("Pi author needs the sandbox");
-  expect(() => readFileSync(join(bin, "args"))).toThrow(); // pi was never started
+  fakeSrt();
+  process.env.PATH = `${process.env.PATH!.split(":").slice(0, 2).join(":")}`; // fake pi and srt only: no jq
+  await expect(pi.run(authorJob(runDir()))).rejects.toThrow(/jq/);
+  expect(existsSync(join(bin, "args"))).toBe(false);
 });
 
 test("the harness refuses to start when the command guard cannot run, and never starts pi", async () => {
