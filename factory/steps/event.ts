@@ -1,5 +1,5 @@
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO, decideStart } from "../event";
-import type { FactoryEvent, TicketRef } from "../seams";
+import type { FactoryEvent, Ticket, TicketRef } from "../seams";
 import { block, data, isMain, runStep, save, STOPPED_RUN, type StepContext, type StepResult } from "./context";
 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
@@ -27,6 +27,14 @@ async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "a
 export async function activeRuns(ctx: StepContext): Promise<number> {
   const lists = await Promise.all(ACTIVE_STATES.map((s) => ctx.tracker.list(s)));
   return lists.reduce((n, l) => n + l.length, 0);
+}
+
+// May this person's ready start a run? A trusted person may. The factory may only for the watcher's own
+// tickets, which it opens ready. trusted() stays false for the factory, so it still cannot command.
+export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket): Promise<boolean> {
+  if (actor === "") return false;
+  if (await ctx.tracker.trusted(actor)) return true;
+  return ticket.marks.includes("watcher") && (await ctx.tracker.isFactory(actor));
 }
 
 // The hourly retry asks to resume a run that stopped at the agent's usage limit, and a `@factory resume` comment
@@ -87,9 +95,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     save(ctx, "event", { start: false, reason: e.kind === "ignored" ? e.reason : "not-added" });
     return "stop";
   }
+  const t = await ctx.tracker.ticket(e.ticket);
   const decision = decideStart(e, {
-    actorTrusted: e.actor !== "" && (await ctx.tracker.trusted(e.actor)),
-    state: (await ctx.tracker.ticket(e.ticket)).state,
+    actorTrusted: await mayStart(ctx, e.actor, t),
+    state: t.state,
     runningInRepo: await activeRuns(ctx),
   });
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };

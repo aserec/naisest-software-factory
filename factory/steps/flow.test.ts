@@ -677,3 +677,20 @@ test("a fix run's inbox sees a stop posted before it started, after the run bega
   const fixRun = w.harness.jobs.find((j) => j.role === "author" && j.resume);
   expect((await fixRun!.inbox!.poll()).stop).toBe(true);
 });
+test("a watcher ticket set ready by the factory starts a run; another ticket set ready by the factory does not", async () => {
+  const ready = { kind: "ready", ticket: "8", actor: BOT };
+  const w = fakeWorld({ jev1: { risk: "trivial" }, payload: ready });
+  w.tracker.tickets.get("8")!.marks = ["watcher"];
+  await runBuildPipeline(w);
+  expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
+  const other = await runBuildPipeline(fakeWorld({ payload: ready }));
+  expect(other.record.steps[0]).toMatchObject({ step: "event", data: { start: false } });
+  expect(other.claudeCalls).toBe(0);
+  // The poller's way in: no payload, the ticket says who set it ready.
+  const polled = fakeWorld({ jev1: { risk: "trivial" } });
+  polled.ci.vars = { ...polled.ci.vars, payload: undefined, ticket: "8" };
+  polled.tracker.tickets.get("8")!.marks = ["watcher"];
+  polled.tracker.startedBy = async () => BOT;
+  await runBuildPipeline(polled);
+  expect(polled.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
+});

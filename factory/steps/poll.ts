@@ -5,7 +5,7 @@ import { makeContext } from "../compose";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO } from "../event";
 import type { TicketRef } from "../seams";
 import { isMain, type StepContext } from "./context";
-import { activeRuns } from "./event";
+import { activeRuns, mayStart } from "./event";
 
 export async function pollReady(ctx: StepContext): Promise<TicketRef[]> {
   const free = MAX_RUNS_PER_REPO - (await activeRuns(ctx));
@@ -16,7 +16,7 @@ export async function pollReady(ctx: StepContext): Promise<TicketRef[]> {
     if (t.state && ACTIVE_STATES.includes(t.state)) continue;
     // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every 5 minutes.
     const actor = await ctx.tracker.startedBy(t.ref);
-    if (!actor || !(await ctx.tracker.trusted(actor))) continue;
+    if (!actor || !(await mayStart(ctx, actor, t))) continue;
     await ctx.ci.start({ kind: "build", ticket: t.ref });
     start.push(t.ref);
   }
