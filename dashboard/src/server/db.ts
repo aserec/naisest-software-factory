@@ -24,6 +24,8 @@ export interface Db {
   request(r: Omit<ControlRequest, "id" | "at">): ControlRequest | { refused: string };
   requests(q: { target?: string; pending?: boolean; sinceMinutes?: number }): ControlRequest[];
   finish(id: string, outcome: NonNullable<ControlRequest["outcome"]>): void;
+  isImported(job: string): boolean;
+  markImported(job: string): void;
   prune(now: Date): void;
   backup(dir: string, now: Date): void;
 }
@@ -42,7 +44,8 @@ CREATE TABLE IF NOT EXISTS switches (
 CREATE TABLE IF NOT EXISTS requests (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, run TEXT NOT NULL, target TEXT NOT NULL, ticket TEXT NOT NULL,
   user TEXT NOT NULL, at TEXT NOT NULL, outcome TEXT, done_at TEXT
-);`;
+);
+CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);`;
 
 const DAY_MS = 864e5;
 const KEEP_BACKUPS = 7;
@@ -179,6 +182,12 @@ export function openDb(path: string): Db {
     finish(id, outcome) {
       if (outcome === "cancelled") cancelStmt.run(id);
       else finishStmt.run(new Date().toISOString(), outcome, id);
+    },
+
+    isImported: (job) => db.prepare("SELECT 1 FROM imported_jobs WHERE job = ?").get(job) !== undefined,
+
+    markImported(job) {
+      db.prepare("INSERT OR IGNORE INTO imported_jobs (job, at) VALUES (?, ?)").run(job, new Date().toISOString());
     },
 
     prune(now) {

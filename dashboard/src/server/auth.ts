@@ -35,7 +35,7 @@ export type AppToken = {
 // Pin the public origin: Auth.js then ignores the Host header for redirects (and trusts the host because of it).
 process.env.AUTH_URL ??= process.env.DASHBOARD_URL;
 
-const gitlab = () => (process.env.GITLAB_URL ?? "https://gitlab.example.com").replace(/\/+$/, "");
+export const gitlab = () => (process.env.GITLAB_URL ?? "https://gitlab.example.com").replace(/\/+$/, "");
 const api = (path: string) => `${gitlab()}/api/v4${path}`;
 
 // Reads who the token belongs to and their level on the factory project. Undefined on any non-OK answer.
