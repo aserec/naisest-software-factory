@@ -226,7 +226,7 @@ describe("watcher tickets", () => {
   });
   // A missing count must not read as zero, or the daily cap never holds.
   test("createdSince fails when the count header is missing or not a number", async () => {
-    for (const headers of [{}, { "X-Total": "" }, { "X-Total": "many" }]) {
+    for (const headers of [{}, { "X-Total": "" }, { "X-Total": "many" }] as Record<string, string>[]) {
       routes["/projects/7/issues"] = { body: [], headers };
       await expect(tracker().createdSince("watcher", new Date())).rejects.toThrow("X-Total");
     }
