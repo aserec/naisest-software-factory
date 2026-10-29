@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, guardReady, runCommand } from "../agents";
-import { piHome } from "../sandbox";
+import { SRT, piHome } from "../sandbox";
 import { sandboxSettings } from "../steps/repo";
 import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider } from "../seams";
 
@@ -76,7 +76,7 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
       // ponytail: --session <dir> --continue is from the plan. Confirm it on the runner's Pi (it may be --session-dir).
       ...(job.resume ? ["--session", home, "--continue"] : []), "--", job.prompt,
     ];
-    const { code, out } = await runCommand("srt", ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd);
+    const { code, out } = await runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd);
     const r = parsePiOutput(out);
     // stopped stays false until Task 8.
     return { session: r.session, ok: code === 0 && !r.error, limitHit: r.limitHit, stopped: false, costUsd: r.costUsd, tokens: r.tokens, text: r.text };

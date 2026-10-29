@@ -7,6 +7,13 @@ import { sandboxDenyRead } from "../sandbox";
 import { agentEnv, pi, piArgs, piModels, piSandboxSettings } from "./pi";
 import { guardCheck } from "./pi-extension";
 
+// The harness runs srt by absolute path, so the fake srt replaces that path here.
+const fake = vi.hoisted(() => ({ srt: "" }));
+vi.mock("../sandbox", async (orig) => {
+  const real: any = await orig();
+  return { ...real, get SRT() { return fake.srt || real.SRT; } };
+});
+
 const tensorx: Provider = { name: "tensorx", api: "openai", baseUrl: "https://t.example/v1", keyEnv: "TENSORX_API_KEY", models: { m1: "other" } };
 const anthropic: Provider = { name: "gw", api: "anthropic", baseUrl: "https://gw.example", keyEnv: "GW_KEY", models: { m1: "claude" } };
 
@@ -29,7 +36,7 @@ test("Pi env holds only the allowed keys and the provider key", () => {
 
 // --- the harness itself, against a fake `pi` program on PATH ---
 const origPath = process.env.PATH;
-afterEach(() => { process.env.PATH = origPath; vi.unstubAllEnvs(); });
+afterEach(() => { process.env.PATH = origPath; fake.srt = ""; vi.unstubAllEnvs(); });
 
 // Puts a `pi` script first on PATH. It records args, cwd, env and models.json, then runs `body`.
 function fakePi(body: string) {
@@ -74,7 +81,7 @@ function fakeSrt() {
   const script = join(bin, "srt");
   writeFileSync(script, `#!/bin/sh\ncp "$2" "${bin}/settings.json"\nprintf '%s' "$4" > "${bin}/cmd"\nexec sh -c "$4"\n`);
   chmodSync(script, 0o755);
-  process.env.PATH = `${bin}:${process.env.PATH}`;
+  fake.srt = script;
   return bin;
 }
 // run/target and its sibling run/pi-home, like a real run.
@@ -156,10 +163,10 @@ test("a pi cut in the middle of a JSON line is a failed run, not a throw and not
   expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: false });
 });
 
-test("an author run that fails still leaves no settings dir behind, and the guard runs first", async () => {
+test("an author job also checks the command guard before anything starts", async () => {
   const bin = fakePi("echo x");
   fakeSrt();
-  process.env.PATH = `${process.env.PATH!.split(":").slice(0, 2).join(":")}`; // fake pi and srt only: no jq
+  process.env.PATH = bin; // fake pi only: no jq
   await expect(pi.run(authorJob(runDir()))).rejects.toThrow(/jq/);
   expect(existsSync(join(bin, "args"))).toBe(false);
 });

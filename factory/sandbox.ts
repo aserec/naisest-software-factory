@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 // Absolute paths in the factory checkout. Never relative to the agent cwd, which is the target clone.
 export const SETTINGS_PATH = fileURLToPath(new URL("../.claude/factory-settings.json", import.meta.url));
 const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+// Absolute, because CI steps run with a bare PATH that has no node_modules/.bin.
+export const SRT = `${ROOT}/node_modules/.bin/srt`;
 
 // Pi's home and session dir for one run, next to the clone.
 export const piHome = (cwd: string) => join(dirname(cwd), "pi-home");
