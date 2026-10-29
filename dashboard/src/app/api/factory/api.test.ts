@@ -41,6 +41,12 @@ describe("POST /api/events", () => {
     expect(((await r.json()) as { error: string }).error).toContain("2");
   });
 
+  it("drops data keys the event type does not know", async () => {
+    const call = ev("tool_call", { name: "x", input: "i", result: "r", ms: 1, ok: true, extra: "secret" }, "strip");
+    expect((await send([call])).status).toBe(200);
+    expect(getDb().events({ run: "strip" }).events[0].data).toEqual({ name: "x", input: "i", result: "r", ms: 1, ok: true });
+  });
+
   it("stores good events", async () => {
     const r = await send([ev("run_start", {}, "store"), ev("step_start", {}, "store")]);
     expect(await r.json()).toEqual({ added: 2 });
