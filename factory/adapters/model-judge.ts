@@ -25,8 +25,11 @@ function toApiAnswer(q: JevQuestion, a: { value?: unknown; confidence?: unknown 
     if (typeof a.value !== "number") throw new Error(`Model noul answer for "${q.id}" has no probability`);
     return { type: "noul", noul: clamp(a.value), confidence };
   }
+  // Check the type first: Number(null) is 0 and String(["low"]) is "low", and both would pass the checks below.
+  if (q.kind === "choice" && typeof a.value !== "string") throw new Error(`Model choice answer for "${q.id}" is not a string`);
+  if (q.kind === "score" && typeof a.value !== "number") throw new Error(`Model score answer for "${q.id}" is not a number`);
   // probabilities {key: confidence}: fromApiAnswer picks the key and checks it against the question.
-  const key = q.kind === "choice" ? String(a.value) : String(Number(a.value) - (q.min ?? 2));
+  const key = q.kind === "choice" ? (a.value as string) : String((a.value as number) - (q.min ?? 2));
   return { type: q.kind, probabilities: { [key]: confidence }, confidence };
 }
 
@@ -53,7 +56,10 @@ export function makeModelJudge({ provider, model }: ModelChoice, env: NodeJS.Pro
       });
       // No body in the message: it could echo the request.
       if (!res.ok) throw new Error(`Model judge call failed: HTTP ${res.status}`);
-      const data = (await res.json()) as any;
+      // No body in the message here either.
+      const data = (await res.json().catch(() => {
+        throw new Error("Model judge reply is not JSON");
+      })) as any;
       const text: unknown = openai ? data.choices?.[0]?.message?.content : data.content?.map((b: { text?: string }) => b.text ?? "").join("");
       if (typeof text !== "string") throw new Error("Model judge reply has no text");
       let answers: Record<string, { value?: unknown; confidence?: unknown }> | undefined;

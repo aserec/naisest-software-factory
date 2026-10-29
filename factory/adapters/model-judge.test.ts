@@ -56,6 +56,20 @@ test("a wrong answer fails closed", async () => {
   await expect(makeModelJudge(openai, env, fake("openai", missing).fn).ask({}, QS)).rejects.toThrow(/clarity/);
 });
 
+// Number(null) and Number(false) are 0 and String(["low"]) is "low": each would pass as a real answer.
+test("a score answer that is not a number, or a choice answer that is not a string, fails closed", async () => {
+  const qs: JevQuestion[] = [QS[0], QS[1], { id: "clarity", kind: "score", text: "Clear?", levels: 5, min: 0 }];
+  const ask = (patch: object) => makeModelJudge(openai, env, fake("openai", { ...GOOD, ...patch }).fn).ask({}, qs);
+  for (const value of [null, false, "3"]) await expect(ask({ clarity: { value, confidence: 0.5 } })).rejects.toThrow(/clarity/);
+  for (const value of [["low"], null]) await expect(ask({ risk: { value, confidence: 0.5 } })).rejects.toThrow(/risk/);
+});
+
+test("a reply body that is not JSON throws without quoting the body", async () => {
+  const fn = (async () => new Response("<html>key secret-t</html>", { status: 200 })) as unknown as typeof fetch;
+  const err = await makeModelJudge(openai, env, fn).ask({}, QS).catch((e: Error) => e);
+  expect(String(err)).toBe("Error: Model judge reply is not JSON");
+});
+
 test("text that is not JSON throws, and a fenced JSON answer is accepted", async () => {
   await expect(makeModelJudge(openai, env, fake("openai", "I think it is fine").fn).ask({}, QS)).rejects.toThrow(/JSON/);
   const fenced = fake("openai", "```json\n" + JSON.stringify({ answers: GOOD }) + "\n```");
