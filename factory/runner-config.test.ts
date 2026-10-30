@@ -12,4 +12,6 @@ test("cloud-init writes the same Alloy config as deploy/alloy/runner.alloy", () 
 // The metadata service serves the user data, and with it the Alloy push credential.
 test("job containers cannot reach the Hetzner metadata service", () => {
   expect(cloudInit.runcmd).toContain("iptables -I DOCKER-USER -d 169.254.169.254 -j DROP");
+  // runcmd has no `set -e`: only the last command fails cloud-init, so a VM without the rule never takes a job.
+  expect(cloudInit.runcmd.at(-1)).toBe("iptables -C DOCKER-USER -d 169.254.169.254 -j DROP");
 });

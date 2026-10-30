@@ -113,6 +113,9 @@ write_files:
       User=root
       ExecStart=
       ExecStart=/usr/bin/alloy run --storage.path=/var/lib/alloy/data /etc/alloy/runner.alloy
+# runcmd runs as one script without `set -e`, so only the last command's exit status counts. A failed Alloy
+# line does not stop the VM: it still takes jobs, without logs. The last line fails cloud-init when the metadata
+# block is missing, so such a VM never becomes ready (instance_ready_command in config.toml).
 runcmd:
   - systemctl enable --now docker
   - iptables -I DOCKER-USER -d 169.254.169.254 -j DROP
@@ -123,3 +126,4 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable alloy
   - systemctl restart alloy
+  - iptables -C DOCKER-USER -d 169.254.169.254 -j DROP

@@ -193,6 +193,8 @@ The `deploy-dashboard` job in `.gitlab-ci.yml` runs on a push to `main` that cha
 
 The credential stays on the VM host in `/etc/alloy/`, readable by root only. The runner config mounts no host path into a job container, and cloud-init blocks job containers from the Hetzner metadata service, which serves the cloud-init file.
 
+If Alloy fails to install or start on a VM, the VM still runs jobs, and its logs and disk and memory are missing in Grafana and on the Runner page. If the metadata block fails, cloud-init reports an error and the VM never takes a job.
+
 The job VMs do not run `gitlab-runner`, so the `gitlab-runner` log source stays empty. To fill it, install Alloy on the runner host with the same config.
 
 Checks (not run in the repo, because Alloy and the VMs are not there):
