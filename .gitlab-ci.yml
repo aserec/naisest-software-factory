@@ -72,14 +72,16 @@ dashboard-e2e:
   - pnpm --filter factory-dashboard exec playwright test
 
 # Deploys the dashboard on its VM after the tests pass. The image is built on the VM, because factory
-# runners have no Docker socket. DASHBOARD_DEPLOY_KEY and DASHBOARD_KNOWN_HOSTS are protected File variables.
+# runners have no Docker socket. DASHBOARD_DEPLOY_KEY and DASHBOARD_KNOWN_HOSTS are protected File variables
+# scoped to the dashboard environment, so no other job gets them. The job waits until DASHBOARD_HOST is set.
 deploy-dashboard:
   stage: deploy
   tags: [factory]
   image: node:22
   resource_group: dashboard-deploy
+  environment: { name: dashboard }
   rules:
-  - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+  - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main" && $DASHBOARD_HOST'
     changes: ["dashboard/**", "factory/run-events.ts", "deploy/**", "targets/**", "pnpm-lock.yaml"]
   script:
   # ssh refuses a key file that others can read.

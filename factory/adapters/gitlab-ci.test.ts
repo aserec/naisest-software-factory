@@ -107,6 +107,11 @@ describe("start", () => {
     await runner().start({ kind: "build", ticket: "8" });
     expect([...posted[0].body.keys()].sort()).toEqual(["ref", "token", "variables[FACTORY_PIPELINE]", "variables[FACTORY_TARGET]", "variables[FACTORY_WORK_ITEM_IID]"]);
   });
+  test("a started pipeline whose reply does not parse gives an empty link, not a throw", async () => {
+    const badBody = ((async () => new Response("not json", { status: 201 })) as unknown) as typeof fetch;
+    const { dir, env } = setup({ CI_COMMIT_REF_NAME: "main" }, { gl: "glpat-x", teams: "https://t", trig: "trigger-token" });
+    expect(await makeGitLabCi({ ...env, FACTORY_TRIGGER_TOKEN: join(dir, "trig") }, dir, badBody).start({ kind: "build", ticket: "8" })).toBe("");
+  });
   test("fails without a trigger token, and a failed call names the status but not the token", async () => {
     await expect(ci({ CI_COMMIT_REF_NAME: "main" }).start({ kind: "build", ticket: "8" })).rejects.toThrow(/FACTORY_TRIGGER_TOKEN/);
     const failing = ((async () => new Response("{}", { status: 500 })) as unknown) as typeof fetch;

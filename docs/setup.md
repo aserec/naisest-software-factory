@@ -24,7 +24,7 @@ Store each one as a masked, protected CI variable.
 - [ ] `TEAMS_WEBHOOK_URL` of type **File**: from a Teams Workflows flow "Post to a channel when a webhook request is received".
 - [ ] `BERGET_API_KEY`: when it exists.
 
-`FACTORY_GITLAB_TOKEN`, `FACTORY_TRIGGER_TOKEN` and `TEAMS_WEBHOOK_URL` must be type File, not Variable. The step code reads each file and deletes it before any agent or target command runs. A step stops with an error if one of them is a plain Variable.
+`FACTORY_GITLAB_TOKEN`, `FACTORY_TRIGGER_TOKEN`, `FACTORY_DASHBOARD_TOKEN` (section 10) and `TEAMS_WEBHOOK_URL` must be type File, not Variable. The step code reads each file and deletes it before any agent or target command runs. A step stops with an error if one of them is a plain Variable.
 
 ## 3. Runner files (done in the repo)
 
@@ -114,9 +114,10 @@ The dashboard (`dashboard/`) runs on its own Hetzner VM at `https://factory.<dom
 - [ ] Hetzner firewall for this VM: inbound TCP 80 and 443 (Caddy gets the TLS certificate itself) and 22 (the deploy job connects from runner VMs, whose addresses change). Allow SSH keys only, no passwords.
 - [ ] DNS: an A record `factory.<domain>` to the VM's address.
 - [ ] Install Docker and Compose: `apt-get install -y docker.io docker-compose-v2`.
-- [ ] Create a user `deploy` in the `docker` group: `adduser --disabled-password deploy && usermod -aG docker deploy`.
+- [ ] Create a user `deploy` in the `docker` group: `adduser --disabled-password --comment "" deploy && usermod -aG docker deploy`.
 - [ ] Create a deploy token on the factory project (Settings > Repository > Deploy tokens) with only `read_repository`. As `deploy`, clone the repo with it to `/opt/software-factory`:
   ```bash
+  sudo install -d -o deploy -g deploy /opt/software-factory
   git clone https://<token user>:<token>@gitlab.example.com/Ceresa/software-factory.git /opt/software-factory
   ```
 
@@ -165,9 +166,11 @@ The image sets `TARGETS_DIR`, `DASHBOARD_DB` and `BACKUP_DIR` itself. Do not set
 The `deploy-dashboard` job in `.gitlab-ci.yml` runs on a push to `main` that changes `dashboard/`, `deploy/`, `targets/`, `factory/run-events.ts` or `pnpm-lock.yaml`. It connects over SSH as `deploy`, checks out the commit in `/opt/software-factory` and runs `docker compose -f deploy/compose.yml up -d --build`.
 
 - [ ] Make an SSH key pair for the job: `ssh-keygen -t ed25519 -N "" -f dashboard-deploy`. Add `dashboard-deploy.pub` to `/home/deploy/.ssh/authorized_keys` on the VM.
-- [ ] `DASHBOARD_DEPLOY_KEY`: the private key file `dashboard-deploy`. CI variable of type **File**, protected.
-- [ ] `DASHBOARD_KNOWN_HOSTS`: the VM's host key line. Run `ssh-keyscan factory.<domain>` and compare the key with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the VM. CI variable of type **File**, protected.
-- [ ] `DASHBOARD_HOST`: `factory.<domain>`. A protected CI variable.
+- [ ] `DASHBOARD_DEPLOY_KEY`: the private key file `dashboard-deploy`. CI variable of type **File**, protected, environment scope `dashboard`.
+- [ ] `DASHBOARD_KNOWN_HOSTS`: the VM's host key line. Run `ssh-keyscan factory.<domain>` and compare the key with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the VM. CI variable of type **File**, protected, environment scope `dashboard`.
+- [ ] `DASHBOARD_HOST`: `factory.<domain>`. A protected CI variable with no environment scope, because the job's rule reads it and a rule may not see an environment-scoped variable. The deploy job runs only when it is set. It is not a secret.
+
+Scope the two File variables to the `dashboard` environment (the deploy job's `environment`). A key that is only protected reaches every job on `main`, and SSH as `deploy` (in the `docker` group) is root on the dashboard VM.
 
 ### First deploy
 
@@ -175,9 +178,9 @@ The `deploy-dashboard` job in `.gitlab-ci.yml` runs on a push to `main` that cha
   ```bash
   docker compose -f deploy/compose.yml build
   docker compose -f deploy/compose.yml up -d
-  curl -k https://factory.<domain>/api/auth/signin
+  curl -kI https://factory.<domain>/api/auth/signin
   ```
-  Expected: the build and start succeed, and `curl` prints the sign-in page.
+  Expected: the build and start succeed, and `curl` shows status 302 with `location: https://factory.<domain>/sign-in`.
 - [ ] Open `https://factory.<domain>/sign-in` and sign in with GitLab as a Developer of the factory project.
 - [ ] Every deploy leaves the old image behind. Run `docker image prune -f` on the VM now and then.
 
@@ -191,6 +194,8 @@ The `deploy-dashboard` job in `.gitlab-ci.yml` runs on a push to `main` that cha
   - `<METRICS_PUSH_URL>`: the metrics store's remote write URL.
   - `<ALLOY_PUSH_USER>` (twice) and `<ALLOY_PUSH_PASSWORD>`: the push credential.
 
+Loki holds the raw output of job containers, and it is not masked: a secret that a job prints is in Loki as written. Give read access to that Loki tenant only to the people and tokens that need it.
+
 The credential stays on the VM host in `/etc/alloy/`, readable by root only. The runner config mounts no host path into a job container, and cloud-init blocks job containers from the Hetzner metadata service, which serves the cloud-init file.
 
 If Alloy fails to install or start on a VM, the VM still runs jobs, and its logs and disk and memory are missing in Grafana and on the Runner page. If the metadata block fails, cloud-init reports an error and the VM never takes a job.
@@ -203,6 +208,7 @@ Checks (not run in the repo, because Alloy and the VMs are not there):
 - [ ] If apt on a VM cannot find `alloy=1.8.3`, take the exact version string from `apt-cache madison alloy` and pin that.
 - [ ] Start one factory job. In Grafana Explore, `{job="factory-runner", source="docker"}` shows its lines, and the dashboard's Runner page shows the VM's disk and memory.
 - [ ] Inside the job container, `ls /etc/alloy` fails, and `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` gets no answer.
+- [ ] A failed runcmd gives `cloud-init status` exit 1, not 2 (`instance_ready_command` in `config.toml` accepts 2). On a test VM, remove the line `iptables -I DOCKER-USER ...` from the cloud-init file, and check that `cloud-init status --wait` exits 1 and the VM never becomes ready. Put the line back after.
 
 ## Local use
 

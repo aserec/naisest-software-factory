@@ -85,9 +85,10 @@ test("the watcher runs only from a pipeline started by hand", async () => {
 test("the dashboard deploys only on a push to main that changes what its image holds", () => {
   const job = ci["deploy-dashboard"];
   expect(job.rules).toEqual([{
-    if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"',
+    if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main" && $DASHBOARD_HOST',
     changes: ["dashboard/**", "factory/run-events.ts", "deploy/**", "targets/**", "pnpm-lock.yaml"],
   }]);
   expect(job.resource_group).toBe("dashboard-deploy");
+  expect(job.environment).toEqual({ name: "dashboard" });
   expect(job.script.at(-1)).toContain("ssh -i \"$DASHBOARD_DEPLOY_KEY\" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$DASHBOARD_KNOWN_HOSTS\" ");
 });

@@ -135,7 +135,7 @@ async function closeStoppedChange(ctx: StepContext, r: ControlRequest, url: stri
   const body = await lastStop(ctx, r.ticket);
   const change = body && parseStoppedNote(body)?.change;
   if (!change || !(await ctx.codeHost.change(change)).open) return;
-  await ctx.codeHost.commentChange(change, `This change was closed because the run was restarted from the dashboard by @${r.user}. The new run: ${url}`);
+  await ctx.codeHost.commentChange(change, `This change was closed because the run was restarted from the dashboard by @${r.user}.${url ? ` The new run: ${url}` : ""}`);
   await ctx.codeHost.closeChange(change);
 }
 

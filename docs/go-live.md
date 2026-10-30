@@ -48,9 +48,9 @@ The dashboard must be up before the first run: while the factory cannot reach it
 - [ ] The read token, the cancel token, the Grafana token and the data source UIDs.
 - [ ] `FACTORY_DASHBOARD_TOKEN`: the same random value in the VM's `deploy/.env` and as a masked, protected CI variable of type **File**.
 - [ ] Fill `deploy/.env` on the VM (every name in setup.md section 10). Never commit it.
-- [ ] Deploy job CI variables: `DASHBOARD_DEPLOY_KEY` and `DASHBOARD_KNOWN_HOSTS` (type **File**, protected), and `DASHBOARD_HOST`.
-- [ ] First deploy on the VM: `docker compose -f deploy/compose.yml build`, then `up -d`, then `curl -k https://factory.<domain>/api/auth/signin`. Sign in once with GitLab.
-- [ ] Runner logs: fill the Alloy values in the runner host's `cloud-init.yml`. Run `alloy fmt deploy/alloy/runner.alloy`. After one factory job, check `{job="factory-runner", source="docker"}` in Grafana Explore, the Runner page's disk and memory, and that `ls /etc/alloy` fails inside the job container.
+- [ ] Deploy job CI variables: `DASHBOARD_DEPLOY_KEY` and `DASHBOARD_KNOWN_HOSTS` (type **File**, protected), and `DASHBOARD_HOST`. Scope the two File variables to the `dashboard` environment, so no other job gets the key. Leave `DASHBOARD_HOST` unscoped: the job's rule reads it.
+- [ ] First deploy on the VM: `docker compose -f deploy/compose.yml build`, then `up -d`, then `curl -kI https://factory.<domain>/api/auth/signin` (expect 302 with `location: https://factory.<domain>/sign-in`). Sign in once with GitLab.
+- [ ] Runner logs: fill the Alloy values in the runner host's `cloud-init.yml`. Run `alloy fmt deploy/alloy/runner.alloy`. After one factory job, check `{job="factory-runner", source="docker"}` in Grafana Explore, the Runner page's disk and memory, and that `ls /etc/alloy` fails inside the job container. On a test VM without the `iptables -I DOCKER-USER ...` line, check that `cloud-init status --wait` exits 1, not 2, and the VM never becomes ready.
 
 ## 5. Written confirmations
 
