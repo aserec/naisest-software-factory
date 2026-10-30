@@ -34,7 +34,7 @@ Store each one as a masked, protected CI variable.
   - Location `fsn1` (Germany). Server type `ccx23` (4 vCPU, 16 GB). Image Ubuntu 24.04.
   - `privileged = false` and no Docker socket volume.
   - Runner tag: `factory`. Every job in `.gitlab-ci.yml` must use it.
-- `runner/cloud-init.yml`: installs Docker on each new VM. Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
+- `runner/cloud-init.yml`: installs Docker and Grafana Alloy on each new VM. Alloy ships the VM's logs and disk and memory to Grafana (section 10). Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
 
 ### Hetzner Cloud firewall
 
@@ -49,6 +49,7 @@ Attach a firewall to the runner VMs (for example by label):
 - [ ] Create a runner in the GitLab project with the tag `factory`. Copy its token.
 - [ ] Install `gitlab-runner` and the fleeting plugin on a small host.
 - [ ] Copy `runner/config.toml.example` to `/etc/gitlab-runner/config.toml` and `runner/cloud-init.yml` to `/etc/gitlab-runner/cloud-init.yml`. Fill in the runner token and the Hetzner API token.
+- [ ] Fill in the Alloy values in `/etc/gitlab-runner/cloud-init.yml` (section 10, "Runner logs"). The file then holds a credential: make it readable by root only (`chmod 600`).
 - [ ] Create the Hetzner firewall above and attach it.
 
 ## 5. Verify the runner
@@ -89,10 +90,10 @@ But the job shell itself still runs with every variable, before `env -i` starts.
 
 Two scheduled pipelines in the factory project (Build > Pipeline schedules). Create them signed in as the bot, so the bot owns them and the build pipelines they start are the bot's. Target branch: `main`.
 
-- [ ] **Poller**, every 5 minutes (`*/5 * * * *`). Variables: `FACTORY_SCHEDULE=poll`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It is the fallback when the label webhook does not fire: it starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. The build's event step checks the live labels and who added `factory_ready`, as it does for a webhook.
+- [ ] **Poller**, every minute (`* * * * *`). Variables: `FACTORY_SCHEDULE=poll`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It is the fallback when the label webhook does not fire: it starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. The build's event step checks the live labels and who added `factory_ready`, as it does for a webhook.
 - [ ] **Retry**, every hour (`0 * * * *`). Variables: `FACTORY_SCHEDULE=retry`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It resumes runs labeled `factory_waiting` (Claude's usage limit). The new build pipeline loads the record of the pipeline that hit the limit, puts back its clone and Claude session, and continues at the step that stopped. If that record or session is not usable, the work item gets `factory_blocked` with a comment.
 
-Make one pair of schedules for each target. `FACTORY_SCHEDULE` accepts only `poll` or `retry`. The `SAST_DISABLED` and `SECRET_DETECTION_DISABLED` variables keep the security scans from running every 5 minutes.
+Make one pair of schedules for each target. `FACTORY_SCHEDULE` accepts only `poll` or `retry`. The `SAST_DISABLED` and `SECRET_DETECTION_DISABLED` variables keep the security scans from running every minute.
 
 ## 9. Contract tests against real tools
 
@@ -102,6 +103,104 @@ Every push runs the contract tests against fakes. A manual job, `contract-real`,
 - [ ] `CONTRACT_GITLAB_PROJECT`: the path of that test project, for example `Ceresa/factory-contract-test`. A plain CI variable.
 - [ ] `CONTRACT_GITLAB_TOKEN`: a token of a bot user with the `api` scope and Developer role (or higher) on the test project only. Masked and protected, type **Variable**. Never reuse `FACTORY_GITLAB_TOKEN`.
 - [ ] Test webhooks: none yet. If a later contract needs one, add it to the test project only, never to a target repo.
+
+## 10. Dashboard
+
+The dashboard (`dashboard/`) runs on its own Hetzner VM at `https://factory.<domain>`. `docs/how-it-works.md` says what it does. Replace `<domain>` with the real domain everywhere below.
+
+### VM and DNS
+
+- [ ] Create a small Hetzner VM with Ubuntu 24.04. Turn on Hetzner backups for it. The dashboard also writes a nightly backup of its database inside the VM (`/data/backups` in the `data` volume, 7 kept), but only Hetzner backups survive a lost VM.
+- [ ] Hetzner firewall for this VM: inbound TCP 80 and 443 (Caddy gets the TLS certificate itself) and 22 (the deploy job connects from runner VMs, whose addresses change). Allow SSH keys only, no passwords.
+- [ ] DNS: an A record `factory.<domain>` to the VM's address.
+- [ ] Install Docker and Compose: `apt-get install -y docker.io docker-compose-v2`.
+- [ ] Create a user `deploy` in the `docker` group: `adduser --disabled-password deploy && usermod -aG docker deploy`.
+- [ ] Create a deploy token on the factory project (Settings > Repository > Deploy tokens) with only `read_repository`. As `deploy`, clone the repo with it to `/opt/software-factory`:
+  ```bash
+  git clone https://<token user>:<token>@gitlab.example.com/Ceresa/software-factory.git /opt/software-factory
+  ```
+
+### GitLab OAuth app
+
+- [ ] In GitLab, add an application (User settings > Applications, or the group's). Name: `Factory dashboard`. Redirect URI: `https://factory.<domain>/api/auth/callback/gitlab`. Confidential: yes. Scope: `read_user` only.
+- [ ] Put its application ID and secret in `GITLAB_OAUTH_CLIENT_ID` and `GITLAB_OAUTH_CLIENT_SECRET` (below).
+
+Sign-in only reads who the user is. The dashboard then reads the user's role on the factory project with its own read token, and lets in Developer and higher.
+
+### Tokens
+
+- [ ] `GITLAB_READ_TOKEN`: a personal access token of a read-only bot user, scope `read_api`. Make the bot Reporter on the factory project and on every target project.
+- [ ] `GITLAB_CANCEL_TOKEN`: a project access token on the factory project only, role Developer, scope `api`. The dashboard uses it only to cancel a pipeline that did not stop. Two tokens, so a leaked read token cannot write.
+- [ ] `GRAFANA_TOKEN`: in Grafana at `https://ops.<domain>`, a service account with the Viewer role, and a token for it.
+- [ ] `LOKI_UID` and `METRICS_UID`: the UIDs of Grafana's Loki and metrics data sources (Connections > Data sources; the UID is the last part of the data source's URL).
+- [ ] `FACTORY_DASHBOARD_TOKEN`: a random value, for example `openssl rand -hex 32`. Put the same value in the VM's `deploy/.env` and in the factory project as a masked, protected CI variable of type **File**. Factory steps send events with it and read it before any agent runs.
+- [ ] `AUTH_SECRET`: a random value for the sign-in cookies, for example `openssl rand -base64 32`.
+- [ ] In `seams.yml`, set `dashboardUrl` to `https://factory.<domain>` (it is `REPLACE_WITH_DASHBOARD_URL` until then, and every factory job stops with an error while it is).
+
+### deploy/.env on the VM
+
+Create `/opt/software-factory/deploy/.env`, owned by `deploy`, `chmod 600`. It is never in git. One `NAME=value` per line:
+
+| Name | Value |
+| --- | --- |
+| `DASHBOARD_HOST` | `factory.<domain>` (Caddy serves and gets a certificate for this name) |
+| `DASHBOARD_URL` | `https://factory.<domain>` |
+| `AUTH_SECRET` | from above |
+| `FACTORY_DASHBOARD_TOKEN` | from above, the same value as the CI variable |
+| `FACTORY_PROJECT_ID` | the factory project's numeric ID |
+| `GITLAB_URL` | `https://gitlab.example.com` |
+| `GITLAB_READ_TOKEN` | from above |
+| `GITLAB_CANCEL_TOKEN` | from above |
+| `GITLAB_OAUTH_CLIENT_ID` | from the OAuth app |
+| `GITLAB_OAUTH_CLIENT_SECRET` | from the OAuth app |
+| `GRAFANA_URL` | `https://ops.<domain>` |
+| `GRAFANA_TOKEN` | from above |
+| `LOKI_UID` | from above |
+| `METRICS_UID` | from above |
+
+The image sets `TARGETS_DIR`, `DASHBOARD_DB` and `BACKUP_DIR` itself. Do not set them.
+
+### Deploy job
+
+The `deploy-dashboard` job in `.gitlab-ci.yml` runs on a push to `main` that changes `dashboard/`, `deploy/`, `targets/`, `factory/run-events.ts` or `pnpm-lock.yaml`. It connects over SSH as `deploy`, checks out the commit in `/opt/software-factory` and runs `docker compose -f deploy/compose.yml up -d --build`.
+
+- [ ] Make an SSH key pair for the job: `ssh-keygen -t ed25519 -N "" -f dashboard-deploy`. Add `dashboard-deploy.pub` to `/home/deploy/.ssh/authorized_keys` on the VM.
+- [ ] `DASHBOARD_DEPLOY_KEY`: the private key file `dashboard-deploy`. CI variable of type **File**, protected.
+- [ ] `DASHBOARD_KNOWN_HOSTS`: the VM's host key line. Run `ssh-keyscan factory.<domain>` and compare the key with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the VM. CI variable of type **File**, protected.
+- [ ] `DASHBOARD_HOST`: `factory.<domain>`. A protected CI variable.
+
+### First deploy
+
+- [ ] As `deploy` on the VM, in `/opt/software-factory`:
+  ```bash
+  docker compose -f deploy/compose.yml build
+  docker compose -f deploy/compose.yml up -d
+  curl -k https://factory.<domain>/api/auth/signin
+  ```
+  Expected: the build and start succeed, and `curl` prints the sign-in page.
+- [ ] Open `https://factory.<domain>/sign-in` and sign in with GitLab as a Developer of the factory project.
+- [ ] Every deploy leaves the old image behind. Run `docker image prune -f` on the VM now and then.
+
+### Runner logs (Alloy)
+
+`runner/cloud-init.yml` installs Grafana Alloy on each runner VM with the config in `deploy/alloy/runner.alloy`. Alloy sends the job container logs, the journal and the VM's disk and memory to `ops.<domain>`, labeled `job="factory-runner"`, `host` and (logs only) `source`. The dashboard's Runner page reads them back through Grafana.
+
+- [ ] In the Grafana stack at `ops.<domain>`, create a push credential that can only write logs (Loki) and metrics.
+- [ ] In the runner host's `/etc/gitlab-runner/cloud-init.yml` (never in git), replace:
+  - `<LOKI_PUSH_URL>`: the Loki push URL, for example `https://ops.<domain>/loki/api/v1/push`.
+  - `<METRICS_PUSH_URL>`: the metrics store's remote write URL.
+  - `<ALLOY_PUSH_USER>` (twice) and `<ALLOY_PUSH_PASSWORD>`: the push credential.
+
+The credential stays on the VM host in `/etc/alloy/`, readable by root only. The runner config mounts no host path into a job container, and cloud-init blocks job containers from the Hetzner metadata service, which serves the cloud-init file.
+
+The job VMs do not run `gitlab-runner`, so the `gitlab-runner` log source stays empty. To fill it, install Alloy on the runner host with the same config.
+
+Checks (not run in the repo, because Alloy and the VMs are not there):
+
+- [ ] `alloy fmt deploy/alloy/runner.alloy` exits 0.
+- [ ] If apt on a VM cannot find `alloy=1.8.3`, take the exact version string from `apt-cache madison alloy` and pin that.
+- [ ] Start one factory job. In Grafana Explore, `{job="factory-runner", source="docker"}` shows its lines, and the dashboard's Runner page shows the VM's disk and memory.
+- [ ] Inside the job container, `ls /etc/alloy` fails, and `curl -m 5 http://169.254.169.254/hetzner/v1/userdata` gets no answer.
 
 ## Local use
 

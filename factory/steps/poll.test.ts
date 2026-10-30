@@ -29,7 +29,7 @@ test("retry ignores a waiting note not written by the bot and blocks the work it
   expect(ctx.world.tracker.tickets.get("9")!.state).toBe("blocked");
   expect(ctx.world.cards.map((c) => c.kind)).toEqual(["blocked"]);
 });
-// A non-developer's label must not take a free slot from a valid item, every 5 minutes.
+// A non-developer's label must not take a free slot from a valid item, every minute.
 test("poller skips tickets set ready by a person who may not command the factory", async () => {
   expect(await pollReady(fakeCtx({ ready: [3, 4], running: 1, nonDeveloper: [3] }))).toEqual(["4"]);
 });

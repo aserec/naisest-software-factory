@@ -31,9 +31,9 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
 
 Create two schedules for the target (Build > Pipeline schedules). Sign in as the bot, so the bot owns them. Target branch `main`.
 
-- [ ] **Poll**: `*/5 * * * *`. Variables: `FACTORY_SCHEDULE=poll`, `FACTORY_TARGET=<name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`.
+- [ ] **Poll**: `* * * * *`. Variables: `FACTORY_SCHEDULE=poll`, `FACTORY_TARGET=<name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`.
 - [ ] **Retry**: `0 * * * *`. Variables: `FACTORY_SCHEDULE=retry`, `FACTORY_TARGET=<name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`.
 
 ## 4. Check
 
-- [ ] Add `factory_ready` to a small test work item. The `event` job should run (from the webhook or within 5 minutes from the poller).
+- [ ] Add `factory_ready` to a small test work item. The `event` job should run (from the webhook or within a minute from the poller).

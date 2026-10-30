@@ -1,4 +1,4 @@
-// Fallback for a webhook that did not fire: a schedule every 5 minutes starts build runs for
+// Fallback for a webhook that did not fire: a schedule every minute starts build runs for
 // tickets in the ready state. It sets no state. The build's event step re-checks the live state and
 // claims the run, as it does for a webhook.
 import { makeContext } from "../compose";
@@ -21,7 +21,7 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
   for (const t of await ctx.tracker.list("ready")) {
     if (start.length >= free) break;
     if ((t.state && ACTIVE_STATES.includes(t.state)) || skip.includes(t.ref) || restarting.includes(t.ref)) continue;
-    // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every 5 minutes.
+    // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every minute.
     const actor = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
     if (!(await mayStart(ctx, actor, t))) continue;
     await ctx.ci.start({ kind: "build", ticket: t.ref });
