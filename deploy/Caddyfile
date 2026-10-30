@@ -1,0 +1,3 @@
+{$DASHBOARD_HOST} {
+	reverse_proxy dashboard:3000
+}

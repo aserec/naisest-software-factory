@@ -81,3 +81,13 @@ test("the watcher runs only from a pipeline started by hand", async () => {
   // From a web pipeline it goes on to build the context.
   await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "web" })).rejects.toThrow(/CI_SERVER_URL/);
 });
+
+test("the dashboard deploys only on a push to main that changes what its image holds", () => {
+  const job = ci["deploy-dashboard"];
+  expect(job.rules).toEqual([{
+    if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"',
+    changes: ["dashboard/**", "factory/run-events.ts", "deploy/**", "targets/**", "pnpm-lock.yaml"],
+  }]);
+  expect(job.resource_group).toBe("dashboard-deploy");
+  expect(job.script.at(-1)).toContain("ssh -i \"$DASHBOARD_DEPLOY_KEY\" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$DASHBOARD_KNOWN_HOSTS\" ");
+});

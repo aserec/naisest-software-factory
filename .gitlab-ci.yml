@@ -8,6 +8,7 @@
 stages:
 - test
 - secret-detection
+- deploy
 # Build pipeline
 - event
 - triage
@@ -69,6 +70,21 @@ dashboard-e2e:
   - corepack enable
   - pnpm install --frozen-lockfile
   - pnpm --filter factory-dashboard exec playwright test
+
+# Deploys the dashboard on its VM after the tests pass. The image is built on the VM, because factory
+# runners have no Docker socket. DASHBOARD_DEPLOY_KEY and DASHBOARD_KNOWN_HOSTS are protected File variables.
+deploy-dashboard:
+  stage: deploy
+  tags: [factory]
+  image: node:22
+  resource_group: dashboard-deploy
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+    changes: ["dashboard/**", "factory/run-events.ts", "deploy/**", "targets/**", "pnpm-lock.yaml"]
+  script:
+  # ssh refuses a key file that others can read.
+  - chmod 600 "$DASHBOARD_DEPLOY_KEY"
+  - ssh -i "$DASHBOARD_DEPLOY_KEY" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$DASHBOARD_KNOWN_HOSTS" deploy@"$DASHBOARD_HOST" "cd /opt/software-factory && git fetch origin && git checkout --force $CI_COMMIT_SHA && docker compose -f deploy/compose.yml up -d --build"
 
 # Runs the contracts against a real GitLab test project. Start it by hand from a web pipeline.
 contract-real:
