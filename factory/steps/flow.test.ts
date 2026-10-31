@@ -244,6 +244,11 @@ test("a rebased change whose added or removed lines differ from the reviewed one
     expect(w.workItemComments.at(-1)).toContain("is not the change that was reviewed");
   }
 });
+test("a rebased change that differs only by an added line that starts with ++ is not merged", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 1, diffs: { "head5-r1": { "src/List.tsx": `${DIFF["src/List.tsx"]}+++i;\n` } } }));
+  expect(w.merged).toBe(false);
+  expect(w.workItemComments.at(-1)).toContain("is not the change that was reviewed");
+});
 test("a rebase that only moves the context around the changed lines still merges", async () => {
   const w = await runFinishPipeline(fakeWorld({ behind: 1, diffs: { "head5-r1": { "src/List.tsx": "@@ -9,2 +9,3 @@\n const other = 2;\n+  if (loading) return <Spinner />;\n" } } }));
   expect(w.mergedSha).toBe("head5-r1");

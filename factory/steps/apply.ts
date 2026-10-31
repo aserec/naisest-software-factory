@@ -57,9 +57,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
 }
 
 // The same change: the same files, each with the same added and removed lines in the same order.
-// Hunk headers and context lines move when the base moves, so they do not count.
+// Hunk headers and context lines move when the base moves, so they do not count. The diff text has no
+// file header lines, so a line that starts with +++ or --- is a changed line too (an added "++i;").
 const changedLines = (diff: Record<string, string>) =>
-  JSON.stringify(Object.keys(diff).sort().map((file) => [file, diff[file].split("\n").filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l))]));
+  JSON.stringify(Object.keys(diff).sort().map((file) => [file, diff[file].split("\n").filter((l) => /^[+-]/.test(l))]));
 const sameChange = (a: Record<string, string>, b: Record<string, string>) => changedLines(a) === changedLines(b);
 
 export const main = () => runStep("apply", run);
