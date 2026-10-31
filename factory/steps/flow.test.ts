@@ -9,22 +9,25 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { cancelNote, parseStoppedNote, runStep, stoppedNote, ticketText } from "./context";
+import { cancelNote, parseStoppedNote, runStep, save, stoppedNote, ticketText } from "./context";
 import { handleRequests, resumeSwitchedOff } from "./poll";
-import * as event from "./event";
 import { makeContext } from "../compose";
-import { reviewerPrompt } from "../agents";
+import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
-import { NotFactoryRunError } from "../seams";
+import { NotFactoryRunError, type Mark } from "../seams";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
 import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
 import * as apply from "./apply";
 import * as verify from "./verify";
 import { findSecrets } from "../rules";
+import { DIFF } from "../fakes";
+import * as decision from "./decision";
+import * as event from "./event";
 import * as resultSaved from "./result-saved";
-import { BOT, B, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
+import * as triage from "./triage";
+import { BOT, B, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, COMMIT } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -47,6 +50,7 @@ test("medium ticket: stops at decision with reasons on the MR and a Teams card",
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass" }));
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.mrComments.at(-1)).toContain("risk");
+  expect(w.mrComments.at(-1)).toContain("This change needs a person to review and merge it:");
   expect(w.cards.map(c => c.kind)).toEqual(["needs_approval"]);
 });
 test("usage limit mid-run labels factory_waiting and keeps the session", async () => {
@@ -54,9 +58,9 @@ test("usage limit mid-run labels factory_waiting and keeps the session", async (
   expect(w.states).toEqual(["waiting"]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: expect.any(String) } });
 });
-test("finish pipeline merges, waits for the default branch and closes the work item", async () => {
-  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "success", defaultBranch: "master" }));
-  expect(w.mainPipelineRef).toBe("master");
+test("finish pipeline merges, waits for the develop pipeline and closes the work item", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "success" }));
+  expect(w.mainPipelineRef).toBe("develop");
   expect(w.states).toEqual(["done"]);
   expect(w.closed).toBe(true);
   expect(w.cards.map(c => c.kind)).toEqual(["done"]);
@@ -73,8 +77,14 @@ test("three failed review rounds block with the open findings posted", async () 
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain(B.text);
 });
-test("a red main pipeline opens a revert MR and blocks", async () => {
-  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "failed", defaultBranch: "master" }));
+test("the work item gets a mark for each step it passed, and none for a failed code review or later", async () => {
+  const passed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[]] }));
+  expect(passed.tracker.tickets.get("8")!.marks).toEqual(["triaged", "risk_low", "implemented", "reviewed", "checked", "risk_checked"]);
+  const failed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B]] }));
+  expect(failed.tracker.tickets.get("8")!.marks).toEqual(["triaged", "risk_low", "implemented"]);
+});
+test("a red develop pipeline opens a revert MR and blocks", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "failed" }));
   expect(w.revertOpened).toBe(true);
   expect(w.states).toEqual(["blocked"]);
 });
@@ -127,16 +137,24 @@ test("unclear ticket: questions are posted and the label is needs_info", async (
   expect(w.cards.map((c) => c.kind)).toEqual(["needs_info"]);
 });
 
-// Spec 6.7: approval and manual merge.
-test("a developer's approval of a waiting MR starts the finish pipeline with the build record", async () => {
-  const w = await runBuildPipeline(fakeWorld({ payload: mrEvent("approved"), state: "needs_approval" }));
-  expect(w.finishVars).toMatchObject({ kind: "finish", ticket: "8", change: "5", buildRun: "41" });
-  expect(w.finishVars.skipApply).toBeUndefined();
+// Spec 6.5: only a person's merge starts the finish run.
+test("a person's merge of a waiting MR starts the finish pipeline with the build record and apply skipped", async () => {
+  const w = await runBuildPipeline(fakeWorld({ payload: mrEvent(), state: "needs_approval" }));
+  expect(w.finishVars).toEqual({ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true });
   expect(w.states).toEqual(["running"]);
   expect(w.claudeCalls).toBe(0);
 });
+test("GitLab's approval event starts nothing", async () => {
+  const payload = JSON.parse(readFileSync(fileURLToPath(new URL("../fixtures/mr-approved.json", import.meta.url)), "utf8"));
+  const w = fakeWorld({ payload, state: "needs_approval" });
+  w.tracker.parseEvent = makeGitLabTracker(undefined as never, w.ctx.target.projectPath).parseEvent; // the real webhook parser
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.record.steps[0].data).toMatchObject({ start: false, reason: "not-added" });
+  expect(w.states).toEqual(["needs_approval"]);
+});
 test("the build run is found in a change body edited in the web UI, with CRLF line ends", async () => {
-  const crlf = fakeWorld({ payload: mrEvent("merge"), state: "needs_approval" });
+  const crlf = fakeWorld({ payload: mrEvent(), state: "needs_approval" });
   crlf.openChange("Factory run 41: https://ci.example/runs/41\r\nChanged tests, and why:\r\n");
   await runBuildPipeline(crlf);
   expect(crlf.finishVars).toMatchObject({ kind: "finish", buildRun: "41" });
@@ -145,35 +163,27 @@ test("the change body names the build run, so finish can load its record", async
   const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   expect(b.mrDescription).toMatch(/^Factory run 1: https:\/\/ci\.example\/runs\/1$/m);
 });
-test("a manual merge starts the finish pipeline with apply skipped", async () => {
-  const w = await runBuildPipeline(fakeWorld({ payload: mrEvent("merge"), state: "needs_approval" }));
-  expect(w.finishVars).toMatchObject({ change: "5", skipApply: true });
-});
-test("approvals by the bot or a non-developer, or of an MR not waiting for a person, start nothing", async () => {
+test("merges by the bot or a non-developer, or of an MR not waiting for a person, start nothing", async () => {
   for (const o of [
-    { payload: mrEvent("merge", BOT), state: "needs_approval" },
-    { payload: mrEvent("approved"), state: "needs_approval", actorLevel: 20 },
-    { payload: mrEvent("approved"), state: "running" },
+    { payload: mrEvent(BOT), state: "needs_approval" },
+    { payload: mrEvent(), state: "needs_approval", actorLevel: 20 },
+    { payload: mrEvent(), state: "running" },
   ] as WorldOptions[]) expect((await runBuildPipeline(fakeWorld(o))).finishTriggered).toBe(false);
 });
 test("finish after a manual merge does not merge again and verifies the merge commit", async () => {
-  const w = await runFinishPipeline(fakeWorld({ mrState: "merged", defaultBranch: "master" }), { decision: "needs_approval", skipApply: true });
+  const w = await runFinishPipeline(fakeWorld({ mrState: "merged" }), { decision: "needs_approval", skipApply: true });
+  expect(w.mainPipelineRef).toBe("develop");
   expect(w.merged).toBe(false);
   expect(w.record.steps.find((s) => s.step === "apply")?.data).toMatchObject({ sha: "manual789", skipped: true });
   expect(w.states).toEqual(["done"]);
 });
 
 // Apply's merge rule.
-test("finish for an MR that needs approval and has none does not merge", async () => {
-  const w = await runFinishPipeline(fakeWorld({ approvedBy: [] }), { decision: "needs_approval" });
+test("apply never merges a change that waits for a person", async () => {
+  const w = await runFinishPipeline(fakeWorld(), { decision: "needs_approval" });
   expect(w.merged).toBe(false);
   expect(w.states).toEqual(["blocked"]);
-});
-test("a bot approval does not count; a person's approval merges the reviewed commit", async () => {
-  expect((await runFinishPipeline(fakeWorld({ approvedBy: [BOT] }), { decision: "needs_approval" })).merged).toBe(false);
-  const w = await runFinishPipeline(fakeWorld({ approvedBy: ["dev"] }), { decision: "needs_approval" });
-  expect(w.merged).toBe(true);
-  expect(w.mergedSha).toBe("head5");
+  expect(w.workItemComments.at(-1)).toContain("waits for a person to merge it");
 });
 test("the auto path merges the reviewed commit and posts the decision on the MR", async () => {
   const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
@@ -181,6 +191,111 @@ test("the auto path merges the reviewed commit and posts the decision on the MR"
   expect(b.finishVars.buildRun).toBe("1");
   expect(b.record.steps.find((s) => s.step === "risk-check")?.data).toMatchObject({ headSha: "head5" });
   expect((await runFinishPipeline(fakeWorld())).mergedSha).toBe("head5");
+});
+test("the auto path squash merges the reviewed commit with [AM], the commit message and the MR link", async () => {
+  const w = await runFinishPipeline(fakeWorld());
+  expect(w.mergedSha).toBe("head5");
+  expect(w.host.mergeMessage).toBe(`[AM] ${COMMIT.message}\nMerge request: https://host.example/changes/5`);
+});
+test("apply does not merge a change that targets another branch than the base branch", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mrTarget: "master" }));
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("targets master, not develop");
+});
+
+// A person can change the change while apply waits for the pipeline; the merge reads it again.
+const duringWait = (w: ReturnType<typeof fakeWorld>, patch: { target?: string; open?: boolean }) => {
+  const { change, checks } = w.host;
+  w.host.checks = async (at) => {
+    const r = await checks(at);
+    if ("change" in at) w.host.change = async (ref) => ({ ...(await change(ref)), ...patch });
+    return r;
+  };
+};
+test("apply does not merge a change that was retargeted to master while it waited for the pipeline", async () => {
+  const w = fakeWorld();
+  duringWait(w, { target: "master" });
+  await runFinishPipeline(w);
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("targets master, not develop");
+});
+test("apply does not merge a change that was closed or merged while it waited for the pipeline", async () => {
+  for (const patch of [{ open: false }, { open: false, merged: true }]) {
+    const w = fakeWorld();
+    duringWait(w, patch);
+    await runFinishPipeline(w);
+    expect(w.merged).toBe(false);
+    expect(w.states).toEqual(["blocked"]);
+    expect(w.workItemComments.at(-1)).toContain("is no longer open");
+  }
+});
+
+// Spec 6.4: rebase before an auto merge.
+test("a change behind develop is rebased, checked on the rebased head, then merged", async () => {
+  const w = fakeWorld({ behind: 1 });
+  const seen: string[] = [];
+  const checks = w.host.checks;
+  w.host.checks = async (at) => (seen.push(at.sha), checks(at));
+  await runFinishPipeline(w);
+  expect(w.host.rebases).toBe(1);
+  expect(w.mergedSha).toBe("head5-r1");
+  expect(seen).toEqual(["head5-r1", "manual789"]); // apply checks only the rebased head; verify checks the landed commit
+  expect(w.record.steps.find((s) => s.step === "apply")?.data).toMatchObject({ sha: "manual789", reviewed: "head5", rebased: ["head5-r1"] });
+});
+test("a merge that develop outran is rebased again, then merged", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 2 }));
+  expect(w.host.rebases).toBe(2);
+  expect(w.mergedSha).toBe("head5-r2");
+});
+test("after 3 rebases when develop keeps moving, a person rebases and merges", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 4 }));
+  expect(w.host.rebases).toBe(3);
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrComments.at(-1)).toContain("fell behind develop again after 3 rebases");
+  expect(w.assigned).toBe(true);
+});
+test("a failed rebase sends the change to a person to rebase and merge", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 1, rebaseFails: true }));
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrComments.at(-1)).toContain("Rebase failed: conflict in src/List.tsx");
+  expect(w.mrComments.at(-1)).toContain("Rebase it by hand and merge it");
+  expect(w.assigned).toBe(true);
+  expect(w.cards.map((c) => c.kind)).toContain("needs_approval");
+});
+test("a rebased change whose added or removed lines differ from the reviewed one is not merged", async () => {
+  for (const diffs of [
+    { "head5-r1": { "src/List.tsx": `${DIFF["src/List.tsx"]}+  sendToServer();\n` } },
+    { "head5-r1": { ...DIFF, "src/Other.tsx": "@@ -0,0 +1 @@\n+export const x = 1;\n" } },
+    { "head5-r1": {} },
+  ] as WorldOptions["diffs"][]) {
+    const w = await runFinishPipeline(fakeWorld({ behind: 1, diffs }));
+    expect(w.merged).toBe(false);
+    expect(w.workItemComments.at(-1)).toContain("is not the change that was reviewed");
+  }
+});
+test("a rebased change that differs only by an added line that starts with ++ is not merged", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 1, diffs: { "head5-r1": { "src/List.tsx": `${DIFF["src/List.tsx"]}+++i;\n` } } }));
+  expect(w.merged).toBe(false);
+  expect(w.workItemComments.at(-1)).toContain("is not the change that was reviewed");
+});
+test("a rebase that only moves the context around the changed lines still merges", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 1, diffs: { "head5-r1": { "src/List.tsx": "@@ -9,2 +9,3 @@\n const other = 2;\n+  if (loading) return <Spinner />;\n" } } }));
+  expect(w.mergedSha).toBe("head5-r1");
+});
+test("apply does not merge a branch someone pushed to after the review", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mrHead: "pushed1" }));
+  expect(w.merged).toBe(false);
+  expect(w.workItemComments.at(-1)).toContain("Someone pushed to change 5");
+});
+test("a merge GitLab refuses for another reason is not retried", async () => {
+  const w = fakeWorld();
+  w.host.merge = async () => { throw new Error("GitLab PUT /projects/1/merge_requests/5/merge failed with status 405"); };
+  await expect(runFinishPipeline(w)).rejects.toThrow("status 405");
+  expect(w.host.rebases).toBe(0);
 });
 
 // Re-run.
@@ -281,7 +396,7 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   const seams = seamsFile(dir);
   expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
@@ -445,6 +560,68 @@ test("[skip ci] and [ci skip] never reach the commit or MR title, so the MR pipe
   for (const t of [w.commitMessage, w.mrTitle]) expect(t).not.toMatch(/skip ci|ci skip/i);
   expect(w.mrTitle).toContain("Fix list");
 });
+const MSG = "feat(list): show a spinner while the list loads\n\n- Show a spinner in src/List.tsx while the list loads.\n- Cover it in src/List.test.tsx.";
+const CLOSING = "Ticket: https://tracker.example/8\nFactory run 1: https://ci.example/runs/1\nThis was generated by AI in the software factory.";
+test("the agent's commit message is the branch commit, the MR title and the Commit message section", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: MSG }));
+  expect(w.commitMessage).toBe(`${MSG}\n\n${CLOSING}`);
+  expect(w.mrTitle).toBe("feat(list): show a spinner while the list loads");
+  const d = w.mrDescription;
+  expect(d).toContain(`## Commit message\n\n${MSG}\n\n${CLOSING}`);
+  expect(d.indexOf("Factory run 1:")).toBeLessThan(d.indexOf("## Commit message"));
+  expect(d.indexOf("## Commit message")).toBeLessThan(d.indexOf("## Proof"));
+  expect(w.record.steps.find((s) => s.step === "precommit-gate")?.data).toMatchObject({
+    branch: "factory/8-add-a-loading-state", // the slug keeps the ticket title
+    commit: { title: "feat(list): show a spinner while the list loads", message: `${MSG}\n\n${CLOSING}` },
+  });
+});
+test("a missing or bad commit title falls back to the ticket title and keeps the body", async () => {
+  const T = "Add a loading state";
+  for (const [file, title, body] of [
+    [undefined, T, ""],
+    ["Added a spinner\n\n- Show a spinner.", T, "- Show a spinner."],
+    ["Feat(list): show a spinner", T, ""],
+    ["feat(list):show a spinner", T, ""],
+    [`feat(list): ${"x".repeat(61)}`, T, ""], // 73 characters
+    [`feat(list): ${"x".repeat(60)}`, `feat(list): ${"x".repeat(60)}`, ""], // 72 characters
+    ["feat: show a spinner\r\n\r\n- Show it.", "feat: show a spinner", "- Show it."],
+    ["refactor(list)!: drop the old loader", "refactor(list)!: drop the old loader", ""],
+  ] as const) {
+    const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: file }));
+    expect(w.mrTitle).toBe(title);
+    expect(w.commitMessage).toBe([title, body, CLOSING].filter(Boolean).join("\n\n"));
+  }
+});
+test("[AM], [skip ci] and [ci skip] never reach the branch commit or the MR", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: "[AM] fix(list): stop the flicker [skip ci]\n\n- Keep the old rows [CI SKIP] until new ones load.\n- [am] Done." }));
+  expect(w.mrTitle).toBe("fix(list): stop the flicker");
+  for (const t of [w.commitMessage, w.mrDescription]) expect(t).not.toMatch(/\[AM\]|skip ci|ci skip/i);
+});
+test("[AM] in the ticket title never reaches the fallback title, and an [AM] at the line end keeps the body on its own line", async () => {
+  const a = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, title: "[AM] fix x" }));
+  for (const t of [a.commitMessage, a.mrTitle]) expect(t).not.toMatch(/\[AM\]/i);
+  expect(a.mrTitle).toBe("fix x");
+  const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: "fix: x [AM]\n\n- body" }));
+  expect(b.mrTitle).toBe("fix: x");
+  expect(b.commitMessage).toContain("fix: x\n\n- body\n\n");
+});
+test("a [skip ci] nested in another [skip ci] does not survive the strip", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, title: "Fix [skip [ci skip]ci] list", commitFile: "fix: x [skip [ci skip]ci]\n\n- [ci [skip ci]skip] body" }));
+  for (const t of [w.commitMessage, w.mrTitle, w.mrDescription]) expect(t).not.toMatch(/skip ci|ci skip/i);
+  const v = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, title: "Fix [skip [ci skip]ci] list" }));
+  expect(v.mrTitle).toBe("Fix  list");
+});
+test("a commit message that holds a secret blocks, and nothing is pushed", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: "fix(list): stop the flicker\n\n- token=glpat-abcdefghijklmnopqrst1234" }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.commitMessage).toBe("");
+  expect(w.mrOpened).toBe(false);
+});
+test("the author is told to write run/commit-message.md, and to rewrite it after a fix", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], []] }));
+  expect(w.claudeRuns[0].prompt).toContain("run/commit-message.md");
+  expect(w.claudeRuns.find((j) => j.resume)?.prompt).toContain("run/commit-message.md");
+});
 test("the MR pipeline status is read for the reviewed head commit in risk-check and apply", async () => {
   const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   expect(b.record.steps.find((s) => s.step === "risk-check")?.data).toMatchObject({ checks: "green" });
@@ -468,6 +645,10 @@ test("a Claude token in the diff is not pushed", async () => {
   expect(w.commitMessage).toBe("");
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain("did not push");
+});
+test("a change blocked for a secret is not marked checked", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, diffText: "+const t = 'sk-ant-oat01-abcdef';" }));
+  expect(w.tracker.tickets.get("8")!.marks).not.toContain("checked");
 });
 
 // The factory's own label changes and comments come back through the webhook. They must not start a run.
@@ -551,12 +732,18 @@ test("makeContext refuses an unknown adapter in seams.yml before it builds any",
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: toString", "tracker: gitlab").replace("logSource: files", "logSource: filez"));
   expect(() => makeContext({}, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
 });
-test("makeContext builds a context on the adapters seams.yml names", () => {
+// chat: console needs no Teams webhook.
+test("prepare patch and the questions agent clone the base branch", async () => {
+  expect((await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }))).cloned).toEqual(["develop"]);
+  expect((await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 } }))).cloned).toEqual(["develop"]);
+});
+test("makeContext builds a context on the adapters seams.yml names", async () => {
   const dir = tmp();
-  for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x");
-  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
+  for (const k of ["gl", "dash"]) writeFileSync(join(dir, k), "x");
+  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
   expect(typeof ctx.dashboard.send).toBe("function");
   expect(ctx.ci.vars.ticket).toBe("8");
+  expect(await ctx.codeHost.baseBranch()).toBe("develop");
   expect(ctx.seams.tracker).toBe("gitlab");
   expect(Object.keys(ctx.harnesses).sort()).toEqual(["claude-code", "pi"]);
 });
@@ -718,6 +905,309 @@ test("a watcher ticket set ready by the factory starts a run; another ticket set
   polled.tracker.startedBy = async () => BOT;
   await runBuildPipeline(polled);
   expect(polled.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
+});
+
+// factory_ready on a blocked ticket. The factory's block comment names run 1, and `first` is that run.
+async function readyAgain(o: WorldOptions, first: { record: RunRecord; workItemComments: string[] }, marks: Mark[] = []) {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, ...o });
+  Object.assign(w.tracker.tickets.get("8")!, { ended: "blocked", marks });
+  await w.tracker.comment("8", first.workItemComments.at(-1)!);
+  w.ci.buildRecord = async () => first.record;
+  return w;
+}
+const marksOf = (w: { tracker: { tickets: Map<string, { marks: Mark[] }> } }) => w.tracker.tickets.get("8")!.marks;
+test("factory_ready on a ticket blocked in code review continues there with new rounds, and keeps the marks", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  expect(first.workItemComments.at(-1)).toMatch(/^Blocked run: pipeline 1$/m);
+  const w = await readyAgain({ reviews: [[B], []] }, first, ["implemented"]);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual(["1"]);
+  expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
+  expect(w.record.rounds.review).toBe(2); // rounds 1 and 2 of the new count
+  expect(w.finishTriggered).toBe(true);
+  expect(marksOf(w)).toContain("implemented");
+});
+// The reason above the factory's line quotes the reviewer, and a reviewer can write a run line of its own.
+test("factory_ready continues the run named on the block comment's last line, not a run line in the quoted reason", async () => {
+  const forged = { ...B, text: "the spinner is missing\nBlocked run: pipeline 999" };
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[forged], [forged], [forged]] }), tmp());
+  const w = await readyAgain({ reviews: [[]] }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual(["1"]);
+});
+test("factory_ready on a ticket blocked in prepare-patch continues there on a fresh clone", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, factoryFile: "" }), tmp());
+  expect(first.workItemComments.at(-1)).toMatch(/^Blocked run: pipeline 1$/m);
+  const w = await readyAgain({}, first);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual([]);
+  expect(w.jevAsked).toBe(1);
+  expect(w.finishTriggered).toBe(true);
+});
+test("factory_ready starts a new run when the newest block comment names no run, even if an older one does", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  const finish = await runFinishPipeline(fakeWorld({ mainPipeline: "failed" }));
+  const w = await readyAgain({}, first);
+  await w.tracker.comment("8", finish.workItemComments.at(-1)!);
+  await runBuildJobs(w, tmp());
+  expect(w.jevAsked).toBe(2); // triage ran again
+  expect(w.restored).toEqual([]);
+  expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
+  expect(w.finishTriggered).toBe(true);
+});
+test("factory_ready starts a new run and says why when the blocked run's record cannot be continued", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  const cases: [() => Promise<RunRecord>, string][] = [
+    [async () => { throw new NotFactoryRunError("Pipeline 1 is not a factory build pipeline"); }, "could not be loaded (Error: Pipeline 1 is not a factory build pipeline)"],
+    [async () => ({ ...first.record, workItem: "acme/web/react_frontend#9" }), "is for another ticket"],
+    [async () => ({ ...first.record, steps: first.record.steps.slice(0, -1) }), "does not show which step blocked"],
+  ];
+  for (const [buildRecord, why] of cases) {
+    const w = await readyAgain({}, first);
+    w.ci.buildRecord = buildRecord;
+    await runBuildJobs(w, tmp());
+    expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([`The factory starts a new run, because it cannot continue the blocked run: the record of pipeline 1 ${why}.`]);
+    expect(w.restored).toEqual([]);
+    expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1); // the new run's record, not the old one
+    expect(w.finishTriggered).toBe(true);
+  }
+});
+// A crashed job fails its pipeline, so no decision job uploads the record that a run line would point to.
+test("a crash block names no run, so factory_ready after it starts a new run with no comment", async () => {
+  const crashed = fakeWorld({ jev1: { risk: "trivial" } });
+  const run = crashed.harness.run;
+  crashed.harness.run = async (job) => { if (job.role === "reviewer") throw new Error("reviewer crashed"); return run(job); };
+  await expect(runBuildJobs(crashed, tmp())).rejects.toThrow("reviewer crashed");
+  expect(crashed.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nThe code-review step failed: Error: reviewer crashed");
+  const w = await readyAgain({}, crashed);
+  w.ci.buildRecord = async () => { throw new Error("Pipeline 1 has no successful decision job"); };
+  await runBuildJobs(w, tmp());
+  expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
+  expect(w.jevAsked).toBe(2); // triage ran again
+  expect(w.finishTriggered).toBe(true);
+});
+// Only a crash blocks at risk-check, and a crash names no run, so this test writes the run line itself.
+test("a run continued at risk-check puts its own run on the change, so a person's merge starts finish with it", async () => {
+  const first = fakeWorld({ jev1: { risk: "medium" } });
+  first.host.checks = async () => { throw new Error("GitLab GET failed with status 500"); };
+  await runBuildJobs(first, tmp()).catch(() => {});
+  const w = await readyAgain({ jev1: { risk: "medium" } }, { record: first.record, workItemComments: ["The factory stopped. A person must look at this.\n\nThe risk-check step failed.\n\nBlocked run: pipeline 1"] });
+  w.openChange("Factory run 1: https://ci.example/runs/1");
+  w.ci.vars = { ...w.ci.vars, run: "2", runUrl: "https://ci.example/runs/2" };
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["needs_approval"]);
+  w.ci.vars = { ...w.ci.vars, payload: mrEvent() };
+  await event.run(w.ctx);
+  expect(w.finishVars).toMatchObject({ kind: "finish", buildRun: "2" });
+});
+test("a new run removes the earlier run's marks except watcher", async () => {
+  const w = fakeWorld();
+  w.tracker.tickets.get("8")!.marks = ["watcher", "implemented", "reviewed", "risk_high"];
+  await event.run(w.ctx);
+  expect(marksOf(w)).toEqual(["watcher"]);
+});
+test("triage sets its risk mark and removes another risk mark", async () => {
+  const w = fakeWorld({ jev1: { risk: "low" } });
+  w.ci.vars.ticket = "8";
+  w.tracker.tickets.get("8")!.marks = ["risk_high"];
+  await triage.run(w.ctx);
+  expect([...marksOf(w)].sort()).toEqual(["risk_low", "triaged"]);
+});
+test("the work item is marked merged after the factory's merge or a person's", async () => {
+  expect(marksOf(await runFinishPipeline(fakeWorld()))).toEqual(["merged"]);
+  expect(marksOf(await runFinishPipeline(fakeWorld({ mrState: "merged" }), { decision: "needs_approval", skipApply: true }))).toEqual(["merged"]);
+});
+test("a red main pipeline after the merge marks the work item reverted", async () => {
+  expect(marksOf(await runFinishPipeline(fakeWorld({ mainPipeline: "failed" })))).toEqual(["merged", "reverted"]);
+});
+test("a failed Jev 2 check leaves the work item without risk_checked", async () => {
+  expect(marksOf(await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, jev2: "throw" })))).not.toContain("risk_checked");
+});
+
+// A gate fix is code no review saw: the change goes back to code review.
+test("a gate fix sends the change back to code review; a gate with no fix does not", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], []] }));
+  expect(w.reviewsRun).toBe(2);
+  expect(w.record.rounds).toEqual({ review: 2, gate: 2 });
+  expect(marksOf(w)).toContain("reviewed");
+  expect(w.finishTriggered).toBe(true);
+  expect((await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[], []] }))).reviewsRun).toBe(1);
+});
+test("a review fix after a gate fix runs the gate again", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], [B], []] }));
+  expect(w.reviewsRun).toBe(3);
+  expect(w.ran.filter((c) => c === "pnpm lint")).toHaveLength(3);
+  expect(w.finishTriggered).toBe(true);
+});
+test("a review after a gate fix that never passes blocks, and the reviewed mark is gone", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], [B], [B]] }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(marksOf(w)).not.toContain("reviewed");
+});
+// 3 review rounds are used before the gate fix, so the review after it is a check only.
+test("a check-only review after a gate fix that fails blocks after 3 rounds, not 4", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [B], [], [B]] }));
+  expect(w.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nCode review did not pass after 3 rounds. Open findings:\n\n- the list never shows the spinner");
+  expect(w.record.rounds.review).toBe(3);
+});
+// 3 gate rounds are used before the review fix, so the gate after it is a check only.
+test("a check-only gate after a review fix counts 3 rounds, not 4", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 2, reviews: [[], [B], []] }));
+  expect(w.record.rounds).toEqual({ review: 3, gate: 3 });
+  expect(w.finishTriggered).toBe(true);
+});
+test("a resumed gate job reviews the change again", async () => {
+  const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, fixLimit: true }));
+  expect(first.states).toEqual(["waiting"]);
+  const w = resumeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.reviewsRun).toBe(1);
+  expect(w.finishTriggered).toBe(true);
+});
+
+// Spec 12: a screen the reviewer says does not match blocks the change.
+const PREVIEW = "install: pnpm install\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\npreview: pnpm dev\npreviewUrl: http://localhost:3000\n";
+const reviewOf = (verdict: string): Finding => ({ blocking: false, screen: "list page", verdict, text: "no spinner" });
+const reviewData = (w: ReturnType<typeof fakeWorld>) => w.record.steps.find((s) => s.step === "code-review")?.data as any;
+test("a does_not_match verdict blocks", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 3 rounds");
+  expect(w.workItemComments.at(-1)).toContain("no spinner");
+});
+test("the reviewer gets the screenshots and the verdicts are saved", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] }));
+  const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
+  expect(job.images?.map((i) => i.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
+  expect(job.prompt).toContain("</proof>");
+  expect(reviewData(w).proof.verdicts).toEqual([{ screen: "list page", verdict: "matches", note: "no spinner" }]);
+});
+test("the author gets the preview flag only when the target has a preview", async () => {
+  const jobs = async (factoryFile?: string) => (await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, factoryFile, reviews: [[B], []] }))).harness.jobs.filter((j) => j.role === "author");
+  const withPreview = await jobs(PREVIEW);
+  expect(withPreview.find((j) => !j.resume)?.preview).toBe(true);
+  expect(withPreview.find((j) => j.resume)?.preview).toBe(true);
+  const without = await jobs();
+  expect(without.find((j) => j.resume)).toBeDefined();
+  expect(without.every((j) => !j.preview)).toBe(true);
+});
+test("the first author prompt tells how the preview runs, or to take no screenshots", async () => {
+  const first = async (factoryFile?: string) => (await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, factoryFile }))).harness.jobs.find((j) => j.role === "author" && !j.resume)!.prompt;
+  expect(await first("install: pnpm install\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\npreview: NEXT_PUBLIC_APP_ENV=development NEXT_PUBLIC_MOCK_ALL=true pnpm dev\npreviewUrl: http://localhost:3000\n"))
+    .toContain("Preview: start the app with `NEXT_PUBLIC_APP_ENV=development NEXT_PUBLIC_MOCK_ALL=true pnpm dev`. It serves http://localhost:3000.");
+  expect(await first()).toContain("Take no screenshots");
+});
+test("a reviewer model that does not read images gets none, and every screen is unsure", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
+  w.ctx.seams.providers.tensorx.images = [];
+  await runBuildPipeline(w);
+  const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
+  expect(job.images).toBeUndefined();
+  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }] });
+});
+test("a harness that does not read images gets none, and the screen is unsure", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
+  w.ctx.harnesses.pi = { ...w.harness, images: false };
+  await runBuildPipeline(w);
+  const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
+  expect(job.images).toBeUndefined();
+  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }] });
+});
+test("a does_not_match from a reviewer that cannot read images does not block", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] });
+  w.ctx.seams.providers.tensorx.images = [];
+  await runBuildPipeline(w);
+  expect(w.states).not.toContain("blocked");
+  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure" }] });
+});
+test("a does_not_match for a screen with no after image does not block", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, images: { "before-list-1280.png": PNG }, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] }));
+  expect(w.states).not.toContain("blocked");
+  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure", note: "no after image" }] });
+});
+
+// Spec 12: a change without proof goes to a person.
+const approvalReasons = (w: ReturnType<typeof fakeWorld>) => (w.record.steps.find((s) => s.step === "decision")?.data as any).reasons as string[];
+test("an unsure verdict sends the change to a person", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[{ ...reviewOf("unsure"), text: "cannot see the spinner" }]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain("screen list page: the reviewer is unsure: cannot see the spinner");
+});
+test("a visual change with no screens sends the change to a person", async () => {
+  const proof = { visual: true, screens: [], tests: [], note: "the dev server did not start" };
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof, factoryFile: PREVIEW, reviews: [[]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(approvalReasons(w).join("\n")).toContain("the dev server did not start");
+});
+test("a change with no visual part and a test that failed before and passed after merges on the existing rules", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }));
+  expect(w.finishTriggered).toBe(true);
+  expect(w.states).toEqual(["running"]);
+});
+test("the same change with no such test goes to a person", async () => {
+  const proof = { ...TEST_PROOF, tests: [{ ...TEST_PROOF.tests[0], before: { exit: 0, tail: "" } }] };
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof, reviews: [[]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(approvalReasons(w)).toContain("no test failed before the change and passed after it");
+});
+test("a change with no proof file goes to a person", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: null, reviews: [[]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(approvalReasons(w)).toContain("no proof: no run/proof/proof.json");
+});
+
+// Spec 6.5 and 12: the Proof section of the change, and the screenshots it links.
+const visual = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]], ...o });
+test("the Proof section appears in the description", async () => {
+  const w = await runBuildPipeline(visual());
+  expect(w.mrDescription).toContain("## Proof");
+  expect(w.mrDescription).toContain("### Screen 1: list page, 1280 px: matches");
+  expect(w.mrDescription).toContain("![before](/uploads/1/before-list-1280.png)");
+  expect(w.mrDescription).toContain("- list-spinner: failed before, passes after");
+  expect(w.host.attached.map((a) => a.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
+});
+test("a change that merges alone has the Proof section with its test line", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }));
+  expect(w.finishTriggered).toBe(true);
+  expect(w.mrDescription).toContain("## Proof");
+  expect(w.mrDescription).toContain("- list-spinner: failed before, passes after");
+});
+test("a proof whose test tail holds a secret blocks, and nothing is uploaded or pushed", async () => {
+  const proof = { ...TEST_PROOF, tests: [{ ...TEST_PROOF.tests[0], after: { exit: 0, tail: "token=glpat-abcdefghijklmnopqrst1234" } }] };
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof, reviews: [[]] }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("secret-looking value");
+  expect(w.host.attached).toEqual([]);
+  expect(w.commitMessage).toBe("");
+  expect(w.mrOpened).toBe(false);
+});
+test("a resume at the decision step changes and uploads nothing", async () => {
+  const w = await runBuildPipeline(visual());
+  const [description, uploads] = [w.mrDescription, w.host.attached.length];
+  save(w.ctx, "event", { ticket: "8", resumeAt: "decision" });
+  await decision.run(w.ctx);
+  expect(w.mrDescription).toBe(description);
+  expect(w.host.attached).toHaveLength(uploads);
+});
+test("an image upload that keeps failing still opens the change and sends it to a person", async () => {
+  const w = await runBuildPipeline(visual({ attachFails: 99 }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrOpened).toBe(true);
+  expect(w.mrDescription).toContain("image upload failed");
+  expect(w.host.attachCalls).toBe(8);
+  expect(w.mrComments.at(-1)).toContain("image upload failed: before-list-1280.png, after-list-1280.png");
+  const calls = w.host.attachCalls;
+  save(w.ctx, "event", { ticket: "8", resumeAt: "decision" });
+  await decision.run(w.ctx);
+  expect(w.host.attachCalls).toBe(calls);
+  expect(w.mrDescription).toContain("image upload failed");
+});
+test("an upload that works on its last retry adds no reason", async () => {
+  const w = await runBuildPipeline(visual({ attachFails: 3 }));
+  expect(w.host.attached.map((a) => a.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
+  expect(w.mrDescription).not.toContain("image upload failed");
+  expect(w.finishTriggered).toBe(true);
 });
 test("makeContext needs the dashboard token and a real dashboardUrl", () => {
   const dir = tmp();

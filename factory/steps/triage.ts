@@ -29,7 +29,14 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   ].join("\n"));
 
   if (outcome.kind === "blocked") return block(ctx, outcome.reason);
-  if (outcome.kind === "build") return "next";
+  if (outcome.kind === "build") {
+    // One risk mark at a time: the earlier run's other risk marks go.
+    const risk = `risk_${outcome.risk}` as const;
+    for (const m of ticket.marks) if (m !== risk && ["risk_trivial", "risk_low", "risk_medium", "risk_high"].includes(m)) await ctx.tracker.unmark(ref, m);
+    await ctx.tracker.mark(ref, "triaged");
+    await ctx.tracker.mark(ref, risk);
+    return "next";
+  }
 
   return questions(ctx, row);
 }
@@ -38,7 +45,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
 async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: string): Promise<StepResult> {
   if (!(await switchOn(ctx, "questions"))) return stopped(ctx, "questions", { reason: "switch off questions" });
   const ref = ticketRef(ctx);
-  await ctx.repo.clone(await ctx.codeHost.defaultBranch());
+  await ctx.repo.clone(await ctx.codeHost.baseBranch());
   const text = resumeSessionId ? CONTINUE : `${prompt("questions")}\n\n${ticketText(ctx)}`;
   const r = await agent(ctx, "author", row.author, { tools: "code", prompt: text, maxTurns: 15, cwd: ctx.dir, resume: resumeSessionId });
   if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });

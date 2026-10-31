@@ -1,27 +1,38 @@
 # How the factory works
 
-A person adds the label `factory_ready` to a work item. The factory builds the change, checks it, and opens a merge request. If the risk is low, it merges the change. If not, a person approves it first.
+A person adds the label `factory_ready` to a work item. The factory builds the change, checks it, and opens a merge request. If the risk is low, it merges the change into `develop`. If not, a person reviews and merges it.
 
 Agents only read code, edit code and run checks. Scripts in this repo make every write to GitLab: labels, comments, branches, pushes, merge requests and merges.
 
+## Branches
+
+The target repo uses a classic git flow.
+
+- `develop` collects every change between two releases: the factory's changes and the team's own work.
+- Feature branches start from `develop` and merge back into `develop`.
+- A person cuts a release branch from `develop`, fixes what the release needs on that branch, then merges it into both `master` and `develop`.
+- This repeats for every release.
+
+The factory works only against the target's `baseBranch` (`develop`). It never reads or writes `master`. Only low-risk changes merge without a person. Every other change waits for a person to press Merge.
+
 ## The ten steps
 
-Each step is a GitLab CI job in this repo. A person's approval can take days, so a run uses two pipelines.
+Each step is a GitLab CI job in this repo. A person's review can take days, so a run uses two pipelines.
 
 Build pipeline:
 
 1. **Event.** Checks the event. The run stops quietly unless the label was just added, the person is a Developer or higher, and the work item has no active run.
 2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
-3. **Prepare patch.** Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`. The router picks the model.
-4. **Code review.** A reviewer (DeepSeek through TensorX, in Pi with no tools) reads the diff and returns findings. The author fixes blocking findings. At most 3 rounds.
-5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures. At most 3 rounds. Then the script pushes the branch and opens a merge request.
+3. **Prepare patch.** Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`, cut from `develop`. At the end the author writes `run/commit-message.md`: a conventional commit title and a full bullet list of what changed, where, why and which tests cover it. The router picks the model. If the target has a preview, the author also shoots the screens the change touches before and after, runs its new tests before and after, and writes `run/proof/proof.json`.
+4. **Code review.** A reviewer (DeepSeek through TensorX, in Pi with no tools) reads the diff and returns findings. The author fixes blocking findings. At most 3 rounds. The reviewer also judges each before and after screenshot.
+5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures and takes the screenshots again if the change looks different. At most 3 rounds. A fix here is code no review saw, so code review runs again, and a review fix runs the gate again, until both pass with no fix between them (inside the same 3 review and 3 gate rounds). Then the script pushes the branch and opens a merge request.
 6. **Risk check.** Hard rules first: protected paths, dependency files, more than 300 changed lines, a secret scanner hit, a red merge request pipeline. Then Jev 2 reads the diff and answers `diff_risk`, `scope` and `sensitive`.
-7. **Decision.** Merge without a person, or ask for approval. See the merge rule below.
+7. **Decision.** Merge without a person, or wait for a person to merge. A change with no proof a person can trust always goes to a person. See the merge rule below.
 
-Finish pipeline (starts after the merge request is approved or merged):
+Finish pipeline (starts after an auto decision, or after a person merges the merge request):
 
-8. **Apply.** Merges the merge request once its pipeline is green.
-9. **Verify.** Waits for the main branch pipeline. If it fails, the factory opens a revert merge request and labels the item `factory_blocked`.
+8. **Apply.** Only for an auto decision. It checks the target branch and the reviewed head. If the branch is behind `develop`, it rebases through GitLab (at most 3 times). The added and removed lines must match the reviewed commit. It then waits for a green pipeline on that commit and squash merges one commit titled `[AM] <conventional title>`.
+9. **Verify.** Waits for the `develop` pipeline. If it fails, the factory opens a revert merge request and labels the item `factory_blocked`.
 10. **Result saved.** Posts a result comment, closes the work item, labels it `factory_done`, and sends a Teams card. The run record is a pipeline artifact for 90 days.
 
 Every comment the factory writes starts with the line `> *This was generated by AI in the software factory.*`
@@ -35,13 +46,27 @@ A work item has at most one state label at a time.
 | `factory_ready` | Start a run, or run again. Set by a person. |
 | `factory_running` | A run is active. |
 | `factory_needs_info` | The factory asked questions on the ticket. Answer them, then add `factory_ready` again. |
-| `factory_needs_approval` | The merge request waits for a person. |
+| `factory_needs_approval` | The merge request waits for a person to review and merge it. |
 | `factory_waiting` | Claude's plan limit was hit. A scheduled job retries later. |
 | `factory_stopped` | A person commented `@factory stop`. The run keeps its session. Comment `@factory resume` to continue it. |
 | `factory_blocked` | The factory stopped. A person must look. |
 | `factory_done` | Merged and verified. |
 
-An active run is any of `factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`. Adding `factory_ready` to an item that is `factory_needs_info`, `factory_blocked` or `factory_done` starts a new run.
+An active run is any of `factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`. Adding `factory_ready` to an item that is `factory_needs_info` or `factory_done` starts a new run. On a `factory_blocked` item it continues the blocked run at the step that blocked (prepare patch to decision), with new rounds for that step. It does so only when the factory's newest block comment ends with `Blocked run: pipeline <n>` and that run's record can be loaded and belongs to this item. Otherwise it starts a new run, and if the record was the problem, it comments why.
+
+The factory also adds progress labels. They stay next to the state label. A new run removes all of them except `factory_watcher`; a continued run keeps them.
+
+| Label | Meaning |
+| --- | --- |
+| `factory_triaged` | Triage passed and the run goes on to build. |
+| `factory_risk_<class>` | The triage risk class: `trivial`, `low`, `medium` or `high`. Only one at a time. |
+| `factory_implemented` | The author agent finished its change. |
+| `factory_reviewed` | Code review passed. Removed when a gate fix sends the change back to review. |
+| `factory_checked` | The precommit gate passed, with code review passed on the same code. |
+| `factory_risk_checked` | Jev 2 in the risk check passed. Not set when its answers send the change to a person. |
+| `factory_merged` | The merge request is merged, by the factory or by a person. |
+| `factory_reverted` | The `develop` pipeline was red after the merge, and the factory opened a revert merge request. |
+| `factory_watcher` | The watcher opened this ticket from error logs. |
 
 ## Stop and resume
 
@@ -58,12 +83,13 @@ A change merges without a person only when all four are true:
 
 Otherwise the script labels `factory_needs_approval`, assigns the merge request to a person (the work item's assignee, or the target's default approver), posts the reasons on the merge request, and sends one Teams card. Medium and high risk tickets are always built, and always end here.
 
-## Approvals and manual merges
+## Human merges
 
-- A person approves with GitLab's Approve button. The merge request "approved" event starts the finish pipeline. The approver must be a Developer or higher and not the bot.
-- A person may merge by hand. The finish pipeline then starts from the merge event and skips apply.
+- An approval starts nothing. Only a person's merge starts the finish pipeline.
+- A person reviews, rebases by hand when GitLab asks, and presses Merge. The merge event starts the finish pipeline with apply skipped. The person must be a Developer or higher and not the bot.
 - Only merge requests whose source branch starts with `factory/` count.
-- Apply merges only if the decision was "auto" or a person approved. It merges the exact commit that was reviewed.
+- Apply runs only after an auto decision. It merges the reviewed change, rebased onto `develop` when needed, after a green pipeline on the rebased commit.
+- A failed rebase, or a branch that falls behind again after 3 rebases, goes to `factory_needs_approval` with a comment on the merge request. A person rebases by hand and merges. That merge runs verify and closes the ticket like any other human merge.
 
 ## The poller and retry
 
@@ -121,4 +147,4 @@ The watcher opens tickets from error logs. Today it reads fake errors from `watc
 - **Manual run only.** With `logSource: files`, start it by hand: Run pipeline in the web UI with `FACTORY_SCHEDULE=watch` and `FACTORY_TARGET`, then press play on the manual `watcher` job. The fixtures stay recent forever, so a schedule would open the same tickets again after each one closes. The step also refuses a pipeline source other than `web`, but a pipeline variable can fake that value, so it is only a second check. Restrict who may set pipeline variables (project setting "Minimum role to use pipeline variables").
 - **What it does.** It takes the error groups seen in the last hour, keeps the escalating ones (code decides, from the hourly counts), removes customer data, and skips a group that already has an open ticket. The judge checks the text for prompt injection: a likely injection opens a `blocked` ticket, written by code only, and a chat notice. Otherwise the judge answers severity and fixable, the writer model writes the human part, and code adds the agent part below a marker line.
 - **At most 5 a day.** A watcher ticket gets `ready` only while fewer than 5 watcher tickets were opened today (UTC) and the judge thinks a code change can fix it. Otherwise it opens with no state, and the chat notice says why.
-- **No merge without a person.** A ticket with the watcher mark never merges alone while `logSource` is `files`. The decision step sends it to approval: a fix for an error that does not exist must not reach `main` by itself.
+- **No merge without a person.** A ticket with the watcher mark never merges alone while `logSource` is `files`. The decision step sends it to approval: a fix for an error that does not exist must not reach `develop` by itself.

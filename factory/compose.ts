@@ -18,18 +18,23 @@ import { newRecord, RUN_DIR } from "./record";
 import { addKnownSecrets } from "./rules";
 import type { StepContext } from "./steps/context";
 import { FACTORY_ROOT } from "./steps/repo";
+import type { Chat } from "./seams";
 import type { SeamsConfig, Target } from "./types";
 
 // Adapter names in seams.yml, and what each one builds. A new adapter is one line here.
 const ADAPTERS = {
   ci: { gitlab: makeGitLabCi },
   tracker: { gitlab: (token: string, target: Target) => makeGitLabTracker(new GitLab(GITLAB_URL, token), target.projectPath) },
-  codeHost: { gitlab: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitLabCodeHost(new GitLab(GITLAB_URL, token), target.projectPath, token, env) },
+  codeHost: { gitlab: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitLabCodeHost(new GitLab(GITLAB_URL, token), target.projectPath, token, env, target.baseBranch) },
   judge: {
     "jev-berget": (env: NodeJS.ProcessEnv) => makeJevClient(env),
     "model-call": (env: NodeJS.ProcessEnv, seams: SeamsConfig) => makeModelJudge(modelChoice(seams.judgeModel, seams), env),
   },
-  chat: { teams: makeTeamsChat },
+  chat: {
+    teams: makeTeamsChat,
+    // Local trials: notices go to the job log.
+    console: (): Chat => ({ notify: async (kind, title, lines, url) => console.log(`[chat ${kind}] ${title}\n${lines.join("\n")}\n${url}`) }),
+  },
   dashboard: { http: makeHttpDashboard },
   // The watcher's rules depend on the exact name "files": fake errors from this checkout.
   logSource: { files: () => makeFileLogs(resolve(FACTORY_ROOT, "watcher/fixtures")) },
@@ -62,7 +67,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   const webhook = ci.secret("TEAMS_WEBHOOK_URL");
   const dashboardToken = ci.secret("FACTORY_DASHBOARD_TOKEN");
   if (!token) throw new Error("FACTORY_GITLAB_TOKEN is not set");
-  if (!webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
+  if (seams.chat === "teams" && !webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
   if (!dashboardToken) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
   const dashboardUrl = checkDashboardUrl(seams);
   // No comment, change text or pushed diff may carry any of these.
@@ -79,7 +84,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     codeHost,
     ci,
     judge: make.judge(env, seams),
-    chat: make.chat(webhook),
+    chat: make.chat(webhook ?? ""),
     dashboard: make.dashboard(dashboardUrl, dashboardToken),
     harnesses: { "claude-code": claudeCode, pi },
     seams,

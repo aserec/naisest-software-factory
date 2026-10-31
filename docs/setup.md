@@ -33,8 +33,11 @@ Store each one as a masked, protected CI variable.
   - At most 4 VMs: `max_instances = 4`.
   - Location `fsn1` (Germany). Server type `ccx23` (4 vCPU, 16 GB). Image Ubuntu 24.04.
   - `privileged = false` and no Docker socket volume.
+  - `security_opt` turns off the seccomp and AppArmor profiles of the job container, so bubblewrap can make user namespaces.
   - Runner tag: `factory`. Every job in `.gitlab-ci.yml` must use it.
-- `runner/cloud-init.yml`: installs Docker and Grafana Alloy on each new VM. Alloy ships the VM's logs and disk and memory to Grafana (section 10). Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
+- `runner/cloud-init.yml`: installs Docker and Grafana Alloy on each new VM and lets user namespaces keep their capabilities. Alloy ships the VM's logs and disk and memory to Grafana (section 10). Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
+
+- `runner/Dockerfile` also installs Chromium in `/ms-playwright`, for the before and after screenshots. Manual follow-up: after this merges to main, the `job-image` job prints the image digest. Put it in the `.factory` image of `.gitlab-ci.yml` and in `jobImage` of `targets/react_frontend.yml` in one reviewed change (`compose.ts` needs them equal). Until then CI has no Chromium, so every visual change in CI goes to a person.
 
 ### Hetzner Cloud firewall
 
@@ -60,8 +63,7 @@ Attach a firewall to the runner VMs (for example by label):
 ## 6. Agent files
 
 - [ ] From the repo root, run `bash /path/to/agent-config/sync.sh`. It copies `.agents/`.
-- [ ] In the job image, install the `claude` CLI and Pi (`@earendil-works/pi-coding-agent`, binary `pi`) at exact pinned versions, in a system path such as `/usr/local/bin`. Factory jobs run with a fixed `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), so a CLI in another place is not found.
-- [ ] The job image must have `jq`, or every agent job fails at `guardReady`.
+- [ ] Build the job image from `runner/Dockerfile` (see `docs/go-live.md`, section 3). It holds the pinned `claude` CLI and Pi in `/usr/local/bin`, which is on the fixed `PATH` of factory jobs, and `jq`, without which every agent job fails at `guardReady`.
 
 ## 7. Target webhook
 
@@ -217,3 +219,21 @@ pnpm install
 pnpm vitest run
 pnpm tsx factory/steps/<step>.ts
 ```
+
+### Before and after screenshots
+
+A target with `preview` and `previewUrl` in its `.factory.yml` gets screenshots of a visual change. Install Chromium once: `(cd react_frontend/apps/web && pnpm exec playwright install chromium)`. `local-run.sh` sets `PLAYWRIGHT_BROWSERS_PATH` to `~/Library/Caches/ms-playwright`.
+
+The author takes each shot with one shell command (`prompts/prepare.md` holds it). It starts the preview in the background, waits up to 120 s for `previewUrl`, shoots, and stops the server:
+
+```bash
+root=$PWD; set -m; (<preview>) > run/preview.log 2>&1 & pid=$!
+for i in $(seq 120); do curl -sf <previewUrl> > /dev/null && break; sleep 1; done
+(cd apps/web && pnpm exec playwright screenshot --viewport-size "1280, 800" --wait-for-timeout 3000 <previewUrl> "$root/run/proof/after-x-1280.png"); kill -- -$pid
+```
+
+Not yet proven in the sandbox. The spike (this command under `srt` on macOS, under `srt` in the runner image on Linux, and under Claude Code's sandbox) is still to run. A good result is a PNG of the app, not the "Opening your workspace" screen. Results:
+
+- [ ] macOS, Pi under `srt`: not run yet
+- [ ] Linux, runner image under `srt`: not run yet
+- [ ] Claude Code sandbox: not run yet

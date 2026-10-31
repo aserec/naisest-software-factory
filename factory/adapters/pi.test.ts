@@ -29,10 +29,20 @@ test("Pi runs with no tools and loads nothing from the cwd", () => {
   expect(args).toEqual(expect.arrayContaining(["--print", "--no-tools", "--no-session", "--no-extensions", "--no-context-files", "--no-mcp", "--no-approve", "--provider", "tensorx"]));
   expect(args.slice(-2)).toEqual(["--", "-review this"]); // a prompt starting with "-" is not read as a flag
 });
+test("Pi gets the image files before the prompt", () => expect(piArgs("tensorx", "m", "p", ["/t/a.png"]).slice(-3)).toEqual(["--", "@/t/a.png", "p"]));
+test("a model that reads images gets image input in models.json", () => {
+  expect(piModels({ provider: { ...tensorx, images: ["m1"] }, model: "m1" }).providers.tensorx.models[0].input).toEqual(["text", "image"]);
+  expect(piModels({ provider: tensorx, model: "m1" }).providers.tensorx.models[0].input ?? []).not.toContain("image");
+});
 test("Pi env holds only the allowed keys and the provider key", () => {
   const e = agentEnv({ PATH: "/bin", HOME: "/h", FACTORY_GITLAB_TOKEN: "g", TEAMS_WEBHOOK_URL: "w", BERGET_API_KEY: "b", CLAUDE_CODE_OAUTH_TOKEN: "t", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
   expect(e).toEqual({ PATH: "/bin", HOME: "/tmp/d", PI_CODING_AGENT_DIR: "/tmp/d", PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", TENSORX_API_KEY: "k" });
   expect(Object.keys(e).sort()).toEqual(["HOME", "PATH", "PI_CODING_AGENT_DIR", "PI_SKIP_VERSION_CHECK", "PI_TELEMETRY", "TENSORX_API_KEY"]);
+});
+
+test("Pi env keeps the browser path when it is set", () => {
+  const e = agentEnv({ PATH: "/bin", PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
+  expect(e.PLAYWRIGHT_BROWSERS_PATH).toBe("/ms-playwright");
 });
 
 // --- the harness itself, against a fake `pi` program on PATH ---
@@ -65,15 +75,25 @@ test("a no-tools job returns stdout as text, from an empty dir with the provider
   expect(env).not.toMatch(/gl-secret|oauth-secret/);
 });
 
+test("a reviewer job passes its images to Pi as files with the same bytes", async () => {
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const bin = fakePi(`for a in "$@"; do case "$a" in @*) wc -c < "\${a#@}" > "$(dirname "$0")/sizes";; esac; done`);
+  await pi.run(job({ images: [{ name: "after-list-1280.png", data: PNG }] }));
+  expect(readFileSync(join(bin, "args"), "utf8").split("\n")).toEqual(expect.arrayContaining([expect.stringMatching(/^@.*\/after-list-1280\.png$/)]));
+  expect(Number(readFileSync(join(bin, "sizes"), "utf8"))).toBe(PNG.length);
+});
+
 test("an anthropic provider writes anthropic-messages to models.json", async () => {
   const bin = fakePi("echo x");
   await pi.run(job({ model: { provider: anthropic, model: "m1" } }));
   expect(JSON.parse(readFileSync(join(bin, "models.json"), "utf8")).providers.gw.api).toBe("anthropic-messages");
 });
 
-test("a pi that exits 1 with no output is a failed run, not a throw", async () => {
-  fakePi("exit 1");
-  expect(await pi.run(job())).toMatchObject({ ok: false, limitHit: false, text: "" });
+test("a pi that exits 1 with no output is a failed run that names the exit code and stderr, not a throw", async () => {
+  fakePi("echo 'no API key' >&2\nexit 1");
+  const r = await pi.run(job());
+  expect(r).toMatchObject({ ok: false, limitHit: false });
+  expect(r.text).toBe("Pi exited with code 1. The end of its error output:\nno API key");
 });
 
 // --- the author path: `pi` runs inside `srt` (a fake srt that runs the command, so quoting is tested too) ---
@@ -107,6 +127,11 @@ test("pi sandbox settings: the shared read denies, the provider host, writes onl
   expect(s.filesystem.allowWrite).toEqual(["/w/run/target", "/w/run/pi-home", "/tmp"]);
   expect(s.network.allowedDomains).toContain("t.example");
   expect(s.network.allowedDomains).toContain("registry.npmjs.org");
+});
+test("pi sandbox settings: the preview flag allows local binding", () => {
+  vi.stubEnv("FACTORY_PNPM_STORE", ""); // unset: the store case stays off
+  expect((piSandboxSettings("/w/run/target", "/w/run/pi-home", tensorx, true) as any).network.allowLocalBinding).toBe(true);
+  expect((piSandboxSettings("/w/run/target", "/w/run/pi-home", tensorx, false) as any).network.allowLocalBinding).toBeUndefined();
 });
 test("a provider with no base URL adds no host", () => {
   const s: any = piSandboxSettings("/w/run/target", "/w/run/pi-home", { ...tensorx, baseUrl: undefined });
@@ -152,6 +177,13 @@ test("a provider 429 in the output is a limit hit", async () => {
   expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: true });
 });
 
+// Pi retries a dropped connection itself. Only the last assistant message says how the run ended.
+test("an error that Pi retried past is not a failed run", async () => {
+  fakePi(events(header, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "429 Connection error." } }, answer("done")));
+  fakeSrt();
+  expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: true, limitHit: false, text: "done" });
+});
+
 test("a model that is not served is a failed run, not a limit", async () => {
   fakePi(`${events(header, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "404 model not found" } })}\nexit 1`);
   fakeSrt();
@@ -162,6 +194,14 @@ test("a pi cut in the middle of a JSON line is a failed run, not a throw and not
   fakePi(`printf '%s\\n' '${JSON.stringify(header)}'\nprintf '{"type":"message_end","mess'\nexit 1`);
   fakeSrt();
   expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: false });
+});
+
+test("an author run that fails before Pi writes a message names the exit code and stderr", async () => {
+  fakePi(`${events(header)}\necho 'srt: sandbox refused' >&2\nexit 2`);
+  fakeSrt();
+  const r = await pi.run(authorJob(runDir()));
+  expect(r).toMatchObject({ ok: false, limitHit: false });
+  expect(r.text).toBe("Pi exited with code 2. The end of its error output:\nsrt: sandbox refused");
 });
 
 test("an author job also checks the command guard before anything starts", async () => {

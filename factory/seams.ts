@@ -6,10 +6,12 @@ export type TicketRef = string; // opaque to steps; the GitLab adapter uses the 
 export type PersonRef = string; // a username
 export type ChangeRef = string;
 export type FactoryState = "ready" | "running" | "needs_info" | "needs_approval" | "waiting" | "stopped" | "blocked" | "done";
-export type Mark = "watcher";
+// Progress marks: labels next to the state. A new run removes all but watcher.
+export type Mark = "watcher" | "triaged" | "risk_trivial" | "risk_low" | "risk_medium" | "risk_high" | "implemented" | "reviewed" | "checked" | "risk_checked" | "merged" | "reverted";
 
 export interface Ticket {
   ref: TicketRef; title: string; body: string; open: boolean; state?: FactoryState; marks: Mark[];
+  ended?: FactoryState; // with state ready: the state of the ended run that a person set ready again
   tags: string[]; // the non-factory labels
   assignees: PersonRef[]; url: string;
 }
@@ -17,7 +19,7 @@ export interface Comment { author: PersonRef; byFactory: boolean; body: string; 
 
 export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }
-  | { kind: "approved" | "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
+  | { kind: "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
   | { kind: "command"; ticket: TicketRef; actor: PersonRef; command: "stop" | "resume" }
   | { kind: "ignored"; reason: "other-project" | "not-added" };
 
@@ -26,6 +28,8 @@ export interface TicketDraft { title: string; body: string; state?: FactoryState
 export interface Tracker {
   ticket(ref: TicketRef): Promise<Ticket>;
   setState(ref: TicketRef, state: FactoryState): Promise<void>;
+  mark(ref: TicketRef, mark: Mark): Promise<void>; // adds the mark and keeps every other one
+  unmark(ref: TicketRef, mark: Mark): Promise<void>; // removes the mark and keeps every other one
   comment(ref: TicketRef, text: string): Promise<void>;
   assign(ref: TicketRef, person: PersonRef): Promise<void>;
   close(ref: TicketRef): Promise<void>;
@@ -52,21 +56,25 @@ export interface Repo {
   // Commits the clone's files on top of the base and force-pushes the branch. Returns the new sha.
   commitAndPush(branch: string, message: string): Promise<string>;
   readFile(path: string): string | undefined;
+  // A small plain file inside the clone, as bytes. Undefined, never a throw, for a missing file, a link, a path that leaves the clone, or a file over maxBytes.
+  readBytes(path: string, maxBytes: number): Buffer | undefined;
 }
 
 export type Checks = "green" | "red" | "running" | "none";
-export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; body: string }
+export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
 export interface CodeHost {
-  defaultBranch(): Promise<string>;
+  baseBranch(): Promise<string>;
   cloneAt(dir: string): Repo;
   openChange(branch: string, title: string, body: string, ticket: TicketRef): Promise<{ ref: ChangeRef; url: string }>; // adds the AI line and the closing line
   change(ref: ChangeRef): Promise<Change>;
-  approvedByTrusted(ref: ChangeRef): Promise<boolean>;
   checks(at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks>;
-  merge(ref: ChangeRef, sha: string): Promise<string>;
+  merge(ref: ChangeRef, sha: string, message: string): Promise<string>;
+  rebase(ref: ChangeRef): Promise<{ ok: true; head: string } | { ok: false; error: string }>; // onto the base branch; returns when the rebase ends
+  branchDiff(sha: string): Promise<Record<string, string>>; // each file's diff of sha against the base branch, from their merge base; throws on a cut-off diff
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
+  attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
   closeChange(ref: ChangeRef): Promise<void>; // closes without merging
 }
 
@@ -90,16 +98,16 @@ export type { JevClient as Judge, JevQuestion, JevAnswer } from "./jev";
 
 // An agent harness: the program that runs a model with tools. Steps give it a job and get a result.
 export type ApiStyle = "anthropic" | "openai";
-export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string> } // model id -> family
+export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[] } // models: model id -> family; images: model ids that read images
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
 export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
 // One tool the agent used. input and result are text (JSON for input); ms is how long the tool ran.
 export interface ToolCall { name: string; input: string; result: string; ms: number; ok: boolean }
-export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; onToolCall?: (c: ToolCall) => void } // onToolCall is called as each tool finishes, while the agent runs
+export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean; onToolCall?: (c: ToolCall) => void } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost; onToolCall is called as each tool finishes, while the agent runs
 // `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
 export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; text: string } // contextTokens: input plus cache tokens of the last model turn
-export interface Harness { readonly apis: ApiStyle[]; run(job: HarnessJob): Promise<HarnessResult> }
+export interface Harness { readonly apis: ApiStyle[]; readonly images: boolean; run(job: HarnessJob): Promise<HarnessResult> }
 
 // Error logs. One group is one kind of error; hourly[0] is the last hour, 24 entries.
 export interface ErrorGroup { fingerprint: string; message: string; component?: string; hourly: number[]; firstSeen: string; lastSeen: string; samples: string[]; stack?: string; link: string }

@@ -143,6 +143,11 @@ async function closeStoppedChange(ctx: StepContext, r: ControlRequest, url: stri
 export async function main(ctx?: StepContext) {
   if (process.env.FACTORY_SCHEDULE !== "poll") throw new Error("FACTORY_SCHEDULE must be poll");
   ctx ??= makeContext(process.env);
+  // local-factory.sh: print the tickets to start, start no pipeline. The script runs them on this machine.
+  if (process.argv.includes("--list")) {
+    console.log((await pollReady({ ...ctx, ci: { ...ctx.ci, start: async () => "" } })).join(" "));
+    return;
+  }
   try {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
     console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx)).join(", ") || "none"}`);

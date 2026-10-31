@@ -70,6 +70,26 @@ describe("tickets", () => {
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8", body: { add_labels: "factory_running", remove_labels: expect.stringContaining("factory_ready") } });
     expect(last().body.remove_labels).not.toContain("factory_running");
   });
+  test("mark adds its label and removes no other label", async () => {
+    const t = tracker();
+    await t.mark("8", "implemented");
+    expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8" });
+    expect(last().body).toEqual({ add_labels: "factory_implemented" });
+    await t.mark("8", "reviewed");
+    expect(last().body).toEqual({ add_labels: "factory_reviewed" });
+  });
+  test("unmark removes its label and no other label", async () => {
+    await tracker().unmark("8", "risk_high");
+    expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8" });
+    expect(last().body).toEqual({ remove_labels: "factory_risk_high" });
+  });
+  // A person adds factory_ready to a blocked item: the event step continues the blocked run.
+  test("ready next to an ended run's label reads as ready, and names the ended state", async () => {
+    routes["/projects/7/issues/8"] = { body: issue({ labels: ["factory_blocked", "factory_ready"] }) };
+    expect(await tracker().ticket("8")).toMatchObject({ state: "ready", ended: "blocked" });
+    routes["/projects/7/issues/8"] = { body: issue({ labels: ["factory_ready"] }) };
+    expect((await tracker().ticket("8")).ended).toBeUndefined();
+  });
   test("close, reopen and assign", async () => {
     routes["/users"] = { body: [{ id: 4 }] };
     const t = tracker();
@@ -156,8 +176,8 @@ describe("parseEvent", () => {
     p.changes.labels.previous = [{ title: "factory_ready" }];
     expect(tracker().parseEvent(p)).toEqual({ kind: "ignored", reason: "not-added" });
   });
-  test("an approval of a factory change gives approved; a merge gives merged", () => {
-    expect(tracker().parseEvent(load("mr-approved.json"))).toMatchObject({ kind: "approved", ticket: "8", change: "5" });
+  test("an approval of a factory change is ignored; a merge gives merged", () => {
+    expect(tracker().parseEvent(load("mr-approved.json"))).toEqual({ kind: "ignored", reason: "not-added" });
     const p = load("mr-approved.json");
     p.object_attributes.action = "merge";
     expect(tracker().parseEvent(p)).toMatchObject({ kind: "merged", ticket: "8", change: "5" });

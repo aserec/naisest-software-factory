@@ -9,8 +9,14 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] Make the bot Maintainer of the factory project. Set "Minimum role to use pipeline variables" to Maintainer.
 - [ ] Store `FACTORY_GITLAB_TOKEN` as a masked, protected CI variable of type **File**.
 - [ ] Signed in as the bot, create a trigger token. Store it as `FACTORY_TRIGGER_TOKEN`, type **File**.
-- [ ] Check the license (Admin > License). Premium: give the bot merge rights by name on the protected branch of `react_frontend`. Free: make the bot Maintainer of `react_frontend`.
+- [ ] Check the license (Admin > License). Premium: give the bot merge rights by name on `develop` of `react_frontend` and none on `master`. Free: make the bot Maintainer of `react_frontend`. Then apply's target check is the only guard against a merge into `master`.
 - [ ] Set `defaultApprover` in `targets/react_frontend.yml` to a real GitLab username.
+- [ ] In `react_frontend`, create `develop` from `master`.
+- [ ] Protect `develop` and give the bot merge rights on it. On Premium, remove the bot's merge rights on `master`. On Free the bot is a Maintainer and can still merge into `master`.
+- [ ] Set the project's merge method to "Fast-forward merge" and the squash setting to "Allow", "Encourage" or "Require". The merge method applies to `master` too.
+- [ ] Give `develop` no required approval rule that applies to factory merge requests. The bot cannot approve its own merge request, so a required approval makes every auto merge fail.
+- [ ] Check that the CI of `react_frontend` runs a branch pipeline on pushes to `develop`, and a merge request pipeline for merge requests that target `develop`. Without the branch pipeline, verify waits an hour and blocks every merge.
+- [ ] Before the new factory version runs, handle every open factory merge request that targets `master`. Retarget it to `develop`, or close it and add `factory_ready` to its ticket again. A merge into `master` after the switch gets a block from verify, because verify looks for the commit on `develop`.
 - [ ] Set `dashboardUrl` in `seams.yml` to `https://factory.<domain>` (the real domain). Until then every factory job stops with an error.
 
 ## 2. Secrets
@@ -27,8 +33,8 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] Create the Hetzner firewall: no inbound rules, outbound internet only, no internal networks. Attach it.
 - [ ] Push the repo. Check that the `smoke` job runs on a fresh VM and the VM is deleted after the job.
 - [ ] Run `sync.sh` from agent-config to copy `.agents/`.
-- [ ] Job image: install the `claude` CLI and Pi (`@earendil-works/pi-coding-agent@1.4.0`, binary `pi`) at pinned versions in `/usr/local/bin`. Add `unzip`. Pin `node:22` by digest.
-- [ ] Check that bubblewrap works in the job image for the sandbox. Check `enableWeakerNestedSandbox` and the `/proc` read deny against Node and pnpm.
+- [ ] Job image: turn on the container registry for the factory project. Merge `runner/Dockerfile` to `main`. The `job-image` job prints the image with its digest. Put that exact string in the `.factory` image in `.gitlab-ci.yml` and in `jobImage` in `targets/react_frontend.yml`.
+- [ ] In a job on a fresh VM, run `bwrap --unshare-user --dev-bind / / true` in the job image. It must exit 0. The runner's `security_opt` and the sysctl in `runner/cloud-init.yml` allow it. Then check `enableWeakerNestedSandbox` and the `/proc` read deny against Node and pnpm.
 - [ ] Check the image user, HOME, PATH and proxy settings with the `env -i` line in `.gitlab-ci.yml`.
 - [ ] Check the runner's `<project>.tmp` secret directory layout, and the `TRIGGER_PAYLOAD` path.
 - [ ] Check that the job artifact size limit is big enough, and that resumed runs use the same `CI_PROJECT_DIR`.
@@ -76,7 +82,7 @@ The dashboard must be up before the first run: while the factory cannot reach it
 ## 8. Acceptance runs
 
 - [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 7). The mock Jev never passes Jev 2 (its scores have confidence 0.6), so with the mock every change goes to a person and run 1 cannot auto-merge.
-- [ ] **Run 1:** label a trivial ticket in `react_frontend`. Expected: merged with a green main pipeline, `factory_done`, a result comment, no person involved.
+- [ ] **Run 1:** label a trivial ticket in `react_frontend`. Expected: merged into `develop` with a green `develop` pipeline, `factory_done`, a result comment, no person involved.
 - [ ] **Run 2:** label a medium-risk ticket. Expected: `factory_needs_approval`, reasons on the merge request, one Teams card.
 
 ## 9. Watcher (phase 4, not part of the react_frontend go-live)

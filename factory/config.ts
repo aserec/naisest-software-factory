@@ -37,6 +37,7 @@ const seamsSchema = z.object({
     baseUrl: z.string().url().optional(),
     keyEnv: z.string().min(1),
     models: z.record(z.string().min(1)), // model id -> family
+    images: z.array(z.string().min(1)).optional(), // model ids that read images
   })),
 });
 
@@ -45,6 +46,7 @@ const real = z.string().min(1).refine((v) => !v.startsWith("REPLACE_WITH_"), { m
 const targetSchema = z.object({
   name: z.string().min(1),
   projectPath: real,
+  baseBranch: z.string().min(1),
   protectedPaths: z.array(z.string()),
   dependencyFiles: z.array(z.string()),
   maxChangedLines: z.number().int().positive(),
@@ -59,7 +61,9 @@ const commandsSchema = z.object({
   test: z.string().min(1),
   build: z.string().min(1),
   smoke: z.string().min(1).optional(),
-});
+  preview: z.string().min(1).optional(),
+  previewUrl: z.string().url().optional(),
+}).refine((c) => !c.preview === !c.previewUrl, { message: "preview and previewUrl go together" });
 
 const readYaml = (path: string) => parse(readFileSync(path, "utf8"));
 
@@ -79,6 +83,8 @@ function family(seams: SeamsConfig, c: { provider: string; model: string }, fiel
 
 export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
   const seams = validate(seamsSchema, readYaml(path), "seams.yml");
+  for (const [name, p] of Object.entries(seams.providers))
+    for (const id of p.images ?? []) if (!Object.hasOwn(p.models, id)) throw new Error(`seams.yml providers.${name}.images: model ${id} is not in models`);
   family(seams, seams.judgeModel, "seams.yml judgeModel");
   if (seams.providers[seams.judgeModel.provider].keyEnv === TEAM_PLAN_KEY) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider}: the Team plan works only with claude-code`);
   return seams;

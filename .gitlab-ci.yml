@@ -44,6 +44,22 @@ smoke:
   - pnpm tsc --noEmit
   - pnpm vitest run
 
+# Builds runner/Dockerfile into this project's registry, only on main, so only a reviewed change makes an image.
+# kaniko needs no Docker socket and no privileged mode. Factory jobs name the image by digest, so a later push
+# to the same tag changes nothing they run.
+job-image:
+  stage: test
+  tags: [factory]
+  image:
+    name: ghcr.io/osscontainertools/kaniko:v1.29.0-debug@sha256:350929376b8a69afb1d8b362086c809e4ef6799fa1bcb317c2806ae1447b3845
+    entrypoint: [""]
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    changes: [runner/Dockerfile]
+  script:
+  - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+  - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile "$CI_PROJECT_DIR/runner/Dockerfile" --destination "$CI_REGISTRY_IMAGE/job:$CI_COMMIT_SHORT_SHA" --digest-file /kaniko/digest
+  - echo "Job image, for the .factory image and every jobImage in targets/*.yml - $CI_REGISTRY_IMAGE/job@$(cat /kaniko/digest)"
 # The dashboard is a separate Next.js app. Only this job installs the whole workspace.
 dashboard-test:
   stage: test
@@ -144,6 +160,7 @@ event:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -161,6 +178,7 @@ triage:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -178,6 +196,7 @@ prepare-patch:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -195,6 +214,7 @@ code-review:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -212,6 +232,7 @@ precommit-gate:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -229,6 +250,7 @@ risk-check:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -246,6 +268,7 @@ decision:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -263,6 +286,7 @@ apply:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -280,6 +304,7 @@ verify:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -297,6 +322,7 @@ result-saved:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -316,6 +342,7 @@ poll:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -334,6 +361,7 @@ retry-waiting:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
@@ -356,6 +384,7 @@ watcher:
   - >-
     env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
     CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
     CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
     FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"

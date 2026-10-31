@@ -13,3 +13,6 @@ install: pnpm install --frozen-lockfile
 lint: pnpm lint
 test: pnpm test
 build: pnpm build
+# NEXT_PUBLIC_APP_ENV=development is required: .env* files are not committed and mock-all.ts refuses mock mode without it.
+preview: NEXT_PUBLIC_APP_ENV=development NEXT_PUBLIC_MOCK_ALL=true pnpm dev
+previewUrl: http://localhost:3000

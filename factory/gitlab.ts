@@ -16,10 +16,11 @@ export class GitLab {
   constructor(private baseUrl: string, private token: string, private fetchFn: typeof fetch = fetch) {}
 
   private async call(method: string, endpoint: string, body?: unknown): Promise<Response> {
+    const form = body instanceof FormData; // fetch sets the multipart type itself
     const res = await this.fetchFn(`${this.baseUrl}/api/v4${endpoint}`, {
       method,
-      headers: { "PRIVATE-TOKEN": this.token, "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: form ? { "PRIVATE-TOKEN": this.token } : { "PRIVATE-TOKEN": this.token, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : form ? body : JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`GitLab ${method} ${endpoint} failed with status ${res.status}`);
     return res;
@@ -48,6 +49,13 @@ export class GitLab {
     if (findSecrets(`${title}\n${full}`).length > 0) throw new Error("Work item refused: it contains a secret");
     const w = await this.json("POST", `/projects/${projectId}/issues`, { title, description: full, labels: labels.join(",") });
     return { iid: w.iid as number, webUrl: w.web_url as string };
+  }
+
+  // Uploads a PNG to the project. The returned url works in the Markdown of a change of that project.
+  async uploadFile(projectId: number, name: string, data: Buffer): Promise<string> {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(data)], { type: "image/png" }), name);
+    return (await (await this.call("POST", `/projects/${projectId}/uploads`, form)).json()).url as string;
   }
 
   async getProject(path: string) {
@@ -94,6 +102,14 @@ export class GitLab {
     await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label, remove_labels: others });
   }
 
+  async addLabel(projectId: number, iid: number, label: string): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label });
+  }
+
+  async removeLabel(projectId: number, iid: number, label: string): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { remove_labels: label });
+  }
+
   private async note(endpoint: string, body: string): Promise<void> {
     const full = noQuickActions(`${AI_LINE}\n\n${body}`);
     if (findSecrets(full).length > 0) throw new Error("Comment refused: it contains a secret");
@@ -134,11 +150,6 @@ export class GitLab {
   }
 
 
-  async approvedBy(projectId: number, mrIid: number): Promise<number[]> {
-    const a = await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}/approvals`);
-    return (a.approved_by ?? []).map((x: { user: { id: number } }) => x.user.id);
-  }
-
   async assignMergeRequest(projectId: number, mrIid: number, userId: number): Promise<void> {
     await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { assignee_ids: [userId] });
   }
@@ -148,11 +159,17 @@ export class GitLab {
   }
 
   // Merges now and returns the commit on the target branch. Call it only after the MR pipeline is "success".
-  // GitLab uses the project's own squash setting.
+  // Always squashes, with message as the commit message. With the fast-forward merge method,
+  // the squash commit is the only commit that lands.
   // sha is the reviewed head: GitLab refuses the merge if the branch moved since.
-  async merge(projectId: number, mrIid: number, sha: string): Promise<string> {
-    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, { sha });
+  async merge(projectId: number, mrIid: number, sha: string, message: string): Promise<string> {
+    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, { sha, squash: true, squash_commit_message: message });
     return (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string;
+  }
+
+  // Starts a rebase of the MR onto its target branch. It runs in the background: the MR shows rebase_in_progress.
+  async rebaseMergeRequest(projectId: number, mrIid: number): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}/rebase`);
   }
 
   // Branch-ref queries miss merge request pipelines, so read the MR's own list (newest first).
@@ -165,12 +182,12 @@ export class GitLab {
     return status === "failed" || status === "canceled" ? "failed" : "running";
   }
 
-  async revertMerge(projectId: number, sha: string, defaultBranch: string) {
+  async revertMerge(projectId: number, sha: string, base: string) {
     // A unique name, so an earlier revert branch for the same commit does not get in the way.
     const branch = `factory/revert-${sha.slice(0, 8)}-${Date.now()}`;
-    await this.call("POST", `/projects/${projectId}/repository/branches`, { branch, ref: defaultBranch });
+    await this.call("POST", `/projects/${projectId}/repository/branches`, { branch, ref: base });
     await this.call("POST", `/projects/${projectId}/repository/commits/${sha}/revert`, { branch });
-    return this.openMergeRequest(projectId, branch, defaultBranch, `Revert ${sha.slice(0, 8)}`, `The default branch pipeline failed after ${sha}. This reverts it.`);
+    return this.openMergeRequest(projectId, branch, base, `Revert ${sha.slice(0, 8)}`, `The ${base} pipeline failed after ${sha}. This reverts it.`);
   }
 
   // The newest successful decision job of a build pipeline. That job's artifacts hold run/ at the end of the

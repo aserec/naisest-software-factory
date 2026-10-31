@@ -27,7 +27,7 @@ export interface StepContext {
   dir: string; // the target clone, cwd for agents
   repo: Repo;
   sleep(ms: number): Promise<void>;
-  step?: string; // the step runStep runs
+  step?: string; // the CI job, set by runStep; a block saves it
   stepEvent?: string; // the ID of its step_start event, the parent of what the step sends
   dashboardStop?: boolean; // the dashboard asked this run to stop (seen by the inbox)
 }
@@ -79,15 +79,24 @@ export async function notify(ctx: StepContext, kind: Notice, lines: string[], ur
   await ctx.chat.notify(kind, t.title, lines, url || t.url);
 }
 
+const BUILD_JOBS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
+// A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
+export const CONTINUABLE = BUILD_JOBS.slice(2);
+export const BLOCKED = "The factory stopped. A person must look at this.";
+// Only the comment's last line: the reason above it can quote agent text with a run line of its own.
+export const BLOCKED_RUN = /\nBlocked run: pipeline (\d+)\s*$/;
+
 // Stop the run for a person: state, comment, assign, notice.
-export async function block(ctx: StepContext, reason: string): Promise<StepResult> {
+// continuable false: this pipeline fails, so its record never uploads and the comment names no run.
+export async function block(ctx: StepContext, reason: string, continuable = CONTINUABLE.includes(ctx.step ?? "")): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const t = await ctx.tracker.ticket(ref);
-  save(ctx, "blocked", { reason });
+  save(ctx, "blocked", { reason, step: ctx.step });
   if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
   await ctx.tracker.setState(ref, "blocked");
   emit(ctx, "run_end", { outcome: "blocked" });
-  await ctx.tracker.comment(ref, `The factory stopped. A person must look at this.\n\n${reason}`);
+  const line = continuable ? `\n\nBlocked run: pipeline ${ctx.ci.vars.run ?? "unknown"}` : "";
+  await ctx.tracker.comment(ref, `${BLOCKED}\n\n${reason}${line}`);
   await ctx.tracker.assign(ref, person(ctx, t));
   await ctx.chat.notify("blocked", t.title, [reason], t.url);
   return "stop";
@@ -217,7 +226,8 @@ export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, jo
 export function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
   const resume = session(ctx);
   if (!resume) throw new Error("The run record has no author session to fix");
-  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30 });
+  const preview = !!data(ctx, "prepare-patch")?.commands?.preview;
+  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) });
 }
 
 // Polls a status for up to an hour. Still "running" after that counts as not done.
@@ -252,7 +262,6 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
 }
 
 const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN/;
-const BUILD_JOBS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
 // A resumed run skips the build jobs that finished before the one that hit the limit.
 function doneBeforeResume(ctx: StepContext, name: string): boolean {
   const i = BUILD_JOBS.indexOf(name);
@@ -329,7 +338,7 @@ export async function runStep(
   } catch (e) {
     emit(ctx, "error", { message: String(e).slice(0, 500) });
     // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
-    await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`).catch(() => {});
+    await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`, false).catch(() => {});
     if (ctx.stepEvent) emit(ctx, "step_end", { outcome: "error" });
     throw e;
   } finally {

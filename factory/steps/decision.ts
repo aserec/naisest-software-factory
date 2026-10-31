@@ -1,7 +1,9 @@
 import { emit } from "../emit";
+import { proofReasons } from "../proof";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { RuleResult } from "../rules";
 import type { Ticket } from "../seams";
+import { changeText } from "./precommit-gate";
 import { block, data, inbox, isMain, modelRow, notify, person, stopReason, runStep, save, session, stopped, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
 
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
@@ -16,7 +18,8 @@ function decide(ctx: StepContext, ticket: Ticket): MergeDecision {
 function decideByChecks(ctx: StepContext): MergeDecision {
   const rc = data(ctx, "risk-check");
   const failedRules = (rc.rules as RuleResult[]).filter((r) => !r.passed).map((r) => `hard rule ${r.rule} failed: ${r.detail}`);
-  if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules] };
+  const proof = proofReasons(data(ctx, "code-review")?.proof, !!data(ctx, "prepare-patch").commands?.preview, data(ctx, "precommit-gate")?.uploadFailed ?? []);
+  if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules, ...proof] };
   const d = decideMerge({
     triageRisk: data(ctx, "triage").outcome.risk,
     reviewPassed: data(ctx, "code-review")?.passed === true,
@@ -25,13 +28,19 @@ function decideByChecks(ctx: StepContext): MergeDecision {
     risk: rc.risk,
   });
   const row = modelRow(ctx);
-  if (d.kind === "auto" && !row.mayAutoMerge) return { kind: "needs_approval", reasons: [`the ${row.author.model} router row may not merge alone`] };
-  return d;
+  if (d.kind === "auto" && !row.mayAutoMerge) return { kind: "needs_approval", reasons: [`the ${row.author.model} router row may not merge alone`, ...proof] };
+  if (d.kind === "auto" && proof.length) return { kind: "needs_approval", reasons: proof };
+  return d.kind === "needs_approval" ? { ...d, reasons: [...d.reasons, ...proof] } : d;
 }
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  const { change, changeUrl } = data(ctx, "precommit-gate");
+  const { change, branch } = data(ctx, "precommit-gate");
+  // A run continued after the gate job: the change still names the run that opened it. An approval must load this run's record.
+  if (["risk-check", "decision"].includes(data(ctx, "event")?.resumeAt)) {
+    const { title, body } = changeText(ctx);
+    await ctx.codeHost.openChange(branch, title, body, ref);
+  }
   const ticket = await ctx.tracker.ticket(ref);
   let d = decide(ctx, ticket);
   if (d.kind === "auto" && !(await switchOn(ctx, "auto_merge"))) d = { kind: "needs_approval", reasons: ["auto-merge is switched off"] };
@@ -48,10 +57,18 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     await ctx.ci.start({ kind: "finish", ticket: ref, change, buildRun: ctx.ci.vars.run });
     return "next";
   }
+  return askPerson(ctx, d.reasons);
+}
+
+// Send the change to a person to review and merge: state, a comment with the reasons on the change, the assignee and a card.
+export async function askPerson(ctx: StepContext, reasons: string[]): Promise<StepResult> {
+  const ref = ticketRef(ctx);
+  const { change, changeUrl } = data(ctx, "precommit-gate");
+  const ticket = await ctx.tracker.ticket(ref);
   await ctx.tracker.setState(ref, "needs_approval");
-  await ctx.codeHost.commentChange(change, `This change needs a person to approve it:\n\n${d.reasons.map((r) => `- ${r}`).join("\n")}`);
+  await ctx.codeHost.commentChange(change, `This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`);
   await ctx.codeHost.assignChange(change, person(ctx, ticket));
-  await notify(ctx, "needs_approval", d.reasons, changeUrl);
+  await notify(ctx, "needs_approval", reasons, changeUrl);
   return "stop";
 }
 

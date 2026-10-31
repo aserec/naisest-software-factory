@@ -14,6 +14,7 @@ export interface SeamsConfig {
 export interface Target {
   name: string;
   projectPath: string;
+  baseBranch: string;
   protectedPaths: string[];
   dependencyFiles: string[];
   maxChangedLines: number;
@@ -21,4 +22,4 @@ export interface Target {
   jobImage: string;
   stuckMinutes?: Record<string, number>; // the dashboard reads it; the factory only accepts it
 }
-export interface FactoryCommands { install: string; lint: string; test: string; build: string; smoke?: string }
+export interface FactoryCommands { install: string; lint: string; test: string; build: string; smoke?: string; preview?: string; previewUrl?: string }

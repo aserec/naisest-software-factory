@@ -12,35 +12,37 @@ import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider, ToolCal
 export function piModels({ provider, model }: ModelChoice) {
   return {
     providers: {
-      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model }] },
+      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model, ...(provider.images?.includes(model) && { input: ["text", "image"] }) }] },
     },
   };
 }
 
 // No tools (the diff is in the prompt), no session file, and nothing loaded from the cwd or the agent dir.
-export const piArgs = (provider: string, model: string, prompt: string) => [
+export const piArgs = (provider: string, model: string, prompt: string, files: string[] = []) => [
   "--print", "--no-tools", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
-  "--no-context-files", "--no-mcp", "--no-approve", "--offline", "--provider", provider, "--model", model, "--", prompt,
+  "--no-context-files", "--no-mcp", "--no-approve", "--offline", "--provider", provider, "--model", model, "--", ...files.map((f) => "@" + f), prompt,
 ];
 
 // Nothing secret except the provider key, which Pi reads through models.json. No Claude token, no GitLab token.
 export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider, dir: string): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv] };
+  const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv], pnpm_config_store_dir: env.FACTORY_PNPM_STORE, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH };
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
 
 // The author's sandbox: the gate sandbox plus the provider's host. Pi reads and writes its own home, which is otherwise denied.
-export function piSandboxSettings(cwd: string, home: string, provider: Provider) {
-  const s = sandboxSettings(cwd, home);
+export function piSandboxSettings(cwd: string, home: string, provider: Provider, preview = false) {
+  const s = sandboxSettings(cwd, home, process.env.FACTORY_PNPM_STORE); // set on local runs only
   const host = provider.baseUrl ? new URL(provider.baseUrl).hostname : undefined;
   return {
-    network: { ...s.network, allowedDomains: host ? [...s.network.allowedDomains, host] : s.network.allowedDomains },
+    network: { ...s.network, allowedDomains: host ? [...s.network.allowedDomains, host] : s.network.allowedDomains, ...(preview && { allowLocalBinding: true }) }, // preview: the author starts the target's dev server
     filesystem: { ...s.filesystem, allowRead: [home] },
   };
 }
 
 const EXTENSION = fileURLToPath(new URL("./pi-extension.ts", import.meta.url));
 const quote = (a: string) => `'${a.replaceAll("'", `'\\''`)}'`;
+// Pi or srt can fail before Pi writes a message. The exit code and stderr then hold the only reason.
+const exitText = (code: number | null, err: string) => `Pi exited with code ${code}. The end of its error output:\n${err.trim() || "(empty)"}`;
 
 // Pairs Pi's tool_execution_start and tool_execution_end events by toolCallId (docs/json.md of @earendil-works/pi-coding-agent 1.4.0).
 // ms is the durationMs Pi measured, or the time between the two events when Pi sends none.
@@ -81,7 +83,8 @@ export function parsePiOutput(out: string) {
     tokens.cacheWrite += Number(m.usage?.cacheWrite ?? 0);
     contextTokens = Number(m.usage?.input ?? 0) + Number(m.usage?.cacheRead ?? 0) + Number(m.usage?.cacheWrite ?? 0);
     costUsd += Number(m.usage?.cost?.total ?? 0);
-    if (m.stopReason === "error" || m.errorMessage) error = String(m.errorMessage ?? "error");
+    // Pi retries a failed request, so only the last assistant message tells how the run ended.
+    error = m.stopReason === "error" || m.errorMessage ? String(m.errorMessage ?? "error") : "";
   }
   return { session, text: text || error, error, limitHit: /\b429\b|rate.?limit|quota|usage limit/i.test(error), tokens, contextTokens, costUsd };
 }
@@ -95,7 +98,7 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     mkdirSync(home, { recursive: true });
     writeFileSync(join(home, "models.json"), JSON.stringify(piModels(job.model)));
     const settings = join(tmp, "srt-settings.json"); // srt reads it once, before the command starts
-    writeFileSync(settings, JSON.stringify(piSandboxSettings(job.cwd, home, job.model.provider)));
+    writeFileSync(settings, JSON.stringify(piSandboxSettings(job.cwd, home, job.model.provider, job.preview)));
     const args = [
       "--print", "--mode", "json", "--no-extensions", "--extension", EXTENSION, "--no-skills", "--no-prompt-templates",
       "--no-context-files", "--no-mcp", "--provider", job.model.provider.name, "--model", job.model.model,
@@ -109,11 +112,11 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     if (job.inbox) pump = pumpInbox(job.inbox, inboxFile);
     const calls = piToolCalls();
     const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
-    const { code, out } = await runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd, undefined, onLine);
+    const { code, out, err } = await runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd, undefined, onLine);
     const stopped = (await pump?.end()) ?? false; // the extension aborts the agent at its next tool result after a stop line
     pump = undefined;
     const r = parsePiOutput(out);
-    return { session: r.session, ok: code === 0 && !r.error && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.text };
+    return { session: r.session, ok: code === 0 && !r.error && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.error || code === 0 ? r.text : exitText(code, err) };
   } finally {
     await pump?.end(); // only still set when the run threw
     rmSync(tmp, { recursive: true, force: true });
@@ -122,6 +125,7 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
 
 export const pi: Harness = {
   apis: ["anthropic", "openai"],
+  images: true,
   async run(job: HarnessJob): Promise<HarnessResult> {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard
     if (job.tools === "code") return runAuthor(job);
@@ -130,9 +134,10 @@ export const pi: Harness = {
     const dir = mkdtempSync(join(tmpdir(), "pi-"));
     try {
       writeFileSync(join(dir, "models.json"), JSON.stringify(piModels(job.model)));
-      const { code, out } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt), agentEnv(process.env, job.model.provider, dir), dir);
+      const files = (job.images ?? []).map((i) => { const f = join(dir, i.name); writeFileSync(f, i.data); return f; });
+      const { code, out, err } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt, files), agentEnv(process.env, job.model.provider, dir), dir);
       // Pi has no session to resume and reports no cost, so those stay empty. It has no tools, so the inbox is not used and it is never stopped.
-      return { session: "", ok: code === 0, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: out };
+      return { session: "", ok: code === 0, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: code === 0 ? out : exitText(code, err) };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

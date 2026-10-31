@@ -1,6 +1,6 @@
 import type { Notice } from "./seams";
 
-const KIND_TEXT: Record<Notice, string> = { needs_info: "Needs info", needs_approval: "Needs approval", blocked: "Blocked", done: "Done", waiting: "Waiting", watcher_ticket: "New watcher ticket" };
+const KIND_TEXT: Record<Notice, string> = { needs_info: "Needs info", needs_approval: "Needs review and merge", blocked: "Blocked", done: "Done", waiting: "Waiting", watcher_ticket: "New watcher ticket" };
 
 // Adaptive Card message for a Teams Workflows webhook.
 export function buildCard(kind: Notice, title: string, lines: string[], url: string): object {

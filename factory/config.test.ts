@@ -18,39 +18,42 @@ const edited = (name: string, from: string | RegExp, to: string) => {
 
 test("router.yml gives the spec's models and bump", () => {
   const r = loadRouter();
-  expect(r.low).toMatchObject({ author: { harness: "claude-code", provider: "team-plan", model: "claude-sonnet-5-5", effort: "medium" }, reviewer: { harness: "pi", provider: "tensorx" }, mayAutoMerge: true });
-  expect(r.high).toMatchObject({ author: { model: "claude-opus-5-5", effort: "high" }, mayAutoMerge: false });
-  expect(r.writer).toMatchObject({ harness: "claude-code", provider: "team-plan" });
+  expect(r.low).toMatchObject({ author: { harness: "pi", provider: "tensorx", model: "deepseek/deepseek-v4.1-flash-1017" }, reviewer: { harness: "pi", provider: "tensorx", model: "z-ai/glm-5.3-flash" }, mayAutoMerge: true });
+  expect(r.high).toMatchObject({ author: { model: "deepseek/deepseek-v4.1-flash-1017" }, mayAutoMerge: false });
+  expect(r.writer).toMatchObject({ harness: "pi", provider: "tensorx" });
   expect(r.effortBump).toBe(8);
 });
-test("seams.yml picks the GitLab, Jev and Teams adapters and gives the providers to the harness", () => {
+test("seams.yml picks the GitLab, model judge and console adapters and gives the providers to the harness", () => {
   const s = loadSeams();
-  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "gitlab", judge: "jev-berget", chat: "teams", logSource: "files", dashboard: "http" });
+  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "gitlab", judge: "model-call", chat: "console", logSource: "files", dashboard: "http" });
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
-    provider: { name: "tensorx", api: "openai", baseUrl: "https://api.tensorx.ai/v1", keyEnv: "TENSORX_API_KEY", models: { "tensorx-deepseek-small": "deepseek", "tensorx-deepseek-large": "deepseek" } },
-    model: "tensorx-deepseek-small",
+    provider: { name: "tensorx", api: "openai", baseUrl: "https://api.tensorx.ai/v1", keyEnv: "TENSORX_API_KEY", models: { "deepseek/deepseek-v4.1-flash-1017": "deepseek", "z-ai/glm-5.3-flash": "glm" } },
+    model: "z-ai/glm-5.3-flash",
     effort: undefined,
   });
 });
 test("a role with an unknown provider or a model its provider does not list is refused", () => {
-  expect(() => loadRouter(edited("router.yml", "provider: tensorx, model: tensorx-deepseek-small", "provider: openrouter, model: tensorx-deepseek-small"))).toThrow("router.yml low.reviewer: unknown provider openrouter");
-  expect(() => loadRouter(edited("router.yml", "model: tensorx-deepseek-large", "model: gpt-9"))).toThrow("router.yml high.reviewer: provider tensorx has no model gpt-9");
-  expect(() => loadRouter(edited("router.yml", /writer: \{ harness: claude-code, provider: team-plan, model: claude-sonnet-5-5/, "writer: { harness: claude-code, provider: team-plan, model: nope"))).toThrow("router.yml writer: provider team-plan has no model nope");
+  expect(() => loadRouter(edited("router.yml", "provider: tensorx, model: z-ai/glm-5.3-flash", "provider: openrouter, model: z-ai/glm-5.3-flash"))).toThrow("router.yml low.reviewer: unknown provider openrouter");
+  expect(() => loadRouter(edited("router.yml", /(high:[\s\S]*?reviewer: [^}]*model: )z-ai\/glm-5\.3-flash/, "$1gpt-9"))).toThrow("router.yml high.reviewer: provider tensorx has no model gpt-9");
+  expect(() => loadRouter(edited("router.yml", "writer: { harness: pi, provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017", "writer: { harness: pi, provider: tensorx, model: nope"))).toThrow("router.yml writer: provider tensorx has no model nope");
 });
 test("a harness that cannot use the provider's api is refused", () => {
-  expect(() => loadRouter(edited("router.yml", "reviewer: { harness: pi, provider: tensorx, model: tensorx-deepseek-small", "reviewer: { harness: claude-code, provider: tensorx, model: tensorx-deepseek-small"))).toThrow("router.yml low.reviewer: harness claude-code cannot use the openai api of provider tensorx");
+  expect(() => loadRouter(edited("router.yml", "reviewer: { harness: pi, provider: tensorx, model: z-ai/glm-5.3-flash", "reviewer: { harness: claude-code, provider: tensorx, model: z-ai/glm-5.3-flash"))).toThrow("router.yml low.reviewer: harness claude-code cannot use the openai api of provider tensorx");
 });
 test("the Team plan works only with claude-code, and never for the judge", () => {
-  expect(() => loadRouter(edited("router.yml", "reviewer: { harness: pi, provider: tensorx, model: tensorx-deepseek-small", "reviewer: { harness: pi, provider: team-plan, model: claude-sonnet-5-5"))).toThrow("router.yml low.reviewer: harness pi with provider team-plan: the Team plan works only with claude-code");
-  expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: tensorx-deepseek-small }", "judgeModel: { provider: team-plan, model: claude-sonnet-5-5 }"))).toThrow("seams.yml judgeModel: provider team-plan: the Team plan works only with claude-code");
-  expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: tensorx-deepseek-small }", "judgeModel: { provider: tensorx, model: nope }"))).toThrow("seams.yml judgeModel: provider tensorx has no model nope");
+  expect(() => loadRouter(edited("router.yml", "reviewer: { harness: pi, provider: tensorx, model: z-ai/glm-5.3-flash", "reviewer: { harness: pi, provider: team-plan, model: claude-sonnet-5-5"))).toThrow("router.yml low.reviewer: harness pi with provider team-plan: the Team plan works only with claude-code");
+  expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "judgeModel: { provider: team-plan, model: claude-sonnet-5-5 }"))).toThrow("seams.yml judgeModel: provider team-plan: the Team plan works only with claude-code");
+  expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "judgeModel: { provider: tensorx, model: nope }"))).toThrow("seams.yml judgeModel: provider tensorx has no model nope");
 });
 test("one row's author and reviewer may not share a model family", () => {
-  const seams = loadSeams(edited("seams.yml", "tensorx-deepseek-small: deepseek,", "tensorx-deepseek-small: claude,"));
-  expect(() => loadRouter(undefined, seams)).toThrow("router.yml low: author and reviewer are both family claude");
+  const seams = loadSeams(edited("seams.yml", "z-ai/glm-5.3-flash: glm", "z-ai/glm-5.3-flash: deepseek"));
+  expect(() => loadRouter(undefined, seams)).toThrow("router.yml low: author and reviewer are both family deepseek");
 });
 test("a seams.yml field of the wrong shape names the field", () => {
   expect(() => loadSeams(edited("seams.yml", "api: openai", "api: grpc"))).toThrow(/seams\.yml: providers\.tensorx\.api/);
+});
+test("an images entry must name a model of the provider", () => {
+  expect(() => loadSeams(edited("seams.yml", "z-ai/glm-5.3-flash: glm } }", "z-ai/glm-5.3-flash: glm }, images: [nope] }"))).toThrow("seams.yml providers.tensorx.images: model nope is not in models");
 });
 test("react_frontend target has the 300-line limit and the protected paths", () => {
   const t = loadTarget("react_frontend", { defaultApprover: "approver" });
@@ -65,8 +68,21 @@ test(".factory.yml without install is rejected", () => {
   expect(parseFactoryFile("install: pnpm install --frozen-lockfile\nlint: a\ntest: b\nbuild: c").install).toBe("pnpm install --frozen-lockfile");
 });
 test("a target with a REPLACE_WITH_ placeholder is refused with a clear error", () => {
-  expect(() => loadTarget("react_frontend")).toThrow(/targets\/react_frontend\.yml: defaultApprover is still a placeholder/);
+  expect(() => loadTarget("react_frontend", { defaultApprover: "REPLACE_WITH_GITLAB_USERNAME" })).toThrow(/targets\/react_frontend\.yml: defaultApprover is still a placeholder/);
   expect(loadTarget("react_frontend", { defaultApprover: "kirill" }).defaultApprover).toBe("kirill");
+});
+
+const BASE = "install: i\nlint: l\ntest: t\nbuild: b\n";
+test("preview and previewUrl go together and previewUrl is a URL", () => {
+  expect(() => parseFactoryFile(BASE + "preview: pnpm dev\n")).toThrow(/preview and previewUrl go together/);
+  expect(() => parseFactoryFile(BASE + "previewUrl: http://localhost:3000\n")).toThrow(/preview and previewUrl go together/);
+  expect(() => parseFactoryFile(BASE + "preview: pnpm dev\npreviewUrl: not-a-url\n")).toThrow();
+  expect(parseFactoryFile(BASE + "preview: pnpm dev\npreviewUrl: http://localhost:3000\n")).toMatchObject({ preview: "pnpm dev", previewUrl: "http://localhost:3000" });
+});
+test("a target names its base branch; a missing or empty one is refused", () => {
+  expect(loadTarget("react_frontend").baseBranch).toBe("develop");
+  expect(() => loadTarget("react_frontend", { baseBranch: "" })).toThrow(/targets\/react_frontend\.yml: baseBranch/);
+  expect(() => loadTarget("react_frontend", { baseBranch: undefined })).toThrow(/baseBranch Required/);
 });
 test("a dashboardUrl that is still a placeholder is refused when the context is built, not when seams.yml loads", () => {
   expect(loadSeams().dashboardUrl).toBe("REPLACE_WITH_DASHBOARD_URL");

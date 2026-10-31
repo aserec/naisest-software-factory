@@ -2,26 +2,26 @@ import { randomUUID } from "node:crypto";
 import { emit } from "../emit";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO, decideStart } from "../event";
 import type { FactoryEvent, Ticket, TicketRef } from "../seams";
-import { block, data, isCancelNote, isMain, lastStop, parseStoppedNote, runStep, save, startStopped, STOPPED_RUN, switchOn, type StepContext, type StepResult } from "./context";
+import { block, BLOCKED, BLOCKED_RUN, CONTINUABLE, data, isCancelNote, isMain, lastStop, parseStoppedNote, runStep, save, startStopped, STOPPED_RUN, switchOn, type StepContext, type StepResult } from "./context";
 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
 // and the running state is set before the job ends.
 
-// Spec 6.7: a person approved a factory change, or merged it by hand. Start the finish run
-// (with apply skipped after a manual merge). The build run itself stops here.
-async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "approved" | "merged" }>): Promise<StepResult> {
+// Spec 6.5: a person merged a factory change by hand. Start the finish run with apply skipped.
+// An approval starts nothing. The build run itself stops here.
+async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "merged" }>): Promise<StepResult> {
   const quiet = (reason: string) => (save(ctx, "event", { start: false, reason, change: e.change }), "stop" as const);
   // The factory's own merge in apply sends a merge event too.
   if (await ctx.tracker.isFactory(e.actor)) return quiet("bot");
   if (!(await ctx.tracker.trusted(e.actor))) return quiet("not-member");
-  // Only a change that waits for a person. This also ignores approvals while the build is still running.
+  // Only a change that waits for a person. This also ignores merges while the build is still running.
   if ((await ctx.tracker.ticket(e.ticket)).state !== "needs_approval") return quiet("not-waiting");
   // No end anchor: a body edited in the web UI may end its lines in \r\n.
   const buildRun = /^Factory run (\d+): /m.exec((await ctx.codeHost.change(e.change)).body)?.[1];
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };
   save(ctx, "event", { start: true, ticket: e.ticket, actor: e.actor, action: e.kind, change: e.change });
   await ctx.tracker.setState(e.ticket, "running");
-  await ctx.ci.start({ kind: "finish", ticket: e.ticket, change: e.change, ...(buildRun ? { buildRun } : {}), ...(e.kind === "merged" ? { skipApply: true } : {}) });
+  await ctx.ci.start({ kind: "finish", ticket: e.ticket, change: e.change, ...(buildRun ? { buildRun } : {}), skipApply: true });
   return "stop";
 }
 
@@ -37,6 +37,22 @@ export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket):
   if (actor === "") return false;
   if (await ctx.tracker.trusted(actor)) return true;
   return ticket.marks.includes("watcher") && (await ctx.tracker.isFactory(actor));
+}
+
+// Why the record of buildRun cannot be continued for this ticket, or undefined if it can.
+function unusable(ctx: StepContext, ref: TicketRef, buildRun: string): string | undefined {
+  if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}`) return `the record of pipeline ${buildRun} is for another ticket`;
+  // A record from before the router named a harness per role cannot be continued.
+  if (typeof data(ctx, "triage")?.row?.author !== "object") return `the record of pipeline ${buildRun} is from an older factory version`;
+  return undefined;
+}
+
+// Continue the loaded run: the build jobs before resumeAt skip.
+async function continueAt(ctx: StepContext, ref: TicketRef, resumeAt: string, d: object): Promise<StepResult> {
+  save(ctx, "event", { start: true, resume: true, ticket: ref, resumeAt, ...d });
+  ctx.stepEvent = emit(ctx, "step_start", {});
+  await ctx.tracker.setState(ref, "running");
+  return "next";
 }
 
 export const RESTART_MS = 15 * 60_000;
@@ -59,19 +75,43 @@ async function resume(ctx: StepContext, ref: TicketRef, buildRun: string): Promi
   if (state !== "waiting" && state !== "stopped") return quiet("not-waiting");
   const last = ctx.record.steps.at(-1);
   const d = last?.data as { sessionId?: string; limit?: boolean; stopped?: boolean; switchOff?: boolean } | undefined;
-  if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}`) return block(ctx, `The factory could not resume this run: the record of pipeline ${buildRun} is for another ticket. Add factory_ready to start again.`);
-  if (!(d?.limit || d?.stopped) || !(d.sessionId || d.switchOff)) return block(ctx, `The factory could not resume this run: the record of pipeline ${buildRun} has no saved session. Add factory_ready to start again.`);
-  // A record from before the router named a harness per role cannot be continued.
-  if (typeof data(ctx, "triage")?.row?.author !== "object") return block(ctx, `The factory could not resume this run: the record of pipeline ${buildRun} is from an older factory version. Add factory_ready to start again.`);
+  // A run a switch stopped has no session: that step starts afresh.
+  const why = unusable(ctx, ref, buildRun) ?? (!(d?.limit || d?.stopped) || !(d.sessionId || d.switchOff) ? `the record of pipeline ${buildRun} has no saved session` : undefined);
+  if (why) return block(ctx, `The factory could not resume this run: ${why}. Add factory_ready to start again.`);
   // This ticket is waiting, so it is one of the active runs already.
   if ((await activeRuns(ctx)) - 1 >= MAX_RUNS_PER_REPO) return quiet("repo-full");
   await ctx.ci.restoreRun(buildRun);
   // The questions agent runs inside the triage job.
-  const resumeAt = last!.step === "questions" ? "triage" : last!.step;
-  save(ctx, "event", { start: true, resume: true, ticket: ref, fromPipeline: buildRun, resumeAt, sessionId: d.sessionId });
-  ctx.stepEvent = emit(ctx, "step_start", {});
-  await ctx.tracker.setState(ref, "running");
-  return "next";
+  return continueAt(ctx, ref, last!.step === "questions" ? "triage" : last!.step, { fromPipeline: buildRun, sessionId: d!.sessionId });
+}
+
+// A person set a blocked ticket ready again: continue the run at the job that blocked. Undefined: start a new run.
+// Only the factory's newest block comment counts, so an older run line never wins over a newer block without one.
+async function continueBlocked(ctx: StepContext, e: Extract<FactoryEvent, { kind: "ready" }>): Promise<StepResult | undefined> {
+  const note = (await ctx.tracker.comments(e.ticket)).find((c) => c.byFactory && c.body.includes(BLOCKED));
+  const buildRun = note && BLOCKED_RUN.exec(note.body)?.[1];
+  if (!buildRun) return undefined;
+  const fresh = ctx.record;
+  let at: string | undefined;
+  let why: string | undefined;
+  try {
+    ctx.record = await ctx.ci.buildRecord(buildRun);
+    const last = ctx.record.steps.at(-1);
+    at = last?.step === "blocked" ? (last.data as { step?: string }).step : undefined;
+    why = unusable(ctx, e.ticket, buildRun) ?? (at && CONTINUABLE.includes(at) ? undefined : `the record of pipeline ${buildRun} does not show which step blocked`);
+  } catch (err) {
+    why = `the record of pipeline ${buildRun} could not be loaded (${String(err).slice(0, 300)})`;
+  }
+  if (why) {
+    ctx.record = fresh;
+    await ctx.tracker.comment(e.ticket, `The factory starts a new run, because it cannot continue the blocked run: ${why}.`);
+    return undefined;
+  }
+  // The blocked job starts its rounds again. The gate job runs code review too.
+  if (at === "code-review" || at === "precommit-gate") ctx.record = { ...ctx.record, rounds: { review: 0, gate: 0 } };
+  // prepare-patch starts on a fresh clone, so a half-done edit never picks the .factory.yml commands.
+  if (at !== "prepare-patch") await ctx.ci.restoreRun(buildRun);
+  return continueAt(ctx, e.ticket, at!, { actor: e.actor, fromPipeline: buildRun });
 }
 
 // A person's `@factory stop` or `@factory resume`. A stop only matters inside a run, where the agent's inbox or the decision step sees it.
@@ -114,7 +154,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // The poller starts with no payload. Build the event from who set the ticket ready,
   // so decideStart checks exactly what it checks for a webhook.
   let e: FactoryEvent = payload === undefined && ticket ? { kind: "ready", ticket, actor: (await ctx.tracker.startedBy(ticket)) ?? "" } : ctx.tracker.parseEvent(payload);
-  if (e.kind === "approved" || e.kind === "merged") return changeEvent(ctx, e);
+  if (e.kind === "merged") return changeEvent(ctx, e);
   if (e.kind === "command") return commandEvent(ctx, e);
   if (e.kind !== "ready") {
     save(ctx, "event", { start: false, reason: e.kind === "ignored" ? e.reason : "not-added" });
@@ -125,6 +165,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     save(ctx, "event", { start: false, reason: "switch-off" });
     return "stop";
   }
+  const setBy = e.actor;
   e = { ...e, actor: await readyActor(ctx, e.ticket, e.actor) };
   const t = await ctx.tracker.ticket(e.ticket);
   const decision = decideStart(e, {
@@ -132,9 +173,16 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     state: t.state,
     runningInRepo: await activeRuns(ctx),
   });
+  // A dashboard restart asks for a new run, so it never continues an older blocked run.
+  if (decision.start && t.ended === "blocked" && e.actor === setBy) {
+    const r = await continueBlocked(ctx, e);
+    if (r) return r;
+  }
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };
   save(ctx, "event", { ticket: e.ticket, actor: e.actor, ...decision });
   if (!decision.start) return "stop";
+  // A new run: the marks of the earlier run no longer say anything.
+  for (const m of t.marks) if (m !== "watcher") await ctx.tracker.unmark(e.ticket, m);
   // A new run gets its ID here, then this step's start (runStep leaves it to this step).
   ctx.record = { ...ctx.record, runId: randomUUID() };
   emit(ctx, "run_start", {});

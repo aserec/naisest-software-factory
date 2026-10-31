@@ -23,7 +23,7 @@ export function buildClaudeArgs(r: ClaudeRun & { tools?: "code" | "none" }, sett
 export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.ProcessEnv {
   const oauth = provider.keyEnv === "CLAUDE_CODE_OAUTH_TOKEN";
   const out: NodeJS.ProcessEnv = {
-    ...Object.fromEntries(["PATH", "HOME", "LANG", "CLAUDE_CONFIG_DIR"].map((k) => [k, env[k]])),
+    ...Object.fromEntries(["PATH", "HOME", "LANG", "CLAUDE_CONFIG_DIR", "PLAYWRIGHT_BROWSERS_PATH"].map((k) => [k, env[k]])),
     [oauth ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"]: env[provider.keyEnv],
     ...(!oauth && provider.baseUrl ? { ANTHROPIC_BASE_URL: provider.baseUrl } : {}),
   };
@@ -87,6 +87,7 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
 
 export const claudeCode: Harness = {
   apis: ["anthropic"],
+  images: false, // ponytail: Claude Code can take images through --input-format stream-json; add it when a claude-code reviewer is configured
   async run(job: HarnessJob): Promise<HarnessResult> {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard
     let cwd = job.cwd;
@@ -99,12 +100,12 @@ export const claudeCode: Harness = {
       const path = join(dir, "settings.json");
       // The inbox file sits in the settings dir, outside the clone, so the agent's own commands cannot write to it.
       const inboxFile = job.inbox ? join(dir, "inbox.jsonl") : undefined;
-      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile)));
+      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview)));
       if (job.inbox && inboxFile) pump = pumpInbox(job.inbox, inboxFile);
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools };
       const calls = toolCalls();
       const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
-      const { code, out } = await runCommand("claude", buildClaudeArgs(run, path), agentEnv(process.env, job.model.provider), cwd, undefined, onLine);
+      const { code, out, err } = await runCommand("claude", buildClaudeArgs(run, path), agentEnv(process.env, job.model.provider), cwd, undefined, onLine);
       // The hook stops the agent at its next tool call after a stop line. A run that was stopped is never ok.
       const stopped = (await pump?.end()) ?? false;
       pump = undefined;
@@ -112,7 +113,7 @@ export const claudeCode: Harness = {
         const r = parseStream(out, code);
         return { session: r.sessionId, ok: !r.isError && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.resultText };
       } catch (e) { // a stream cut before the result event is a failed run, not a crash
-        return { session: "", ok: false, limitHit: false, stopped, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: (e as Error).message };
+        return { session: "", ok: false, limitHit: false, stopped, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: `${(e as Error).message} Exit code ${code}. The end of its error output:\n${err.trim() || "(empty)"}` };
       }
     } finally {
       await pump?.end(); // only still set when the run threw

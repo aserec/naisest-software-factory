@@ -33,6 +33,8 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
     say: (ref, author, body, at = new Date().toISOString()) => void notes.set(ref, [{ author, byFactory: false, body, at }, ...(notes.get(ref) ?? [])]),
     ticket: async (ref) => get(ref),
     setState: async (ref, state: FactoryState) => { get(ref).state = state; },
+    mark: async (ref, mark) => { const t = get(ref); if (!t.marks.includes(mark)) t.marks = [...t.marks, mark]; },
+    unmark: async (ref, mark) => { const t = get(ref); t.marks = t.marks.filter((m) => m !== mark); },
     comment: async (ref, text) => {
       get(ref);
       if (findSecrets(text).length > 0) throw new Error("Comment refused: it contains a secret");
@@ -63,29 +65,38 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
 }
 
 export interface FakeCodeHostOptions {
-  defaultBranch?: string;
+  baseBranch?: string;
+  target?: string; // the branch the change merges into; default the base branch
   head?: string; // the commit of the change; only this one is ever green or mergeable
   landedSha?: string; // what merge returns
   existing?: boolean; // a change of the branch is already open
   merged?: boolean; // the change is already merged, by a person
-  approvedByTrusted?: boolean;
   changeChecks?: Checks; // checks of the head
   branchChecks?: Checks;
   repo?: Repo;
+  attachFails?: number; // the first n attach calls fail
+  behind?: number; // how many times the base branch moves ahead of the change; a rebase uses up one
+  rebaseFails?: boolean;
+  diffs?: Record<string, Record<string, string>>; // branchDiff by sha; any other sha gets DIFF
 }
 
+export const DIFF = { "src/List.tsx": "@@ -1,2 +1,3 @@\n const a = 1;\n+  if (loading) return <Spinner />;\n" };
+
 // An in-memory CodeHost for tests. It keeps the rules of the real one: the AI line and the closing line,
-// no line that starts with "/", secrets refused, merge only of the head.
+// no line that starts with "/", secrets refused, merge only of the head, no merge of a change that is behind.
 export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
   const head = o.head ?? "head1";
-  const changes = new Map<ChangeRef, Change & { branch: string; title: string }>();
+  let behind = o.behind ?? 0;
+  const changes = new Map<ChangeRef, Omit<Change, "behind"> & { branch: string; title: string }>();
   const byBranch = new Map<string, ChangeRef>();
+  const attached: { name: string; size: number }[] = [];
+  let attachCalls = 0;
   const open = (branch: string, title: string, body: string, ticket: TicketRef) => {
     const text = noQuickActions([AI_LINE, `Closes #${ticket}`, body].join("\n\n"));
     const ref = byBranch.get(branch) ?? String(changes.size + 5);
     byBranch.set(branch, ref);
     const was = changes.get(ref);
-    changes.set(ref, { ref, branch, title, body: text, open: !o.merged, merged: !!o.merged, head, landedSha: o.landedSha ?? "landed1", url: `https://host.example/changes/${ref}` });
+    changes.set(ref, { ref, branch, title, body: text, open: !o.merged, merged: !!o.merged, head, landedSha: o.landedSha ?? "landed1", target: o.target ?? o.baseBranch ?? "develop", url: `https://host.example/changes/${ref}` });
     return { ref, was: !!was };
   };
   const get = (ref: ChangeRef) => {
@@ -100,10 +111,13 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     mrOpened: false,
     merged: false,
     mergedSha: "",
+    mergeMessage: "",
     revertOpened: false,
     mainPipelineRef: "",
     assigned: [] as { ref: ChangeRef; person: PersonRef }[],
-    defaultBranch: async () => o.defaultBranch ?? "main",
+    attached, // uploads that worked
+    get attachCalls() { return attachCalls; }, // every attach call, failed or not
+    baseBranch: async () => o.baseBranch ?? "develop",
     cloneAt: () => {
       if (!o.repo) throw new Error("This fake code host has no repo");
       return o.repo;
@@ -117,22 +131,32 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       host.mrOpened = !was;
       return { ref, url: c.url };
     },
-    change: async (ref: ChangeRef): Promise<Change> => get(ref),
-    approvedByTrusted: async () => o.approvedByTrusted ?? false,
-    // Only the reviewed head counts. A caller that passes another sha never sees green.
+    change: async (ref: ChangeRef): Promise<Change> => ({ ...get(ref), behind: behind > 0 }),
+    // Only the change's current head counts. A caller that passes another sha never sees green.
     checks: async (at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks> => {
-      if ("change" in at) return at.sha === head ? (o.changeChecks ?? "green") : "running";
+      if ("change" in at) return at.sha === (changes.get(at.change)?.head ?? head) ? (o.changeChecks ?? "green") : "running";
       host.mainPipelineRef = at.branch;
       return o.branchChecks ?? "green";
     },
-    merge: async (ref: ChangeRef, sha: string) => {
+    merge: async (ref: ChangeRef, sha: string, message: string) => {
       const c = get(ref);
       if (sha !== c.head) throw new Error(`Change ${ref} did not merge: ${sha} is not its head`);
+      if (behind > 0) throw new Error(`Change ${ref} did not merge: the branch is behind`);
       Object.assign(c, { open: false, merged: true });
       host.merged = true;
       host.mergedSha = sha;
+      host.mergeMessage = message;
       return c.landedSha;
     },
+    rebases: 0, // rebases that worked
+    rebase: async (ref: ChangeRef) => {
+      const c = get(ref);
+      if (o.rebaseFails) return { ok: false as const, error: "Rebase failed: conflict in src/List.tsx" };
+      behind = Math.max(0, behind - 1);
+      c.head = `${head}-r${++host.rebases}`;
+      return { ok: true as const, head: c.head };
+    },
+    branchDiff: async (sha: string) => o.diffs?.[sha] ?? DIFF,
     revert: async (sha: string) => {
       host.revertOpened = true;
       return { ref: `revert-${sha.slice(0, 8)}`, url: "https://host.example/changes/revert" };
@@ -143,6 +167,11 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       host.mrComments.push(text);
     },
     assignChange: async (ref: ChangeRef, person: PersonRef) => void host.assigned.push({ ref, person }),
+    attach: async (name: string, data: Buffer) => {
+      if (++attachCalls <= (o.attachFails ?? 0)) throw new Error("GitLab POST /projects/1/uploads failed with status 500");
+      attached.push({ name, size: data.length });
+      return `/uploads/${attached.length}/${name}`;
+    },
     closeChange: async (ref: ChangeRef) => void (get(ref).open = false),
   } satisfies CodeHost & Record<string, unknown>;
   return host;
@@ -231,6 +260,7 @@ export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<Harn
   const jobs: HarnessJob[] = [];
   return {
     apis: ["anthropic", "openai"],
+    images: true,
     jobs,
     run: async (job) => {
       const n = jobs.push(job) - 1;

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { claudeCode } from "../adapters/claude-code";
+import { loadRouter, loadSeams, modelChoice } from "../config";
 import { pi, piSandboxSettings } from "../adapters/pi";
 import { piHome } from "../sandbox";
 import type { Provider } from "../seams";
@@ -24,6 +25,17 @@ describe.skipIf(!process.env.FACTORY_CONTRACT_REAL)("real Pi harness", () => {
   const model = process.env.CONTRACT_PI_MODEL ?? "";
   if (process.env.FACTORY_CONTRACT_REAL && !model) throw new Error("CONTRACT_PI_MODEL is not set");
   harnessContract(() => pi, { model: { provider: tensorx, model }, unserved: { provider: tensorx, model: "no-such-model" }, author: false });
+  // Proves the router.yml low reviewer, so a reviewer switch in router.yml is what gets checked. Needs TENSORX_API_KEY.
+  test("the reviewer model reads an image", async () => {
+    const red = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC", "base64"); // 8x8, solid red
+    const seams = loadSeams();
+    const { reviewer } = loadRouter(undefined, seams).low;
+    expect(reviewer.harness).toBe("pi");
+    const choice = modelChoice(reviewer, seams); // images is forced on here: the test proves the model, not the seams.yml list
+    const r = await pi.run({ role: "reviewer", prompt: "What is the main color of the image? Answer with one word.", model: { ...choice, provider: { ...choice.provider, images: [choice.model] } }, cwd: tmpdir(), tools: "none", maxTurns: 1, images: [{ name: "red.png", data: red }] });
+    expect(r.ok).toBe(true);
+    expect(r.text).toMatch(/red/i);
+  }, 120_000);
 });
 
 // Sandbox proof: srt with the Pi author settings. Needs a working srt (not inside another sandbox), no model call.

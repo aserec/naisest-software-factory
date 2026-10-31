@@ -1,10 +1,13 @@
 import { parseFactoryFile } from "../config";
 import type { FactoryCommands } from "../types";
-import { agent, block, stopReason, switchOn, CONTINUE, data, install, isMain, modelRow, prompt, resumeSession, runStep, save, stopped, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, block, stopReason, switchOn, CONTINUE, data, install, isMain, modelRow, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+
+export const previewLine = (c: FactoryCommands) =>
+  c.preview ? `Preview: start the app with \`${c.preview}\`. It serves ${c.previewUrl}.` : "Preview: this repo has no preview command. Take no screenshots; prove the change with tests only.";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   if (!(await switchOn(ctx, "prepare_patch"))) return stopped(ctx, "prepare-patch", { reason: "switch off prepare_patch" });
-  await ctx.repo.clone(await ctx.codeHost.defaultBranch());
+  await ctx.repo.clone(await ctx.codeHost.baseBranch());
   // A resumed run continues the session that hit the limit, in the clone restored from that pipeline.
   const resumeSessionId = resumeSession(ctx, "prepare-patch");
   // Read the commands before the agent runs, so the agent cannot change what the gate runs.
@@ -20,12 +23,13 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
   const stop = await install(ctx, commands);
   if (stop) return stop;
-  const text = resumeSessionId ? CONTINUE : `${prompt("prepare")}\n\n${ticketText(ctx)}`;
-  const r = await agent(ctx, "author", modelRow(ctx).author, { tools: "code", prompt: text, maxTurns: 60, cwd: ctx.dir, resume: resumeSessionId });
+  const text = resumeSessionId ? CONTINUE : `${prompt("prepare")}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}`;
+  const r = await agent(ctx, "author", modelRow(ctx).author, { tools: "code", prompt: text, maxTurns: 60, cwd: ctx.dir, resume: resumeSessionId, ...(commands.preview && { preview: true }) });
   if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands } });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });
-  if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 500)}`);
+  if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 2000)}`);
   save(ctx, "prepare-patch", { sessionId: r.session, commands });
+  await ctx.tracker.mark(ticketRef(ctx), "implemented");
   return "next";
 }
 

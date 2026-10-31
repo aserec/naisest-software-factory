@@ -12,12 +12,13 @@ export type LoopResult =
   | { kind: "blocked"; rounds: number; open: string[] }
   | { kind: "limit" | "stopped"; rounds: number; sessionId: string }; // rounds: the round the limit or the stop came in
 
-// Runs fix. Returns a final result if the loop must stop, otherwise undefined.
-async function fixOrStop(deps: LoopDeps, feedback: string, rounds: number): Promise<LoopResult | undefined> {
-  const r = await deps.fix(feedback);
+// Runs fix on the open problems. Returns a final result if the loop must stop, otherwise undefined.
+// A failed fix keeps the problems in the result, so the person sees what the author was asked to fix.
+async function fixOrStop(deps: LoopDeps, open: string[], rounds: number): Promise<LoopResult | undefined> {
+  const r = await deps.fix(open.join("\n"));
   if (r.stopped) return { kind: "stopped", rounds, sessionId: r.session };
   if (r.limitHit) return { kind: "limit", rounds, sessionId: r.session };
-  if (!r.ok) return { kind: "blocked", rounds, open: [`author run failed: ${r.text.slice(0, 500)}`] };
+  if (!r.ok) return { kind: "blocked", rounds, open: [...open, `author run failed: ${r.text.slice(0, 2000)}`] };
   return undefined;
 }
 
@@ -28,7 +29,7 @@ export async function codeReviewLoop(deps: LoopDeps, maxRounds = 3, start = 1): 
     if (blocking.length === 0) return { kind: "passed", rounds: round };
     const lines = blocking.map((f) => (f.file ? `${f.file}: ${f.text}` : f.text));
     if (round >= maxRounds) return { kind: "blocked", rounds: round, open: blocking.map((f) => f.text) };
-    const stop = await fixOrStop(deps, lines.join("\n"), round);
+    const stop = await fixOrStop(deps, lines, round);
     if (stop) return stop;
   }
 }
@@ -45,7 +46,7 @@ export async function precommitGate(deps: LoopDeps, cmds: FactoryCommands, maxRo
     }
     if (!failed) return { kind: "passed", rounds: round };
     if (round >= maxRounds) return { kind: "blocked", rounds: round, open: [`${failed.cmd} failed:\n${failed.tail}`] };
-    const stop = await fixOrStop(deps, `${failed.cmd} failed:\n${failed.tail}`, round);
+    const stop = await fixOrStop(deps, [`${failed.cmd} failed:\n${failed.tail}`], round);
     if (stop) return stop;
   }
 }

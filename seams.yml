@@ -1,14 +1,14 @@
 tracker: gitlab
 codeHost: gitlab
 ci: gitlab
-judge: jev-berget
-chat: teams
+judge: model-call
+chat: console
 logSource: files
 dashboard: http
 # The dashboard's address, e.g. https://factory.<domain>. makeContext refuses the placeholder.
 dashboardUrl: REPLACE_WITH_DASHBOARD_URL
 # Used when judge is model-call.
-judgeModel: { provider: tensorx, model: tensorx-deepseek-small }
+judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
 providers:
   team-plan: { api: anthropic, keyEnv: CLAUDE_CODE_OAUTH_TOKEN, models: { claude-sonnet-5-5: claude, claude-opus-5-5: claude } }
-  tensorx: { api: openai, baseUrl: https://api.tensorx.ai/v1, keyEnv: TENSORX_API_KEY, models: { tensorx-deepseek-small: deepseek, tensorx-deepseek-large: deepseek } }
+  tensorx: { api: openai, baseUrl: https://api.tensorx.ai/v1, keyEnv: TENSORX_API_KEY, models: { deepseek/deepseek-v4.1-flash-1017: deepseek, z-ai/glm-5.3-flash: glm } }
