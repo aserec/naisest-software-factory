@@ -20,7 +20,7 @@ import { findSecrets } from "../rules";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
-import { BOT, B, PNG, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
+import { BOT, B, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -911,4 +911,35 @@ test("a does_not_match for a screen with no after image does not block", async (
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, images: { "before-list-1280.png": PNG }, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] }));
   expect(w.states).not.toContain("blocked");
   expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure", note: "no after image" }] });
+});
+
+// Spec 12: a change without proof goes to a person.
+const approvalReasons = (w: ReturnType<typeof fakeWorld>) => (w.record.steps.find((s) => s.step === "decision")?.data as any).reasons as string[];
+test("an unsure verdict sends the change to a person", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[{ ...reviewOf("unsure"), text: "cannot see the spinner" }]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain("screen list page: the reviewer is unsure: cannot see the spinner");
+});
+test("a visual change with no screens sends the change to a person", async () => {
+  const proof = { visual: true, screens: [], tests: [], note: "the dev server did not start" };
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof, factoryFile: PREVIEW, reviews: [[]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(approvalReasons(w).join("\n")).toContain("the dev server did not start");
+});
+test("a change with no visual part and a test that failed before and passed after merges on the existing rules", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }));
+  expect(w.finishTriggered).toBe(true);
+  expect(w.states).toEqual(["running"]);
+});
+test("the same change with no such test goes to a person", async () => {
+  const proof = { ...TEST_PROOF, tests: [{ ...TEST_PROOF.tests[0], before: { exit: 0, tail: "" } }] };
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof, reviews: [[]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(approvalReasons(w)).toContain("no test failed before the change and passed after it");
+});
+test("a change with no proof file goes to a person", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: null, reviews: [[]] }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(approvalReasons(w)).toContain("no proof: no run/proof/proof.json");
 });

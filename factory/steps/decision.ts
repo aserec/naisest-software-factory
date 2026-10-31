@@ -1,3 +1,4 @@
+import { proofReasons } from "../proof";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { RuleResult } from "../rules";
 import type { Ticket } from "../seams";
@@ -16,7 +17,8 @@ function decide(ctx: StepContext, ticket: Ticket): MergeDecision {
 function decideByChecks(ctx: StepContext): MergeDecision {
   const rc = data(ctx, "risk-check");
   const failedRules = (rc.rules as RuleResult[]).filter((r) => !r.passed).map((r) => `hard rule ${r.rule} failed: ${r.detail}`);
-  if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules] };
+  const proof = proofReasons(data(ctx, "code-review")?.proof, !!data(ctx, "prepare-patch").commands?.preview);
+  if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules, ...proof] };
   const d = decideMerge({
     triageRisk: data(ctx, "triage").outcome.risk,
     reviewPassed: data(ctx, "code-review")?.passed === true,
@@ -25,8 +27,9 @@ function decideByChecks(ctx: StepContext): MergeDecision {
     risk: rc.risk,
   });
   const row = modelRow(ctx);
-  if (d.kind === "auto" && !row.mayAutoMerge) return { kind: "needs_approval", reasons: [`the ${row.author.model} router row may not merge alone`] };
-  return d;
+  if (d.kind === "auto" && !row.mayAutoMerge) return { kind: "needs_approval", reasons: [`the ${row.author.model} router row may not merge alone`, ...proof] };
+  if (d.kind === "auto" && proof.length) return { kind: "needs_approval", reasons: proof };
+  return d.kind === "needs_approval" ? { ...d, reasons: [...d.reasons, ...proof] } : d;
 }
 
 export async function run(ctx: StepContext): Promise<StepResult> {

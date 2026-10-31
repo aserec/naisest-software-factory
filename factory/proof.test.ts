@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
-import { parseProof, proofPrompt, readImages, readProof, screenVerdicts } from "./proof";
+import { parseProof, proofPrompt, proofReasons, readImages, readProof, screenVerdicts } from "./proof";
 import type { Finding } from "./agents";
-import type { Proof } from "./proof";
+import type { Proof, ProofRecord } from "./proof";
+import { TEST_PROOF, VISUAL_PROOF as VISUAL } from "./steps/test-helpers";
 
 const VALID = {
   visual: true,
@@ -87,4 +88,35 @@ test("proofPrompt lists the manifest and the images in order, or why there is no
   expect(proofPrompt({ proof }, [])).toContain("No images are attached.");
   expect(proofPrompt({ proof }, [])).toContain('"list page"');
   expect(proofPrompt({ error: "no run/proof/proof.json" }, [])).toBe("No valid proof: no run/proof/proof.json");
+});
+
+// Spec 6.4: the reasons a change without proof goes to a person.
+const rec = (proof: Proof | undefined, over: Partial<ProofRecord> = {}): ProofRecord => ({ proof, verdicts: [], readsImages: true, reviewer: "pi/model-x", ...over });
+const VISUAL_PROOF: Proof = { ...VISUAL, screens: VISUAL.screens.map((s) => ({ ...s, isNew: false })) };
+const matches = [{ screen: "list page", verdict: "matches" as const, note: "ok" }];
+const passingTest = (before: number) => ({ ...TEST_PROOF.tests[0], before: { exit: before, tail: "" } });
+test("proofReasons: no record, or no valid proof, gives only the no proof reason", () => {
+  expect(proofReasons(undefined, true)).toEqual(["no proof: code review saved no proof"]);
+  expect(proofReasons(rec(undefined, { error: "no run/proof/proof.json" }), true)).toEqual(["no proof: no run/proof/proof.json"]);
+});
+test("proofReasons: a visual change with a preview and no screens", () => {
+  expect(proofReasons(rec({ visual: true, screens: [], tests: [], note: "the dev server did not start" }), true)).toEqual(["a visual change was expected but there are no screenshots: the dev server did not start"]);
+  expect(proofReasons(rec({ visual: true, screens: [], tests: [] }), true)).toEqual(["a visual change was expected but there are no screenshots: no reason given"]);
+});
+test("proofReasons: a reviewer that cannot read images judged no screen", () => {
+  expect(proofReasons(rec(VISUAL_PROOF, { readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure", note: "the reviewer cannot read images" }] }), true)).toEqual(["the reviewer pi/model-x cannot read images, so no screen was judged"]);
+});
+test("proofReasons: each unsure verdict, with or without a screen", () => {
+  const verdicts = [{ screen: "list page", verdict: "unsure" as const, note: "cannot see the spinner" }, { verdict: "unsure" as const, note: "odd" }];
+  expect(proofReasons(rec(VISUAL_PROOF, { verdicts }), true)).toEqual(["screen list page: the reviewer is unsure: cannot see the spinner", "the reviewer is unsure: odd"]);
+});
+test("proofReasons: a change with no visual part needs a test that failed before and passed after", () => {
+  expect(proofReasons(rec(TEST_PROOF), false)).toEqual([]);
+  expect(proofReasons(rec({ ...TEST_PROOF, tests: [passingTest(0)] }), false)).toEqual(["no test failed before the change and passed after it"]);
+  expect(proofReasons(rec({ ...TEST_PROOF, tests: [] }), true)).toEqual(["no test failed before the change and passed after it"]);
+});
+test("proofReasons: a visual change with a preview and matching screens needs no test", () => {
+  expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true)).toEqual([]);
+  expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), true)).toEqual([]);
+  expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), false)).toEqual(["no test failed before the change and passed after it"]);
 });

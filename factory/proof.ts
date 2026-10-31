@@ -95,3 +95,17 @@ export function screenVerdicts(findings: Finding[], proof: Proof | undefined, lo
   const whole = findings.filter((f) => !f.screen && (f.verdict === "unsure" || f.verdict === "does_not_match")).map((f): ScreenVerdict => ({ verdict: "unsure", note: f.text }));
   return [...screens, ...whole];
 }
+
+// Why a change has no proof a person can trust. Empty means the proof is enough.
+export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean): string[] {
+  const proof = r?.proof;
+  if (!r || !proof) return [`no proof: ${r?.error ?? "code review saved no proof"}`];
+  const reasons: string[] = [];
+  if (hasPreview && proof.visual && proof.screens.length === 0) reasons.push(`a visual change was expected but there are no screenshots: ${proof.note ?? "no reason given"}`);
+  if (proof.screens.length > 0 && !r.readsImages) reasons.push(`the reviewer ${r.reviewer} cannot read images, so no screen was judged`);
+  else {
+    for (const v of r.verdicts) if (v.verdict === "unsure") reasons.push(v.screen ? `screen ${v.screen}: the reviewer is unsure: ${v.note}` : `the reviewer is unsure: ${v.note}`);
+  }
+  if ((!hasPreview || !proof.visual) && !proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0)) reasons.push("no test failed before the change and passed after it");
+  return reasons;
+}
