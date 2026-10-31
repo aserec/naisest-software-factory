@@ -29,6 +29,9 @@ test("agents never get the GitLab token or another provider's key", () => {
   const env = { PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", FACTORY_GITLAB_TOKEN: "x", TEAMS_WEBHOOK_URL: "y", BERGET_API_KEY: "b", TENSORX_API_KEY: "tx", ANTHROPIC_API_KEY: "z", CLAUDE_CODE_OAUTH_TOKEN: "t" };
   expect(agentEnv(env, teamPlan)).toEqual({ PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", CLAUDE_CODE_OAUTH_TOKEN: "t" });
 });
+test("agents keep the browser path when it is set", () => {
+  expect(agentEnv({ PATH: "/bin", PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", CLAUDE_CODE_OAUTH_TOKEN: "t" }, teamPlan).PLAYWRIGHT_BROWSERS_PATH).toBe("/ms-playwright");
+});
 test("another Anthropic-style provider's key is passed as ANTHROPIC_API_KEY with its base URL", () => {
   const p: Provider = { name: "gw", api: "anthropic", baseUrl: "https://gw.example", keyEnv: "GW_KEY", models: {} };
   expect(agentEnv({ PATH: "/bin", GW_KEY: "k", CLAUDE_CODE_OAUTH_TOKEN: "t", FACTORY_GITLAB_TOKEN: "g" }, p)).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "k", ANTHROPIC_BASE_URL: "https://gw.example" });

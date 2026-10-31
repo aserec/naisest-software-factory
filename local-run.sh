@@ -29,7 +29,8 @@ fi
 for step in "${steps[@]}"; do
   echo "== $step"
   printf %s "$GL_TOKEN" > "$secrets/gl" # the step reads the file and deletes it
-  env -i PATH="$PATH" HOME="$HOME" CI_SERVER_URL=https://gitlab.example.com \
+  # Chromium for the screenshots, installed once with: (cd react_frontend/apps/web && pnpm exec playwright install chromium)
+  env -i PATH="$PATH" HOME="$HOME" PLAYWRIGHT_BROWSERS_PATH="$HOME/Library/Caches/ms-playwright" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_PIPELINE=build FACTORY_TARGET=react_frontend \
     FACTORY_WORK_ITEM_IID="$iid" FACTORY_GITLAB_TOKEN="$secrets/gl" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
     node --import tsx "factory/steps/$step.ts"

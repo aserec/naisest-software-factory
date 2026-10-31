@@ -37,6 +37,8 @@ Store each one as a masked, protected CI variable.
   - Runner tag: `factory`. Every job in `.gitlab-ci.yml` must use it.
 - `runner/cloud-init.yml`: installs Docker on each new VM and lets user namespaces keep their capabilities. Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
 
+- `runner/Dockerfile` also installs Chromium in `/ms-playwright`, for the before and after screenshots. Manual follow-up: after this merges to main, the `job-image` job prints the image digest. Put it in the `.factory` image of `.gitlab-ci.yml` and in `jobImage` of `targets/react_frontend.yml` in one reviewed change (`compose.ts` needs them equal). Until then CI has no Chromium, so every visual change in CI goes to a person.
+
 ### Hetzner Cloud firewall
 
 Attach a firewall to the runner VMs (for example by label):

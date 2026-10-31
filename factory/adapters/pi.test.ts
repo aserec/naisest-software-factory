@@ -40,6 +40,11 @@ test("Pi env holds only the allowed keys and the provider key", () => {
   expect(Object.keys(e).sort()).toEqual(["HOME", "PATH", "PI_CODING_AGENT_DIR", "PI_SKIP_VERSION_CHECK", "PI_TELEMETRY", "TENSORX_API_KEY"]);
 });
 
+test("Pi env keeps the browser path when it is set", () => {
+  const e = agentEnv({ PATH: "/bin", PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
+  expect(e.PLAYWRIGHT_BROWSERS_PATH).toBe("/ms-playwright");
+});
+
 // --- the harness itself, against a fake `pi` program on PATH ---
 const origPath = process.env.PATH;
 afterEach(() => { process.env.PATH = origPath; fake.srt = ""; vi.unstubAllEnvs(); });
@@ -122,6 +127,11 @@ test("pi sandbox settings: the shared read denies, the provider host, writes onl
   expect(s.filesystem.allowWrite).toEqual(["/w/run/target", "/w/run/pi-home", "/tmp"]);
   expect(s.network.allowedDomains).toContain("t.example");
   expect(s.network.allowedDomains).toContain("registry.npmjs.org");
+});
+test("pi sandbox settings: the preview flag allows local binding", () => {
+  vi.stubEnv("FACTORY_PNPM_STORE", ""); // unset: the store case stays off
+  expect((piSandboxSettings("/w/run/target", "/w/run/pi-home", tensorx, true) as any).network.allowLocalBinding).toBe(true);
+  expect((piSandboxSettings("/w/run/target", "/w/run/pi-home", tensorx, false) as any).network.allowLocalBinding).toBeUndefined();
 });
 test("a provider with no base URL adds no host", () => {
   const s: any = piSandboxSettings("/w/run/target", "/w/run/pi-home", { ...tensorx, baseUrl: undefined });

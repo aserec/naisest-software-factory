@@ -885,6 +885,15 @@ test("the reviewer gets the screenshots and the verdicts are saved", async () =>
   expect(job.prompt).toContain("</proof>");
   expect(reviewData(w).proof.verdicts).toEqual([{ screen: "list page", verdict: "matches", note: "no spinner" }]);
 });
+test("the author gets the preview flag only when the target has a preview", async () => {
+  const jobs = async (factoryFile?: string) => (await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, factoryFile, reviews: [[B], []] }))).harness.jobs.filter((j) => j.role === "author");
+  const withPreview = await jobs(PREVIEW);
+  expect(withPreview.find((j) => !j.resume)?.preview).toBe(true);
+  expect(withPreview.find((j) => j.resume)?.preview).toBe(true);
+  const without = await jobs();
+  expect(without.find((j) => j.resume)).toBeDefined();
+  expect(without.every((j) => !j.preview)).toBe(true);
+});
 test("a reviewer model that does not read images gets none, and every screen is unsure", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
   w.ctx.seams.providers.tensorx.images = [];

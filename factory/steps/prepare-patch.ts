@@ -20,7 +20,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const stop = await install(ctx, commands);
   if (stop) return stop;
   const text = resumeSessionId ? CONTINUE : `${prompt("prepare")}\n\n${ticketText(ctx)}`;
-  const r = await agent(ctx, "author", modelRow(ctx).author, { tools: "code", prompt: text, maxTurns: 60, cwd: ctx.dir, resume: resumeSessionId });
+  const r = await agent(ctx, "author", modelRow(ctx).author, { tools: "code", prompt: text, maxTurns: 60, cwd: ctx.dir, resume: resumeSessionId, ...(commands.preview && { preview: true }) });
   if (r.stopped) return stopped(ctx, "prepare-patch", r.session, { commands });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });
   if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 2000)}`);

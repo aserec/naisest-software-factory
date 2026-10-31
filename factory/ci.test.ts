@@ -11,7 +11,7 @@ const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gat
 const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const passed = (name: string) => `${name}="$${name}"`;
 const STEP_PREFIX = [
-  "env -i", PATH, "HOME=/root", 'CLAUDE_CONFIG_DIR="$PWD/run/claude-home"',
+  "env -i", PATH, "HOME=/root", 'CLAUDE_CONFIG_DIR="$PWD/run/claude-home"', "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright",
   ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE", "CI_PIPELINE_SOURCE"].map(passed),
   ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY", "FACTORY_SCHEDULE"].map(passed),
   // File variables: only their paths pass.
@@ -34,11 +34,11 @@ test("every factory job starts its step through the env -i allowlist", () => {
 test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {
   const out = execFileSync("bash", ["-c", `${STEP_PREFIX} /usr/bin/env`], {
     encoding: "utf8",
-    env: { PATH: "/evil:/usr/bin:/bin", NODE_OPTIONS: "--require /evil.js", npm_config_registry: "https://evil", FACTORY_HOOKS_DIR: "/evil", FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" },
+    env: { PATH: "/evil:/usr/bin:/bin", NODE_OPTIONS: "--require /evil.js", npm_config_registry: "https://evil", FACTORY_HOOKS_DIR: "/evil", PLAYWRIGHT_BROWSERS_PATH: "/evil", FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" },
   });
   const env = Object.fromEntries(out.trim().split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
   expect(env.PATH).toBe(PATH.slice(5));
-  expect(env).toMatchObject({ FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" });
+  expect(env).toMatchObject({ PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" });
   for (const k of ["NODE_OPTIONS", "npm_config_registry", "FACTORY_HOOKS_DIR"]) expect(env[k]).toBeUndefined();
 });
 

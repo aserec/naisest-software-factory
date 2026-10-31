@@ -36,7 +36,7 @@ export function runCommand(cmd: string, args: string[], env: NodeJS.ProcessEnv, 
 // The settings the agent runs with: the factory file, a hook from a fixed absolute dir, Read denies for the config dir,
 // and the same sandbox read denies as install and gate commands. cwd is the target clone.
 // With an inbox file, a second hook hands new ticket comments to the agent after every tool call (see adapters/claude-inbox-hook.ts).
-export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string): any {
+export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false): any {
   const settings = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
   const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
   settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: quote(`${hooksDir}/deny-dangerous.sh`) }] }] };
@@ -44,6 +44,7 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
   if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
   settings.sandbox.filesystem.denyRead = sandboxDenyRead(cwd);
+  if (preview) settings.sandbox.network.allowLocalBinding = true; // the author starts the target's dev server
   return settings;
 }
 

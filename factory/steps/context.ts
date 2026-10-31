@@ -149,7 +149,8 @@ export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, jo
 export function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
   const resume = session(ctx);
   if (!resume) throw new Error("The run record has no author session to fix");
-  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30 });
+  const preview = !!data(ctx, "prepare-patch")?.commands?.preview;
+  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) });
 }
 
 // Polls a status for up to an hour. Still "running" after that counts as not done.

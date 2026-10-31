@@ -25,16 +25,16 @@ export const piArgs = (provider: string, model: string, prompt: string, files: s
 
 // Nothing secret except the provider key, which Pi reads through models.json. No Claude token, no GitLab token.
 export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider, dir: string): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv], pnpm_config_store_dir: env.FACTORY_PNPM_STORE };
+  const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv], pnpm_config_store_dir: env.FACTORY_PNPM_STORE, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH };
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
 
 // The author's sandbox: the gate sandbox plus the provider's host. Pi reads and writes its own home, which is otherwise denied.
-export function piSandboxSettings(cwd: string, home: string, provider: Provider) {
+export function piSandboxSettings(cwd: string, home: string, provider: Provider, preview = false) {
   const s = sandboxSettings(cwd, home, process.env.FACTORY_PNPM_STORE); // set on local runs only
   const host = provider.baseUrl ? new URL(provider.baseUrl).hostname : undefined;
   return {
-    network: { ...s.network, allowedDomains: host ? [...s.network.allowedDomains, host] : s.network.allowedDomains },
+    network: { ...s.network, allowedDomains: host ? [...s.network.allowedDomains, host] : s.network.allowedDomains, ...(preview && { allowLocalBinding: true }) }, // preview: the author starts the target's dev server
     filesystem: { ...s.filesystem, allowRead: [home] },
   };
 }
@@ -74,7 +74,7 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     mkdirSync(home, { recursive: true });
     writeFileSync(join(home, "models.json"), JSON.stringify(piModels(job.model)));
     const settings = join(tmp, "srt-settings.json"); // srt reads it once, before the command starts
-    writeFileSync(settings, JSON.stringify(piSandboxSettings(job.cwd, home, job.model.provider)));
+    writeFileSync(settings, JSON.stringify(piSandboxSettings(job.cwd, home, job.model.provider, job.preview)));
     const args = [
       "--print", "--mode", "json", "--no-extensions", "--extension", EXTENSION, "--no-skills", "--no-prompt-templates",
       "--no-context-files", "--no-mcp", "--provider", job.model.provider.name, "--model", job.model.model,

@@ -99,7 +99,7 @@ export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEn
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
 export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
-export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[] } // images: PNGs for the reviewer, in the order the prompt lists them
+export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost
 // `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
 export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number }; text: string }
 export interface Harness { readonly apis: ApiStyle[]; readonly images: boolean; run(job: HarnessJob): Promise<HarnessResult> }

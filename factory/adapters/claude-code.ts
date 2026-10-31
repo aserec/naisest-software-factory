@@ -23,7 +23,7 @@ export function buildClaudeArgs(r: ClaudeRun & { tools?: "code" | "none" }, sett
 export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.ProcessEnv {
   const oauth = provider.keyEnv === "CLAUDE_CODE_OAUTH_TOKEN";
   const out: NodeJS.ProcessEnv = {
-    ...Object.fromEntries(["PATH", "HOME", "LANG", "CLAUDE_CONFIG_DIR"].map((k) => [k, env[k]])),
+    ...Object.fromEntries(["PATH", "HOME", "LANG", "CLAUDE_CONFIG_DIR", "PLAYWRIGHT_BROWSERS_PATH"].map((k) => [k, env[k]])),
     [oauth ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"]: env[provider.keyEnv],
     ...(!oauth && provider.baseUrl ? { ANTHROPIC_BASE_URL: provider.baseUrl } : {}),
   };
@@ -70,7 +70,7 @@ export const claudeCode: Harness = {
       const path = join(dir, "settings.json");
       // The inbox file sits in the settings dir, outside the clone, so the agent's own commands cannot write to it.
       const inboxFile = job.inbox ? join(dir, "inbox.jsonl") : undefined;
-      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile)));
+      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview)));
       if (job.inbox && inboxFile) pump = pumpInbox(job.inbox, inboxFile);
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools };
       const { code, out, err } = await runCommand("claude", buildClaudeArgs(run, path), agentEnv(process.env, job.model.provider), cwd);

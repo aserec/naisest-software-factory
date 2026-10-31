@@ -8,5 +8,13 @@ RUN apt-get update \
 # npm puts both CLIs in /usr/local/bin, which is on the fixed PATH of every factory command.
 RUN npm install -g @anthropic-ai/claude-code@2.1.316 @earendil-works/pi-coding-agent@1.4.0 \
  && npm cache clean --force
+# Chromium for the before and after screenshots. Keep this version equal to playwright in react_frontend/apps/web/package.json: bump both together.
+# The screenshot line fails the build if the browser cannot start. /ms-playwright must be readable by every user the job runs as.
+RUN PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx -y playwright@1.62.1 install --with-deps chromium \
+ && PLAYWRIGHT_BROWSERS_PATH=/ms-playwright npx -y playwright@1.62.1 screenshot about:blank /tmp/check.png \
+ && rm /tmp/check.png \
+ && chmod -R a+rX /ms-playwright \
+ && npm cache clean --force \
+ && rm -rf /var/lib/apt/lists/*
 # The build fails here if a tool is missing.
 RUN claude --version && pi --version && jq --version && bwrap --version && rg --version && socat -V >/dev/null && unzip -v >/dev/null
