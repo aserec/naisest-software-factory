@@ -42,6 +42,7 @@ The work fails, even if it runs, if any of these hold:
 - **A false pass.** The reviewer answers `matches` for a screen that does not show what the ticket asked, and the change merges without a person. The user named this as the failure they fear most. Every unclear case must go to a person.
 - An agent writes to GitLab. Agents save files. Factory scripts upload images and write the description, as they do for every other write.
 - A missing screenshot, a dev server that does not start or a browser crash blocks the run. These cases send the change to a person with a reason. They never stop the build.
+- A failed image upload blocks the run. The script tries each upload again up to 3 times. If every try fails, it still opens the change, writes "image upload failed" in the "Proof" section and sends the change to a person with that reason (user answer on the plan).
 - Screenshot code leaks into the steps as tool words, such as `playwright` or `chromium`. The steps see proof files and verdicts only.
 
 ## 5. Decisions the user made
