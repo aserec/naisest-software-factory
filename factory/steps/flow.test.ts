@@ -17,6 +17,7 @@ import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type Mark } from "../seams";
 import type { RunRecord } from "../record";
 import { findSecrets } from "../rules";
+import { DIFF } from "../fakes";
 import * as decision from "./decision";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
@@ -196,6 +197,67 @@ test("apply does not merge a change that targets another branch than the base br
   expect(w.merged).toBe(false);
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain("targets master, not develop");
+});
+
+// Spec 6.4: rebase before an auto merge.
+test("a change behind develop is rebased, checked on the rebased head, then merged", async () => {
+  const w = fakeWorld({ behind: 1 });
+  const seen: string[] = [];
+  const checks = w.host.checks;
+  w.host.checks = async (at) => (seen.push(at.sha), checks(at));
+  await runFinishPipeline(w);
+  expect(w.host.rebases).toBe(1);
+  expect(w.mergedSha).toBe("head5-r1");
+  expect(seen).toEqual(["head5-r1", "manual789"]); // apply checks only the rebased head; verify checks the landed commit
+  expect(w.record.steps.find((s) => s.step === "apply")?.data).toMatchObject({ sha: "manual789", reviewed: "head5", rebased: ["head5-r1"] });
+});
+test("a merge that develop outran is rebased again, then merged", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 2 }));
+  expect(w.host.rebases).toBe(2);
+  expect(w.mergedSha).toBe("head5-r2");
+});
+test("after 3 rebases when develop keeps moving, a person rebases and merges", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 4 }));
+  expect(w.host.rebases).toBe(3);
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrComments.at(-1)).toContain("fell behind develop again after 3 rebases");
+  expect(w.assigned).toBe(true);
+});
+test("a failed rebase sends the change to a person to rebase and merge", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 1, rebaseFails: true }));
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrComments.at(-1)).toContain("Rebase failed: conflict in src/List.tsx");
+  expect(w.mrComments.at(-1)).toContain("Rebase it by hand and merge it");
+  expect(w.assigned).toBe(true);
+  expect(w.cards.map((c) => c.kind)).toContain("needs_approval");
+});
+test("a rebased change whose added or removed lines differ from the reviewed one is not merged", async () => {
+  for (const diffs of [
+    { "head5-r1": { "src/List.tsx": `${DIFF["src/List.tsx"]}+  sendToServer();\n` } },
+    { "head5-r1": { ...DIFF, "src/Other.tsx": "@@ -0,0 +1 @@\n+export const x = 1;\n" } },
+    { "head5-r1": {} },
+  ] as WorldOptions["diffs"][]) {
+    const w = await runFinishPipeline(fakeWorld({ behind: 1, diffs }));
+    expect(w.merged).toBe(false);
+    expect(w.workItemComments.at(-1)).toContain("is not the change that was reviewed");
+  }
+});
+test("a rebase that only moves the context around the changed lines still merges", async () => {
+  const w = await runFinishPipeline(fakeWorld({ behind: 1, diffs: { "head5-r1": { "src/List.tsx": "@@ -9,2 +9,3 @@\n const other = 2;\n+  if (loading) return <Spinner />;\n" } } }));
+  expect(w.mergedSha).toBe("head5-r1");
+});
+test("apply does not merge a branch someone pushed to after the review", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mrHead: "pushed1" }));
+  expect(w.merged).toBe(false);
+  expect(w.workItemComments.at(-1)).toContain("Someone pushed to change 5");
+});
+test("a merge GitLab refuses for another reason is not retried", async () => {
+  const w = fakeWorld();
+  w.host.merge = async () => { throw new Error("GitLab PUT /projects/1/merge_requests/5/merge failed with status 405"); };
+  await expect(runFinishPipeline(w)).rejects.toThrow("status 405");
+  expect(w.host.rebases).toBe(0);
 });
 
 // Re-run.

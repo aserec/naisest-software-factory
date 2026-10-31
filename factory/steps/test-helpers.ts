@@ -62,6 +62,10 @@ export interface WorldOptions {
   proof?: unknown; // run/proof/proof.json: the manifest object or raw text; null for no file
   images?: Record<string, Buffer>; // files in run/proof/; default a PNG for every image the manifest names
   attachFails?: number; // the first n image uploads fail
+  mrHead?: string; // the change's head; default the reviewed head5
+  behind?: number; // how many times develop moves ahead of the change
+  rebaseFails?: boolean;
+  diffs?: Record<string, Record<string, string>>; // the change's diff by sha; any other sha gets DIFF
 }
 
 export const COMMIT: CommitMessage = {
@@ -87,13 +91,16 @@ export function fakeWorld(o: WorldOptions = {}) {
   const host = fakeCodeHost({
     baseBranch: o.baseBranch,
     target: o.mrTarget,
-    head: "head5",
+    head: o.mrHead ?? "head5",
     landedSha: "manual789",
     existing: o.existingMr,
     merged: o.mrState === "merged",
     changeChecks: CHECKS[o.mrPipeline ?? "success"],
     branchChecks: CHECKS[o.mainPipeline ?? "success"],
     attachFails: o.attachFails,
+    behind: o.behind,
+    rebaseFails: o.rebaseFails,
+    diffs: o.diffs,
   });
   // Merging closes the ticket, as "Closes #8" does.
   const merge = host.merge;

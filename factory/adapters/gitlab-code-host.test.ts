@@ -16,13 +16,16 @@ const fakeFetch = (async (url: string, init: RequestInit) => {
   return new Response(JSON.stringify(body ?? {}), { status: hit === undefined ? 404 : 200 });
 }) as unknown as typeof fetch;
 const last = () => calls[calls.length - 1];
-const host = () => makeGitLabCodeHost(new GitLab("https://gl.example", "tok", fakeFetch), PATH, "tok", {}, "develop");
+// The real 5 s sleep would stall every rebase test.
+let slept: number[] = [];
+const host = () => makeGitLabCodeHost(new GitLab("https://gl.example", "tok", fakeFetch), PATH, "tok", {}, "develop", async (ms: number) => void slept.push(ms));
 const mr = (o: object = {}) => ({ iid: 5, state: "opened", target_branch: "develop", description: "D", sha: "h", merge_commit_sha: null, squash_commit_sha: null, web_url: "u5", ...o });
 // A quick action runs from any line that starts with "/".
 const quickAction = /^\s*\//m;
 
 beforeEach(() => {
   calls = [];
+  slept = [];
   routes = {
     [`/projects/${encodeURIComponent(PATH)}`]: { id: 7, default_branch: "master" },
     "/user": { id: 1, username: "factory-bot" },
@@ -77,11 +80,61 @@ describe("openChange", () => {
 describe("change", () => {
   test("maps state, head, landed commit, url and body", async () => {
     routes["/projects/7/merge_requests/5"] = mr({ description: null });
-    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", body: "", target: "develop" });
+    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", body: "", target: "develop", behind: false });
     routes["/projects/7/merge_requests/5"] = mr({ state: "merged", merge_commit_sha: "m" });
     expect(await host().change("5")).toMatchObject({ open: false, merged: true, landedSha: "m" });
     routes["/projects/7/merge_requests/5"] = mr({ state: "closed", squash_commit_sha: "sq" });
     expect(await host().change("5")).toMatchObject({ open: false, merged: false, landedSha: "sq" });
+  });
+  test("asks for the diverged count: a branch with target commits it lacks is behind", async () => {
+    routes["/projects/7/merge_requests/5"] = mr({ diverged_commits_count: 0 });
+    expect((await host().change("5")).behind).toBe(false);
+    expect(calls.at(-1)!.url).toBe("/projects/7/merge_requests/5?include_diverged_commits_count=true");
+    routes["/projects/7/merge_requests/5"] = mr({ diverged_commits_count: 2 });
+    expect((await host().change("5")).behind).toBe(true);
+  });
+});
+
+describe("rebase", () => {
+  const POLL = "/projects/7/merge_requests/5?include_rebase_in_progress=true";
+  // The change answers in order, and keeps the last answer.
+  const answers = (...a: object[]) => (routes["GET /projects/7/merge_requests/5"] = () => (a.length > 1 ? a.shift() : a[0]));
+  test("asks GitLab to rebase, waits while it runs, and returns the new head", async () => {
+    routes["PUT /projects/7/merge_requests/5/rebase"] = { rebase_in_progress: true };
+    answers({ rebase_in_progress: true }, { rebase_in_progress: true }, { rebase_in_progress: false, sha: "h2", merge_error: null });
+    expect(await host().rebase("5")).toEqual({ ok: true, head: "h2" });
+    expect(calls.filter((c) => c.method === "PUT").map((c) => c.url)).toEqual(["/projects/7/merge_requests/5/rebase"]);
+    const polls = calls.filter((c) => c.method === "GET" && c.url.startsWith("/projects/7/merge_requests/5"));
+    expect(polls.map((c) => c.url)).toEqual([POLL, POLL, POLL]);
+    expect(slept).toEqual([5000, 5000, 5000]);
+  });
+  test("a rebase that ends with a merge error fails with that error", async () => {
+    routes["PUT /projects/7/merge_requests/5/rebase"] = { rebase_in_progress: true };
+    answers({ rebase_in_progress: false, sha: "h", merge_error: "Rebase failed: conflict in src/a.ts" });
+    expect(await host().rebase("5")).toEqual({ ok: false, error: "Rebase failed: conflict in src/a.ts" });
+  });
+  test("a rebase GitLab refuses fails, and so does one still running after 60 polls", async () => {
+    answers({ rebase_in_progress: false, sha: "h2", merge_error: null });
+    expect(await host().rebase("5")).toEqual({ ok: false, error: expect.stringMatching(/status 404/) });
+    expect(slept).toEqual([]);
+    routes["PUT /projects/7/merge_requests/5/rebase"] = { rebase_in_progress: true };
+    answers({ rebase_in_progress: true });
+    expect(await host().rebase("5")).toEqual({ ok: false, error: "the rebase did not end within 5 minutes" });
+    expect(slept).toEqual(Array(60).fill(5000));
+  });
+});
+
+describe("branchDiff", () => {
+  test("returns each file's diff against the base branch from their merge base", async () => {
+    routes["/projects/7/repository/compare"] = { diffs: [{ old_path: "src/a.ts", new_path: "src/b.ts", diff: "@@ -1 +1 @@\n-a\n+b\n" }] };
+    expect(await host().branchDiff("abc")).toEqual({ "src/b.ts": "@@ -1 +1 @@\n-a\n+b\n" });
+    expect(last().url).toBe("/projects/7/repository/compare?from=develop&to=abc");
+  });
+  test("a cut-off diff fails instead of reading as no change", async () => {
+    for (const cut of [{ compare_timeout: true, diffs: [] }, { diffs: [{ new_path: "a", diff: "", too_large: true }] }, { diffs: [{ new_path: "a", diff: "", collapsed: true }] }]) {
+      routes["/projects/7/repository/compare"] = cut;
+      await expect(host().branchDiff("abc")).rejects.toThrow(/cut off/);
+    }
   });
 });
 

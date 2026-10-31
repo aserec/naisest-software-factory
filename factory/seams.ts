@@ -60,7 +60,7 @@ export interface Repo {
 }
 
 export type Checks = "green" | "red" | "running" | "none";
-export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; body: string; target: string }
+export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
 export interface CodeHost {
   baseBranch(): Promise<string>;
   cloneAt(dir: string): Repo;
@@ -68,6 +68,8 @@ export interface CodeHost {
   change(ref: ChangeRef): Promise<Change>;
   checks(at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks>;
   merge(ref: ChangeRef, sha: string, message: string): Promise<string>;
+  rebase(ref: ChangeRef): Promise<{ ok: true; head: string } | { ok: false; error: string }>; // onto the base branch; returns when the rebase ends
+  branchDiff(sha: string): Promise<Record<string, string>>; // each file's diff of sha against the base branch, from their merge base; throws on a cut-off diff
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;

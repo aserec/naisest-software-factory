@@ -94,6 +94,11 @@ test("merge squashes with the given message and returns the commit that landed",
   fakeResponse({ merge_commit_sha: "m1", sha: "head" });
   expect(await gl.merge(1, 2, "head", "[AM] feat(list): x")).toBe("m1");
 });
+test("rebaseMergeRequest asks GitLab to rebase the MR", async () => {
+  await gl.rebaseMergeRequest(1, 2);
+  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/rebase");
+  expect(last().init.method).toBe("PUT");
+});
 test("MR comments start with the AI line and refuse secrets", async () => {
   await gl.commentMergeRequest(1, 2, "Reasons");
   expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/notes");

@@ -34,7 +34,7 @@ function decideByChecks(ctx: StepContext): MergeDecision {
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  const { change, changeUrl, branch } = data(ctx, "precommit-gate");
+  const { change, branch } = data(ctx, "precommit-gate");
   // A run continued after the gate job: the change still names the run that opened it. An approval must load this run's record.
   if (["risk-check", "decision"].includes(data(ctx, "event")?.resumeAt)) {
     const { title, body } = changeText(ctx);
@@ -54,10 +54,18 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     await ctx.ci.start({ kind: "finish", ticket: ref, change, buildRun: ctx.ci.vars.run });
     return "next";
   }
+  return askPerson(ctx, d.reasons);
+}
+
+// Send the change to a person to review and merge: state, a comment with the reasons on the change, the assignee and a card.
+export async function askPerson(ctx: StepContext, reasons: string[]): Promise<StepResult> {
+  const ref = ticketRef(ctx);
+  const { change, changeUrl } = data(ctx, "precommit-gate");
+  const ticket = await ctx.tracker.ticket(ref);
   await ctx.tracker.setState(ref, "needs_approval");
-  await ctx.codeHost.commentChange(change, `This change needs a person to review and merge it:\n\n${d.reasons.map((r) => `- ${r}`).join("\n")}`);
+  await ctx.codeHost.commentChange(change, `This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`);
   await ctx.codeHost.assignChange(change, person(ctx, ticket));
-  await notify(ctx, "needs_approval", d.reasons, changeUrl);
+  await notify(ctx, "needs_approval", reasons, changeUrl);
   return "stop";
 }
 

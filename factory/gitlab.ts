@@ -163,6 +163,11 @@ export class GitLab {
     return (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string;
   }
 
+  // Starts a rebase of the MR onto its target branch. It runs in the background: the MR shows rebase_in_progress.
+  async rebaseMergeRequest(projectId: number, mrIid: number): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}/rebase`);
+  }
+
   // Branch-ref queries miss merge request pipelines, so read the MR's own list (newest first).
   // Only a pipeline for headSha counts: a green pipeline of an older commit says nothing about this one.
   async mergeRequestPipelineStatus(projectId: number, mrIid: number, headSha: string): Promise<"success" | "failed" | "running"> {

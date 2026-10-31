@@ -2,7 +2,7 @@ import { AI_LINE, GitLab, GITLAB_URL } from "../gitlab";
 import { gitRepo } from "../steps/repo";
 import type { Checks, CodeHost } from "../seams";
 
-export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string): CodeHost {
+export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
   let project: Promise<{ id: number }> | undefined;
   const proj = () => (project ??= gitlab.getProject(projectPath));
   const projectId = async () => (await proj()).id;
@@ -17,10 +17,10 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       return opened(await gitlab.upsertMergeRequest(await projectId(), branch, baseBranch, title, text));
     },
     async change(ref) {
-      const m = await gitlab.getJson(await mrUrl(ref));
+      const m = await gitlab.getJson(`${await mrUrl(ref)}?include_diverged_commits_count=true`);
       return {
         ref, open: m.state === "opened", merged: m.state === "merged", head: m.sha, url: m.web_url, body: m.description ?? "", target: m.target_branch,
-        landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha,
+        landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha, behind: (m.diverged_commits_count ?? 0) > 0,
       };
     },
     async checks(at): Promise<Checks> {
@@ -34,6 +34,26 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     },
     async merge(ref, sha, message) {
       return gitlab.merge(await projectId(), Number(ref), sha, message);
+    },
+    async rebase(ref) {
+      try {
+        await gitlab.rebaseMergeRequest(await projectId(), Number(ref));
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+      for (let i = 0; i < 60; i++) {
+        await sleep(5000);
+        const m = await gitlab.getJson(`${await mrUrl(ref)}?include_rebase_in_progress=true`);
+        if (!m.rebase_in_progress) return m.merge_error ? { ok: false, error: m.merge_error } : { ok: true, head: m.sha };
+      }
+      return { ok: false, error: "the rebase did not end within 5 minutes" };
+    },
+    async branchDiff(sha) {
+      const c = await gitlab.getJson(`/projects/${await projectId()}/repository/compare?from=${encodeURIComponent(baseBranch)}&to=${sha}`);
+      const diffs: { new_path: string; diff: string; too_large?: boolean; collapsed?: boolean }[] = c.diffs;
+      // A cut-off diff would read as fewer changed lines.
+      if (c.compare_timeout || diffs.some((d) => d.too_large || d.collapsed)) throw new Error(`The diff of ${sha} is cut off, so the factory cannot compare it`);
+      return Object.fromEntries(diffs.map((d) => [d.new_path, d.diff]));
     },
     async revert(sha) {
       return opened(await gitlab.revertMerge(await projectId(), sha, baseBranch));
