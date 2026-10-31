@@ -9,3 +9,4 @@ dist/
 
 # graft local graph cache, regenerable (run `graft build`)
 /graft/
+.cache/

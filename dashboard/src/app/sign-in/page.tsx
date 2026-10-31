@@ -1,4 +1,4 @@
-import { REFUSAL, signIn } from "@/server/auth";
+import { DEV_LOGIN, REFUSAL, signIn } from "@/server/auth";
 
 const messages: Record<string, string> = {
   role: REFUSAL,
@@ -26,6 +26,19 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<{
           Sign in with GitLab
         </button>
       </form>
+      {DEV_LOGIN && (
+        <form
+          className="mt-2"
+          action={async () => {
+            "use server";
+            await signIn("dev", { redirectTo: "/" });
+          }}
+        >
+          <button type="submit" className="rounded border px-4 py-2">
+            Dev sign-in (no GitLab)
+          </button>
+        </form>
+      )}
     </main>
   );
 }
