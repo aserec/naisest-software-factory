@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Finding } from "../agents";
+import { PROOF_DIR, PROOF_FILE } from "../proof";
 import { loadRouter, loadSeams, loadTarget } from "../config";
 import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
 import { addStep, newRecord } from "../record";
@@ -21,6 +22,15 @@ import * as verify from "./verify";
 import * as resultSaved from "./result-saved";
 
 export const B: Finding = { blocking: true, file: "src/List.tsx", text: "the list never shows the spinner" };
+
+export const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+const TEST = { name: "list-spinner", command: "pnpm test:unit", before: { exit: 1, tail: "1 failed" }, after: { exit: 0, tail: "1 passed" } };
+export const TEST_PROOF = { visual: false, screens: [], tests: [TEST] };
+export const VISUAL_PROOF = {
+  visual: true,
+  screens: [{ name: "list page", reach: "http://localhost:3000/list", width: 1280, before: "before-list-1280.png", after: "after-list-1280.png" }],
+  tests: [TEST],
+};
 
 type Status = "success" | "failed" | "running" | "none";
 export interface WorldOptions {
@@ -47,6 +57,8 @@ export interface WorldOptions {
   mainPipeline?: Status;
   defaultBranch?: string;
   title?: string; // the ticket title
+  proof?: unknown; // run/proof/proof.json: the manifest object or raw text; null for no file
+  images?: Record<string, Buffer>; // files in run/proof/; default a PNG for every image the manifest names
 }
 
 export const BOT = FAKE_FACTORY;
@@ -107,22 +119,30 @@ export function fakeWorld(o: WorldOptions = {}) {
   const ran: string[] = [];
   let lintFails = o.lintFails ?? 0;
   let commitMessage = "";
+  const proof = o.proof === undefined ? TEST_PROOF : o.proof;
+  const proofText = proof === null ? undefined : typeof proof === "string" ? proof : JSON.stringify(proof);
+  const names = ((proof as any)?.screens ?? []).flatMap((s: any) => [s.before, s.after]).filter(Boolean);
+  const images = o.images ?? Object.fromEntries(names.map((n: string) => [n, PNG]));
   const repo: Repo = {
     clone: async () => {},
     diff: async () => ({ text: o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
     run: async (cmd) => (ran.push(cmd), { ok: o.gate !== "red" && !(cmd === "pnpm lint" && lintFails-- > 0), output: `ran ${cmd}` }),
+    readBytes: (path) => (path.startsWith(PROOF_DIR) ? images[path.slice(PROOF_DIR.length)] : undefined),
     commitAndPush: async (_b, message) => ((commitMessage = message), "head5"),
     readFile: (path) =>
-      path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : undefined,
+      path === PROOF_FILE ? proofText : path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : undefined,
   };
   const seams = loadSeams();
+  // The router's reviewer reads images in these tests, whatever seams.yml lists.
+  const router = loadRouter(undefined, seams);
+  seams.providers.tensorx.images = [router.low.reviewer.model];
   const ctx: StepContext = {
     tracker, codeHost: host, ci, judge, chat,
     harnesses: { "claude-code": harness, pi: harness },
     seams,
     record: newRecord(),
     target: loadTarget("react_frontend", { defaultApprover: "approver" }),
-    router: loadRouter(undefined, seams),
+    router,
     dir: "/fake/run/target",
     repo,
     sleep: async () => {},

@@ -131,3 +131,20 @@ test("only the root run/ dir is left out of the change; src/run/ is code", async
   expect(d.numstat).toContain("src/run/job.ts");
   expect(d.numstat).not.toContain("test-changes.md");
 });
+
+// Review Focus 1: the model gets only plain files from inside the clone, and small ones.
+test("readBytes returns plain small files and undefined for everything else", () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-bytes-"));
+  const dir = join(root, "target");
+  mkdirSync(join(dir, "run/proof"), { recursive: true });
+  writeFileSync(join(root, "outside.png"), "PNGDATA12");
+  symlinkSync(join(root, "outside.png"), join(dir, "run/proof/after-a.png"));
+  writeFileSync(join(dir, "run/proof/plain.png"), "123456789");
+  const repo = gitRepo(dir, join(root, "target.git"), "file:///none", "tok", process.env);
+  const MAX = 1000;
+  expect(repo.readBytes("run/proof/after-a.png", MAX)).toBeUndefined();
+  expect(repo.readBytes("../outside.png", MAX)).toBeUndefined();
+  expect(repo.readBytes("run/proof/plain.png", MAX)).toEqual(Buffer.from("123456789"));
+  expect(repo.readBytes("run/proof/plain.png", 4)).toBeUndefined();
+  expect(repo.readBytes("run/proof/missing.png", MAX)).toBeUndefined();
+});

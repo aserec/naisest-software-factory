@@ -11,7 +11,7 @@ vi.mock("../config", async (importOriginal) => {
 });
 import { runStep, ticketText } from "./context";
 import { makeContext } from "../compose";
-import { reviewerPrompt } from "../agents";
+import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type Mark } from "../seams";
@@ -20,7 +20,7 @@ import { findSecrets } from "../rules";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
-import { BOT, B, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
+import { BOT, B, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -865,4 +865,30 @@ test("a resumed gate job reviews the change again", async () => {
   await runBuildJobs(w, tmp());
   expect(w.reviewsRun).toBe(1);
   expect(w.finishTriggered).toBe(true);
+});
+
+// Spec 12: a screen the reviewer says does not match blocks the change.
+const PREVIEW = "install: pnpm install\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\npreview: pnpm dev\npreviewUrl: http://localhost:3000\n";
+const reviewOf = (verdict: string): Finding => ({ blocking: false, screen: "list page", verdict, text: "no spinner" });
+const reviewData = (w: ReturnType<typeof fakeWorld>) => w.record.steps.find((s) => s.step === "code-review")?.data as any;
+test("a does_not_match verdict blocks", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 3 rounds");
+  expect(w.workItemComments.at(-1)).toContain("no spinner");
+});
+test("the reviewer gets the screenshots and the verdicts are saved", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] }));
+  const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
+  expect(job.images?.map((i) => i.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
+  expect(job.prompt).toContain("</proof>");
+  expect(reviewData(w).proof.verdicts).toEqual([{ screen: "list page", verdict: "matches", note: "no spinner" }]);
+});
+test("a reviewer model that does not read images gets none, and every screen is unsure", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
+  w.ctx.seams.providers.tensorx.images = [];
+  await runBuildPipeline(w);
+  const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
+  expect(job.images).toBeUndefined();
+  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }] });
 });

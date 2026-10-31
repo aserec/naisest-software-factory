@@ -55,6 +55,8 @@ export interface Repo {
   // Commits the clone's files on top of the base and force-pushes the branch. Returns the new sha.
   commitAndPush(branch: string, message: string): Promise<string>;
   readFile(path: string): string | undefined;
+  // A small plain file inside the clone, as bytes. Undefined, never a throw, for a missing file, a link, a path that leaves the clone, or a file over maxBytes.
+  readBytes(path: string, maxBytes: number): Buffer | undefined;
 }
 
 export type Checks = "green" | "red" | "running" | "none";

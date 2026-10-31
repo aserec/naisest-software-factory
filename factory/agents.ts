@@ -6,7 +6,7 @@ import { SETTINGS_PATH, sandboxDenyRead } from "./sandbox";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string }
 export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number }; resultText: string }
-export interface Finding { blocking: boolean; file?: string; text: string }
+export interface Finding { blocking: boolean; file?: string; text: string; screen?: string; verdict?: string } // screen and verdict: the reviewer's answer for one screen of the proof
 
 export { SETTINGS_PATH, sandboxDenyRead };
 // Never from an env variable: trigger callers can set any variable.
@@ -71,4 +71,5 @@ export function parseFindings(out: string): Finding[] {
 const reviewPrompt = readFileSync(fileURLToPath(new URL("../prompts/review.md", import.meta.url)), "utf8");
 
 // ticketText comes already wrapped (context.ticketText), so it is not wrapped again here.
-export const reviewerPrompt = (ticketText: string, diffText: string) => `${reviewPrompt}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>`;
+export const reviewerPrompt = (ticketText: string, diffText: string, proofText = "") =>
+  `${reviewPrompt}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>${proofText ? `\n\n<proof>\n${proofText}\n</proof>` : ""}`;

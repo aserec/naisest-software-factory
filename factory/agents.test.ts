@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sandboxSettings } from "./steps/repo";
-import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, parseFindings, wrapTicket } from "./agents";
+import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, parseFindings, reviewerPrompt, wrapTicket } from "./agents";
 
 test("settings path is absolute and exists, so the agent cwd cannot replace it", () => {
   expect(isAbsolute(SETTINGS_PATH)).toBe(true);
@@ -42,4 +42,11 @@ test("the committed guard blocks rm -rf / and allows ls", () => {
   const run = (cmd: string) => spawnSync(`${HOOKS_DIR}/deny-dangerous.sh`, { input: JSON.stringify({ tool_input: { command: cmd } }) }).status;
   expect(run("rm -rf /")).toBe(2);
   expect(run("ls")).toBe(0);
+});
+test("the reviewer prompt holds a proof block only when there is proof text", () => {
+  expect(reviewerPrompt("T", "D", "P")).toContain("<proof>\nP\n</proof>");
+  expect(reviewerPrompt("T", "D")).not.toContain("</proof>"); // the prompt text itself names `<proof>`
+});
+test("a finding keeps its screen and verdict", () => {
+  expect(parseFindings('[{"blocking":false,"screen":"a","verdict":"matches","text":"ok"}]')[0].verdict).toBe("matches");
 });

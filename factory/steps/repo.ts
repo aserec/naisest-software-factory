@@ -2,7 +2,7 @@
 // The factory never runs git with the clone's own .git: a hostile .git/config there could leak the token
 // (insteadOf, extraHeader) or run code (fsmonitor, diff.external, textconv, filters, hooks).
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,6 +103,17 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
       if (!existsSync(full)) return undefined;
       if (lstatSync(full).isSymbolicLink() || !realpathSync(full).startsWith(realpathSync(dir) + sep)) throw new Error(`Refused to read ${path}: it is a link or it leaves the clone`);
       return readFileSync(full, "utf8");
+    },
+    // Same checks as readFile. A refused file is not an error here: the proof shows without that image.
+    readBytes(path, maxBytes) {
+      try {
+        const full = join(dir, path);
+        if (!existsSync(full) || lstatSync(full).isSymbolicLink() || !realpathSync(full).startsWith(realpathSync(dir) + sep)) return undefined;
+        const st = statSync(full);
+        return st.isFile() && st.size <= maxBytes ? readFileSync(full) : undefined;
+      } catch {
+        return undefined;
+      }
     },
   };
 }
