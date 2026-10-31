@@ -1,7 +1,6 @@
 {
-  "commit": "644a2418381abe56bedc2897477222247ce12aa5",
+  "commit": "d9c51531214ee2e01a7e17f27a08febccd555975",
   "skills": [
-    ".claude",
     "ask-matt",
     "audit-workflow",
     "code-review",
@@ -52,12 +51,11 @@
   ],
   "plugins": [],
   "hooks": [
-    "context-budget.sh",
     "dangerous-patterns.txt",
     "deny-dangerous.sh",
+    "jev.sh",
     "load-plugins.sh",
     "load-structured-output.sh",
-    "test-context-budget.sh",
     "test-guard.sh"
   ]
 }
