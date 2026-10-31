@@ -56,13 +56,22 @@ export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[
   const finished: TicketRef[] = [];
   for (const r of control.requests) {
     if (r.kind !== "stop" || r.outcome !== "cancelled") continue;
-    if ((await ctx.tracker.ticket(r.ticket)).state === "running") {
-      // The comment first: without it a resume would read an older stop note.
-      await ctx.tracker.comment(r.ticket, cancelNote(r.user));
-      await ctx.tracker.setState(r.ticket, "stopped");
-      finished.push(r.ticket);
+    // One failed request must not stop the poller: it is logged and tried again next minute.
+    try {
+      const t = await ctx.tracker.ticket(r.ticket).catch((e) => {
+        if (/status 404|No ticket/.test(String(e))) return undefined; // the ticket is gone, nothing to stop
+        throw e;
+      });
+      if (t?.state === "running") {
+        // The comment first: without it a resume would read an older stop note.
+        await ctx.tracker.comment(r.ticket, cancelNote(r.user));
+        await ctx.tracker.setState(r.ticket, "stopped");
+        finished.push(r.ticket);
+      }
+      await ctx.dashboard.requestDone(r.id, "done");
+    } catch (e) {
+      console.log(`Request ${r.id} (cancelled stop of ticket ${r.ticket}) failed: ${String(e).slice(0, 300)}`);
     }
-    await ctx.dashboard.requestDone(r.id, "done");
   }
   return finished;
 }

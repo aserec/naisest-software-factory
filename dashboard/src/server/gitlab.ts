@@ -3,7 +3,7 @@ import type { Db } from "./db";
 import { readTargets } from "./targets";
 
 // The GitLab base URL. Here and not in auth.ts, so the background loop does not load next-auth.
-export const gitlab = () => (process.env.GITLAB_URL ?? "https://gitlab.example.com").replace(/\/+$/, "");
+export const gitlab = () => (process.env.GITLAB_URL || "https://gitlab.example.com").replace(/\/+$/, "");
 
 const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"].map((s) => `factory_${s}`);
 const CACHE_MS = 15_000;

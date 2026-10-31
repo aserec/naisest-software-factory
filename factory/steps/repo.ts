@@ -80,7 +80,8 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
     },
     async diff() {
       await git([...ours, "add", "-A"]);
-      const d = ["diff", "--cached", "--no-ext-diff", "--no-textconv"];
+      // --text: a `-diff` in the agent's .gitattributes would otherwise hide every line from the review, the secret scan and the size rule.
+      const d = ["diff", "--cached", "--text", "--no-ext-diff", "--no-textconv"];
       return { text: await git([...ours, ...d, "HEAD"]), numstat: await git([...ours, ...d, "--numstat", "-z", "-M", "HEAD"]) };
     },
     async run(cmd) {

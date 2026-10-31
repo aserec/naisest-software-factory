@@ -321,7 +321,8 @@ const tmp = () => mkdtempSync(join(tmpdir(), "runstep-"));
 // A copy of seams.yml with a dashboard address: the real file keeps a placeholder until go-live.
 const seamsFile = (dir: string, edit: (text: string) => string = (t) => t) => {
   const path = join(dir, "seams.yml");
-  writeFileSync(path, edit(readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8")).replace("REPLACE_WITH_DASHBOARD_URL", "https://dashboard.example"));
+  const text = readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8");
+  writeFileSync(path, edit(text.replace(/^dashboardUrl: .*$/m, "dashboardUrl: https://dashboard.example")));
   return path;
 };
 test("runStep skips when an earlier job stopped the run", async () => {
@@ -1216,7 +1217,8 @@ test("makeContext needs the dashboard token and a real dashboardUrl", () => {
   files("gl", "teams");
   expect(() => makeContext({ ...env, FACTORY_DASHBOARD_TOKEN: "" }, dir, seamsFile(dir))).toThrow("FACTORY_DASHBOARD_TOKEN is not set");
   files("gl", "teams", "dash");
-  expect(() => makeContext(env, dir)).toThrow(/dashboardUrl is still a placeholder/); // the real seams.yml, until go-live
+  const placeholder = seamsFile(dir, (t) => t.replace(/^dashboardUrl: .*$/m, "dashboardUrl: REPLACE_WITH_DASHBOARD_URL"));
+  expect(() => makeContext(env, dir, placeholder)).toThrow(/dashboardUrl is still a placeholder/);
 });
 
 // Task B2: each run has an ID, and its steps send events to the dashboard.
