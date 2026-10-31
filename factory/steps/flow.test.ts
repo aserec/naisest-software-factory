@@ -199,6 +199,34 @@ test("apply does not merge a change that targets another branch than the base br
   expect(w.workItemComments.at(-1)).toContain("targets master, not develop");
 });
 
+// A person can change the change while apply waits for the pipeline; the merge reads it again.
+const duringWait = (w: ReturnType<typeof fakeWorld>, patch: { target?: string; open?: boolean }) => {
+  const { change, checks } = w.host;
+  w.host.checks = async (at) => {
+    const r = await checks(at);
+    if ("change" in at) w.host.change = async (ref) => ({ ...(await change(ref)), ...patch });
+    return r;
+  };
+};
+test("apply does not merge a change that was retargeted to master while it waited for the pipeline", async () => {
+  const w = fakeWorld();
+  duringWait(w, { target: "master" });
+  await runFinishPipeline(w);
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("targets master, not develop");
+});
+test("apply does not merge a change that was closed or merged while it waited for the pipeline", async () => {
+  for (const patch of [{ open: false }, { open: false, merged: true }]) {
+    const w = fakeWorld();
+    duringWait(w, patch);
+    await runFinishPipeline(w);
+    expect(w.merged).toBe(false);
+    expect(w.states).toEqual(["blocked"]);
+    expect(w.workItemComments.at(-1)).toContain("is no longer open");
+  }
+});
+
 // Spec 6.4: rebase before an auto merge.
 test("a change behind develop is rebased, checked on the rebased head, then merged", async () => {
   const w = fakeWorld({ behind: 1 });
@@ -556,6 +584,20 @@ test("[AM], [skip ci] and [ci skip] never reach the branch commit or the MR", as
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: "[AM] fix(list): stop the flicker [skip ci]\n\n- Keep the old rows [CI SKIP] until new ones load.\n- [am] Done." }));
   expect(w.mrTitle).toBe("fix(list): stop the flicker");
   for (const t of [w.commitMessage, w.mrDescription]) expect(t).not.toMatch(/\[AM\]|skip ci|ci skip/i);
+});
+test("[AM] in the ticket title never reaches the fallback title, and an [AM] at the line end keeps the body on its own line", async () => {
+  const a = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, title: "[AM] fix x" }));
+  for (const t of [a.commitMessage, a.mrTitle]) expect(t).not.toMatch(/\[AM\]/i);
+  expect(a.mrTitle).toBe("fix x");
+  const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: "fix: x [AM]\n\n- body" }));
+  expect(b.mrTitle).toBe("fix: x");
+  expect(b.commitMessage).toContain("fix: x\n\n- body\n\n");
+});
+test("a [skip ci] nested in another [skip ci] does not survive the strip", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, title: "Fix [skip [ci skip]ci] list", commitFile: "fix: x [skip [ci skip]ci]\n\n- [ci [skip ci]skip] body" }));
+  for (const t of [w.commitMessage, w.mrTitle, w.mrDescription]) expect(t).not.toMatch(/skip ci|ci skip/i);
+  const v = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, title: "Fix [skip [ci skip]ci] list" }));
+  expect(v.mrTitle).toBe("Fix  list");
 });
 test("a commit message that holds a secret blocks, and nothing is pushed", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, commitFile: "fix(list): stop the flicker\n\n- token=glpat-abcdefghijklmnopqrst1234" }));

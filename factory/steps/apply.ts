@@ -30,10 +30,15 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   let head = headSha;
   let reviewed: Record<string, string> | undefined;
   const rebased: string[] = [];
+  const refuse = (c: { open: boolean; target: string; head: string }) =>
+    !c.open ? block(ctx, `Change ${change} is no longer open, so the factory did not merge it.`)
+    : c.target !== base ? block(ctx, `Change ${change} targets ${c.target}, not ${base}, so the factory did not merge it.`)
+    : c.head !== head ? block(ctx, `Someone pushed to change ${change} after the review (head ${c.head}, expected ${head}), so the factory did not merge it.`)
+    : undefined;
   for (;;) {
     const c = await ctx.codeHost.change(change);
-    if (c.target !== base) return block(ctx, `Change ${change} targets ${c.target}, not ${base}, so the factory did not merge it.`);
-    if (c.head !== head) return block(ctx, `Someone pushed to change ${change} after the review (head ${c.head}, expected ${head}), so the factory did not merge it.`);
+    const stop = await refuse(c);
+    if (stop) return stop;
     if (c.behind) {
       if (rebased.length === 3) return askPerson(ctx, [`it fell behind ${base} again after 3 rebases. Rebase it by hand and merge it`]);
       reviewed ??= await ctx.codeHost.branchDiff(headSha); // read before the rebase replaces it
@@ -45,6 +50,9 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     // Merge only after the change's own checks are green on the head that merges.
     const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: head }));
     if (checks !== "green") return block(ctx, `The change's pipeline is ${checks}, so the factory did not merge.`);
+    // The wait can take an hour: a person may have retargeted, pushed to or closed the change since the checks above.
+    const again = await refuse(await ctx.codeHost.change(change));
+    if (again) return again;
     try {
       save(ctx, "apply", { change, sha: await ctx.codeHost.merge(change, head, message), reviewed: headSha, rebased });
       break;
