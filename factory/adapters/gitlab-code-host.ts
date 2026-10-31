@@ -1,4 +1,4 @@
-import { AI_LINE, DEVELOPER, GitLab, GITLAB_URL } from "../gitlab";
+import { AI_LINE, GitLab, GITLAB_URL } from "../gitlab";
 import { gitRepo } from "../steps/repo";
 import type { Checks, CodeHost } from "../seams";
 
@@ -22,15 +22,6 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
         ref, open: m.state === "opened", merged: m.state === "merged", head: m.sha, url: m.web_url, body: m.description ?? "",
         landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha,
       };
-    },
-    // Someone other than the bot, with the Developer role or higher.
-    async approvedByTrusted(ref) {
-      const id = await projectId();
-      const bot = await gitlab.botUserId();
-      for (const approver of await gitlab.approvedBy(id, Number(ref))) {
-        if (approver !== bot && (await gitlab.memberAccessLevel(id, approver)) >= DEVELOPER) return true;
-      }
-      return false;
     },
     async checks(at): Promise<Checks> {
       const id = await projectId();

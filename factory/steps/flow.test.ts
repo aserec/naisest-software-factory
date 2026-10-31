@@ -44,6 +44,7 @@ test("medium ticket: stops at decision with reasons on the MR and a Teams card",
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass" }));
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.mrComments.at(-1)).toContain("risk");
+  expect(w.mrComments.at(-1)).toContain("This change needs a person to review and merge it:");
   expect(w.cards.map(c => c.kind)).toEqual(["needs_approval"]);
 });
 test("usage limit mid-run labels factory_waiting and keeps the session", async () => {
@@ -130,16 +131,24 @@ test("unclear ticket: questions are posted and the label is needs_info", async (
   expect(w.cards.map((c) => c.kind)).toEqual(["needs_info"]);
 });
 
-// Spec 6.7: approval and manual merge.
-test("a developer's approval of a waiting MR starts the finish pipeline with the build record", async () => {
-  const w = await runBuildPipeline(fakeWorld({ payload: mrEvent("approved"), state: "needs_approval" }));
-  expect(w.finishVars).toMatchObject({ kind: "finish", ticket: "8", change: "5", buildRun: "41" });
-  expect(w.finishVars.skipApply).toBeUndefined();
+// Spec 6.5: only a person's merge starts the finish run.
+test("a person's merge of a waiting MR starts the finish pipeline with the build record and apply skipped", async () => {
+  const w = await runBuildPipeline(fakeWorld({ payload: mrEvent(), state: "needs_approval" }));
+  expect(w.finishVars).toEqual({ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true });
   expect(w.states).toEqual(["running"]);
   expect(w.claudeCalls).toBe(0);
 });
+test("GitLab's approval event starts nothing", async () => {
+  const payload = JSON.parse(readFileSync(fileURLToPath(new URL("../fixtures/mr-approved.json", import.meta.url)), "utf8"));
+  const w = fakeWorld({ payload, state: "needs_approval" });
+  w.tracker.parseEvent = makeGitLabTracker(undefined as never, w.ctx.target.projectPath).parseEvent; // the real webhook parser
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.record.steps[0].data).toMatchObject({ start: false, reason: "not-added" });
+  expect(w.states).toEqual(["needs_approval"]);
+});
 test("the build run is found in a change body edited in the web UI, with CRLF line ends", async () => {
-  const crlf = fakeWorld({ payload: mrEvent("merge"), state: "needs_approval" });
+  const crlf = fakeWorld({ payload: mrEvent(), state: "needs_approval" });
   crlf.openChange("Factory run 41: https://ci.example/runs/41\r\nChanged tests, and why:\r\n");
   await runBuildPipeline(crlf);
   expect(crlf.finishVars).toMatchObject({ kind: "finish", buildRun: "41" });
@@ -148,15 +157,11 @@ test("the change body names the build run, so finish can load its record", async
   const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   expect(b.mrDescription).toMatch(/^Factory run 1: https:\/\/ci\.example\/runs\/1$/m);
 });
-test("a manual merge starts the finish pipeline with apply skipped", async () => {
-  const w = await runBuildPipeline(fakeWorld({ payload: mrEvent("merge"), state: "needs_approval" }));
-  expect(w.finishVars).toMatchObject({ change: "5", skipApply: true });
-});
-test("approvals by the bot or a non-developer, or of an MR not waiting for a person, start nothing", async () => {
+test("merges by the bot or a non-developer, or of an MR not waiting for a person, start nothing", async () => {
   for (const o of [
-    { payload: mrEvent("merge", BOT), state: "needs_approval" },
-    { payload: mrEvent("approved"), state: "needs_approval", actorLevel: 20 },
-    { payload: mrEvent("approved"), state: "running" },
+    { payload: mrEvent(BOT), state: "needs_approval" },
+    { payload: mrEvent(), state: "needs_approval", actorLevel: 20 },
+    { payload: mrEvent(), state: "running" },
   ] as WorldOptions[]) expect((await runBuildPipeline(fakeWorld(o))).finishTriggered).toBe(false);
 });
 test("finish after a manual merge does not merge again and verifies the merge commit", async () => {
@@ -168,16 +173,11 @@ test("finish after a manual merge does not merge again and verifies the merge co
 });
 
 // Apply's merge rule.
-test("finish for an MR that needs approval and has none does not merge", async () => {
-  const w = await runFinishPipeline(fakeWorld({ approvedBy: [] }), { decision: "needs_approval" });
+test("apply never merges a change that waits for a person", async () => {
+  const w = await runFinishPipeline(fakeWorld(), { decision: "needs_approval" });
   expect(w.merged).toBe(false);
   expect(w.states).toEqual(["blocked"]);
-});
-test("a bot approval does not count; a person's approval merges the reviewed commit", async () => {
-  expect((await runFinishPipeline(fakeWorld({ approvedBy: [BOT] }), { decision: "needs_approval" })).merged).toBe(false);
-  const w = await runFinishPipeline(fakeWorld({ approvedBy: ["dev"] }), { decision: "needs_approval" });
-  expect(w.merged).toBe(true);
-  expect(w.mergedSha).toBe("head5");
+  expect(w.workItemComments.at(-1)).toContain("waits for a person to merge it");
 });
 test("the auto path merges the reviewed commit and posts the decision on the MR", async () => {
   const b = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
@@ -796,7 +796,7 @@ test("a crash block names no run, so factory_ready after it starts a new run wit
   expect(w.finishTriggered).toBe(true);
 });
 // Only a crash blocks at risk-check, and a crash names no run, so this test writes the run line itself.
-test("a run continued at risk-check puts its own run on the change, so an approval starts finish with it", async () => {
+test("a run continued at risk-check puts its own run on the change, so a person's merge starts finish with it", async () => {
   const first = fakeWorld({ jev1: { risk: "medium" } });
   first.host.checks = async () => { throw new Error("GitLab GET failed with status 500"); };
   await runBuildJobs(first, tmp()).catch(() => {});
@@ -805,7 +805,7 @@ test("a run continued at risk-check puts its own run on the change, so an approv
   w.ci.vars = { ...w.ci.vars, run: "2", runUrl: "https://ci.example/runs/2" };
   await runBuildJobs(w, tmp());
   expect(w.states).toEqual(["needs_approval"]);
-  w.ci.vars = { ...w.ci.vars, payload: mrEvent("approved") };
+  w.ci.vars = { ...w.ci.vars, payload: mrEvent() };
   await event.run(w.ctx);
   expect(w.finishVars).toMatchObject({ kind: "finish", buildRun: "2" });
 });

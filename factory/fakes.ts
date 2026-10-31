@@ -69,7 +69,6 @@ export interface FakeCodeHostOptions {
   landedSha?: string; // what merge returns
   existing?: boolean; // a change of the branch is already open
   merged?: boolean; // the change is already merged, by a person
-  approvedByTrusted?: boolean;
   changeChecks?: Checks; // checks of the head
   branchChecks?: Checks;
   repo?: Repo;
@@ -124,7 +123,6 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       return { ref, url: c.url };
     },
     change: async (ref: ChangeRef): Promise<Change> => get(ref),
-    approvedByTrusted: async () => o.approvedByTrusted ?? false,
     // Only the reviewed head counts. A caller that passes another sha never sees green.
     checks: async (at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks> => {
       if ("change" in at) return at.sha === head ? (o.changeChecks ?? "green") : "running";

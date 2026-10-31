@@ -6,7 +6,7 @@ test("cards use the Adaptive Card attachment format", () => {
   expect(c.type).toBe("message");
   expect(c.attachments[0].contentType).toBe("application/vnd.microsoft.card.adaptive");
   const card = c.attachments[0].content;
-  expect(card.body[0].text).toBe("Needs approval: react_frontend #8");
+  expect(card.body[0].text).toBe("Needs review and merge: react_frontend #8");
   expect(card.body[1]).toMatchObject({ text: "size: 412 lines", wrap: true });
   expect(card.actions[0]).toEqual({ type: "Action.OpenUrl", title: "Open", url: "https://x" });
 });

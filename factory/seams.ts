@@ -18,7 +18,7 @@ export interface Comment { author: PersonRef; byFactory: boolean; body: string; 
 
 export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }
-  | { kind: "approved" | "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
+  | { kind: "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
   | { kind: "command"; ticket: TicketRef; actor: PersonRef; command: "stop" | "resume" }
   | { kind: "ignored"; reason: "other-project" | "not-added" };
 
@@ -66,7 +66,6 @@ export interface CodeHost {
   cloneAt(dir: string): Repo;
   openChange(branch: string, title: string, body: string, ticket: TicketRef): Promise<{ ref: ChangeRef; url: string }>; // adds the AI line and the closing line
   change(ref: ChangeRef): Promise<Change>;
-  approvedByTrusted(ref: ChangeRef): Promise<boolean>;
   checks(at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks>;
   merge(ref: ChangeRef, sha: string): Promise<string>;
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;

@@ -5,21 +5,21 @@ import { block, BLOCKED, BLOCKED_RUN, CONTINUABLE, data, isMain, runStep, save, 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
 // and the running state is set before the job ends.
 
-// Spec 6.7: a person approved a factory change, or merged it by hand. Start the finish run
-// (with apply skipped after a manual merge). The build run itself stops here.
-async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "approved" | "merged" }>): Promise<StepResult> {
+// Spec 6.5: a person merged a factory change by hand. Start the finish run with apply skipped.
+// An approval starts nothing. The build run itself stops here.
+async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "merged" }>): Promise<StepResult> {
   const quiet = (reason: string) => (save(ctx, "event", { start: false, reason, change: e.change }), "stop" as const);
   // The factory's own merge in apply sends a merge event too.
   if (await ctx.tracker.isFactory(e.actor)) return quiet("bot");
   if (!(await ctx.tracker.trusted(e.actor))) return quiet("not-member");
-  // Only a change that waits for a person. This also ignores approvals while the build is still running.
+  // Only a change that waits for a person. This also ignores merges while the build is still running.
   if ((await ctx.tracker.ticket(e.ticket)).state !== "needs_approval") return quiet("not-waiting");
   // No end anchor: a body edited in the web UI may end its lines in \r\n.
   const buildRun = /^Factory run (\d+): /m.exec((await ctx.codeHost.change(e.change)).body)?.[1];
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };
   save(ctx, "event", { start: true, ticket: e.ticket, actor: e.actor, action: e.kind, change: e.change });
   await ctx.tracker.setState(e.ticket, "running");
-  await ctx.ci.start({ kind: "finish", ticket: e.ticket, change: e.change, ...(buildRun ? { buildRun } : {}), ...(e.kind === "merged" ? { skipApply: true } : {}) });
+  await ctx.ci.start({ kind: "finish", ticket: e.ticket, change: e.change, ...(buildRun ? { buildRun } : {}), skipApply: true });
   return "stop";
 }
 
@@ -128,7 +128,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // The poller starts with no payload. Build the event from who set the ticket ready,
   // so decideStart checks exactly what it checks for a webhook.
   const e: FactoryEvent = payload === undefined && ticket ? { kind: "ready", ticket, actor: (await ctx.tracker.startedBy(ticket)) ?? "" } : ctx.tracker.parseEvent(payload);
-  if (e.kind === "approved" || e.kind === "merged") return changeEvent(ctx, e);
+  if (e.kind === "merged") return changeEvent(ctx, e);
   if (e.kind === "command") return commandEvent(ctx, e);
   if (e.kind !== "ready") {
     save(ctx, "event", { start: false, reason: e.kind === "ignored" ? e.reason : "not-added" });

@@ -101,10 +101,10 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
         if (command) return { kind: "command", ticket: String(p.issue.iid), actor, command: command === "@factory stop" ? "stop" : "resume" };
         return ignored("not-added");
       }
-      // An approval or a merge of a factory change (branch factory/<ticket>-<slug>).
-      if (p.object_kind === "merge_request" && (a?.action === "approved" || a?.action === "merge")) {
+      // A merge of a factory change (branch factory/<ticket>-<slug>). An approval starts nothing.
+      if (p.object_kind === "merge_request" && a?.action === "merge") {
         const m = /^factory\/(\d+)-/.exec(String(a.source_branch ?? ""));
-        if (m && typeof a.iid === "number") return { kind: a.action === "merge" ? "merged" : "approved", ticket: m[1], change: String(a.iid), actor };
+        if (m && typeof a.iid === "number") return { kind: "merged", ticket: m[1], change: String(a.iid), actor };
       }
       return ignored("not-added");
     },

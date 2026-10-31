@@ -50,7 +50,6 @@ export interface WorldOptions {
   otherRuns?: number; // other tickets in the running state
   payload?: unknown;
   actorLevel?: number; // below 30 the actor may not command the factory
-  approvedBy?: PersonRef[];
   mrState?: "opened" | "merged";
   existingMr?: boolean;
   mrPipeline?: "success" | "failed";
@@ -63,8 +62,7 @@ export interface WorldOptions {
 }
 
 export const BOT = FAKE_FACTORY;
-export const mrEvent = (action: "approved" | "merge", actor: PersonRef = "dev"): FactoryEvent =>
-  ({ kind: action === "merge" ? "merged" : "approved", ticket: "8", change: "5", actor });
+export const mrEvent = (actor: PersonRef = "dev"): FactoryEvent => ({ kind: "merged", ticket: "8", change: "5", actor });
 const READY: FactoryEvent = { kind: "ready", ticket: "8", actor: "dev" };
 const CHECKS: Record<Status, Checks> = { success: "green", failed: "red", running: "running", none: "none" };
 const TRIAGE = ["injection", "type", "risk", "clarity", "effort"];
@@ -85,7 +83,6 @@ export function fakeWorld(o: WorldOptions = {}) {
     landedSha: "manual789",
     existing: o.existingMr,
     merged: o.mrState === "merged",
-    approvedByTrusted: (o.approvedBy ?? []).some((a) => a !== FAKE_FACTORY),
     changeChecks: CHECKS[o.mrPipeline ?? "success"],
     branchChecks: CHECKS[o.mainPipeline ?? "success"],
     attachFails: o.attachFails,
@@ -180,7 +177,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     get record() { return this.ctx.record; },
   };
   const p = o.payload as FactoryEvent | undefined;
-  if (p?.kind === "approved" || p?.kind === "merged") w.openChange();
+  if (p?.kind === "merged") w.openChange();
   return w;
 }
 

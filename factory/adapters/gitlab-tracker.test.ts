@@ -176,8 +176,8 @@ describe("parseEvent", () => {
     p.changes.labels.previous = [{ title: "factory_ready" }];
     expect(tracker().parseEvent(p)).toEqual({ kind: "ignored", reason: "not-added" });
   });
-  test("an approval of a factory change gives approved; a merge gives merged", () => {
-    expect(tracker().parseEvent(load("mr-approved.json"))).toMatchObject({ kind: "approved", ticket: "8", change: "5" });
+  test("an approval of a factory change is ignored; a merge gives merged", () => {
+    expect(tracker().parseEvent(load("mr-approved.json"))).toEqual({ kind: "ignored", reason: "not-added" });
     const p = load("mr-approved.json");
     p.object_attributes.action = "merge";
     expect(tracker().parseEvent(p)).toMatchObject({ kind: "merged", ticket: "8", change: "5" });

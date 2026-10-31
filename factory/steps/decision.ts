@@ -55,7 +55,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     return "next";
   }
   await ctx.tracker.setState(ref, "needs_approval");
-  await ctx.codeHost.commentChange(change, `This change needs a person to approve it:\n\n${d.reasons.map((r) => `- ${r}`).join("\n")}`);
+  await ctx.codeHost.commentChange(change, `This change needs a person to review and merge it:\n\n${d.reasons.map((r) => `- ${r}`).join("\n")}`);
   await ctx.codeHost.assignChange(change, person(ctx, ticket));
   await notify(ctx, "needs_approval", d.reasons, changeUrl);
   return "stop";

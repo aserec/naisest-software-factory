@@ -16,10 +16,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     await ctx.tracker.mark(ref, "merged");
     return "next";
   }
-  // A person approved: someone other than the factory who may command it.
-  if (data(ctx, "decision")?.kind !== "auto" && !(await ctx.codeHost.approvedByTrusted(change))) {
-    return block(ctx, `Change ${change} needs a person's approval, and it has none. The factory did not merge.`);
-  }
+  // Only an auto decision merges without a person. Anything else waits for a person to merge it.
+  if (data(ctx, "decision")?.kind !== "auto") return block(ctx, `Change ${change} waits for a person to merge it, so the factory did not merge it.`);
   const headSha = data(ctx, "risk-check")?.headSha;
   if (!headSha) return block(ctx, "The run record has no reviewed commit, so the factory did not merge.");
   // Merge only after the change's own checks are green.

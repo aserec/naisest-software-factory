@@ -85,26 +85,6 @@ describe("change", () => {
   });
 });
 
-describe("approvedByTrusted", () => {
-  const approvals = (...ids: number[]) => (routes["/projects/7/merge_requests/5/approvals"] = { approved_by: ids.map((id) => ({ user: { id } })) });
-  const level = (levels: Record<number, number>) => (routes["/projects/7/members/all/3"] = { access_level: levels[3] ?? 0 });
-  test("a developer's approval counts", async () => {
-    approvals(3);
-    level({ 3: 30 });
-    expect(await host().approvedByTrusted("5")).toBe(true);
-    expect(calls.find((c) => c.url.includes("/approvals"))!.url).toBe("/projects/7/merge_requests/5/approvals");
-  });
-  test("the bot's approval and a reporter's approval do not count", async () => {
-    approvals(1);
-    expect(await host().approvedByTrusted("5")).toBe(false);
-    approvals(3);
-    level({ 3: 20 });
-    expect(await host().approvedByTrusted("5")).toBe(false);
-    approvals();
-    expect(await host().approvedByTrusted("5")).toBe(false);
-  });
-});
-
 describe("checks", () => {
   test("a change reads the newest pipeline of its head: canceled is red, none is running", async () => {
     const at = { change: "5", sha: "h" };

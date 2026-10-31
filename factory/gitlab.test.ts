@@ -135,11 +135,6 @@ test("upsertMergeRequest opens a new MR when none is open", async () => {
   expect(last().init.method).toBe("POST");
   expect(lastBody()).toMatchObject({ source_branch: "factory/8-x", target_branch: "master" });
 });
-test("approvedBy lists approver ids", async () => {
-  fakeResponse({ approved_by: [{ user: { id: 3 } }, { user: { id: 4 } }] });
-  expect(await gl.approvedBy(1, 2)).toEqual([3, 4]);
-  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/approvals");
-});
 test("upsertMergeRequest refuses an open MR that targets another branch", async () => {
   fakeResponse([{ iid: 4, web_url: "u4", target_branch: "release" }]);
   await expect(gl.upsertMergeRequest(1, "factory/8-x", "master", "t", "d")).rejects.toThrow(/release/);

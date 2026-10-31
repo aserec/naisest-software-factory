@@ -150,11 +150,6 @@ export class GitLab {
   }
 
 
-  async approvedBy(projectId: number, mrIid: number): Promise<number[]> {
-    const a = await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}/approvals`);
-    return (a.approved_by ?? []).map((x: { user: { id: number } }) => x.user.id);
-  }
-
   async assignMergeRequest(projectId: number, mrIid: number, userId: number): Promise<void> {
     await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { assignee_ids: [userId] });
   }
