@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sandboxSettings } from "./steps/repo";
-import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, parseFindings, wrapTicket } from "./agents";
+import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, parseFindings, runCommand, wrapTicket } from "./agents";
 
 test("settings path is absolute and exists, so the agent cwd cannot replace it", () => {
   expect(isAbsolute(SETTINGS_PATH)).toBe(true);
@@ -42,4 +42,22 @@ test("the committed guard blocks rm -rf / and allows ls", () => {
   const run = (cmd: string) => spawnSync(`${HOOKS_DIR}/deny-dangerous.sh`, { input: JSON.stringify({ tool_input: { command: cmd } }) }).status;
   expect(run("rm -rf /")).toBe(2);
   expect(run("ls")).toBe(0);
+});
+
+test("runCommand hands each complete stdout line to onLine as it arrives, and out is still the whole output", async () => {
+  const script = `for (const l of ["a", "b", "c"]) { process.stdout.write(l + "\\n"); await new Promise((r) => setTimeout(r, 200)); }`;
+  const start = Date.now();
+  const lines: [string, number][] = [];
+  const { code, out } = await runCommand("node", ["--input-type=module", "-e", script], process.env, process.cwd(), undefined, (l) => lines.push([l, Date.now() - start]));
+  expect(code).toBe(0);
+  expect(out).toBe("a\nb\nc\n");
+  expect(lines.map(([l]) => l)).toEqual(["a", "b", "c"]);
+  expect(lines[0][1]).toBeLessThan(Date.now() - start - 300); // the first line came long before the process ended
+});
+test("runCommand gives a last line with no newline, joins a line cut across chunks, and survives an onLine that throws", async () => {
+  const script = `process.stdout.write("one"); await new Promise((r) => setTimeout(r, 100)); process.stdout.write("two\\nlast");`;
+  const lines: string[] = [];
+  const { out } = await runCommand("node", ["--input-type=module", "-e", script], process.env, process.cwd(), undefined, (l) => { lines.push(l); throw new Error("boom"); });
+  expect(lines).toEqual(["onetwo", "last"]);
+  expect(out).toBe("onetwo\nlast");
 });

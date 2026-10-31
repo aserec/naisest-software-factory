@@ -55,5 +55,8 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     async assignChange(ref, person) {
       await gitlab.assignMergeRequest(await projectId(), Number(ref), await gitlab.userId(person));
     },
+    async closeChange(ref) {
+      await gitlab.closeMergeRequest(await projectId(), Number(ref));
+    },
   };
 }

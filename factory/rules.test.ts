@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { loadTarget } from "./config";
-import { addKnownSecrets, checkHardRules, findSecrets, parseNumstat } from "./rules";
+import { addKnownSecrets, checkHardRules, findSecrets, maskSecrets, parseNumstat } from "./rules";
 
 test("finds a GitLab token and a private key header", () => {
   expect(findSecrets("x glpat-abcdefghijklmnopqrst y")).toEqual(["glpat-abcdefghijklmnopqrst"]);
@@ -73,4 +73,10 @@ test("a secret value this process holds is found, and never shown", () => {
   expect(found).toHaveLength(1);
   expect(found.join()).not.toContain("abc123");
   expect(findSecrets("a short note")).toEqual([]);
+});
+test("maskSecrets hides secret patterns and the secret values this process holds", () => {
+  expect(maskSecrets("x glpat-abcdefghijklmnopqrstuv y")).toBe("x [secret] y");
+  addKnownSecrets("known-value-0123456789abc");
+  expect(maskSecrets("a known-value-0123456789abc b known-value-0123456789abc")).toBe("a [secret] b [secret]");
+  expect(maskSecrets("plain words")).toBe("plain words");
 });

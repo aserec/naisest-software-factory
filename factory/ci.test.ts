@@ -12,13 +12,13 @@ const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 const passed = (name: string) => `${name}="$${name}"`;
 const STEP_PREFIX = [
   "env -i", PATH, "HOME=/root", 'CLAUDE_CONFIG_DIR="$PWD/run/claude-home"',
-  ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE", "CI_PIPELINE_SOURCE"].map(passed),
+  ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE", "CI_PIPELINE_SOURCE", "CI_JOB_ID"].map(passed),
   ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY", "FACTORY_SCHEDULE"].map(passed),
   // File variables: only their paths pass.
-  ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_TRIGGER_TOKEN"].map(passed),
+  ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN", "FACTORY_TRIGGER_TOKEN"].map(passed),
   ...["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"].map(passed),
 ].join(" ");
-const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile`;
+const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile --filter software-factory`;
 
 test("every factory job starts its step through the env -i allowlist", () => {
   const jobs = Object.keys(ci).filter((k) => !k.startsWith(".") && ["build", "finish", "factory"].some((t) => ci[k]?.extends === `.${t}`));
@@ -49,7 +49,24 @@ test("the poll and retry jobs run only in their own scheduled pipeline", () => {
 });
 
 test("the smoke job type-checks before it runs the tests", () => {
-  expect(ci.smoke.script).toEqual(["corepack enable", "pnpm install --frozen-lockfile", "pnpm tsc --noEmit", "pnpm vitest run"]);
+  expect(ci.smoke.script).toEqual(["corepack enable", "pnpm install --frozen-lockfile --filter software-factory", "pnpm tsc --noEmit", "pnpm vitest run"]);
+});
+
+test("the dashboard job runs in the same pipelines as smoke and installs the whole workspace", () => {
+  expect(ci["dashboard-test"].rules).toEqual(ci.smoke.rules);
+  expect(ci["dashboard-test"].script).toEqual([
+    "corepack enable",
+    "pnpm install --frozen-lockfile",
+    "pnpm --filter factory-dashboard typecheck",
+    "pnpm --filter factory-dashboard test",
+    "pnpm --filter factory-dashboard build",
+  ]);
+});
+
+test("the dashboard e2e job uses the Playwright image of the pinned @playwright/test version", () => {
+  const pinned = JSON.parse(readFileSync("dashboard/package.json", "utf8")).devDependencies["@playwright/test"];
+  expect(ci["dashboard-e2e"].image).toBe(`mcr.microsoft.com/playwright:v${pinned}-noble`);
+  expect(ci["dashboard-e2e"].rules).toEqual(ci.smoke.rules);
 });
 
 test("the real contract job runs only when started by hand from a web pipeline", () => {
@@ -63,4 +80,15 @@ test("the watcher runs only from a pipeline started by hand", async () => {
   await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "schedule" })).rejects.toThrow(/started by hand/);
   // From a web pipeline it goes on to build the context.
   await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "web" })).rejects.toThrow(/CI_SERVER_URL/);
+});
+
+test("the dashboard deploys only on a push to main that changes what its image holds", () => {
+  const job = ci["deploy-dashboard"];
+  expect(job.rules).toEqual([{
+    if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main" && $DASHBOARD_HOST',
+    changes: ["dashboard/**", "factory/run-events.ts", "deploy/**", "targets/**", "pnpm-lock.yaml"],
+  }]);
+  expect(job.resource_group).toBe("dashboard-deploy");
+  expect(job.environment).toEqual({ name: "dashboard" });
+  expect(job.script.at(-1)).toContain("ssh -i \"$DASHBOARD_DEPLOY_KEY\" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$DASHBOARD_KNOWN_HOSTS\" ");
 });

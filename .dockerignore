@@ -1,0 +1,6 @@
+# Keeps host builds (and the .env secrets) out of the image build context.
+**/node_modules
+**/.next
+.git
+.superpowers
+deploy/.env

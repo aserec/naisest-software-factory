@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, runCommand, type ClaudeResult, type ClaudeRun } from "../agents";
 import { pumpInbox } from "../inbox";
-import type { Harness, HarnessJob, HarnessResult, Provider } from "../seams";
+import type { Harness, HarnessJob, HarnessResult, Provider, ToolCall } from "../seams";
 
 export function buildClaudeArgs(r: ClaudeRun & { tools?: "code" | "none" }, settingsPath = SETTINGS_PATH): string[] {
   return [
@@ -30,8 +30,33 @@ export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.Pro
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
 
+// Pairs each tool_use (assistant line) with its tool_result (user line) by id. Feed it the stream line by line.
+export function toolCalls(now: () => number = Date.now): { line(l: string): ToolCall[] } {
+  const open = new Map<string, { name: string; input: string; at: number }>();
+  const text = (c: any): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map((x) => x?.text ?? "").join("") : "");
+  return {
+    line(l) {
+      let e: any;
+      try { e = JSON.parse(l); } catch { return []; }
+      const blocks: any[] = Array.isArray(e?.message?.content) ? e.message.content : [];
+      const done: ToolCall[] = [];
+      for (const b of blocks) {
+        if (e.type === "assistant" && b?.type === "tool_use") open.set(String(b.id), { name: String(b.name), input: JSON.stringify(b.input ?? {}), at: now() });
+        if (e.type === "user" && b?.type === "tool_result") {
+          const start = open.get(String(b.tool_use_id));
+          if (!start) continue;
+          open.delete(String(b.tool_use_id));
+          done.push({ name: start.name, input: start.input, result: text(b.content), ms: now() - start.at, ok: !b.is_error });
+        }
+      }
+      return done;
+    },
+  };
+}
+
 export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeResult {
   let result: any;
+  let lastUsage: any; // usage of the last model turn
   let retryLimit = false;
   for (const line of jsonl.split("\n")) {
     if (!line.trim()) continue;
@@ -39,6 +64,7 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
     try { e = JSON.parse(line); } catch { continue; }
     if (e.type === "system" && e.subtype === "api_retry" && ["rate_limit", "billing_error"].includes(e.error)) retryLimit = true;
     if (e.type === "result") result = e;
+    if (e.type === "assistant" && e.message?.usage) lastUsage = e.message.usage;
   }
   if (!result) throw new Error("Claude stream has no final result event (cut off?)");
   const text = String(result.result ?? "");
@@ -50,7 +76,11 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
     isError: resultError || limitHit || result.subtype !== "success" || exitCode !== 0,
     limitHit,
     costUsd: Number(result.total_cost_usd ?? 0),
-    tokens: { input: Number(result.usage?.input_tokens ?? 0), output: Number(result.usage?.output_tokens ?? 0) },
+    tokens: {
+      input: Number(result.usage?.input_tokens ?? 0), output: Number(result.usage?.output_tokens ?? 0),
+      cacheRead: Number(result.usage?.cache_read_input_tokens ?? 0), cacheWrite: Number(result.usage?.cache_creation_input_tokens ?? 0),
+    },
+    contextTokens: Number(lastUsage?.input_tokens ?? 0) + Number(lastUsage?.cache_read_input_tokens ?? 0) + Number(lastUsage?.cache_creation_input_tokens ?? 0),
     resultText: text,
   };
 }
@@ -72,15 +102,17 @@ export const claudeCode: Harness = {
       writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile)));
       if (job.inbox && inboxFile) pump = pumpInbox(job.inbox, inboxFile);
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools };
-      const { code, out } = await runCommand("claude", buildClaudeArgs(run, path), agentEnv(process.env, job.model.provider), cwd);
+      const calls = toolCalls();
+      const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
+      const { code, out } = await runCommand("claude", buildClaudeArgs(run, path), agentEnv(process.env, job.model.provider), cwd, undefined, onLine);
       // The hook stops the agent at its next tool call after a stop line. A run that was stopped is never ok.
       const stopped = (await pump?.end()) ?? false;
       pump = undefined;
       try {
         const r = parseStream(out, code);
-        return { session: r.sessionId, ok: !r.isError && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, text: r.resultText };
+        return { session: r.sessionId, ok: !r.isError && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.resultText };
       } catch (e) { // a stream cut before the result event is a failed run, not a crash
-        return { session: "", ok: false, limitHit: false, stopped, costUsd: 0, tokens: { input: 0, output: 0 }, text: (e as Error).message };
+        return { session: "", ok: false, limitHit: false, stopped, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: (e as Error).message };
       }
     } finally {
       await pump?.end(); // only still set when the run threw

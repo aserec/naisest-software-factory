@@ -6,9 +6,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { wrapTicket } from "../agents";
 import { makeInbox } from "../inbox";
 import { makeContext } from "../compose";
+import { emit } from "../emit";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
-import { NotFactoryRunError, type Chat, type CiRunner, type CodeHost, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type Ticket, type TicketRef, type Tracker } from "../seams";
+import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type ChangeRef, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
 import type { RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
@@ -17,6 +18,7 @@ export interface StepContext {
   ci: CiRunner;
   judge: Judge;
   chat: Chat;
+  dashboard: Dashboard;
   harnesses: Record<RoleChoice["harness"], Harness>;
   seams: SeamsConfig;
   record: RunRecord;
@@ -25,6 +27,9 @@ export interface StepContext {
   dir: string; // the target clone, cwd for agents
   repo: Repo;
   sleep(ms: number): Promise<void>;
+  step?: string; // the step runStep runs
+  stepEvent?: string; // the ID of its step_start event, the parent of what the step sends
+  dashboardStop?: boolean; // the dashboard asked this run to stop (seen by the inbox)
 }
 export type StepResult = "next" | "stop";
 
@@ -81,6 +86,7 @@ export async function block(ctx: StepContext, reason: string): Promise<StepResul
   save(ctx, "blocked", { reason });
   if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
   await ctx.tracker.setState(ref, "blocked");
+  emit(ctx, "run_end", { outcome: "blocked" });
   await ctx.tracker.comment(ref, `The factory stopped. A person must look at this.\n\n${reason}`);
   await ctx.tracker.assign(ref, person(ctx, t));
   await ctx.chat.notify("blocked", t.title, [reason], t.url);
@@ -101,29 +107,101 @@ export async function waiting(ctx: StepContext, step: string, sessionId: string,
   return "stop";
 }
 
-// A person stopped the run (`@factory stop`): keep the session so `@factory resume` can continue it.
-export const stoppedNote = (run: string | undefined) =>
-  `A person stopped this run. Comment the line @factory resume to continue it.\n\nStopped run: pipeline ${run ?? "unknown"}`;
-export const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
+// Is this dashboard switch on for this target? An unreachable dashboard counts as on, so a running step goes on,
+// except new_runs: no new run starts while the factory cannot see its switches.
+export async function switchOn(ctx: StepContext, name: SwitchName): Promise<boolean> {
+  try {
+    return (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).switches[name];
+  } catch {
+    return name !== "new_runs";
+  }
+}
 
-export async function stopped(ctx: StepContext, step: string, sessionId: string, extra: object = {}): Promise<StepResult> {
+// A person (`@factory stop`) or a dashboard switch stopped the run. The note names the run to resume:
+// `@factory resume` continues a person's stop, the poller a switch stop once the switch is on again.
+export interface StoppedNote { run: string; step: string; reason: string; change?: ChangeRef; buildRun?: string }
+export const stoppedNote = (n: StoppedNote) =>
+  [
+    n.reason.startsWith("switch off") ? "A dashboard switch stopped this run. The factory continues it when the switch is on again." : "A person stopped this run. Comment the line @factory resume to continue it.",
+    "",
+    `Stopped run: pipeline ${n.run}`,
+    `Stopped step: ${n.step}`,
+    `Reason: ${n.reason}`,
+    ...(n.change ? [`Change: ${n.change}`, `Build run: ${n.buildRun ?? "unknown"}`] : []),
+  ].join("\n");
+export const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
+// Reads a stopped note back. Only the factory's own comments may be passed in.
+export function parseStoppedNote(body: string): StoppedNote | undefined {
+  const field = (name: string) => new RegExp(`^${name}: (.+)$`, "m").exec(body)?.[1];
+  const run = STOPPED_RUN.exec(body)?.[1];
+  const step = field("Stopped step");
+  const reason = field("Reason");
+  if (!run || !step || !reason) return undefined;
+  const change = field("Change");
+  return { run, step, reason, ...(change ? { change, buildRun: field("Build run") } : {}) };
+}
+
+export async function stopped(ctx: StepContext, step: string, o: { session?: string; reason: string; change?: ChangeRef; extra?: object }): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  save(ctx, step, { ...extra, sessionId, stopped: true });
+  save(ctx, step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
   await ctx.tracker.setState(ref, "stopped");
-  await ctx.tracker.comment(ref, stoppedNote(ctx.ci.vars.run));
+  await ctx.tracker.comment(ref, stoppedNote({ run: ctx.ci.vars.run ?? "unknown", step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun }));
   return "stop";
+}
+const PERSON_STOP = "stopped by @factory stop";
+export const DASHBOARD_STOP = "stopped from the dashboard";
+// Why the inbox stopped the run: the dashboard, or else a person's `@factory stop`.
+export const stopReason = (ctx: StepContext) => (ctx.dashboardStop ? DASHBOARD_STOP : PERSON_STOP);
+
+// The poller's comment when the dashboard cancelled a pipeline that did not stop in time. Such a run cannot be resumed.
+const CANCEL_REASON = "Reason: pipeline cancelled from the dashboard";
+export const cancelNote = (user: string) =>
+  `The run was stopped from the dashboard by @${user}. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\n${CANCEL_REASON}`;
+// Only the factory's own comments may be passed in.
+export const isCancelNote = (body: string) => body.split("\n").includes(CANCEL_REASON);
+
+// The factory's newest stop comment on the ticket: a stopped note, or the cancel note. A resume reads only this one:
+// a person or the dashboard may have stopped the run again since an older note.
+export const lastStop = async (ctx: StepContext, ref: TicketRef): Promise<string | undefined> =>
+  (await ctx.tracker.comments(ref)).find((c) => c.byFactory && (STOPPED_RUN.test(c.body) || isCancelNote(c.body)))?.body;
+
+// Starts a stopped run again, in the kind of pipeline it stopped in. A build run resumes through its event step,
+// which checks the ticket and the record again. False when the note does not say enough to start it.
+export async function startStopped(ctx: StepContext, ref: TicketRef, note: StoppedNote): Promise<boolean> {
+  if (note.step !== "apply") {
+    await ctx.ci.start({ kind: "build", ticket: ref, buildRun: note.run });
+    return true;
+  }
+  if (!note.change || !/^\d+$/.test(note.buildRun ?? "")) return false;
+  // Also a guard against a second start by the next poll. Apply sets "running" again through its run, for the dashboard.
+  await ctx.tracker.setState(ref, "running");
+  try {
+    await ctx.ci.start({ kind: "finish", ticket: ref, change: note.change, buildRun: note.buildRun });
+  } catch (e) {
+    await ctx.tracker.setState(ref, "stopped"); // the next try starts it
+    throw e;
+  }
+  return true;
 }
 
 // The ticket's inbox from the start of this run (the newest event step), so a stop posted
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
+// It also asks the dashboard whether a person stopped this run there.
 export const inbox = (ctx: StepContext) =>
-  makeInbox(ctx.tracker, ticketRef(ctx), [...ctx.record.steps].reverse().find((s) => s.step === "event")?.at ?? new Date().toISOString());
+  makeInbox(ctx.tracker, ticketRef(ctx), [...ctx.record.steps].reverse().find((s) => s.step === "event")?.at ?? new Date().toISOString(), async () => {
+    const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
+    if (stop) ctx.dashboardStop = true;
+    return stop;
+  });
 
 // Runs one agent job on the harness the router picked, and adds its cost and tokens to the record.
 // An author run with tools gets the inbox: comments from trusted people reach it, and a stop line stops it.
 export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, job: Omit<HarnessJob, "role" | "model">): Promise<HarnessResult> {
   const box = role === "author" && job.tools === "code" ? inbox(ctx) : undefined;
-  const r = await ctx.harnesses[choice.harness].run({ ...job, ...(box ? { inbox: box } : {}), role, model: modelChoice(choice, ctx.seams) });
+  // Only the author's tool calls go to the dashboard. Jev and the reviewer show at step level.
+  const onToolCall = role === "author" ? (c: ToolCall) => void emit(ctx, "tool_call", c, { parent: ctx.stepEvent }) : undefined;
+  const r = await ctx.harnesses[choice.harness].run({ ...job, ...(box ? { inbox: box } : {}), ...(onToolCall ? { onToolCall } : {}), role, model: modelChoice(choice, ctx.seams) });
+  emit(ctx, "usage", { role, model: choice.model, input: r.tokens.input, output: r.tokens.output, cacheRead: r.tokens.cacheRead, cacheWrite: r.tokens.cacheWrite, costUsd: r.costUsd, contextTokens: r.contextTokens });
   const t = ctx.record.tokens ?? { input: 0, output: 0 };
   ctx.record = {
     ...ctx.record,
@@ -181,6 +259,35 @@ function doneBeforeResume(ctx: StepContext, name: string): boolean {
   return i > 0 && i < BUILD_JOBS.indexOf(data(ctx, "event")?.resumeAt);
 }
 
+// A stop saved by stopped() or waiting() ends the step as "stopped" or "waiting".
+function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
+  if (result === "next") return "next";
+  const last = ctx.record.steps.at(-1)?.data as { stopped?: boolean; limit?: boolean } | undefined;
+  return last?.stopped ? "stopped" : last?.limit ? "waiting" : "stop";
+}
+
+// Sends a label_change for every state the steps set and a jev_answer for every Jev answer, so no step has to.
+// The dashboard names states factory_<state>, as the ticket labels do, and picks the run's buttons by the last one.
+const WATCHED = Symbol("watched");
+function watch(ctx: StepContext): void {
+  const { tracker, judge } = ctx;
+  if (WATCHED in tracker) return; // a test may run every step on one context
+  ctx.tracker = Object.assign(Object.create(tracker) as Tracker, {
+    [WATCHED]: true,
+    setState: async (ref: TicketRef, state: FactoryState) => {
+      await tracker.setState(ref, state);
+      emit(ctx, "label_change", { to: `factory_${state}` });
+    },
+  });
+  ctx.judge = Object.assign(Object.create(judge) as Judge, {
+    ask: async (state: unknown, questions: JevQuestion[]) => {
+      const answers = await judge.ask(state, questions);
+      for (const a of answers) emit(ctx, "jev_answer", { question: questions.find((q) => q.id === a.id)?.text ?? a.id, answer: String(a.value), confidence: String(a.confidence) });
+      return answers;
+    },
+  });
+}
+
 // The CI job body: skip if an earlier job stopped the run, run the step, save the record.
 // A "stop" is a normal end. Only unexpected errors fail the job, and they block the ticket first.
 export async function runStep(
@@ -195,6 +302,9 @@ export async function runStep(
     return;
   }
   const ctx = (opts.make ?? makeContext)(opts.env ?? process.env);
+  watch(ctx);
+  ctx.step = name;
+  ctx.stepEvent = undefined;
   let result: StepResult;
   try {
     try {
@@ -212,13 +322,19 @@ export async function runStep(
       console.log(`Skipping ${name}: it finished before the run was resumed.`);
       return;
     }
+    // The event step sends its own start once it knows the run goes on, so a declined start or resume sends nothing to the run.
+    if (name !== "event") ctx.stepEvent = emit(ctx, "step_start", {});
     result = await run(ctx);
+    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: endOutcome(ctx, result) });
   } catch (e) {
+    emit(ctx, "error", { message: String(e).slice(0, 500) });
     // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
     await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`).catch(() => {});
+    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: "error" });
     throw e;
   } finally {
     saveRecord(ctx.record, dir); // also creates the dir
+    await ctx.dashboard.flush();
   }
   if (result === "stop") writeFileSync(stopFile, name);
 }

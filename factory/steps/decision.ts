@@ -1,7 +1,8 @@
+import { emit } from "../emit";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { RuleResult } from "../rules";
 import type { Ticket } from "../seams";
-import { block, data, inbox, isMain, modelRow, notify, person, runStep, save, session, stopped, ticketRef, type StepContext, type StepResult } from "./context";
+import { block, data, inbox, isMain, modelRow, notify, person, stopReason, runStep, save, session, stopped, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
 
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
 
@@ -32,13 +33,15 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const { change, changeUrl } = data(ctx, "precommit-gate");
   const ticket = await ctx.tracker.ticket(ref);
-  const d = decide(ctx, ticket);
+  let d = decide(ctx, ticket);
+  if (d.kind === "auto" && !(await switchOn(ctx, "auto_merge"))) d = { kind: "needs_approval", reasons: ["auto-merge is switched off"] };
   // A stop posted after the last author run (during review, the gate or the risk check) must not merge.
   // With no author session the resume blocks, which is still better than a merge.
-  if (d.kind === "auto" && (await inbox(ctx).poll()).stop) return stopped(ctx, "decision", session(ctx) ?? "");
+  if (d.kind === "auto" && (await inbox(ctx).poll()).stop) return stopped(ctx, "decision", { session: session(ctx), reason: stopReason(ctx) });
   // The finish run loads this run's record from this run.
   if (d.kind === "auto" && !ctx.ci.vars.run) return block(ctx, "This run has no run id, so the finish run could not find this run's record.");
   save(ctx, "decision", d);
+  emit(ctx, "decision", { auto: d.kind === "auto", reasons: d.kind === "auto" ? [] : d.reasons });
   if (d.kind === "auto") {
     const rules = (data(ctx, "risk-check").rules as RuleResult[]).map((r) => `- ${r.rule}: ${r.detail}`).join("\n");
     await ctx.codeHost.commentChange(change, `The factory merges this without a person: triage risk was trivial or low, code review and precommit-gate passed, every hard rule passed and Jev 2 passed.\n\n${rules}`);
