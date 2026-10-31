@@ -20,7 +20,7 @@ import { findSecrets } from "../rules";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
-import { BOT, B, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
+import { BOT, B, PNG, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -891,4 +891,24 @@ test("a reviewer model that does not read images gets none, and every screen is 
   const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
   expect(job.images).toBeUndefined();
   expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }] });
+});
+test("a harness that does not read images gets none, and the screen is unsure", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
+  w.ctx.harnesses.pi = { ...w.harness, images: false };
+  await runBuildPipeline(w);
+  const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
+  expect(job.images).toBeUndefined();
+  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }] });
+});
+test("a does_not_match from a reviewer that cannot read images does not block", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] });
+  w.ctx.seams.providers.tensorx.images = [];
+  await runBuildPipeline(w);
+  expect(w.states).not.toContain("blocked");
+  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure" }] });
+});
+test("a does_not_match for a screen with no after image does not block", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, images: { "before-list-1280.png": PNG }, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] }));
+  expect(w.states).not.toContain("blocked");
+  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure", note: "no after image" }] });
 });

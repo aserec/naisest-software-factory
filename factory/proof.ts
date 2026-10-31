@@ -92,6 +92,6 @@ export function screenVerdicts(findings: Finding[], proof: Proof | undefined, lo
     if (!s.isNew && (!s.before || !loaded.includes(s.before))) return unsure("no before image");
     return { screen: s.name, verdict: f.verdict as Verdict, note: f.text };
   });
-  const whole = findings.filter((f) => !f.screen && f.verdict === "unsure").map((f): ScreenVerdict => ({ verdict: "unsure", note: f.text }));
+  const whole = findings.filter((f) => !f.screen && (f.verdict === "unsure" || f.verdict === "does_not_match")).map((f): ScreenVerdict => ({ verdict: "unsure", note: f.text }));
   return [...screens, ...whole];
 }

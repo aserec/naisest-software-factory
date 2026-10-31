@@ -25,8 +25,10 @@ export async function review(ctx: StepContext, job: string): Promise<StepResult 
       maxTurns: 1,
     });
     if (!r.ok) throw new ReviewerFailed(r.text);
-    // A verdict of does_not_match blocks like any blocking finding.
-    const findings = parseFindings(r.text).map((f) => (f.verdict === "does_not_match" ? { ...f, blocking: true } : f));
+    // A does_not_match blocks only for a screen the reviewer could check. Otherwise it stays non-blocking and the screen is unsure.
+    const parsed = parseFindings(r.text);
+    const judged = screenVerdicts(parsed, proof.proof, Object.keys(images), readsImages);
+    const findings = parsed.map((f) => (f.verdict === "does_not_match" && judged.some((v) => v.screen === f.screen && v.verdict === "does_not_match") ? { ...f, blocking: true } : f));
     last = { findings, proof, images };
     return findings;
   };

@@ -69,6 +69,10 @@ test("a does_not_match verdict is kept as it is", () => {
   const proof: Proof = { visual: true, tests: [], screens: [sc("A", { before: "a-b.png", after: "a-a.png" })] };
   expect(screenVerdicts([F("A", "does_not_match")], proof, ["a-b.png", "a-a.png"], true)[0].verdict).toBe("does_not_match");
 });
+test("a does_not_match verdict with no screen is a whole-proof unsure item", () => {
+  const proof: Proof = { visual: true, tests: [], screens: [] };
+  expect(screenVerdicts([F(undefined, "does_not_match")], proof, [], true)).toEqual([{ verdict: "unsure", note: "note undefined" }]);
+});
 // Review Focus 1: a file that is not a PNG never goes to the model.
 test("readImages leaves out a file that is not a PNG", () => {
   const proof = parseProof(JSON.stringify(VALID)).proof;
