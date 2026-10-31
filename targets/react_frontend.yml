@@ -1,7 +1,6 @@
 name: react_frontend
 projectPath: acme/web/react_frontend
-# Placeholder. Set the real GitLab username at go-live.
-defaultApprover: REPLACE_WITH_GITLAB_USERNAME
+defaultApprover: Ceresa
 jobImage: node:22
 maxChangedLines: 300
 protectedPaths:

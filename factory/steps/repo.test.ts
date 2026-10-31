@@ -53,6 +53,33 @@ test("a hostile .git/config in the clone has no effect on the factory's git", as
   expect(git(server, "rev-parse", "refs/heads/factory/8-test")).toBe(sha2);
 });
 
+// Our git dir is a bare clone, which has no index. Built by `add -A` alone, the index would leave out tracked files
+// under an ignored path, and the diff and the pushed commit would delete them.
+test("tracked files under an ignored path and a submodule are not part of the change", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-test-"));
+  const seed = join(root, "seed");
+  git(root, "init", "-q", "-b", "master", seed);
+  writeFileSync(join(seed, "a.txt"), "one\n");
+  writeFileSync(join(seed, ".gitignore"), "notes/\n");
+  mkdirSync(join(seed, "notes"));
+  writeFileSync(join(seed, "notes/kept.md"), "tracked anyway\n");
+  git(seed, "add", ".");
+  git(seed, "add", "-f", "notes/kept.md");
+  git(seed, "update-index", "--add", "--cacheinfo", `160000,${"1".repeat(40)},sub`);
+  git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+  const server = join(root, "server.git");
+  git(root, "clone", "-q", "--bare", seed, server);
+
+  const dir = join(root, "run/target");
+  const repo = gitRepo(dir, join(root, "run/target.git"), `file://${server}`, "tok", process.env);
+  await repo.clone("master");
+  writeFileSync(join(dir, "a.txt"), "two\n");
+
+  expect((await repo.diff()).numstat.split("\0").filter(Boolean)).toEqual(["1\t1\ta.txt"]);
+  await repo.commitAndPush("factory/8-test", "change");
+  expect(git(server, "ls-tree", "-r", "--name-only", "factory/8-test").split("\n")).toEqual([".gitignore", "a.txt", "notes/kept.md", "sub"]);
+});
+
 test("gate sandbox: agent network allowlist, no /proc, writes only to the clone, HOME and /tmp", () => {
   const s = sandboxSettings("/w/run/target", "/tmp/h");
   expect(s.network.allowedDomains).toContain("registry.npmjs.org");
@@ -61,6 +88,11 @@ test("gate sandbox: agent network allowlist, no /proc, writes only to the clone,
   const root = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
   expect(s.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home", "/w/run/pi-home"]);
   expect(s.filesystem.allowWrite).toEqual(["/w/run/target", "/tmp/h", "/tmp"]);
+  expect(s.network).not.toHaveProperty("allowLocalBinding");
+  // A local run: the pnpm store, the real /tmp on macOS, and local ports.
+  const local = sandboxSettings("/w/run/target", "/tmp/h", "/c/store");
+  expect(local.filesystem.allowWrite).toEqual(["/w/run/target", "/tmp/h", "/tmp", "/c/store", "/private/tmp"]);
+  expect(local.network).toMatchObject({ allowLocalBinding: true });
 });
 
 test("readFile refuses links and paths that leave the clone", async () => {

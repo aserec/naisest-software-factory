@@ -154,6 +154,13 @@ test("a provider 429 in the output is a limit hit", async () => {
   expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: true });
 });
 
+// Pi retries a dropped connection itself. Only the last assistant message says how the run ended.
+test("an error that Pi retried past is not a failed run", async () => {
+  fakePi(events(header, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "429 Connection error." } }, answer("done")));
+  fakeSrt();
+  expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: true, limitHit: false, text: "done" });
+});
+
 test("a model that is not served is a failed run, not a limit", async () => {
   fakePi(`${events(header, { type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "404 model not found" } })}\nexit 1`);
   fakeSrt();

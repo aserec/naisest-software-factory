@@ -17,6 +17,7 @@ import { newRecord, RUN_DIR } from "./record";
 import { addKnownSecrets } from "./rules";
 import type { StepContext } from "./steps/context";
 import { FACTORY_ROOT } from "./steps/repo";
+import type { Chat } from "./seams";
 import type { SeamsConfig, Target } from "./types";
 
 // Adapter names in seams.yml, and what each one builds. A new adapter is one line here.
@@ -28,7 +29,11 @@ const ADAPTERS = {
     "jev-berget": (env: NodeJS.ProcessEnv) => makeJevClient(env),
     "model-call": (env: NodeJS.ProcessEnv, seams: SeamsConfig) => makeModelJudge(modelChoice(seams.judgeModel, seams), env),
   },
-  chat: { teams: makeTeamsChat },
+  chat: {
+    teams: makeTeamsChat,
+    // Local trials: notices go to the job log.
+    console: (): Chat => ({ notify: async (kind, title, lines, url) => console.log(`[chat ${kind}] ${title}\n${lines.join("\n")}\n${url}`) }),
+  },
   // The watcher's rules depend on the exact name "files": fake errors from this checkout.
   logSource: { files: () => makeFileLogs(resolve(FACTORY_ROOT, "watcher/fixtures")) },
 };
@@ -59,7 +64,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   const token = ci.secret("FACTORY_GITLAB_TOKEN");
   const webhook = ci.secret("TEAMS_WEBHOOK_URL");
   if (!token) throw new Error("FACTORY_GITLAB_TOKEN is not set");
-  if (!webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
+  if (seams.chat === "teams" && !webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
   // No comment, change text or pushed diff may carry any of these.
   addKnownSecrets(token, webhook, env.BERGET_API_KEY, ...Object.values(seams.providers).map((p) => env[p.keyEnv]));
   // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
@@ -74,7 +79,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     codeHost,
     ci,
     judge: make.judge(env, seams),
-    chat: make.chat(webhook),
+    chat: make.chat(webhook ?? ""),
     harnesses: { "claude-code": claudeCode, pi },
     seams,
     record: newRecord(),

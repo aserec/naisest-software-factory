@@ -25,13 +25,13 @@ export const piArgs = (provider: string, model: string, prompt: string) => [
 
 // Nothing secret except the provider key, which Pi reads through models.json. No Claude token, no GitLab token.
 export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider, dir: string): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv] };
+  const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv], pnpm_config_store_dir: env.FACTORY_PNPM_STORE };
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
 
 // The author's sandbox: the gate sandbox plus the provider's host. Pi reads and writes its own home, which is otherwise denied.
 export function piSandboxSettings(cwd: string, home: string, provider: Provider) {
-  const s = sandboxSettings(cwd, home);
+  const s = sandboxSettings(cwd, home, process.env.FACTORY_PNPM_STORE); // set on local runs only
   const host = provider.baseUrl ? new URL(provider.baseUrl).hostname : undefined;
   return {
     network: { ...s.network, allowedDomains: host ? [...s.network.allowedDomains, host] : s.network.allowedDomains },
@@ -59,7 +59,8 @@ export function parsePiOutput(out: string) {
     tokens.input += Number(m.usage?.input ?? 0);
     tokens.output += Number(m.usage?.output ?? 0);
     costUsd += Number(m.usage?.cost?.total ?? 0);
-    if (m.stopReason === "error" || m.errorMessage) error = String(m.errorMessage ?? "error");
+    // Pi retries a failed request, so only the last assistant message tells how the run ended.
+    error = m.stopReason === "error" || m.errorMessage ? String(m.errorMessage ?? "error") : "";
   }
   return { session, text: text || error, error, limitHit: /\b429\b|rate.?limit|quota|usage limit/i.test(error), tokens, costUsd };
 }

@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SETTINGS_PATH, SRT, sandboxDenyRead } from "../sandbox";
 import type { Repo } from "../seams";
@@ -26,21 +26,32 @@ export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.Process
 
 // Sandbox settings for install and gate commands: the agent's network allowlist, no /proc,
 // writes only to the clone, a throwaway HOME and /tmp.
-export function sandboxSettings(dir: string, home: string) {
+// A local run (store set) also gets the pnpm store, /private/tmp (the real /tmp on macOS, which srt does not follow)
+// and local port binding (Next's Turbopack starts its PostCSS workers on a local port).
+// ponytail: local binding also lets sandboxed code reach services on the developer's localhost. Local runs only.
+export function sandboxSettings(dir: string, home: string, store?: string) {
   const agent = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
   return {
-    network: { allowedDomains: agent.sandbox.network.allowedDomains, deniedDomains: [] },
-    filesystem: { denyRead: sandboxDenyRead(dir), allowWrite: [dir, home, "/tmp"], denyWrite: [] },
+    network: { allowedDomains: agent.sandbox.network.allowedDomains, deniedDomains: [], ...(store && { allowLocalBinding: true }) },
+    filesystem: { denyRead: sandboxDenyRead(dir), allowWrite: [dir, home, "/tmp", ...(store ? [store, "/private/tmp"] : [])], denyWrite: [] },
   };
 }
 
 // Runs a target command (install, lint, test, build) inside @anthropic-ai/sandbox-runtime.
 async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
+  // ponytail: local runs only (local-run.sh sets it; the CI job env list never passes it). One shared store, so an
+  // install script of one run can change what a later run installs. CI gets a new VM per job and never uses it.
+  const store = env.FACTORY_PNPM_STORE;
+  if (store && !isAbsolute(store)) throw new Error("FACTORY_PNPM_STORE must be an absolute path");
   const home = mkdtempSync(join(tmpdir(), "gate-home-"));
   const settings = join(home, "srt-settings.json"); // srt reads it once, before the command starts
-  writeFileSync(settings, JSON.stringify(sandboxSettings(dir, home)));
+  writeFileSync(settings, JSON.stringify(sandboxSettings(dir, home, store)));
   try {
-    return await sh(SRT, ["--settings", settings, "-c", cmd], dir, { PATH: env.PATH, LANG: env.LANG, HOME: home });
+    // srt on macOS denies writes to every .idea, .vscode and .git/hooks under its cwd, and some packages ship an .idea dir
+    // (iconv-lite 0.6.3). Local runs start srt in the throwaway HOME, so those rules cover HOME and not the clone.
+    // The factory never uses the clone's own .git, so the clone loses nothing it relies on.
+    const script = store ? `cd '${dir.replaceAll("'", `'\\''`)}' && ${cmd}` : cmd;
+    return await sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }) });
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -63,6 +74,8 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
       if (existsSync(dir)) return;
       await git(["clone", "--depth", "1", "--branch", ref, url, dir], auth, ".");
       await git(["clone", "--bare", "--depth", "1", "--branch", ref, url, gitDir], auth, ".");
+      // A bare clone has no index. Start it from the base commit, so `add -A` keeps tracked files under ignored paths and submodules.
+      await git([...ours, "read-tree", "HEAD"]);
       appendFileSync(join(gitDir, "info/exclude"), "\n/run/\n"); // run/test-changes.md is a note, not part of the change. Root only: src/run/ is code
     },
     async diff() {

@@ -277,7 +277,7 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
   };
   expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
   expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
@@ -550,10 +550,11 @@ test("makeContext refuses an unknown adapter in seams.yml before it builds any",
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: toString", "tracker: gitlab").replace("logSource: files", "logSource: filez"));
   expect(() => makeContext({}, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
 });
+// chat: console needs no Teams webhook.
 test("makeContext builds a context on the adapters seams.yml names", () => {
   const dir = tmp();
-  for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
-  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams") }, dir);
+  writeFileSync(join(dir, "gl"), "x");
+  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl") }, dir);
   expect(ctx.ci.vars.ticket).toBe("8");
   expect(ctx.seams.tracker).toBe("gitlab");
   expect(Object.keys(ctx.harnesses).sort()).toEqual(["claude-code", "pi"]);

@@ -1,11 +1,11 @@
-# Reviewer IDs are placeholders. Confirm them in the TensorX console at go-live.
+# Local trial: Pi on TensorX for every role, no Claude Code. DeepSeek writes, GLM reviews.
 low:
-  author: { harness: claude-code, provider: team-plan, model: claude-sonnet-5-5, effort: medium }
-  reviewer: { harness: pi, provider: tensorx, model: tensorx-deepseek-small }
+  author: { harness: pi, provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
+  reviewer: { harness: pi, provider: tensorx, model: z-ai/glm-5.3-flash }
   mayAutoMerge: true
 high:
-  author: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: high }
-  reviewer: { harness: pi, provider: tensorx, model: tensorx-deepseek-large }
+  author: { harness: pi, provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
+  reviewer: { harness: pi, provider: tensorx, model: z-ai/glm-5.3-flash }
   mayAutoMerge: false
-writer: { harness: claude-code, provider: team-plan, model: claude-sonnet-5-5, effort: medium }
+writer: { harness: pi, provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
 effortBump: 8
