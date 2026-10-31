@@ -56,7 +56,9 @@ const commandsSchema = z.object({
   test: z.string().min(1),
   build: z.string().min(1),
   smoke: z.string().min(1).optional(),
-});
+  preview: z.string().min(1).optional(),
+  previewUrl: z.string().url().optional(),
+}).refine((c) => !c.preview === !c.previewUrl, { message: "preview and previewUrl go together" });
 
 const readYaml = (path: string) => parse(readFileSync(path, "utf8"));
 

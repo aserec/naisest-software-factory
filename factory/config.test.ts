@@ -68,3 +68,11 @@ test("a target with a REPLACE_WITH_ placeholder is refused with a clear error", 
   expect(() => loadTarget("react_frontend", { defaultApprover: "REPLACE_WITH_GITLAB_USERNAME" })).toThrow(/targets\/react_frontend\.yml: defaultApprover is still a placeholder/);
   expect(loadTarget("react_frontend", { defaultApprover: "kirill" }).defaultApprover).toBe("kirill");
 });
+
+const BASE = "install: i\nlint: l\ntest: t\nbuild: b\n";
+test("preview and previewUrl go together and previewUrl is a URL", () => {
+  expect(() => parseFactoryFile(BASE + "preview: pnpm dev\n")).toThrow(/preview and previewUrl go together/);
+  expect(() => parseFactoryFile(BASE + "previewUrl: http://localhost:3000\n")).toThrow(/preview and previewUrl go together/);
+  expect(() => parseFactoryFile(BASE + "preview: pnpm dev\npreviewUrl: not-a-url\n")).toThrow();
+  expect(parseFactoryFile(BASE + "preview: pnpm dev\npreviewUrl: http://localhost:3000\n")).toMatchObject({ preview: "pnpm dev", previewUrl: "http://localhost:3000" });
+});
