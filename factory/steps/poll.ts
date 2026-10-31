@@ -25,6 +25,12 @@ export async function pollReady(ctx: StepContext): Promise<TicketRef[]> {
 
 export async function main() {
   if (process.env.FACTORY_SCHEDULE !== "poll") throw new Error("FACTORY_SCHEDULE must be poll");
-  console.log(`Started build runs for tickets: ${(await pollReady(makeContext(process.env))).join(", ") || "none"}`);
+  const ctx = makeContext(process.env);
+  // local-factory.sh: print the tickets to start, start no pipeline. The script runs them on this machine.
+  if (process.argv.includes("--list")) {
+    console.log((await pollReady({ ...ctx, ci: { ...ctx.ci, start: async () => {} } })).join(" "));
+    return;
+  }
+  console.log(`Started build runs for tickets: ${(await pollReady(ctx)).join(", ") || "none"}`);
 }
 if (isMain(import.meta.url)) await main();
