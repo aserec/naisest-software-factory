@@ -24,7 +24,7 @@ import type { SeamsConfig, Target } from "./types";
 const ADAPTERS = {
   ci: { gitlab: makeGitLabCi },
   tracker: { gitlab: (token: string, target: Target) => makeGitLabTracker(new GitLab(GITLAB_URL, token), target.projectPath) },
-  codeHost: { gitlab: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitLabCodeHost(new GitLab(GITLAB_URL, token), target.projectPath, token, env) },
+  codeHost: { gitlab: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitLabCodeHost(new GitLab(GITLAB_URL, token), target.projectPath, token, env, target.baseBranch) },
   judge: {
     "jev-berget": (env: NodeJS.ProcessEnv) => makeJevClient(env),
     "model-call": (env: NodeJS.ProcessEnv, seams: SeamsConfig) => makeModelJudge(modelChoice(seams.judgeModel, seams), env),

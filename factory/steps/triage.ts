@@ -43,7 +43,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
 // needs_info: an agent drafts questions from the ticket and the code. This step posts them.
 async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: string): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  await ctx.repo.clone(await ctx.codeHost.defaultBranch());
+  await ctx.repo.clone(await ctx.codeHost.baseBranch());
   const text = resumeSessionId ? CONTINUE : `${prompt("questions")}\n\n${ticketText(ctx)}`;
   const r = await agent(ctx, "author", row.author, { tools: "code", prompt: text, maxTurns: 15, cwd: ctx.dir, resume: resumeSessionId });
   if (r.stopped) return stopped(ctx, "questions", r.session);

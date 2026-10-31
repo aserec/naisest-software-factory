@@ -13,6 +13,7 @@ export interface SeamsConfig {
 export interface Target {
   name: string;
   projectPath: string;
+  baseBranch: string;
   protectedPaths: string[];
   dependencyFiles: string[];
   maxChangedLines: number;

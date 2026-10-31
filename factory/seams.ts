@@ -62,7 +62,7 @@ export interface Repo {
 export type Checks = "green" | "red" | "running" | "none";
 export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; body: string }
 export interface CodeHost {
-  defaultBranch(): Promise<string>;
+  baseBranch(): Promise<string>;
   cloneAt(dir: string): Repo;
   openChange(branch: string, title: string, body: string, ticket: TicketRef): Promise<{ ref: ChangeRef; url: string }>; // adds the AI line and the closing line
   change(ref: ChangeRef): Promise<Change>;

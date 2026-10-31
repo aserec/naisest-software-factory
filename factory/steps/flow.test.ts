@@ -51,9 +51,9 @@ test("usage limit mid-run labels factory_waiting and keeps the session", async (
   expect(w.states).toEqual(["waiting"]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: expect.any(String) } });
 });
-test("finish pipeline merges, waits for the default branch and closes the work item", async () => {
-  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "success", defaultBranch: "master" }));
-  expect(w.mainPipelineRef).toBe("master");
+test("finish pipeline merges, waits for the develop pipeline and closes the work item", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "success" }));
+  expect(w.mainPipelineRef).toBe("develop");
   expect(w.states).toEqual(["done"]);
   expect(w.closed).toBe(true);
   expect(w.cards.map(c => c.kind)).toEqual(["done"]);
@@ -76,8 +76,8 @@ test("the work item gets a mark for each step it passed, and none for a failed c
   const failed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B]] }));
   expect(failed.tracker.tickets.get("8")!.marks).toEqual(["triaged", "risk_low", "implemented"]);
 });
-test("a red main pipeline opens a revert MR and blocks", async () => {
-  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "failed", defaultBranch: "master" }));
+test("a red develop pipeline opens a revert MR and blocks", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mainPipeline: "failed" }));
   expect(w.revertOpened).toBe(true);
   expect(w.states).toEqual(["blocked"]);
 });
@@ -160,7 +160,8 @@ test("approvals by the bot or a non-developer, or of an MR not waiting for a per
   ] as WorldOptions[]) expect((await runBuildPipeline(fakeWorld(o))).finishTriggered).toBe(false);
 });
 test("finish after a manual merge does not merge again and verifies the merge commit", async () => {
-  const w = await runFinishPipeline(fakeWorld({ mrState: "merged", defaultBranch: "master" }), { decision: "needs_approval", skipApply: true });
+  const w = await runFinishPipeline(fakeWorld({ mrState: "merged" }), { decision: "needs_approval", skipApply: true });
+  expect(w.mainPipelineRef).toBe("develop");
   expect(w.merged).toBe(false);
   expect(w.record.steps.find((s) => s.step === "apply")?.data).toMatchObject({ sha: "manual789", skipped: true });
   expect(w.states).toEqual(["done"]);
@@ -552,11 +553,16 @@ test("makeContext refuses an unknown adapter in seams.yml before it builds any",
   expect(() => makeContext({}, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
 });
 // chat: console needs no Teams webhook.
-test("makeContext builds a context on the adapters seams.yml names", () => {
+test("prepare patch and the questions agent clone the base branch", async () => {
+  expect((await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }))).cloned).toEqual(["develop"]);
+  expect((await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 } }))).cloned).toEqual(["develop"]);
+});
+test("makeContext builds a context on the adapters seams.yml names", async () => {
   const dir = tmp();
   writeFileSync(join(dir, "gl"), "x");
   const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl") }, dir);
   expect(ctx.ci.vars.ticket).toBe("8");
+  expect(await ctx.codeHost.baseBranch()).toBe("develop");
   expect(ctx.seams.tracker).toBe("gitlab");
   expect(Object.keys(ctx.harnesses).sort()).toEqual(["claude-code", "pi"]);
 });

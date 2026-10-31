@@ -44,6 +44,7 @@ const real = z.string().min(1).refine((v) => !v.startsWith("REPLACE_WITH_"), { m
 const targetSchema = z.object({
   name: z.string().min(1),
   projectPath: real,
+  baseBranch: z.string().min(1),
   protectedPaths: z.array(z.string()),
   dependencyFiles: z.array(z.string()),
   maxChangedLines: z.number().int().positive(),

@@ -1,7 +1,7 @@
 import { block, data, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
-  const branch = await ctx.codeHost.defaultBranch();
+  const branch = await ctx.codeHost.baseBranch();
   const { sha } = data(ctx, "apply");
   const status = await waitFor(ctx, () => ctx.codeHost.checks({ branch, sha }));
   save(ctx, "verify", { status });

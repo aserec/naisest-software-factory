@@ -177,12 +177,12 @@ export class GitLab {
     return status === "failed" || status === "canceled" ? "failed" : "running";
   }
 
-  async revertMerge(projectId: number, sha: string, defaultBranch: string) {
+  async revertMerge(projectId: number, sha: string, base: string) {
     // A unique name, so an earlier revert branch for the same commit does not get in the way.
     const branch = `factory/revert-${sha.slice(0, 8)}-${Date.now()}`;
-    await this.call("POST", `/projects/${projectId}/repository/branches`, { branch, ref: defaultBranch });
+    await this.call("POST", `/projects/${projectId}/repository/branches`, { branch, ref: base });
     await this.call("POST", `/projects/${projectId}/repository/commits/${sha}/revert`, { branch });
-    return this.openMergeRequest(projectId, branch, defaultBranch, `Revert ${sha.slice(0, 8)}`, `The default branch pipeline failed after ${sha}. This reverts it.`);
+    return this.openMergeRequest(projectId, branch, base, `Revert ${sha.slice(0, 8)}`, `The ${base} pipeline failed after ${sha}. This reverts it.`);
   }
 
   // The newest successful decision job of a build pipeline. That job's artifacts hold run/ at the end of the

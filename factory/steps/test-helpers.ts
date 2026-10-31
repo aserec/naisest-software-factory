@@ -55,7 +55,7 @@ export interface WorldOptions {
   existingMr?: boolean;
   mrPipeline?: "success" | "failed";
   mainPipeline?: Status;
-  defaultBranch?: string;
+  baseBranch?: string;
   title?: string; // the ticket title
   proof?: unknown; // run/proof/proof.json: the manifest object or raw text; null for no file
   images?: Record<string, Buffer>; // files in run/proof/; default a PNG for every image the manifest names
@@ -80,7 +80,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   tracker.trusted = async (actor) => actor !== FAKE_FACTORY && (o.actorLevel ?? 30) >= 30;
   const ticket = tracker.tickets.get("8")!;
   const host = fakeCodeHost({
-    defaultBranch: o.defaultBranch,
+    baseBranch: o.baseBranch,
     head: "head5",
     landedSha: "manual789",
     existing: o.existingMr,
@@ -125,8 +125,9 @@ export function fakeWorld(o: WorldOptions = {}) {
   const proofText = proof === null ? undefined : typeof proof === "string" ? proof : JSON.stringify(proof);
   const names = ((proof as any)?.screens ?? []).flatMap((s: any) => [s.before, s.after]).filter(Boolean);
   const images = o.images ?? Object.fromEntries(names.map((n: string) => [n, PNG]));
+  const cloned: string[] = [];
   const repo: Repo = {
-    clone: async () => {},
+    clone: async (ref) => void cloned.push(ref),
     diff: async () => ({ text: o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
     run: async (cmd) => (ran.push(cmd), { ok: o.gate !== "red" && !(cmd === "pnpm lint" && lintFails-- > 0), output: `ran ${cmd}` }),
     readBytes: (path) => (path.startsWith(PROOF_DIR) ? images[path.slice(PROOF_DIR.length)] : undefined),
@@ -163,6 +164,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     get merged() { return host.merged; },
     get mergedSha() { return host.mergedSha; },
     get revertOpened() { return host.revertOpened; },
+    get cloned() { return cloned; },
     get mainPipelineRef() { return host.mainPipelineRef; },
     get commitMessage() { return commitMessage; },
     get cards() { return chat.sent; },

@@ -1,5 +1,6 @@
 name: react_frontend
 projectPath: acme/web/react_frontend
+baseBranch: develop
 defaultApprover: Ceresa
 jobImage: node:22
 maxChangedLines: 300

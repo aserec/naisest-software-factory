@@ -6,7 +6,7 @@ export const previewLine = (c: FactoryCommands) =>
   c.preview ? `Preview: start the app with \`${c.preview}\`. It serves ${c.previewUrl}.` : "Preview: this repo has no preview command. Take no screenshots; prove the change with tests only.";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
-  await ctx.repo.clone(await ctx.codeHost.defaultBranch());
+  await ctx.repo.clone(await ctx.codeHost.baseBranch());
   // A resumed run continues the session that hit the limit, in the clone restored from that pipeline.
   const resumeSessionId = resumeSession(ctx, "prepare-patch");
   // Read the commands before the agent runs, so the agent cannot change what the gate runs.

@@ -79,3 +79,8 @@ test("preview and previewUrl go together and previewUrl is a URL", () => {
   expect(() => parseFactoryFile(BASE + "preview: pnpm dev\npreviewUrl: not-a-url\n")).toThrow();
   expect(parseFactoryFile(BASE + "preview: pnpm dev\npreviewUrl: http://localhost:3000\n")).toMatchObject({ preview: "pnpm dev", previewUrl: "http://localhost:3000" });
 });
+test("a target names its base branch; a missing or empty one is refused", () => {
+  expect(loadTarget("react_frontend").baseBranch).toBe("develop");
+  expect(() => loadTarget("react_frontend", { baseBranch: "" })).toThrow(/targets\/react_frontend\.yml: baseBranch/);
+  expect(() => loadTarget("react_frontend", { baseBranch: undefined })).toThrow(/baseBranch Required/);
+});

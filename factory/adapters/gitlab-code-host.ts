@@ -2,20 +2,19 @@ import { AI_LINE, DEVELOPER, GitLab, GITLAB_URL } from "../gitlab";
 import { gitRepo } from "../steps/repo";
 import type { Checks, CodeHost } from "../seams";
 
-export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv): CodeHost {
-  let project: Promise<{ id: number; defaultBranch: string }> | undefined;
+export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string): CodeHost {
+  let project: Promise<{ id: number }> | undefined;
   const proj = () => (project ??= gitlab.getProject(projectPath));
   const projectId = async () => (await proj()).id;
   const mrUrl = async (ref: string) => `/projects/${await projectId()}/merge_requests/${Number(ref)}`;
   const opened = (m: { iid: number; webUrl: string }) => ({ ref: String(m.iid), url: m.webUrl });
 
   return {
-    defaultBranch: async () => (await proj()).defaultBranch,
+    baseBranch: async () => baseBranch,
     cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `${GITLAB_URL}/${projectPath}.git`, token, env),
     async openChange(branch, title, body, ticket) {
       const text = [AI_LINE, `Closes #${ticket}`, body].join("\n\n");
-      const { id, defaultBranch } = await proj();
-      return opened(await gitlab.upsertMergeRequest(id, branch, defaultBranch, title, text));
+      return opened(await gitlab.upsertMergeRequest(await projectId(), branch, baseBranch, title, text));
     },
     async change(ref) {
       const m = await gitlab.getJson(await mrUrl(ref));
@@ -46,8 +45,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       return gitlab.merge(await projectId(), Number(ref), sha);
     },
     async revert(sha) {
-      const { id, defaultBranch } = await proj();
-      return opened(await gitlab.revertMerge(id, sha, defaultBranch));
+      return opened(await gitlab.revertMerge(await projectId(), sha, baseBranch));
     },
     async commentChange(ref, text) {
       await gitlab.commentMergeRequest(await projectId(), Number(ref), text);

@@ -64,7 +64,7 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
 }
 
 export interface FakeCodeHostOptions {
-  defaultBranch?: string;
+  baseBranch?: string;
   head?: string; // the commit of the change; only this one is ever green or mergeable
   landedSha?: string; // what merge returns
   existing?: boolean; // a change of the branch is already open
@@ -109,7 +109,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     assigned: [] as { ref: ChangeRef; person: PersonRef }[],
     attached, // uploads that worked
     get attachCalls() { return attachCalls; }, // every attach call, failed or not
-    defaultBranch: async () => o.defaultBranch ?? "main",
+    baseBranch: async () => o.baseBranch ?? "develop",
     cloneAt: () => {
       if (!o.repo) throw new Error("This fake code host has no repo");
       return o.repo;

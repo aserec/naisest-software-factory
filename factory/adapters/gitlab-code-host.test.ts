@@ -16,7 +16,7 @@ const fakeFetch = (async (url: string, init: RequestInit) => {
   return new Response(JSON.stringify(body ?? {}), { status: hit === undefined ? 404 : 200 });
 }) as unknown as typeof fetch;
 const last = () => calls[calls.length - 1];
-const host = () => makeGitLabCodeHost(new GitLab("https://gl.example", "tok", fakeFetch), PATH, "tok", {});
+const host = () => makeGitLabCodeHost(new GitLab("https://gl.example", "tok", fakeFetch), PATH, "tok", {}, "develop");
 const mr = (o: object = {}) => ({ iid: 5, state: "opened", description: "D", sha: "h", merge_commit_sha: null, squash_commit_sha: null, web_url: "u5", ...o });
 // A quick action runs from any line that starts with "/".
 const quickAction = /^\s*\//m;
@@ -30,14 +30,16 @@ beforeEach(() => {
 });
 
 describe("branch and clone", () => {
-  test("the default branch comes from the project, not from 'main'", async () => {
-    expect(await host().defaultBranch()).toBe("master");
+  test("the base branch is the target's, not the project's default branch", async () => {
+    expect(await host().baseBranch()).toBe("develop");
+    expect(calls).toHaveLength(0);
   });
   test("the project is looked up once", async () => {
+    routes["/projects/7/merge_requests/5/notes"] = {};
     const h = host();
-    await h.defaultBranch();
-    await h.defaultBranch();
-    expect(calls).toHaveLength(1);
+    await h.commentChange("5", "a");
+    await h.commentChange("5", "a");
+    expect(calls.filter((c) => c.url === `/projects/${encodeURIComponent(PATH)}`)).toHaveLength(1);
   });
 });
 
@@ -45,18 +47,18 @@ describe("openChange", () => {
   test("opens a change from the branch to the default branch with the AI line, the closing line and the text", async () => {
     routes["/projects/7/merge_requests"] = (c: any) => (c.method === "GET" ? [] : { iid: 5, web_url: "u5" });
     expect(await host().openChange("factory/8-x", "Add a spinner", "Factory run: u", "8")).toEqual({ ref: "5", url: "u5" });
-    expect(last()).toMatchObject({ method: "POST", body: { source_branch: "factory/8-x", target_branch: "master", title: "Add a spinner", description: [AI_LINE, "Closes #8", "Factory run: u"].join("\n\n") } });
+    expect(last()).toMatchObject({ method: "POST", body: { source_branch: "factory/8-x", target_branch: "develop", title: "Add a spinner", description: [AI_LINE, "Closes #8", "Factory run: u"].join("\n\n") } });
   });
   test("a re-run reuses the open change of the branch and updates its text", async () => {
-    routes["/projects/7/merge_requests"] = [{ iid: 4, web_url: "u4", target_branch: "master" }];
+    routes["/projects/7/merge_requests"] = [{ iid: 4, web_url: "u4", target_branch: "develop" }];
     routes["PUT /projects/7/merge_requests/4"] = {};
     expect(await host().openChange("factory/8-x", "t", "d", "8")).toEqual({ ref: "4", url: "u4" });
     expect(calls[1].url).toBe("/projects/7/merge_requests?state=opened&source_branch=factory%2F8-x");
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/merge_requests/4", body: { title: "t", description: [AI_LINE, "Closes #8", "d"].join("\n\n") } });
   });
   test("an open change that targets another branch is refused", async () => {
-    routes["/projects/7/merge_requests"] = [{ iid: 4, web_url: "u4", target_branch: "release" }];
-    await expect(host().openChange("factory/8-x", "t", "d", "8")).rejects.toThrow(/release/);
+    routes["/projects/7/merge_requests"] = [{ iid: 4, web_url: "u4", target_branch: "master" }];
+    await expect(host().openChange("factory/8-x", "t", "d", "8")).rejects.toThrow(/master/);
   });
   test("a line that starts with a slash reaches the change text escaped, on open and on update", async () => {
     const text = "Changed tests, and why:\n\n/merge\n  /approve";
@@ -64,7 +66,7 @@ describe("openChange", () => {
     await host().openChange("factory/8-x", "t", text, "8");
     expect(last().body.description).not.toMatch(quickAction);
     expect(last().body.description).toContain("​/merge");
-    routes["/projects/7/merge_requests"] = [{ iid: 4, web_url: "u4", target_branch: "master" }];
+    routes["/projects/7/merge_requests"] = [{ iid: 4, web_url: "u4", target_branch: "develop" }];
     routes["PUT /projects/7/merge_requests/4"] = {};
     await host().openChange("factory/8-x", "t", text, "8");
     expect(last().method).toBe("PUT");
@@ -151,15 +153,15 @@ describe("merge, revert, comment, assign", () => {
     routes["PUT /projects/7/merge_requests/5/merge"] = { merge_commit_sha: "m1", sha: "head" };
     expect(await host().merge("5", "head")).toBe("m1");
   });
-  test("revert opens a change from a new branch off the default branch", async () => {
+  test("revert opens a change from a new branch off the base branch", async () => {
     routes["/projects/7/repository/branches"] = {};
     routes["/projects/7/repository/commits/abcdef1234/revert"] = {};
     routes["/projects/7/merge_requests"] = { iid: 9, web_url: "u9" };
     expect(await host().revert("abcdef1234")).toEqual({ ref: "9", url: "u9" });
     const [, branch, revert, opened] = calls;
-    expect(branch).toMatchObject({ url: "/projects/7/repository/branches", body: { branch: expect.stringMatching(/^factory\/revert-abcdef12-\d+$/), ref: "master" } });
+    expect(branch).toMatchObject({ url: "/projects/7/repository/branches", body: { branch: expect.stringMatching(/^factory\/revert-abcdef12-\d+$/), ref: "develop" } });
     expect(revert.body).toEqual({ branch: branch.body.branch });
-    expect(opened.body).toMatchObject({ source_branch: branch.body.branch, target_branch: "master" });
+    expect(opened.body).toMatchObject({ source_branch: branch.body.branch, target_branch: "develop" });
   });
   test("a comment starts with the AI line, escapes slash lines and refuses secrets", async () => {
     routes["/projects/7/merge_requests/5/notes"] = {};
@@ -187,7 +189,7 @@ describe("attach", () => {
       seen.push({ url, init });
       return new Response(JSON.stringify({ url: "/uploads/abc/after-a.png" }), { status });
     }) as unknown as typeof fetch;
-    return { seen, host: makeGitLabCodeHost(new GitLab("https://gl.example", "tok", async (u, i) => (u.toString().endsWith(`/projects/${encodeURIComponent(PATH)}`) ? new Response(JSON.stringify({ id: 7, default_branch: "master" })) : f(u, i!))), PATH, "tok", {}) };
+    return { seen, host: makeGitLabCodeHost(new GitLab("https://gl.example", "tok", async (u, i) => (u.toString().endsWith(`/projects/${encodeURIComponent(PATH)}`) ? new Response(JSON.stringify({ id: 7, default_branch: "master" })) : f(u, i!))), PATH, "tok", {}, "develop") };
   };
   const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
   test("posts the file to the project's uploads and returns the url", async () => {
