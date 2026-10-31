@@ -35,6 +35,7 @@ const seamsSchema = z.object({
     baseUrl: z.string().url().optional(),
     keyEnv: z.string().min(1),
     models: z.record(z.string().min(1)), // model id -> family
+    images: z.array(z.string().min(1)).optional(), // model ids that read images
   })),
 });
 
@@ -78,6 +79,8 @@ function family(seams: SeamsConfig, c: { provider: string; model: string }, fiel
 
 export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
   const seams = validate(seamsSchema, readYaml(path), "seams.yml");
+  for (const [name, p] of Object.entries(seams.providers))
+    for (const id of p.images ?? []) if (!Object.hasOwn(p.models, id)) throw new Error(`seams.yml providers.${name}.images: model ${id} is not in models`);
   family(seams, seams.judgeModel, "seams.yml judgeModel");
   if (seams.providers[seams.judgeModel.provider].keyEnv === TEAM_PLAN_KEY) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider}: the Team plan works only with claude-code`);
   return seams;

@@ -12,15 +12,15 @@ import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider } from "
 export function piModels({ provider, model }: ModelChoice) {
   return {
     providers: {
-      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model }] },
+      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model, ...(provider.images?.includes(model) && { input: ["text", "image"] }) }] },
     },
   };
 }
 
 // No tools (the diff is in the prompt), no session file, and nothing loaded from the cwd or the agent dir.
-export const piArgs = (provider: string, model: string, prompt: string) => [
+export const piArgs = (provider: string, model: string, prompt: string, files: string[] = []) => [
   "--print", "--no-tools", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
-  "--no-context-files", "--no-mcp", "--no-approve", "--offline", "--provider", provider, "--model", model, "--", prompt,
+  "--no-context-files", "--no-mcp", "--no-approve", "--offline", "--provider", provider, "--model", model, "--", ...files.map((f) => "@" + f), prompt,
 ];
 
 // Nothing secret except the provider key, which Pi reads through models.json. No Claude token, no GitLab token.
@@ -99,6 +99,7 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
 
 export const pi: Harness = {
   apis: ["anthropic", "openai"],
+  images: true,
   async run(job: HarnessJob): Promise<HarnessResult> {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard
     if (job.tools === "code") return runAuthor(job);
@@ -107,7 +108,8 @@ export const pi: Harness = {
     const dir = mkdtempSync(join(tmpdir(), "pi-"));
     try {
       writeFileSync(join(dir, "models.json"), JSON.stringify(piModels(job.model)));
-      const { code, out, err } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt), agentEnv(process.env, job.model.provider, dir), dir);
+      const files = (job.images ?? []).map((i) => { const f = join(dir, i.name); writeFileSync(f, i.data); return f; });
+      const { code, out, err } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt, files), agentEnv(process.env, job.model.provider, dir), dir);
       // Pi has no session to resume and reports no cost, so those stay empty. It has no tools, so the inbox is not used and it is never stopped.
       return { session: "", ok: code === 0, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: code === 0 ? out : exitText(code, err) };
     } finally {

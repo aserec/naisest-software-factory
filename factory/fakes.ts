@@ -208,6 +208,7 @@ export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<Harn
   const jobs: HarnessJob[] = [];
   return {
     apis: ["anthropic", "openai"],
+    images: true,
     jobs,
     run: async (job) => {
       const n = jobs.push(job) - 1;

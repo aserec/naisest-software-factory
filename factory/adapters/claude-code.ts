@@ -57,6 +57,7 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
 
 export const claudeCode: Harness = {
   apis: ["anthropic"],
+  images: false, // ponytail: Claude Code can take images through --input-format stream-json; add it when a claude-code reviewer is configured
   async run(job: HarnessJob): Promise<HarnessResult> {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard
     let cwd = job.cwd;

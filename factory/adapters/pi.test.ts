@@ -29,6 +29,11 @@ test("Pi runs with no tools and loads nothing from the cwd", () => {
   expect(args).toEqual(expect.arrayContaining(["--print", "--no-tools", "--no-session", "--no-extensions", "--no-context-files", "--no-mcp", "--no-approve", "--provider", "tensorx"]));
   expect(args.slice(-2)).toEqual(["--", "-review this"]); // a prompt starting with "-" is not read as a flag
 });
+test("Pi gets the image files before the prompt", () => expect(piArgs("tensorx", "m", "p", ["/t/a.png"]).slice(-3)).toEqual(["--", "@/t/a.png", "p"]));
+test("a model that reads images gets image input in models.json", () => {
+  expect(piModels({ provider: { ...tensorx, images: ["m1"] }, model: "m1" }).providers.tensorx.models[0].input).toEqual(["text", "image"]);
+  expect(piModels({ provider: tensorx, model: "m1" }).providers.tensorx.models[0].input ?? []).not.toContain("image");
+});
 test("Pi env holds only the allowed keys and the provider key", () => {
   const e = agentEnv({ PATH: "/bin", HOME: "/h", FACTORY_GITLAB_TOKEN: "g", TEAMS_WEBHOOK_URL: "w", BERGET_API_KEY: "b", CLAUDE_CODE_OAUTH_TOKEN: "t", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
   expect(e).toEqual({ PATH: "/bin", HOME: "/tmp/d", PI_CODING_AGENT_DIR: "/tmp/d", PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", TENSORX_API_KEY: "k" });
@@ -63,6 +68,14 @@ test("a no-tools job returns stdout as text, from an empty dir with the provider
   const env = readFileSync(join(bin, "env"), "utf8");
   expect(env).toContain("TENSORX_API_KEY=tx-key");
   expect(env).not.toMatch(/gl-secret|oauth-secret/);
+});
+
+test("a reviewer job passes its images to Pi as files with the same bytes", async () => {
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  const bin = fakePi(`for a in "$@"; do case "$a" in @*) wc -c < "\${a#@}" > "$(dirname "$0")/sizes";; esac; done`);
+  await pi.run(job({ images: [{ name: "after-list-1280.png", data: PNG }] }));
+  expect(readFileSync(join(bin, "args"), "utf8").split("\n")).toEqual(expect.arrayContaining([expect.stringMatching(/^@.*\/after-list-1280\.png$/)]));
+  expect(Number(readFileSync(join(bin, "sizes"), "utf8"))).toBe(PNG.length);
 });
 
 test("an anthropic provider writes anthropic-messages to models.json", async () => {
