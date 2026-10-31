@@ -59,6 +59,7 @@ export interface WorldOptions {
   title?: string; // the ticket title
   proof?: unknown; // run/proof/proof.json: the manifest object or raw text; null for no file
   images?: Record<string, Buffer>; // files in run/proof/; default a PNG for every image the manifest names
+  attachFails?: number; // the first n image uploads fail
 }
 
 export const BOT = FAKE_FACTORY;
@@ -87,6 +88,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     approvedByTrusted: (o.approvedBy ?? []).some((a) => a !== FAKE_FACTORY),
     changeChecks: CHECKS[o.mrPipeline ?? "success"],
     branchChecks: CHECKS[o.mainPipeline ?? "success"],
+    attachFails: o.attachFails,
   });
   // Merging closes the ticket, as "Closes #8" does.
   const merge = host.merge;

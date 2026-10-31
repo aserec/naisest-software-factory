@@ -1,4 +1,5 @@
 import { precommitGate } from "../loops";
+import { readImages, readProof, proofSection } from "../proof";
 import { findSecrets } from "../rules";
 import { review } from "./code-review";
 import { block, data, fix, install, isMain, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
@@ -9,9 +10,22 @@ const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").
 
 // The finish run finds this run's record through the run link (approval and manual merge paths).
 // The code host adds the AI line and the closing line.
-export function changeText(ctx: StepContext) {
+// links and failed come from the gate's upload; a later step reads them from the saved gate data.
+export function changeText(ctx: StepContext, links: Record<string, string> = data(ctx, "precommit-gate")?.images ?? {}, failed: string[] = data(ctx, "precommit-gate")?.uploadFailed ?? []) {
   const testChanges = ctx.repo.readFile("run/test-changes.md");
-  return { title: noSkipCi(ctx.record.ticket!.title), body: [`Factory run ${ctx.ci.vars.run}: ${ctx.ci.vars.runUrl}`, ...(testChanges ? ["Changed tests, and why:", testChanges] : [])].join("\n\n") };
+  const proof = proofSection(data(ctx, "code-review")?.proof, links, failed);
+  return { title: noSkipCi(ctx.record.ticket!.title), body: [`Factory run ${ctx.ci.vars.run}: ${ctx.ci.vars.runUrl}`, ...(testChanges ? ["Changed tests, and why:", testChanges] : []), proof].join("\n\n") };
+}
+
+// The first try and 3 retries, with no wait. An image that never goes up is named in failed, and the run goes on.
+async function attachAll(ctx: StepContext, images: Record<string, Buffer>) {
+  const links: Record<string, string> = {};
+  const failed: string[] = [];
+  for (const [name, bytes] of Object.entries(images)) {
+    for (let tries = 0; tries < 4 && !links[name]; tries++) links[name] = await ctx.codeHost.attach(name, bytes).catch(() => "");
+    if (!links[name]) failed.push(name);
+  }
+  return { links, failed };
 }
 
 export async function run(ctx: StepContext): Promise<StepResult> {
@@ -37,13 +51,15 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     if (!r.fixed) break; // review passed on the code the gate passed
     unreviewed = false; // the review fixed code: run the gate again
   }
-  const { title, body } = changeText(ctx);
-  // Scan before anything leaves the runner.
-  if (findSecrets((await ctx.repo.diff()).text + body).length > 0) return block(ctx, "The change contains a secret-looking value, so the factory did not push it.");
+  const { title, body: scanned } = changeText(ctx, {});
+  // Scan before anything leaves the runner. The raw manifest holds the test tails, which the section does not show.
+  if (findSecrets((await ctx.repo.diff()).text + scanned + (readProof(ctx.repo.readFile).raw ?? "")).length > 0) return block(ctx, "The change contains a secret-looking value, so the factory did not push it.");
+  const { links, failed } = await attachAll(ctx, readImages(ctx.repo.readBytes, data(ctx, "code-review")?.proof?.proof));
+  const { body } = changeText(ctx, links, failed);
   const branch = `factory/${ref}-${slug(title)}`;
   const sha = await ctx.repo.commitAndPush(branch, `${title} (#${ref})`);
   const c = await ctx.codeHost.openChange(branch, title, body, ref);
-  save(ctx, "precommit-gate", { passed: true, rounds: result.rounds, branch, sha, change: c.ref, changeUrl: c.url });
+  save(ctx, "precommit-gate", { passed: true, rounds: result.rounds, branch, sha, change: c.ref, changeUrl: c.url, images: links, uploadFailed: failed });
   await ctx.tracker.mark(ref, "checked"); // after the secret scan: a change that is not pushed is not checked
   return "next";
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { parseProof, proofPrompt, proofReasons, readImages, readProof, screenVerdicts } from "./proof";
+import { parseProof, proofPrompt, proofReasons, proofSection, readImages, readProof, screenVerdicts } from "./proof";
 import type { Finding } from "./agents";
 import type { Proof, ProofRecord } from "./proof";
 import { TEST_PROOF, VISUAL_PROOF as VISUAL } from "./steps/test-helpers";
@@ -119,4 +119,58 @@ test("proofReasons: a visual change with a preview and matching screens needs no
   expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true)).toEqual([]);
   expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), true)).toEqual([]);
   expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), false)).toEqual(["no test failed before the change and passed after it"]);
+});
+
+// Spec 6.5: the Proof section of the change.
+const links = { "before-list-1280.png": "/uploads/1/before-list-1280.png", "after-list-1280.png": "/uploads/2/after-list-1280.png", "after-settings-1280.png": "/uploads/3/after-settings-1280.png" };
+test("proofSection: two screens and a test render as the B2 mockup", () => {
+  const settings = { name: "settings page", reach: "http://localhost:3000/settings", width: 1280, isNew: true, after: "after-settings-1280.png" };
+  const r = rec({ ...VISUAL_PROOF, screens: [...VISUAL_PROOF.screens, settings] }, { verdicts: [{ screen: "list page", verdict: "matches", note: "the list now shows the spinner." }, { screen: "settings page", verdict: "unsure", note: "..." }] });
+  expect(proofSection(r, links)).toBe(`## Proof
+
+### Screen 1: list page, 1280 px: matches
+| Before | After |
+| --- | --- |
+| ![before](/uploads/1/before-list-1280.png) | ![after](/uploads/2/after-list-1280.png) |
+
+Reviewer: the list now shows the spinner.
+
+### Screen 2: settings page, 1280 px, new screen: unsure
+| After |
+| --- |
+| ![after](/uploads/3/after-settings-1280.png) |
+
+Reviewer: ...
+
+### Tests
+- list-spinner: failed before, passes after`);
+});
+test("proofSection: agent and reviewer text cannot start a quick action, break the table or run past 200 chars", () => {
+  const name = "a\n/merge |x| <img src=x>";
+  const r = rec({ ...VISUAL_PROOF, screens: [{ ...VISUAL_PROOF.screens[0], name }], tests: [{ ...TEST_PROOF.tests[0], name: "t\n/close" }], note: "n\n/merge" }, { verdicts: [{ screen: name, verdict: "matches", note: "ok\n/merge" }, { screen: name, verdict: "matches", note: "x".repeat(300) }] });
+  const s = proofSection(r, links);
+  expect(s).not.toMatch(/^\s*\//m);
+  expect(s).toContain("\\|x\\|");
+  expect(s).toContain("&lt;img src=x&gt;");
+  expect(s).not.toContain("<img");
+  const long = proofSection(rec(VISUAL_PROOF, { verdicts: [{ screen: "list page", verdict: "matches", note: "x".repeat(300) }] }), links);
+  expect(long).toContain(`Reviewer: ${"x".repeat(200)}\n`);
+  expect(proofSection(rec(undefined, { error: `bad ${"y".repeat(300)}` }), {})).toBe(`## Proof\n\nNo proof: bad ${"y".repeat(196)}`);
+});
+test("proofSection: no proof, no screens and no tests", () => {
+  expect(proofSection(rec(undefined, { error: "no run/proof/proof.json" }), {})).toBe("## Proof\n\nNo proof: no run/proof/proof.json");
+  expect(proofSection(undefined, {})).toBe("## Proof\n\nNo proof: code review saved no proof");
+  expect(proofSection(rec({ visual: false, screens: [], tests: [], note: "a text change" }), {})).toBe("## Proof\n\nNo screenshots: a text change\n\n### Tests\nNo test proof.");
+  expect(proofSection(rec({ visual: false, screens: [], tests: [passingTest(0)] }), {})).toContain("- list-spinner: passed before, passes after");
+  expect(proofSection(rec({ visual: false, screens: [], tests: [{ ...TEST_PROOF.tests[0], after: { exit: 1, tail: "" } }] }), {})).toContain("- list-spinner: failed before, fails after");
+});
+test("proofSection: an image without a link says why", () => {
+  const s = proofSection(rec(VISUAL_PROOF, { verdicts: matches }), { "after-list-1280.png": links["after-list-1280.png"] }, ["before-list-1280.png"]);
+  expect(s).toContain("| image upload failed | ![after](/uploads/2/after-list-1280.png) |");
+  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), {})).toContain("| no image | no image |");
+});
+test("proofReasons: an upload that failed sends the change to a person, last", () => {
+  expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true, ["before-list-1280.png"])).toEqual(["image upload failed: before-list-1280.png"]);
+  expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true, ["a.png", "b.png"])).toEqual(["image upload failed: a.png, b.png"]);
+  expect(proofReasons(rec({ ...TEST_PROOF, tests: [] }), false, ["a.png"])).toEqual(["no test failed before the change and passed after it", "image upload failed: a.png"]);
 });

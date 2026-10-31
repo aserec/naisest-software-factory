@@ -73,6 +73,7 @@ export interface FakeCodeHostOptions {
   changeChecks?: Checks; // checks of the head
   branchChecks?: Checks;
   repo?: Repo;
+  attachFails?: number; // the first n attach calls fail
 }
 
 // An in-memory CodeHost for tests. It keeps the rules of the real one: the AI line and the closing line,
@@ -81,6 +82,8 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
   const head = o.head ?? "head1";
   const changes = new Map<ChangeRef, Change & { branch: string; title: string }>();
   const byBranch = new Map<string, ChangeRef>();
+  const attached: { name: string; size: number }[] = [];
+  let attachCalls = 0;
   const open = (branch: string, title: string, body: string, ticket: TicketRef) => {
     const text = noQuickActions([AI_LINE, `Closes #${ticket}`, body].join("\n\n"));
     const ref = byBranch.get(branch) ?? String(changes.size + 5);
@@ -104,6 +107,8 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     revertOpened: false,
     mainPipelineRef: "",
     assigned: [] as { ref: ChangeRef; person: PersonRef }[],
+    attached, // uploads that worked
+    get attachCalls() { return attachCalls; }, // every attach call, failed or not
     defaultBranch: async () => o.defaultBranch ?? "main",
     cloneAt: () => {
       if (!o.repo) throw new Error("This fake code host has no repo");
@@ -144,6 +149,11 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       host.mrComments.push(text);
     },
     assignChange: async (ref: ChangeRef, person: PersonRef) => void host.assigned.push({ ref, person }),
+    attach: async (name: string, data: Buffer) => {
+      if (++attachCalls <= (o.attachFails ?? 0)) throw new Error("GitLab POST /projects/1/uploads failed with status 500");
+      attached.push({ name, size: data.length });
+      return `/uploads/${attached.length}/${name}`;
+    },
   } satisfies CodeHost & Record<string, unknown>;
   return host;
 }

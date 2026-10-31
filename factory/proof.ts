@@ -96,8 +96,31 @@ export function screenVerdicts(findings: Finding[], proof: Proof | undefined, lo
   return [...screens, ...whole];
 }
 
+// Agent and reviewer text in the change description: one line, no table break, no HTML, at most 200 chars.
+const text = (s: string) => s.replace(/\s+/g, " ").trim().replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;").slice(0, 200);
+
+// The "Proof" section of the change description. links: image name to the link attach gave. failed: images whose upload failed.
+// ponytail: the manifest's reach is never shown or linked: it is free text from the agent.
+export function proofSection(r: ProofRecord | undefined, links: Record<string, string>, failed: string[] = []): string {
+  const proof = r?.proof;
+  if (!proof) return `## Proof\n\nNo proof: ${text(r?.error ?? "code review saved no proof")}`;
+  const cell = (alt: string, name?: string) => (name && links[name] ? `![${alt}](${links[name]})` : name && failed.includes(name) ? "image upload failed" : "no image");
+  const screens = proof.screens.map((s, i) => {
+    const v = r.verdicts.find((x) => x.screen === s.name);
+    const table = s.isNew ? ["| After |", "| --- |", `| ${cell("after", s.after)} |`] : ["| Before | After |", "| --- | --- |", `| ${cell("before", s.before)} | ${cell("after", s.after)} |`];
+    return [`### Screen ${i + 1}: ${text(s.name)}, ${s.width} px${s.isNew ? ", new screen" : ""}: ${v?.verdict ?? "unsure"}`, ...table, ...(v?.note ? ["", `Reviewer: ${text(v.note)}`] : [])].join("\n");
+  });
+  const tests = proof.tests.map((t) => `- ${text(t.name)}: ${t.before.exit !== 0 ? "failed" : "passed"} before, ${t.after.exit === 0 ? "passes" : "fails"} after`);
+  return [
+    "## Proof",
+    ...screens,
+    ...(!screens.length && proof.note ? [`No screenshots: ${text(proof.note)}`] : []),
+    `### Tests\n${tests.length ? tests.join("\n") : "No test proof."}`,
+  ].join("\n\n");
+}
+
 // Why a change has no proof a person can trust. Empty means the proof is enough.
-export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean): string[] {
+export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, uploadFailed: string[] = []): string[] {
   const proof = r?.proof;
   if (!r || !proof) return [`no proof: ${r?.error ?? "code review saved no proof"}`];
   const reasons: string[] = [];
@@ -107,5 +130,6 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean): s
   // With a blind reviewer the per-screen lines say nothing new; a whole-proof unsure still counts.
   for (const v of r.verdicts) if (v.verdict === "unsure" && !(v.screen && cannotRead)) reasons.push(v.screen ? `screen ${v.screen}: the reviewer is unsure: ${v.note}` : `the reviewer is unsure: ${v.note}`);
   if ((!hasPreview || !proof.visual) && !proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0)) reasons.push("no test failed before the change and passed after it");
+  if (uploadFailed.length) reasons.push(`image upload failed: ${uploadFailed.join(", ")}`);
   return reasons;
 }

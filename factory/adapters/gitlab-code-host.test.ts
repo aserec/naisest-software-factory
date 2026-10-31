@@ -179,3 +179,32 @@ describe("merge, revert, comment, assign", () => {
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/merge_requests/5", body: { assignee_ids: [12] } });
   });
 });
+
+describe("attach", () => {
+  const upload = (status = 200) => {
+    const seen: { url: string; init: RequestInit }[] = [];
+    const f = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return new Response(JSON.stringify({ url: "/uploads/abc/after-a.png" }), { status });
+    }) as unknown as typeof fetch;
+    return { seen, host: makeGitLabCodeHost(new GitLab("https://gl.example", "tok", async (u, i) => (u.toString().endsWith(`/projects/${encodeURIComponent(PATH)}`) ? new Response(JSON.stringify({ id: 7, default_branch: "master" })) : f(u, i!))), PATH, "tok", {}) };
+  };
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+  test("posts the file to the project's uploads and returns the url", async () => {
+    const { seen, host } = upload();
+    expect(await host.attach("after-a.png", PNG)).toBe("/uploads/abc/after-a.png");
+    const { url, init } = seen[0];
+    expect(url).toBe("https://gl.example/api/v4/projects/7/uploads");
+    expect(init.method).toBe("POST");
+    const file = (init.body as FormData).get("file") as File;
+    expect(file.name).toBe("after-a.png");
+    expect(file.type).toBe("image/png");
+    expect(Buffer.from(await file.arrayBuffer())).toEqual(PNG);
+    expect(init.headers).toEqual({ "PRIVATE-TOKEN": "tok" }); // fetch sets the multipart type
+  });
+  test("a 500 rejects and the message holds no token", async () => {
+    const e = await upload(500).host.attach("after-a.png", PNG).catch((x) => x);
+    expect(e.message).toBe("GitLab POST /projects/7/uploads failed with status 500");
+    expect(e.message).not.toContain("tok");
+  });
+});

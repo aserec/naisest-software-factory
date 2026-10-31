@@ -17,7 +17,7 @@ function decide(ctx: StepContext, ticket: Ticket): MergeDecision {
 function decideByChecks(ctx: StepContext): MergeDecision {
   const rc = data(ctx, "risk-check");
   const failedRules = (rc.rules as RuleResult[]).filter((r) => !r.passed).map((r) => `hard rule ${r.rule} failed: ${r.detail}`);
-  const proof = proofReasons(data(ctx, "code-review")?.proof, !!data(ctx, "prepare-patch").commands?.preview);
+  const proof = proofReasons(data(ctx, "code-review")?.proof, !!data(ctx, "prepare-patch").commands?.preview, data(ctx, "precommit-gate")?.uploadFailed ?? []);
   if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules, ...proof] };
   const d = decideMerge({
     triageRisk: data(ctx, "triage").outcome.risk,

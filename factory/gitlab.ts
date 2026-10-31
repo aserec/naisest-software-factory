@@ -16,10 +16,11 @@ export class GitLab {
   constructor(private baseUrl: string, private token: string, private fetchFn: typeof fetch = fetch) {}
 
   private async call(method: string, endpoint: string, body?: unknown): Promise<Response> {
+    const form = body instanceof FormData; // fetch sets the multipart type itself
     const res = await this.fetchFn(`${this.baseUrl}/api/v4${endpoint}`, {
       method,
-      headers: { "PRIVATE-TOKEN": this.token, "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: form ? { "PRIVATE-TOKEN": this.token } : { "PRIVATE-TOKEN": this.token, "Content-Type": "application/json" },
+      body: body === undefined ? undefined : form ? body : JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`GitLab ${method} ${endpoint} failed with status ${res.status}`);
     return res;
@@ -48,6 +49,13 @@ export class GitLab {
     if (findSecrets(`${title}\n${full}`).length > 0) throw new Error("Work item refused: it contains a secret");
     const w = await this.json("POST", `/projects/${projectId}/issues`, { title, description: full, labels: labels.join(",") });
     return { iid: w.iid as number, webUrl: w.web_url as string };
+  }
+
+  // Uploads a PNG to the project. The returned url works in the Markdown of a change of that project.
+  async uploadFile(projectId: number, name: string, data: Buffer): Promise<string> {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(data)], { type: "image/png" }), name);
+    return (await (await this.call("POST", `/projects/${projectId}/uploads`, form)).json()).url as string;
   }
 
   async getProject(path: string) {

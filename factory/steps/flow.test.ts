@@ -9,7 +9,7 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { runStep, ticketText } from "./context";
+import { runStep, save, ticketText } from "./context";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
@@ -17,6 +17,7 @@ import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type Mark } from "../seams";
 import type { RunRecord } from "../record";
 import { findSecrets } from "../rules";
+import * as decision from "./decision";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
@@ -942,4 +943,57 @@ test("a change with no proof file goes to a person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: null, reviews: [[]] }));
   expect(w.states).toEqual(["needs_approval"]);
   expect(approvalReasons(w)).toContain("no proof: no run/proof/proof.json");
+});
+
+// Spec 6.5 and 12: the Proof section of the change, and the screenshots it links.
+const visual = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]], ...o });
+test("the Proof section appears in the description", async () => {
+  const w = await runBuildPipeline(visual());
+  expect(w.mrDescription).toContain("## Proof");
+  expect(w.mrDescription).toContain("### Screen 1: list page, 1280 px: matches");
+  expect(w.mrDescription).toContain("![before](/uploads/1/before-list-1280.png)");
+  expect(w.mrDescription).toContain("- list-spinner: failed before, passes after");
+  expect(w.host.attached.map((a) => a.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
+});
+test("a change that merges alone has the Proof section with its test line", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }));
+  expect(w.finishTriggered).toBe(true);
+  expect(w.mrDescription).toContain("## Proof");
+  expect(w.mrDescription).toContain("- list-spinner: failed before, passes after");
+});
+test("a proof whose test tail holds a secret blocks, and nothing is uploaded or pushed", async () => {
+  const proof = { ...TEST_PROOF, tests: [{ ...TEST_PROOF.tests[0], after: { exit: 0, tail: "token=glpat-abcdefghijklmnopqrst1234" } }] };
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof, reviews: [[]] }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("secret-looking value");
+  expect(w.host.attached).toEqual([]);
+  expect(w.commitMessage).toBe("");
+  expect(w.mrOpened).toBe(false);
+});
+test("a resume at the decision step changes and uploads nothing", async () => {
+  const w = await runBuildPipeline(visual());
+  const [description, uploads] = [w.mrDescription, w.host.attached.length];
+  save(w.ctx, "event", { ticket: "8", resumeAt: "decision" });
+  await decision.run(w.ctx);
+  expect(w.mrDescription).toBe(description);
+  expect(w.host.attached).toHaveLength(uploads);
+});
+test("an image upload that keeps failing still opens the change and sends it to a person", async () => {
+  const w = await runBuildPipeline(visual({ attachFails: 99 }));
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrOpened).toBe(true);
+  expect(w.mrDescription).toContain("image upload failed");
+  expect(w.host.attachCalls).toBe(8);
+  expect(w.mrComments.at(-1)).toContain("image upload failed: before-list-1280.png, after-list-1280.png");
+  const calls = w.host.attachCalls;
+  save(w.ctx, "event", { ticket: "8", resumeAt: "decision" });
+  await decision.run(w.ctx);
+  expect(w.host.attachCalls).toBe(calls);
+  expect(w.mrDescription).toContain("image upload failed");
+});
+test("an upload that works on its last retry adds no reason", async () => {
+  const w = await runBuildPipeline(visual({ attachFails: 3 }));
+  expect(w.host.attached.map((a) => a.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
+  expect(w.mrDescription).not.toContain("image upload failed");
+  expect(w.finishTriggered).toBe(true);
 });
