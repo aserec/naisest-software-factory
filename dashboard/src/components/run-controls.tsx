@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { api } from "@/lib/api";
 
 type Action = "stop" | "resume" | "restart";
 interface RunState {
@@ -59,14 +60,14 @@ export function RunControls({ run }: { run: string }) {
     queryKey: key,
     refetchInterval: 3000,
     queryFn: async () => {
-      const r = await fetch(`/api/runs/${encodeURIComponent(run)}/state`);
+      const r = await api(`/api/runs/${encodeURIComponent(run)}/state`);
       if (!r.ok) throw new Error(`The run state answered ${r.status}`);
       return (await r.json()) as RunState;
     },
   });
   const send = useMutation({
     mutationFn: async (action: Action) => {
-      const r = await fetch(`/api/runs/${encodeURIComponent(run)}/${action}`, { method: "POST" });
+      const r = await api(`/api/runs/${encodeURIComponent(run)}/${action}`, { method: "POST" });
       if (!r.ok) throw new Error(await r.text());
     },
     onSettled: () => client.invalidateQueries({ queryKey: key }),

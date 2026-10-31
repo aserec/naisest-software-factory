@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { api } from "@/lib/api";
 
 // One column per state label. Keep in step with STATES in server/gitlab.ts.
 export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"].map((s) => `factory_${s}`);
@@ -84,7 +85,7 @@ export function Board() {
     queryKey: ["board"],
     refetchInterval: 15_000,
     queryFn: async () => {
-      const r = await fetch("/api/board");
+      const r = await api("/api/board");
       if (!r.ok) throw new Error(`The board answered ${r.status}`);
       return (await r.json()) as BoardItem[];
     },

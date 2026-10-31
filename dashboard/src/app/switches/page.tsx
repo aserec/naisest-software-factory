@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SWITCHES, type SwitchName } from "software-factory/run-events";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { api } from "@/lib/api";
 
 type Rows = Record<string, Record<SwitchName, boolean>>;
 
@@ -13,14 +14,14 @@ export default function SwitchesPage() {
   const { data, error } = useQuery({
     queryKey: ["switches"],
     queryFn: async () => {
-      const r = await fetch("/api/switches");
+      const r = await api("/api/switches");
       if (!r.ok) throw new Error(`The switches answered ${r.status}`);
       return (await r.json()) as Rows;
     },
   });
   const change = useMutation({
     mutationFn: async (v: { scope: string; name: SwitchName; on: boolean }) => {
-      const r = await fetch("/api/switches", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(v) });
+      const r = await api("/api/switches", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(v) });
       if (!r.ok) throw new Error(await r.text());
     },
     onSettled: () => client.invalidateQueries({ queryKey: ["switches"] }),

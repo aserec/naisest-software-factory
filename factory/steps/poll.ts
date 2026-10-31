@@ -21,11 +21,16 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
   for (const t of await ctx.tracker.list("ready")) {
     if (start.length >= free) break;
     if ((t.state && ACTIVE_STATES.includes(t.state)) || skip.includes(t.ref) || restarting.includes(t.ref)) continue;
-    // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every minute.
-    const actor = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
-    if (!(await mayStart(ctx, actor, t))) continue;
-    await ctx.ci.start({ kind: "build", ticket: t.ref });
-    start.push(t.ref);
+    // One failed ticket must not stop the poller: it is logged and tried again next minute.
+    try {
+      // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every minute.
+      const actor = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
+      if (!(await mayStart(ctx, actor, t))) continue;
+      await ctx.ci.start({ kind: "build", ticket: t.ref });
+      start.push(t.ref);
+    } catch (e) {
+      console.log(`Start of ticket ${t.ref} failed: ${String(e).slice(0, 300)}`);
+    }
   }
   return start;
 }

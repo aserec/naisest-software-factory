@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { HostStat, LogLine, LogSource } from "@/server/grafana";
+import { api } from "@/lib/api";
 
 type Part<T> = T | { error: string };
 interface Runner {
@@ -30,7 +31,7 @@ export function RunnerView() {
     queryKey: ["runner", source, host],
     refetchInterval: 15_000,
     queryFn: async () => {
-      const r = await fetch(`/api/runner?${new URLSearchParams({ source, host, minutes: "15" })}`);
+      const r = await api(`/api/runner?${new URLSearchParams({ source, host, minutes: "15" })}`);
       if (!r.ok) throw new Error(`The runner view answered ${r.status}`);
       return (await r.json()) as Runner;
     },

@@ -73,7 +73,12 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
     async clone(ref) {
       if (existsSync(dir)) return;
       await git(["clone", "--depth", "1", "--branch", ref, url, dir], auth, ".");
-      await git(["clone", "--bare", "--depth", "1", "--branch", ref, url, gitDir], auth, ".");
+      // Our git dir takes the exact commit the clone got: a second clone of the branch could get a newer one.
+      // The clone is fresh here, so its .git is still the one git wrote.
+      const sha = (await git(["rev-parse", "HEAD"])).trim();
+      await git(["init", "-q", "--bare", gitDir], {}, ".");
+      await git(["--git-dir", gitDir, "fetch", "-q", "--depth", "1", url, sha], auth);
+      await git(["--git-dir", gitDir, "update-ref", "--no-deref", "HEAD", sha]);
       // A bare clone has no index. Start it from the base commit, so `add -A` keeps tracked files under ignored paths and submodules.
       await git([...ours, "read-tree", "HEAD"]);
       appendFileSync(join(gitDir, "info/exclude"), "\n/run/\n"); // run/test-changes.md is a note, not part of the change. Root only: src/run/ is code

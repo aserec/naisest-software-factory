@@ -69,8 +69,9 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
   if (!result) throw new Error("Claude stream has no final result event (cut off?)");
   const text = String(result.result ?? "");
   const resultError = Boolean(result.is_error);
-  // The usage-limit text counts only on an error result, so a normal answer that says "usage limit" is not a hit.
-  const limitHit = retryLimit || (resultError && /usage limit/i.test(text));
+  // A limit counts only on an error result: a retry the CLI recovered from, or a normal answer that says
+  // "usage limit", is not a hit.
+  const limitHit = resultError && (retryLimit || /usage limit/i.test(text));
   return {
     sessionId: String(result.session_id ?? ""),
     isError: resultError || limitHit || result.subtype !== "success" || exitCode !== 0,

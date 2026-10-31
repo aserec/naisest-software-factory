@@ -215,3 +215,17 @@ test("a /label ~factory_ready line in a note is escaped", async () => {
   await gl.commentMergeRequest(1, 2, "/merge");
   expect(lastBody().body).not.toMatch(quickAction);
 });
+test("a GET retries a 502 and a network error; a write does not retry a network error", async () => {
+  const slept: number[] = [];
+  const replies: (number | Error)[] = [502, new TypeError("fetch failed"), 200, new TypeError("fetch failed")];
+  const fetchFn = (async () => {
+    const r = replies.shift()!;
+    if (r instanceof Error) throw r;
+    return new Response(JSON.stringify({ id: 9 }), { status: r });
+  }) as unknown as typeof fetch;
+  const g = new GitLab("https://gl.example", "tok", fetchFn, async (ms) => void slept.push(ms));
+  expect(await g.botUserId()).toBe(9);
+  expect(slept).toEqual([1000, 2000]);
+  await expect(g.reopenWorkItem(1, 8)).rejects.toThrow("fetch failed");
+  expect(replies).toHaveLength(0);
+});

@@ -10,7 +10,10 @@ pidfile="$state/factory.pid" log="$state/factory.log" current="$state/factory.ti
 secrets="$PWD.tmp" # the only dir the CI adapter reads secret files from
 mkdir -p "$state" "$secrets"
 
-running() { [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; }
+# The pid must still be our loop: after a crash or reboot the pid in the file can belong to another process.
+running() { [ -f "$pidfile" ] && ps -p "$(cat "$pidfile")" -o command= 2>/dev/null | grep -q "local-factory.sh run"; }
+# A step deletes the token files once it read them; a run that was killed may have left them behind.
+drop_tokens() { rm -f "$secrets/gl" "$secrets/dash"; }
 
 # The poll step's checks (trusted person, no active run, at most 2 active runs), without starting a GitLab pipeline.
 ready() {
@@ -31,9 +34,10 @@ case "${1:-}" in
     echo "The factory runs, pid $!. Log: $log"
     ;;
   stop)
-    if ! running; then echo "The factory does not run"; rm -f "$pidfile"; exit 0; fi
+    if ! running; then echo "The factory does not run"; rm -f "$pidfile"; drop_tokens; exit 0; fi
     kill -- "-$(cat "$pidfile")"
     rm -f "$pidfile"
+    drop_tokens
     echo "The factory stopped"
     if [ -f "$current" ]; then
       echo "Ticket $(cat "$current") was running. It keeps factory_running: set factory_ready again to run it again."
@@ -45,6 +49,8 @@ case "${1:-}" in
     ;;
   run)
     : "${GL_TOKEN:?GL_TOKEN is not set}" "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}"
+    trap drop_tokens EXIT
+    trap 'exit 143' TERM INT # bash skips the EXIT trap when an untrapped signal kills it
     while true; do
       if iids=$(ready); then
         for iid in $iids; do
