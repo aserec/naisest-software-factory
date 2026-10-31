@@ -101,16 +101,22 @@ describe("rebase", () => {
   const answers = (...a: object[]) => (routes["GET /projects/7/merge_requests/5"] = () => (a.length > 1 ? a.shift() : a[0]));
   test("asks GitLab to rebase, waits while it runs, and returns the new head", async () => {
     routes["PUT /projects/7/merge_requests/5/rebase"] = { rebase_in_progress: true };
-    answers({ rebase_in_progress: true }, { rebase_in_progress: true }, { rebase_in_progress: false, sha: "h2", merge_error: null });
+    answers({ sha: "h" }, { rebase_in_progress: true }, { rebase_in_progress: true }, { rebase_in_progress: false, sha: "h2", merge_error: null });
     expect(await host().rebase("5")).toEqual({ ok: true, head: "h2" });
     expect(calls.filter((c) => c.method === "PUT").map((c) => c.url)).toEqual(["/projects/7/merge_requests/5/rebase"]);
-    const polls = calls.filter((c) => c.method === "GET" && c.url.startsWith("/projects/7/merge_requests/5"));
-    expect(polls.map((c) => c.url)).toEqual([POLL, POLL, POLL]);
+    const reads = calls.filter((c) => c.method === "GET" && c.url.startsWith("/projects/7/merge_requests/5"));
+    expect(reads.map((c) => c.url)).toEqual(["/projects/7/merge_requests/5", POLL, POLL, POLL]); // the head before the rebase, then the polls
+    expect(slept).toEqual([5000, 5000, 5000]);
+  });
+  test("a rebase that has ended waits until the change shows the new head", async () => {
+    routes["PUT /projects/7/merge_requests/5/rebase"] = { rebase_in_progress: true };
+    answers({ sha: "h" }, { rebase_in_progress: false, sha: "h", merge_error: null }, { rebase_in_progress: false, sha: "h", merge_error: null }, { rebase_in_progress: false, sha: "h2", merge_error: null });
+    expect(await host().rebase("5")).toEqual({ ok: true, head: "h2" });
     expect(slept).toEqual([5000, 5000, 5000]);
   });
   test("a rebase that ends with a merge error fails with that error", async () => {
     routes["PUT /projects/7/merge_requests/5/rebase"] = { rebase_in_progress: true };
-    answers({ rebase_in_progress: false, sha: "h", merge_error: "Rebase failed: conflict in src/a.ts" });
+    answers({ sha: "h" }, { rebase_in_progress: false, sha: "h", merge_error: "Rebase failed: conflict in src/a.ts" });
     expect(await host().rebase("5")).toEqual({ ok: false, error: "Rebase failed: conflict in src/a.ts" });
   });
   test("a rebase GitLab refuses fails, and so does one still running after 60 polls", async () => {

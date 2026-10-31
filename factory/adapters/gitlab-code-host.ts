@@ -36,6 +36,9 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       return gitlab.merge(await projectId(), Number(ref), sha, message);
     },
     async rebase(ref) {
+      // GitLab updates the MR's sha in a later job, after rebase_in_progress ends. Apply rebases only a branch
+      // that is behind, so the sha must change: wait until it leaves the head from before the rebase.
+      const before = (await gitlab.getJson(await mrUrl(ref))).sha;
       try {
         await gitlab.rebaseMergeRequest(await projectId(), Number(ref));
       } catch (e) {
@@ -44,7 +47,9 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       for (let i = 0; i < 60; i++) {
         await sleep(5000);
         const m = await gitlab.getJson(`${await mrUrl(ref)}?include_rebase_in_progress=true`);
-        if (!m.rebase_in_progress) return m.merge_error ? { ok: false, error: m.merge_error } : { ok: true, head: m.sha };
+        if (m.rebase_in_progress) continue;
+        if (m.merge_error) return { ok: false, error: m.merge_error };
+        if (m.sha !== before) return { ok: true, head: m.sha };
       }
       return { ok: false, error: "the rebase did not end within 5 minutes" };
     },
