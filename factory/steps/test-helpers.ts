@@ -46,6 +46,7 @@ export interface WorldOptions {
   numstat?: string;
   diffText?: string;
   testChanges?: string;
+  commitFile?: string; // run/commit-message.md; undefined for no file
   state?: FactoryState | null; // the ticket's live state; null for none
   otherRuns?: number; // other tickets in the running state
   payload?: unknown;
@@ -130,7 +131,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     readBytes: (path) => (path.startsWith(PROOF_DIR) ? images[path.slice(PROOF_DIR.length)] : undefined),
     commitAndPush: async (_b, message) => ((commitMessage = message), "head5"),
     readFile: (path) =>
-      path === PROOF_FILE ? proofText : path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : undefined,
+      path === PROOF_FILE ? proofText : path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : path === "run/commit-message.md" ? o.commitFile : undefined,
   };
   const seams = loadSeams();
   // The router's reviewer reads images in these tests, whatever seams.yml lists.
