@@ -21,7 +21,7 @@ import * as decision from "./decision";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
-import { BOT, B, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
+import { BOT, B, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, COMMIT } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -185,6 +185,17 @@ test("the auto path merges the reviewed commit and posts the decision on the MR"
   expect(b.finishVars.buildRun).toBe("1");
   expect(b.record.steps.find((s) => s.step === "risk-check")?.data).toMatchObject({ headSha: "head5" });
   expect((await runFinishPipeline(fakeWorld())).mergedSha).toBe("head5");
+});
+test("the auto path squash merges the reviewed commit with [AM], the commit message and the MR link", async () => {
+  const w = await runFinishPipeline(fakeWorld());
+  expect(w.mergedSha).toBe("head5");
+  expect(w.host.mergeMessage).toBe(`[AM] ${COMMIT.message}\nMerge request: https://host.example/changes/5`);
+});
+test("apply does not merge a change that targets another branch than the base branch", async () => {
+  const w = await runFinishPipeline(fakeWorld({ mrTarget: "master" }));
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("targets master, not develop");
 });
 
 // Re-run.

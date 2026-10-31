@@ -33,8 +33,14 @@ export function codeHostContract(make: () => Promise<{ host: CodeHost; branch: s
     test("merge with a sha that is not the head is refused and merges nothing", async () => {
       const { host, branch, ticket } = await make();
       const { ref } = await host.openChange(branch, "Contract change", "Text.", ticket);
-      await expect(host.merge(ref, "other")).rejects.toThrow();
+      await expect(host.merge(ref, "other", "[AM] chore: contract")).rejects.toThrow();
       expect((await host.change(ref)).merged).toBe(false);
+    });
+
+    test("a change targets the base branch", async () => {
+      const { host, branch, ticket } = await make();
+      const { ref } = await host.openChange(branch, "Contract change", "Text.", ticket);
+      expect((await host.change(ref)).target).toBe(await host.baseBranch());
     });
 
     test("attach gives a link for the change text", async () => {

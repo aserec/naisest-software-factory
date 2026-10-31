@@ -65,6 +65,7 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
 
 export interface FakeCodeHostOptions {
   baseBranch?: string;
+  target?: string; // the branch the change merges into; default the base branch
   head?: string; // the commit of the change; only this one is ever green or mergeable
   landedSha?: string; // what merge returns
   existing?: boolean; // a change of the branch is already open
@@ -88,7 +89,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     const ref = byBranch.get(branch) ?? String(changes.size + 5);
     byBranch.set(branch, ref);
     const was = changes.get(ref);
-    changes.set(ref, { ref, branch, title, body: text, open: !o.merged, merged: !!o.merged, head, landedSha: o.landedSha ?? "landed1", url: `https://host.example/changes/${ref}` });
+    changes.set(ref, { ref, branch, title, body: text, open: !o.merged, merged: !!o.merged, head, landedSha: o.landedSha ?? "landed1", target: o.target ?? o.baseBranch ?? "develop", url: `https://host.example/changes/${ref}` });
     return { ref, was: !!was };
   };
   const get = (ref: ChangeRef) => {
@@ -103,6 +104,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     mrOpened: false,
     merged: false,
     mergedSha: "",
+    mergeMessage: "",
     revertOpened: false,
     mainPipelineRef: "",
     assigned: [] as { ref: ChangeRef; person: PersonRef }[],
@@ -129,12 +131,13 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       host.mainPipelineRef = at.branch;
       return o.branchChecks ?? "green";
     },
-    merge: async (ref: ChangeRef, sha: string) => {
+    merge: async (ref: ChangeRef, sha: string, message: string) => {
       const c = get(ref);
       if (sha !== c.head) throw new Error(`Change ${ref} did not merge: ${sha} is not its head`);
       Object.assign(c, { open: false, merged: true });
       host.merged = true;
       host.mergedSha = sha;
+      host.mergeMessage = message;
       return c.landedSha;
     },
     revert: async (sha: string) => {

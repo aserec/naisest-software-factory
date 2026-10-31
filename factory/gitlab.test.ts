@@ -85,14 +85,14 @@ test("mergeRequestPipelineStatus counts only a pipeline for the head sha", async
   fakeResponse([{ status: "failed", sha: "older" }]);
   expect(await gl.mergeRequestPipelineStatus(1, 2, "head")).toBe("running");
 });
-test("merge returns the commit that landed on the default branch", async () => {
+test("merge squashes with the given message and returns the commit that landed", async () => {
   fakeResponse({ merge_commit_sha: null, squash_commit_sha: "sq1", sha: "head" });
-  expect(await gl.merge(1, 2, "head")).toBe("sq1");
-  expect(lastBody()).toEqual({ sha: "head" });
+  expect(await gl.merge(1, 2, "head", "[AM] feat(list): x")).toBe("sq1");
+  expect(lastBody()).toEqual({ sha: "head", squash: true, squash_commit_message: "[AM] feat(list): x" });
   expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/merge");
   expect(last().init.method).toBe("PUT");
   fakeResponse({ merge_commit_sha: "m1", sha: "head" });
-  expect(await gl.merge(1, 2, "head")).toBe("m1");
+  expect(await gl.merge(1, 2, "head", "[AM] feat(list): x")).toBe("m1");
 });
 test("MR comments start with the AI line and refuse secrets", async () => {
   await gl.commentMergeRequest(1, 2, "Reasons");

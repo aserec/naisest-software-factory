@@ -17,7 +17,7 @@ const fakeFetch = (async (url: string, init: RequestInit) => {
 }) as unknown as typeof fetch;
 const last = () => calls[calls.length - 1];
 const host = () => makeGitLabCodeHost(new GitLab("https://gl.example", "tok", fakeFetch), PATH, "tok", {}, "develop");
-const mr = (o: object = {}) => ({ iid: 5, state: "opened", description: "D", sha: "h", merge_commit_sha: null, squash_commit_sha: null, web_url: "u5", ...o });
+const mr = (o: object = {}) => ({ iid: 5, state: "opened", target_branch: "develop", description: "D", sha: "h", merge_commit_sha: null, squash_commit_sha: null, web_url: "u5", ...o });
 // A quick action runs from any line that starts with "/".
 const quickAction = /^\s*\//m;
 
@@ -77,7 +77,7 @@ describe("openChange", () => {
 describe("change", () => {
   test("maps state, head, landed commit, url and body", async () => {
     routes["/projects/7/merge_requests/5"] = mr({ description: null });
-    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", body: "" });
+    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", body: "", target: "develop" });
     routes["/projects/7/merge_requests/5"] = mr({ state: "merged", merge_commit_sha: "m" });
     expect(await host().change("5")).toMatchObject({ open: false, merged: true, landedSha: "m" });
     routes["/projects/7/merge_requests/5"] = mr({ state: "closed", squash_commit_sha: "sq" });
@@ -128,10 +128,10 @@ describe("checks", () => {
 describe("merge, revert, comment, assign", () => {
   test("merge sends the reviewed head and returns the commit that landed", async () => {
     routes["PUT /projects/7/merge_requests/5/merge"] = { merge_commit_sha: null, squash_commit_sha: "sq1", sha: "head" };
-    expect(await host().merge("5", "head")).toBe("sq1");
-    expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/merge_requests/5/merge", body: { sha: "head" } });
+    expect(await host().merge("5", "head", "[AM] m")).toBe("sq1");
+    expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/merge_requests/5/merge", body: { sha: "head", squash: true, squash_commit_message: "[AM] m" } });
     routes["PUT /projects/7/merge_requests/5/merge"] = { merge_commit_sha: "m1", sha: "head" };
-    expect(await host().merge("5", "head")).toBe("m1");
+    expect(await host().merge("5", "head", "[AM] m")).toBe("m1");
   });
   test("revert opens a change from a new branch off the base branch", async () => {
     routes["/projects/7/repository/branches"] = {};

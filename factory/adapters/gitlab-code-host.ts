@@ -19,7 +19,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     async change(ref) {
       const m = await gitlab.getJson(await mrUrl(ref));
       return {
-        ref, open: m.state === "opened", merged: m.state === "merged", head: m.sha, url: m.web_url, body: m.description ?? "",
+        ref, open: m.state === "opened", merged: m.state === "merged", head: m.sha, url: m.web_url, body: m.description ?? "", target: m.target_branch,
         landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha,
       };
     },
@@ -32,8 +32,8 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       const s = await gitlab.pipelineStatus(id, at.branch, at.sha);
       return s === "success" ? "green" : s === "failed" ? "red" : s;
     },
-    async merge(ref, sha) {
-      return gitlab.merge(await projectId(), Number(ref), sha);
+    async merge(ref, sha, message) {
+      return gitlab.merge(await projectId(), Number(ref), sha, message);
     },
     async revert(sha) {
       return opened(await gitlab.revertMerge(await projectId(), sha, baseBranch));

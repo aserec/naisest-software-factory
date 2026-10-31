@@ -155,10 +155,11 @@ export class GitLab {
   }
 
   // Merges now and returns the commit on the target branch. Call it only after the MR pipeline is "success".
-  // GitLab uses the project's own squash setting.
+  // Always squashes, with message as the commit message. With the fast-forward merge method,
+  // the squash commit is the only commit that lands.
   // sha is the reviewed head: GitLab refuses the merge if the branch moved since.
-  async merge(projectId: number, mrIid: number, sha: string): Promise<string> {
-    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, { sha });
+  async merge(projectId: number, mrIid: number, sha: string, message: string): Promise<string> {
+    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, { sha, squash: true, squash_commit_message: message });
     return (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string;
   }
 

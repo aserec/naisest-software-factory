@@ -20,10 +20,17 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (data(ctx, "decision")?.kind !== "auto") return block(ctx, `Change ${change} waits for a person to merge it, so the factory did not merge it.`);
   const headSha = data(ctx, "risk-check")?.headSha;
   if (!headSha) return block(ctx, "The run record has no reviewed commit, so the factory did not merge.");
+  const gate = data(ctx, "precommit-gate");
+  // A record from before the commit message was saved has no commit: throw, so runStep blocks.
+  if (!gate?.commit?.message) throw new Error("The run record has no commit message, so the factory cannot merge change " + change);
+  const base = await ctx.codeHost.baseBranch();
+  const c = await ctx.codeHost.change(change);
+  if (c.target !== base) return block(ctx, `Change ${change} targets ${c.target}, not ${base}, so the factory did not merge it.`);
   // Merge only after the change's own checks are green.
   const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: headSha }));
   if (checks !== "green") return block(ctx, `The change's pipeline is ${checks}, so the factory did not merge.`);
-  save(ctx, "apply", { change, sha: await ctx.codeHost.merge(change, headSha) });
+  const message = `[AM] ${gate.commit.message}\nMerge request: ${gate.changeUrl}`;
+  save(ctx, "apply", { change, sha: await ctx.codeHost.merge(change, headSha, message) });
   await ctx.tracker.mark(ref, "merged");
   return "next";
 }
