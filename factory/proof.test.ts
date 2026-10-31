@@ -104,7 +104,7 @@ test("proofReasons: a visual change with a preview and no screens", () => {
   expect(proofReasons(rec({ visual: true, screens: [], tests: [] }), true)).toEqual(["a visual change was expected but there are no screenshots: no reason given"]);
 });
 test("proofReasons: a reviewer that cannot read images judged no screen", () => {
-  expect(proofReasons(rec(VISUAL_PROOF, { readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure", note: "the reviewer cannot read images" }] }), true)).toEqual(["the reviewer pi/model-x cannot read images, so no screen was judged"]);
+  expect(proofReasons(rec(VISUAL_PROOF, { readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure", note: "the reviewer cannot read images" }, { verdict: "unsure", note: "odd" }] }), true)).toEqual(["the reviewer pi/model-x cannot read images, so no screen was judged", "the reviewer is unsure: odd"]);
 });
 test("proofReasons: each unsure verdict, with or without a screen", () => {
   const verdicts = [{ screen: "list page", verdict: "unsure" as const, note: "cannot see the spinner" }, { verdict: "unsure" as const, note: "odd" }];
