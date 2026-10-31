@@ -1,0 +1,113 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
+import { z } from "zod";
+import { claudeCode } from "./adapters/claude-code";
+import { pi } from "./adapters/pi";
+import type { ModelChoice } from "./seams";
+import type { FactoryCommands, RoleChoice, Router, SeamsConfig, Target } from "./types";
+
+// Repo root, found from this file, so tests and CI agree whatever the cwd is.
+const root = fileURLToPath(new URL("..", import.meta.url));
+
+const HARNESS_APIS = { "claude-code": claudeCode.apis, pi: pi.apis };
+const TEAM_PLAN_KEY = "CLAUDE_CODE_OAUTH_TOKEN";
+
+const role = z.object({
+  harness: z.enum(["claude-code", "pi"]),
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  effort: z.enum(["medium", "high"]).optional(),
+});
+const row = z.object({ author: role, reviewer: role, mayAutoMerge: z.boolean() });
+const routerSchema = z.object({ low: row, high: row, writer: role, effortBump: z.number() });
+
+const seamsSchema = z.object({
+  tracker: z.string().min(1),
+  codeHost: z.string().min(1),
+  ci: z.string().min(1),
+  judge: z.string().min(1),
+  chat: z.string().min(1),
+  logSource: z.string().min(1),
+  judgeModel: z.object({ provider: z.string().min(1), model: z.string().min(1) }),
+  providers: z.record(z.object({
+    api: z.enum(["anthropic", "openai"]),
+    baseUrl: z.string().url().optional(),
+    keyEnv: z.string().min(1),
+    models: z.record(z.string().min(1)), // model id -> family
+  })),
+});
+
+// A REPLACE_WITH_ value is a placeholder someone must fill in before go-live. Never run with it.
+const real = z.string().min(1).refine((v) => !v.startsWith("REPLACE_WITH_"), { message: "is still a placeholder (REPLACE_WITH_...): set the real value in the target file" });
+const targetSchema = z.object({
+  name: z.string().min(1),
+  projectPath: real,
+  protectedPaths: z.array(z.string()),
+  dependencyFiles: z.array(z.string()),
+  maxChangedLines: z.number().int().positive(),
+  defaultApprover: real,
+  jobImage: z.string().min(1),
+});
+
+const commandsSchema = z.object({
+  install: z.string().min(1),
+  lint: z.string().min(1),
+  test: z.string().min(1),
+  build: z.string().min(1),
+  smoke: z.string().min(1).optional(),
+});
+
+const readYaml = (path: string) => parse(readFileSync(path, "utf8"));
+
+function validate<T>(schema: z.ZodType<T>, raw: unknown, file: string): T {
+  const r = schema.safeParse(raw);
+  if (!r.success) throw new Error(`${file}: ${r.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
+  return r.data;
+}
+
+// The family of a provider's model, or an error naming the field.
+function family(seams: SeamsConfig, c: { provider: string; model: string }, field: string): string {
+  const p = Object.hasOwn(seams.providers, c.provider) ? seams.providers[c.provider] : undefined;
+  if (!p) throw new Error(`${field}: unknown provider ${c.provider}`);
+  if (!Object.hasOwn(p.models, c.model)) throw new Error(`${field}: provider ${c.provider} has no model ${c.model}`);
+  return p.models[c.model];
+}
+
+export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
+  const seams = validate(seamsSchema, readYaml(path), "seams.yml");
+  family(seams, seams.judgeModel, "seams.yml judgeModel");
+  if (seams.providers[seams.judgeModel.provider].keyEnv === TEAM_PLAN_KEY) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider}: the Team plan works only with claude-code`);
+  return seams;
+}
+
+export function loadRouter(path = `${root}router.yml`, seams = loadSeams()): Router {
+  const router = validate(routerSchema, readYaml(path), "router.yml");
+  const check = (c: RoleChoice, field: string) => {
+    const f = family(seams, c, field);
+    const p = seams.providers[c.provider];
+    if (!HARNESS_APIS[c.harness].includes(p.api)) throw new Error(`${field}: harness ${c.harness} cannot use the ${p.api} api of provider ${c.provider}`);
+    if (p.keyEnv === TEAM_PLAN_KEY && c.harness !== "claude-code") throw new Error(`${field}: harness ${c.harness} with provider ${c.provider}: the Team plan works only with claude-code`);
+    return f;
+  };
+  for (const name of ["low", "high"] as const) {
+    const author = check(router[name].author, `router.yml ${name}.author`);
+    if (author === check(router[name].reviewer, `router.yml ${name}.reviewer`)) throw new Error(`router.yml ${name}: author and reviewer are both family ${author}`);
+  }
+  check(router.writer, "router.yml writer");
+  return router;
+}
+
+// The provider and model a harness gets for one role.
+export function modelChoice(c: Pick<RoleChoice, "provider" | "model" | "effort">, seams: SeamsConfig): ModelChoice {
+  return { provider: { name: c.provider, ...seams.providers[c.provider] }, model: c.model, effort: c.effort };
+}
+
+// override is for tests: targets/react_frontend.yml keeps its placeholder approver until go-live.
+export function loadTarget(name: string, override: Partial<Target> = {}): Target {
+  return validate(targetSchema, { ...readYaml(`${root}targets/${name}.yml`), ...override }, `targets/${name}.yml`);
+}
+
+export function parseFactoryFile(text: string): FactoryCommands {
+  return commandsSchema.parse(parse(text));
+}

@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Edit(./**)",
+      "Write(./**)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm build*)"
+    ],
+    "deny": [
+      "Bash(git push*)",
+      "Bash(git -c*)",
+      "Bash(git -C*)",
+      "Bash(glab*)",
+      "Bash(curl*)",
+      "Bash(wget*)",
+      "WebFetch",
+      "WebSearch",
+      "Read(//proc/**)",
+      "Read(~/.claude/**)",
+      "Read(~/.claude.json)",
+      "Read(~/.config/**)",
+      "Read(~/.ssh/**)",
+      "Edit(./.claude/**)",
+      "Write(./.claude/**)",
+      "Edit(./.agents/**)",
+      "Write(./.agents/**)",
+      "Edit(./.git/**)",
+      "Write(./.git/**)"
+    ],
+    "blockReadsOutsideWorkingDirectories": true
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "filesystem": {
+      "denyRead": [
+        "/proc"
+      ]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": [
+        "gitlab.example.com",
+        "registry.npmjs.org",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "registry-1.docker.io"
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+# Reviewer IDs are placeholders. Confirm them in the TensorX console at go-live.
+low:
+  author: { harness: claude-code, provider: team-plan, model: claude-sonnet-5-5, effort: medium }
+  reviewer: { harness: pi, provider: tensorx, model: tensorx-deepseek-small }
+  mayAutoMerge: true
+high:
+  author: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: high }
+  reviewer: { harness: pi, provider: tensorx, model: tensorx-deepseek-large }
+  mayAutoMerge: false
+writer: { harness: claude-code, provider: team-plan, model: claude-sonnet-5-5, effort: medium }
+effortBump: 8

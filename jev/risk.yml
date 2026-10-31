@@ -1,0 +1,11 @@
+# Risk questions for Jev 2. Wording is from spec 6.6. Tune with real diffs.
+- id: diff_risk
+  kind: score
+  levels: 9
+  text: How risky is this change?
+- id: scope
+  kind: noul
+  text: Does this diff do only what the ticket asks?
+- id: sensitive
+  kind: noul
+  text: Does this diff touch user data, security or money?

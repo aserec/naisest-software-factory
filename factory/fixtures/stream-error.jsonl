@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"44444444-4444-4444-8444-444444444444","model":"claude-sonnet-5-5","tools":["Read"],"mcp_servers":[]}
+{"type":"result","subtype":"success","is_error":true,"duration_ms":900,"num_turns":1,"result":"Something went wrong.","session_id":"44444444-4444-4444-8444-444444444444","total_cost_usd":0.001}

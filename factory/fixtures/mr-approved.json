@@ -1,0 +1,7 @@
+{
+  "object_kind": "merge_request",
+  "event_type": "merge_request",
+  "user": { "id": 42, "name": "Dev One", "username": "devone" },
+  "project": { "id": 7, "path_with_namespace": "acme/web/react_frontend" },
+  "object_attributes": { "iid": 5, "action": "approved", "state": "opened", "source_branch": "factory/8-add-a-loading-state", "target_branch": "master" }
+}

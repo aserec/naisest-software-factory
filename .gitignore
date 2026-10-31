@@ -1,0 +1,9 @@
+.superpowers/
+node_modules/
+run/
+dist/
+.env
+.pnpm-store/
+
+# graft local graph cache, regenerable (run `graft build`)
+/graft/

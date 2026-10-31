@@ -1,0 +1,15 @@
+# Proposed .factory.yml for react_frontend.
+# A person copies this file to the root of react_frontend in a reviewed merge request.
+# The factory repo does not touch react_frontend.
+#
+# react_frontend scripts (package.json): build "turbo run build", test "turbo run test",
+# lint "turbo run lint", typecheck "turbo run typecheck".
+#
+# Note: `pnpm test` runs every turbo test task. If react_frontend gets a unit-only
+# script later, switch `test` to it.
+#
+# No smoke command: no target repo has one yet.
+install: pnpm install --frozen-lockfile
+lint: pnpm lint
+test: pnpm test
+build: pnpm build

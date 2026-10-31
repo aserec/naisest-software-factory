@@ -1,0 +1,23 @@
+name: react_frontend
+projectPath: acme/web/react_frontend
+# Placeholder. Set the real GitLab username at go-live.
+defaultApprover: REPLACE_WITH_GITLAB_USERNAME
+jobImage: node:22
+maxChangedLines: 300
+protectedPaths:
+  - "**/migrations/**"
+  - "**/auth/**"
+  - "**/billing/**"
+  - "**/payment/**"
+  - ".gitlab-ci.yml"
+  - "**/Dockerfile*"
+  - "**/docker-compose*.yml"
+  - "**/deploy/**"
+  - ".factory.yml"
+  - CLAUDE.md
+  - AGENTS.md
+  - ".claude/**"
+  - ".agents/**"
+dependencyFiles:
+  - "**/package.json"
+  - "**/pnpm-lock.yaml"
