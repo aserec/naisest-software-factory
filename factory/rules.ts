@@ -11,6 +11,13 @@ export function addKnownSecrets(...values: (string | undefined)[]): void {
   for (const v of values) if (v && v.length >= 16) known.add(v);
 }
 
+/** The text with every secret pattern and every secret value this process holds replaced by [secret]. */
+export function maskSecrets(text: string): string {
+  for (const v of known) text = text.replaceAll(v, "[secret]");
+  for (const re of SECRET_PATTERNS) text = text.replace(re, "[secret]");
+  return text;
+}
+
 /** What findSecrets returns in place of a secret value this process holds. */
 export const HELD_SECRET = "[a secret value this process holds]";
 

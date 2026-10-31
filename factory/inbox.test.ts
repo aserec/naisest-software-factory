@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { INBOX_HOOK, factorySettings, HOOKS_DIR, TSX_IMPORT } from "./agents";
 import { fakeTracker } from "./fakes";
 import { makeInbox, pumpInbox } from "./inbox";
@@ -50,13 +50,21 @@ test("a quote of the command is not the command", async () => {
   expect((await makeInbox(t, "8", SINCE).poll()).stop).toBe(false);
 });
 test("a second poll does not return the same comment again, a newer one still comes", async () => {
-  const t = world();
-  const inbox = makeInbox(t, "8", SINCE);
-  t.say("8", "dev", "one", "2026-02-01T00:00:00.000Z");
-  expect((await inbox.poll()).comments).toHaveLength(1);
-  expect(await inbox.poll()).toEqual({ comments: [], stop: false });
-  t.say("8", "dev", "two", "2026-02-02T00:00:00.000Z");
-  expect((await inbox.poll()).comments).toEqual([WRAP("dev", "two")]);
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const minute = () => vi.setSystemTime(Date.now() + 60_000); // the tracker is read at most once a minute
+  try {
+    const t = world();
+    const inbox = makeInbox(t, "8", SINCE);
+    t.say("8", "dev", "one", "2026-02-01T00:00:00.000Z");
+    expect((await inbox.poll()).comments).toHaveLength(1);
+    minute();
+    expect(await inbox.poll()).toEqual({ comments: [], stop: false });
+    t.say("8", "dev", "two", "2026-02-02T00:00:00.000Z");
+    minute();
+    expect((await inbox.poll()).comments).toEqual([WRAP("dev", "two")]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("the pump writes one JSON line for a poll with news, and says whether a stop came", async () => {
@@ -103,4 +111,42 @@ test("author settings run the hook after every tool, and settings without an inb
   expect(cmd).toContain(`'${INBOX_HOOK}' '/tmp/i box/inbox.jsonl'`);
   expect(withInbox.hooks.PreToolUse).toBeDefined();
   expect(factorySettings({}, HOOKS_DIR, "/w/run/target").hooks.PostToolUse).toBeUndefined();
+});
+
+// Task B5: a stop from the dashboard. The dashboard is asked on every poll, the tracker at most once a minute.
+test("a stop from the dashboard stops, and two polls 1 s apart read the tracker once", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    const t = world();
+    let reads = 0;
+    const comments = t.comments;
+    t.comments = (...a) => (reads++, comments(...a));
+    let checks = 0;
+    const inbox = makeInbox(t, "8", SINCE, async () => (checks++, true));
+    expect(await inbox.poll()).toEqual({ comments: [], stop: true });
+    vi.setSystemTime(Date.now() + 1000);
+    expect((await inbox.poll()).stop).toBe(true);
+    expect([reads, checks]).toEqual([1, 2]);
+    vi.setSystemTime(Date.now() + 60_000);
+    await inbox.poll();
+    expect(reads).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+test("a dashboard check that throws does not stop", async () => {
+  const inbox = makeInbox(world(), "8", SINCE, async () => { throw new Error("dashboard is down"); });
+  expect(await inbox.poll()).toEqual({ comments: [], stop: false });
+});
+test("the pump polls every 10 s by default", async () => {
+  vi.useFakeTimers();
+  try {
+    let polls = 0;
+    const pump = pumpInbox({ poll: async () => (polls++, { comments: [], stop: false }) }, join(mkdtempSync(join(tmpdir(), "pump-")), "inbox.jsonl"));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(polls).toBe(2);
+    await pump.end();
+  } finally {
+    vi.useRealTimers();
+  }
 });

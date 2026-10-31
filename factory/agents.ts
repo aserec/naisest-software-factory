@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { SETTINGS_PATH, sandboxDenyRead } from "./sandbox";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string }
-export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number }; resultText: string }
+export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; resultText: string }
 export interface Finding { blocking: boolean; file?: string; text: string; screen?: string; verdict?: string } // screen and verdict: the reviewer's answer for one screen of the proof
 
 export { SETTINGS_PATH, sandboxDenyRead };
@@ -20,15 +20,28 @@ export function wrapTicket(text: string): string {
 }
 
 // Runs a program and collects stdout, and the end of stderr. Shared by the harness adapters.
-export function runCommand(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string, stdin?: string): Promise<{ code: number | null; out: string; err: string }> {
+// onLine gets each complete stdout line as it arrives. It never breaks the run: an error in it is dropped.
+export function runCommand(cmd: string, args: string[], env: NodeJS.ProcessEnv, cwd: string, stdin?: string, onLine?: (line: string) => void): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, { env, cwd, stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
     let out = "", err = "";
-    p.stdout!.on("data", (d) => (out += d));
+    let rest = ""; // the part of the last line that has not ended yet
+    const give = (line: string) => { try { onLine?.(line); } catch { /* a bad listener must not fail the run */ } };
+    p.stdout!.setEncoding("utf8");
+    p.stdout!.on("data", (d: string) => {
+      out += d;
+      if (!onLine) return;
+      const lines = (rest + d).split("\n");
+      rest = lines.pop()!;
+      lines.forEach(give);
+    });
     // stderr still goes to the job log. Its end is kept: a program that fails before its first output says why only there.
     p.stderr!.on("data", (d) => { process.stderr.write(d); err = (err + d).slice(-2000); });
     p.on("error", reject);
-    p.on("close", (code) => resolve({ code, out, err }));
+    p.on("close", (code) => {
+      if (rest) give(rest);
+      resolve({ code, out, err });
+    });
     if (stdin !== undefined) p.stdin!.end(stdin);
   });
 }

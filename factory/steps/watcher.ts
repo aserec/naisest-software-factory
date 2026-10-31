@@ -3,7 +3,7 @@
 import { makeContext, makeLogSource } from "../compose";
 import { loadSeams } from "../config";
 import { runWatcher } from "../watcher/run";
-import { agent, isMain } from "./context";
+import { agent, isMain, switchOn } from "./context";
 
 export async function main(env: NodeJS.ProcessEnv = process.env) {
   if (env.FACTORY_SCHEDULE !== "watch") throw new Error("FACTORY_SCHEDULE must be watch");
@@ -11,6 +11,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env) {
   // a second check: the CI job is manual, and a person must start it.
   if (loadSeams().logSource === "files" && env.CI_PIPELINE_SOURCE !== "web") throw new Error("With logSource files the watcher runs only in a pipeline started by hand (web)");
   const ctx = makeContext(env);
+  if (!(await switchOn(ctx, "watcher"))) return console.log("The watcher switch is off on the dashboard.");
   const r = await runWatcher({
     logs: makeLogSource(ctx.seams),
     tracker: ctx.tracker,

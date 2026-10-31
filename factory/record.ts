@@ -4,6 +4,7 @@ import { join } from "node:path";
 export const RUN_DIR = "run";
 
 export interface RunRecord {
+  runId?: string; // the dashboard's run ID; a resumed run keeps it
   workItem: string;
   startedAt: string;
   steps: { step: string; at: string; data: unknown }[];

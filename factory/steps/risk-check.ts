@@ -1,3 +1,4 @@
+import { emit } from "../emit";
 import { askRisk, riskReasons } from "../decision";
 import { checkHardRules, parseNumstat, type RuleResult } from "../rules";
 import type { Target } from "../types";
@@ -19,6 +20,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: headSha }));
   const diff = await ctx.repo.diff();
   const rules = hardRules(diff.numstat, diff.text, ctx.target, checks === "green");
+  for (const r of rules) emit(ctx, "rule_check", { rule: r.rule, passed: r.passed, detail: r.detail });
   let risk;
   try {
     risk = await askRisk(ctx.judge, ctx.record.ticket!, diff.text);

@@ -219,6 +219,11 @@ describe("merge, revert, comment, assign", () => {
     expect(calls.find((c) => c.url.startsWith("/users"))!.url).toBe("/users?username=ann");
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/merge_requests/5", body: { assignee_ids: [12] } });
   });
+  test("close puts the close state event on the change", async () => {
+    routes["PUT /projects/7/merge_requests/5"] = {};
+    await host().closeChange("5");
+    expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/merge_requests/5", body: { state_event: "close" } });
+  });
 });
 
 describe("attach", () => {

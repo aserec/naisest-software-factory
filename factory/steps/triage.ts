@@ -1,13 +1,14 @@
+import { emit } from "../emit";
 import { pickModels } from "../router";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
-import { agent, block, CONTINUE, data, isMain, notify, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, block, stopReason, switchOn, CONTINUE, data, isMain, notify, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  // A resumed run: triage already ran, the questions agent hit the limit.
-  const resumeSessionId = resumeSession(ctx, "triage");
-  if (resumeSessionId) return questions(ctx, data(ctx, "triage").row, resumeSessionId);
+  // A resumed run: triage already ran, and the questions agent hit the limit or was stopped.
+  // A switch stop saved no session, so its resume asks for questions afresh.
+  if (data(ctx, "event")?.resumeAt === "triage") return questions(ctx, data(ctx, "triage").row, resumeSession(ctx, "triage"));
   const ticket = await ctx.tracker.ticket(ref);
   const state = buildTriageState(ticket.title, ticket.body, ticket.tags);
   let answers: TriageAnswers;
@@ -42,15 +43,17 @@ export async function run(ctx: StepContext): Promise<StepResult> {
 
 // needs_info: an agent drafts questions from the ticket and the code. This step posts them.
 async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: string): Promise<StepResult> {
+  if (!(await switchOn(ctx, "questions"))) return stopped(ctx, "questions", { reason: "switch off questions" });
   const ref = ticketRef(ctx);
   await ctx.repo.clone(await ctx.codeHost.baseBranch());
   const text = resumeSessionId ? CONTINUE : `${prompt("questions")}\n\n${ticketText(ctx)}`;
   const r = await agent(ctx, "author", row.author, { tools: "code", prompt: text, maxTurns: 15, cwd: ctx.dir, resume: resumeSessionId });
-  if (r.stopped) return stopped(ctx, "questions", r.session);
+  if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
   if (r.limitHit) return waiting(ctx, "questions", r.session);
   if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
   await ctx.tracker.comment(ref, `This ticket is not clear enough to build yet. Please answer these questions, then add factory_ready again.\n\n${r.text}`);
   await ctx.tracker.setState(ref, "needs_info");
+  emit(ctx, "run_end", { outcome: "needs_info" });
   await notify(ctx, "needs_info", ["The factory asked questions on the ticket."], "");
   return "stop";
 }

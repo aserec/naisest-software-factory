@@ -1,5 +1,6 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { RunRecord } from "./record";
+import type { ControlState, RunEvent } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -74,17 +75,18 @@ export interface CodeHost {
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
+  closeChange(ref: ChangeRef): Promise<void>; // closes without merging
 }
 
 // The run is not one the factory started. Never worth a retry.
 export class NotFactoryRunError extends Error {}
 
 export type RunKind = "build" | "finish";
-export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: boolean; buildRun?: string; run?: string; runUrl: string; payload?: unknown }
+export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: boolean; buildRun?: string; run?: string; job?: string; runUrl: string; payload?: unknown }
 export interface CiRunner {
   vars: RunVars;
   secret(name: string): string | undefined; // read once, then gone
-  start(run: { kind: RunKind; ticket: TicketRef; change?: ChangeRef; buildRun?: string; skipApply?: boolean }): Promise<void>;
+  start(run: { kind: RunKind; ticket: TicketRef; change?: ChangeRef; buildRun?: string; skipApply?: boolean }): Promise<string>; // the new run's web URL
   buildRecord(run: string): Promise<RunRecord>; // throws NotFactoryRunError on a failed provenance check
   restoreRun(run: string): Promise<void>;
 }
@@ -100,11 +102,22 @@ export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEn
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
 export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
-export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost
+// One tool the agent used. input and result are text (JSON for input); ms is how long the tool ran.
+export interface ToolCall { name: string; input: string; result: string; ms: number; ok: boolean }
+export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean; onToolCall?: (c: ToolCall) => void } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost; onToolCall is called as each tool finishes, while the agent runs
 // `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
-export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number }; text: string }
+export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; text: string } // contextTokens: input plus cache tokens of the last model turn
 export interface Harness { readonly apis: ApiStyle[]; readonly images: boolean; run(job: HarnessJob): Promise<HarnessResult> }
 
 // Error logs. One group is one kind of error; hourly[0] is the last hour, 24 entries.
 export interface ErrorGroup { fingerprint: string; message: string; component?: string; hourly: number[]; firstSeen: string; lastSeen: string; samples: string[]; stack?: string; link: string }
 export interface LogSource { errors(since: Date): Promise<ErrorGroup[]> }
+
+// The factory's run dashboard. The factory sends events and reads the switches and requests a person set there.
+export type { RunEvent, ControlState, SwitchName } from "./run-events";
+export interface Dashboard {
+  send(e: RunEvent): void; // never throws, never waits
+  flush(): Promise<void>; // at most 5 s
+  control(target: string, run?: string): Promise<ControlState>; // throws when the dashboard cannot be reached
+  requestDone(id: string, outcome: "done" | "refused"): Promise<void>;
+}

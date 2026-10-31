@@ -9,13 +9,18 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { runStep, save, ticketText } from "./context";
+import { cancelNote, parseStoppedNote, runStep, save, stoppedNote, ticketText } from "./context";
+import { handleRequests, resumeSwitchedOff } from "./poll";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type Mark } from "../seams";
-import type { RunRecord } from "../record";
+import { loadRecord, type RunRecord } from "../record";
+import { fakeDashboard } from "../fakes";
+import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
+import * as apply from "./apply";
+import * as verify from "./verify";
 import { findSecrets } from "../rules";
 import { DIFF } from "../fakes";
 import * as decision from "./decision";
@@ -313,6 +318,12 @@ test("verify blocks when .factory.yml names a smoke test", async () => {
 
 // runStep, the CI job body.
 const tmp = () => mkdtempSync(join(tmpdir(), "runstep-"));
+// A copy of seams.yml with a dashboard address: the real file keeps a placeholder until go-live.
+const seamsFile = (dir: string, edit: (text: string) => string = (t) => t) => {
+  const path = join(dir, "seams.yml");
+  writeFileSync(path, edit(readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8")).replace("REPLACE_WITH_DASHBOARD_URL", "https://dashboard.example"));
+  return path;
+};
 test("runStep skips when an earlier job stopped the run", async () => {
   const dir = tmp();
   writeFileSync(join(dir, "stop"), "event");
@@ -384,13 +395,14 @@ test("decision blocks instead of starting finish without a build pipeline id", a
 test("makeContext rejects a target with no targets/<name>.yml, and a job image the target does not name", () => {
   const dir = tmp();
   const env = (o: Record<string, string>) => {
-    for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), ...o };
+    for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x");
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
-  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir)).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir)).toThrow(/image/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }), dir)).not.toThrow();
+  const seams = seamsFile(dir);
+  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir, seams)).toThrow(/image/);
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }), dir, seams)).not.toThrow();
 });
 test("a build record that fails the provenance check is not retried", async () => {
   const w = fakeWorld();
@@ -623,8 +635,8 @@ test("makeContext registers the secrets it holds, so no comment or push can carr
   const teams = "https://teams.example/webhook/0123456789";
   makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789",
     TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
-    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir);
-  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", teams, "trigger-0123456789"]) {
+    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir));
+  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", teams, "dashboard-token-0123456789", "trigger-0123456789"]) {
     expect(findSecrets(`text ${v} text`), v).toHaveLength(1);
   }
 });
@@ -727,8 +739,9 @@ test("prepare patch and the questions agent clone the base branch", async () => 
 });
 test("makeContext builds a context on the adapters seams.yml names", async () => {
   const dir = tmp();
-  writeFileSync(join(dir, "gl"), "x");
-  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl") }, dir);
+  for (const k of ["gl", "dash"]) writeFileSync(join(dir, k), "x");
+  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
+  expect(typeof ctx.dashboard.send).toBe("function");
   expect(ctx.ci.vars.ticket).toBe("8");
   expect(await ctx.codeHost.baseBranch()).toBe("develop");
   expect(ctx.seams.tracker).toBe("gitlab");
@@ -736,10 +749,9 @@ test("makeContext builds a context on the adapters seams.yml names", async () =>
 });
 test("seams.yml judge: model-call builds the model judge from judgeModel, and needs that provider's key", () => {
   const dir = tmp();
-  const seams = join(dir, "seams.yml");
-  writeFileSync(seams, readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8").replace("judge: jev-berget", "judge: model-call"));
-  const files = () => { for (const k of ["gl", "teams"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
-  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams") };
+  const seams = seamsFile(dir, (t) => t.replace("judge: jev-berget", "judge: model-call"));
+  const files = () => { for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
   files();
   expect(() => makeContext(env, dir, seams)).toThrow("TENSORX_API_KEY is not set");
   files();
@@ -865,6 +877,17 @@ test("a fix run's inbox sees a stop posted before it started, after the run bega
   await runBuildPipeline(w).finally(() => vi.useRealTimers());
   const fixRun = w.harness.jobs.find((j) => j.role === "author" && j.resume);
   expect((await fixRun!.inbox!.poll()).stop).toBe(true);
+});
+// Task B5: a stop from the dashboard reaches the author run through its inbox.
+test("a stop from the dashboard stops the author run and keeps its session", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.ctx.dashboard = fakeDashboard({ stop: true });
+  const run = w.harness.run;
+  w.harness.run = async (job) => (job.inbox && (await job.inbox.poll()).stop ? { ...(await run(job)), session: "sess-d", ok: false, stopped: true } : run(job));
+  await runBuildPipeline(w);
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: "sess-d", stopped: true } });
+  expect(parseStoppedNote(w.workItemComments.at(-1)!)?.reason).toBe("stopped from the dashboard");
 });
 test("a watcher ticket set ready by the factory starts a run; another ticket set ready by the factory does not", async () => {
   const ready = { kind: "ready", ticket: "8", actor: BOT };
@@ -1185,4 +1208,329 @@ test("an upload that works on its last retry adds no reason", async () => {
   expect(w.host.attached.map((a) => a.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
   expect(w.mrDescription).not.toContain("image upload failed");
   expect(w.finishTriggered).toBe(true);
+});
+test("makeContext needs the dashboard token and a real dashboardUrl", () => {
+  const dir = tmp();
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
+  const files = (...ks: string[]) => { for (const k of ks) writeFileSync(join(dir, k), "x"); };
+  files("gl", "teams");
+  expect(() => makeContext({ ...env, FACTORY_DASHBOARD_TOKEN: "" }, dir, seamsFile(dir))).toThrow("FACTORY_DASHBOARD_TOKEN is not set");
+  files("gl", "teams", "dash");
+  expect(() => makeContext(env, dir)).toThrow(/dashboardUrl is still a placeholder/); // the real seams.yml, until go-live
+});
+
+// Task B2: each run has an ID, and its steps send events to the dashboard.
+const dash = (w: ReturnType<typeof fakeWorld>) => w.ctx.dashboard as ReturnType<typeof fakeDashboard>;
+// The whole run as CI runs it: the build jobs, then the finish jobs that load the build record.
+async function runAllJobs(w: ReturnType<typeof fakeWorld>) {
+  const buildDir = tmp();
+  await runBuildJobs(w, buildDir);
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", change: "5", buildRun: "1", run: "2" };
+  w.ci.buildRecord = async () => loadRecord(buildDir);
+  const finishDir = tmp();
+  for (const [name, s] of [["apply", apply], ["verify", verify], ["result-saved", resultSaved]] as const) await runStep(name, s.run, { dir: finishDir, make: () => w.ctx });
+  return w;
+}
+test("a low-risk run sends run_start, a start and an end per step, usage, Jev answers, the decision and run_end done, all with one run ID", async () => {
+  const w = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
+  const events = dash(w).events;
+  expect(w.closed).toBe(true);
+  expect(events[0].type).toBe("run_start");
+  expect(new Set(events.map((e) => e.run))).toEqual(new Set([w.record.runId]));
+  expect(w.record.runId).toMatch(/^[0-9a-f-]{36}$/);
+  const steps = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+  expect(events.filter((e) => e.type === "step_start").map((e) => e.step)).toEqual(steps);
+  expect(events.filter((e) => e.type === "step_end").map((e) => [e.step, e.data.outcome])).toEqual(steps.map((s) => [s, "next"]));
+  for (const s of steps) expect(events.findIndex((e) => e.type === "step_start" && e.step === s)).toBeLessThan(events.findIndex((e) => e.type === "step_end" && e.step === s));
+  expect(events.filter((e) => e.type === "usage").length).toBeGreaterThan(0);
+  expect(new Set(events.filter((e) => e.type === "jev_answer").map((e) => e.step))).toEqual(new Set(["triage", "risk-check"]));
+  expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [] }]);
+  expect(events.filter((e) => e.type === "label_change").at(-1)?.data).toEqual({ to: "factory_done" });
+  // run_end is the last event of the run; only its own step's end comes after it.
+  expect(events.slice(-2).map((e) => [e.type, e.data.outcome])).toEqual([["run_end", "done"], ["step_end", "next"]]);
+  // Every event passes the dashboard's own check.
+  for (const e of events) expect(runEvent.safeParse(e).success, e.type).toBe(true);
+});
+test("a resumed run keeps the run ID of the run it continues", async () => {
+  const first = fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" });
+  await runBuildJobs(first, tmp());
+  const runId = first.record.runId;
+  expect(runId).toBeDefined();
+  const w = resumeWorld({ jev1: { risk: "trivial" } }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.finishTriggered).toBe(true);
+  expect(w.record.runId).toBe(runId);
+  expect(dash(w).events.length).toBeGreaterThan(0);
+  expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([runId]));
+  expect(dash(w).events.some((e) => e.type === "run_start")).toBe(false);
+});
+// The dashboard goes down once the event step has claimed the run: with it down from the start, no new run starts (Task B4).
+const downOnceRunning = (w: ReturnType<typeof fakeWorld>) => {
+  const set = w.tracker.setState;
+  w.tracker.setState = async (ref, state) => {
+    await set(ref, state);
+    if (state === "running") dash(w).down = true;
+  };
+};
+test("a run ends the same while the dashboard is down", async () => {
+  const up = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
+  const w = fakeWorld({ jev1: { risk: "low" } });
+  downOnceRunning(w);
+  await runAllJobs(w);
+  expect(dash(w).events.map((e) => e.type)).toEqual(["run_start", "step_start"]);
+  expect([w.states, w.closed, w.merged, w.workItemComments.length]).toEqual([up.states, up.closed, up.merged, up.workItemComments.length]);
+});
+
+// Fix round 1: step_end outcomes, and a declined resume sends nothing to the old run.
+const stepEnds = (w: ReturnType<typeof fakeWorld>) => dash(w).events.filter((e) => e.type === "step_end").map((e) => [e.step, e.data.outcome]);
+test("a step that stops for a person ends as stopped, and one at the usage limit as waiting", async () => {
+  const stopped = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  expect(stepEnds(stopped).at(-1)).toEqual(["prepare-patch", "stopped"]);
+  const limit = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }), tmp());
+  expect(stepEnds(limit).at(-1)).toEqual(["prepare-patch", "waiting"]);
+});
+test("a declined @factory resume sends no step start or end to the old run", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  const w = await resumeStopped({ otherRuns: 10 }, first);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "repo-full" } });
+  expect(dash(w).events.filter((e) => e.type === "step_start" || e.type === "step_end")).toEqual([]);
+});
+test("a successful @factory resume sends one paired start and end for the event step", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  const w = await resumeStopped({}, first);
+  expect(w.finishTriggered).toBe(true);
+  const ev = dash(w).events.filter((e) => e.step === "event" && (e.type === "step_start" || e.type === "step_end"));
+  expect(ev.map((e) => e.type)).toEqual(["step_start", "step_end"]);
+  expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([first.record.runId]));
+});
+
+// Task B3: author tool calls go to the dashboard under the step; usage carries the cache and context tokens.
+test("an author's tool calls are sent as tool_call events under their step, a reviewer's are not asked for, and usage has the cache tokens", async () => {
+  const w = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
+  const events = dash(w).events;
+  const calls = events.filter((e) => e.type === "tool_call");
+  expect(calls.length).toBeGreaterThan(0);
+  const starts = new Map(events.filter((e) => e.type === "step_start").map((e) => [e.id, e.step]));
+  for (const c of calls) {
+    expect(c.parent && starts.get(c.parent)).toBeTruthy();
+    expect(c.data).toEqual({ name: "Read", input: '{"file_path":"a.ts"}', result: "text", ms: 12, ok: true });
+    expect(runEvent.safeParse(c).success).toBe(true);
+  }
+  expect(new Set(calls.map((c) => starts.get(c.parent!)))).toEqual(new Set(["prepare-patch"]));
+  const jobs = w.harness.jobs;
+  expect(jobs.filter((j) => j.role === "author").every((j) => typeof j.onToolCall === "function")).toBe(true);
+  expect(jobs.filter((j) => j.role !== "author").length).toBeGreaterThan(0);
+  expect(jobs.filter((j) => j.role !== "author").every((j) => j.onToolCall === undefined)).toBe(true);
+  const usage = events.filter((e) => e.type === "usage" && e.data.role === "author");
+  expect(usage[0].data).toMatchObject({ input: 100, output: 20, cacheRead: 7, cacheWrite: 3, contextTokens: 110 });
+});
+
+// Task B4: the dashboard switches. No saved value means on; an unreachable dashboard counts as on, except new_runs.
+const withSwitches = (w: ReturnType<typeof fakeWorld>, ...off: SwitchName[]) => {
+  const switches = Object.fromEntries(SWITCHES.map((n) => [n, !off.includes(n)])) as Record<SwitchName, boolean>;
+  w.ctx.dashboard = fakeDashboard({ switches });
+  return switches;
+};
+test("prepare_patch off stops the run before any author job, and turning it on resumes it at prepare-patch", async () => {
+  const first = fakeWorld({ jev1: { risk: "trivial" } });
+  const switches = withSwitches(first, "prepare_patch");
+  await runBuildJobs(first, tmp());
+  expect(first.states).toEqual(["stopped"]);
+  expect(first.harness.jobs).toEqual([]);
+  expect(first.ran).toEqual([]);
+  expect(first.workItemComments.at(-1)).toMatch(/^Stopped run: pipeline 1$/m);
+  expect(first.workItemComments.at(-1)).toMatch(/^Stopped step: prepare-patch$/m);
+  expect(first.workItemComments.at(-1)).toMatch(/^Reason: switch off prepare_patch$/m);
+  expect(first.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { stopped: true, switchOff: true } });
+  expect(stepEnds(first).at(-1)).toEqual(["prepare-patch", "stopped"]);
+  // Still off, or the dashboard cannot be reached: nothing starts.
+  expect(await resumeSwitchedOff(first.ctx)).toEqual([]);
+  switches.prepare_patch = true;
+  dash(first).down = true;
+  expect(await resumeSwitchedOff(first.ctx)).toEqual([]);
+  dash(first).down = false;
+  expect(await resumeSwitchedOff(first.ctx)).toEqual(["8"]);
+  expect(first.ci.started.at(-1)).toEqual({ kind: "build", ticket: "8", buildRun: "1" });
+  const w = resumeWorld({ jev1: { risk: "trivial" }, state: "stopped" }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual(["1"]);
+  expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
+  expect(w.claudeRuns[0].resume).toBeUndefined();
+  expect(w.claudeRuns[0].prompt).toContain(ticketText(w.ctx));
+  expect(w.finishTriggered).toBe(true);
+});
+test("a person's stop note gives its reason, and the poller does not resume it", async () => {
+  const w = await stopRecord();
+  expect(w.workItemComments.at(-1)).toMatch(/^Reason: stopped by @factory stop$/m);
+  expect(await resumeSwitchedOff(w.ctx)).toEqual([]);
+});
+test("questions off stops before the questions agent, and its resume asks the questions without triage again", async () => {
+  const first = fakeWorld({ jev1: { clarity: 4 } });
+  const switches = withSwitches(first, "questions");
+  await runBuildJobs(first, tmp());
+  expect(first.claudeCalls).toBe(0);
+  expect(first.states).toEqual(["stopped"]);
+  expect(first.workItemComments.at(-1)).toMatch(/^Reason: switch off questions$/m);
+  switches.questions = true;
+  expect(await resumeSwitchedOff(first.ctx)).toEqual(["8"]);
+  const w = resumeWorld({ jev1: { clarity: 4 }, state: "stopped" }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.jevAsked).toBe(0);
+  expect(w.claudeRuns).toHaveLength(1);
+  expect(w.claudeRuns[0].resume).toBeUndefined();
+  expect(w.states).toEqual(["needs_info"]);
+});
+test("auto_merge off sends a run that would merge alone to a person", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  withSwitches(w, "auto_merge");
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain("auto-merge is switched off");
+});
+test("new_runs off: a webhook ready starts nothing and the ticket stays ready", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  withSwitches(w, "new_runs");
+  await runBuildJobs(w, tmp());
+  expect(w.record.steps.map((s) => s.step)).toEqual(["event"]);
+  expect(w.record.steps[0].data).toMatchObject({ start: false, reason: "switch-off" });
+  expect(w.states).toEqual(["ready"]);
+  expect(w.jevAsked).toBe(0);
+});
+test("with the dashboard down a running run goes on and merges alone, and a new run does not start", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  downOnceRunning(w);
+  await runBuildJobs(w, tmp());
+  expect(w.claudeCalls).toBeGreaterThan(0);
+  expect(w.finishTriggered).toBe(true);
+  const fresh = fakeWorld({ jev1: { risk: "trivial" } });
+  dash(fresh).down = true;
+  await runBuildJobs(fresh, tmp());
+  expect(fresh.record.steps[0].data).toMatchObject({ start: false, reason: "switch-off" });
+  expect(fresh.states).toEqual(["ready"]);
+});
+test("apply off stops the finish run, and turning it on starts a finish run with the change", async () => {
+  const w = fakeWorld();
+  const switches = withSwitches(w, "apply");
+  w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
+  await runFinishPipeline(w);
+  expect(w.merged).toBe(false);
+  expect(w.states).toEqual(["stopped"]);
+  const note = w.workItemComments.at(-1)!;
+  for (const line of ["Stopped run: pipeline 2", "Stopped step: apply", "Reason: switch off apply", "Change: 5", "Build run: 41"]) expect(note).toContain(`\n${line}`);
+  switches.apply = true;
+  expect(await resumeSwitchedOff(w.ctx)).toEqual(["8"]);
+  expect(w.ci.started.at(-1)).toEqual({ kind: "finish", ticket: "8", change: "5", buildRun: "41" });
+  expect(w.states).toEqual(["running"]);
+});
+// Fix round 1 (R39, R40).
+test("apply off does not stop a finish run after a hand merge", async () => {
+  const w = fakeWorld({ mrState: "merged" });
+  withSwitches(w, "apply");
+  await runFinishPipeline(w, { decision: "needs_approval", skipApply: true });
+  expect(w.record.steps.find((s) => s.step === "apply")?.data).toMatchObject({ skipped: true });
+  expect(w.record.steps.some((s) => s.step === "verify")).toBe(true);
+  expect(w.states).toEqual(["done"]);
+});
+test("a resumed apply sends label_change factory_running to the stopped run, and a failed start leaves the ticket stopped", async () => {
+  const w = fakeWorld();
+  const switches = withSwitches(w, "apply");
+  w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
+  await runFinishPipeline(w);
+  const record = { ...w.record, runId: "run-41", steps: w.record.steps.filter((s) => s.step !== "apply") };
+  switches.apply = true;
+  const start = w.ci.start;
+  w.ci.start = async () => { throw new Error("CI is down"); };
+  await expect(resumeSwitchedOff(w.ctx)).rejects.toThrow("CI is down");
+  expect(w.states).toEqual(["stopped"]);
+  w.ci.start = start;
+  expect(await resumeSwitchedOff(w.ctx)).toEqual(["8"]);
+  w.ci.buildRecord = async () => record;
+  await runStep("apply", apply.run, { dir: tmp(), make: () => w.ctx });
+  expect(w.merged).toBe(true);
+  expect(dash(w).events.filter((e) => e.type === "label_change").map((e) => [e.run, e.data])).toEqual([["run-41", { to: "factory_running" }]]);
+});
+test("parseStoppedNote reads back the note stopped() writes", () => {
+  const body = stoppedNote({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
+  expect(parseStoppedNote(body)).toEqual({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
+  expect(parseStoppedNote("hello")).toBeUndefined();
+});
+
+// Task B6: resume and restart from the dashboard, and the open item of B4.
+const restartRequest = (run: string, o: Partial<ControlRequest> = {}): ControlRequest => ({ id: "q1", kind: "restart", run, target: "react_frontend", ticket: "8", user: "ana", at: new Date().toISOString(), ...o });
+test("a restart ends the old run as blocked, sets ready, and that build's event step starts a new run for the request's user", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
+  const oldRun = first.record.runId!;
+  const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped" });
+  const request = restartRequest(oldRun);
+  const d = fakeDashboard({ requests: [request] });
+  w.ctx.dashboard = d;
+  const states: string[] = [];
+  const set = w.tracker.setState;
+  w.tracker.setState = async (ref, state) => (states.push(state), set(ref, state));
+  await handleRequests(w.ctx);
+  expect(states).toEqual(["blocked", "ready"]);
+  expect(w.workItemComments).toEqual(["Restarted from the dashboard by @ana. This run ends as blocked and a new run starts."]);
+  expect(w.ci.started).toEqual([{ kind: "build", ticket: "8" }]);
+  expect(d.done).toEqual([["q1", "done"]]);
+  const ends = d.events.filter((e) => e.type === "run_end");
+  expect(ends.map((e) => [e.run, e.ticket, e.data])).toEqual([[oldRun, "8", { outcome: "restarted" }]]);
+  expect(runEvent.safeParse(ends[0]).success).toBe(true);
+  // The new build: no payload, and the factory set the ticket ready.
+  request.outcome = "done";
+  w.tracker.startedBy = async () => BOT;
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8" };
+  await runStep("event", event.run, { dir: tmp(), make: () => w.ctx });
+  expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true, actor: "ana" } });
+  expect(w.record.runId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(w.record.runId).not.toBe(oldRun);
+  expect(w.states).toEqual(["running"]);
+});
+test("a ready the factory set starts no run without a recent restart of that ticket by a trusted person", async () => {
+  const old = new Date(Date.now() - 16 * 60_000).toISOString();
+  for (const requests of [[], [restartRequest("run-1", { at: old })], [restartRequest("run-1", { ticket: "9" })], [restartRequest("run-1", { outcome: "refused" })]]) {
+    const w = fakeWorld({ payload: { kind: "ready", ticket: "8", actor: BOT } });
+    w.ctx.dashboard = fakeDashboard({ requests });
+    await runBuildPipeline(w);
+    expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: false, reason: "not-member" } });
+  }
+  const untrusted = fakeWorld({ payload: { kind: "ready", ticket: "8", actor: BOT }, actorLevel: 20 });
+  untrusted.ctx.dashboard = fakeDashboard({ requests: [restartRequest("run-1")] });
+  await runBuildPipeline(untrusted);
+  expect(untrusted.record.steps[0]).toMatchObject({ step: "event", data: { start: false, reason: "not-member" } });
+});
+// B4 open item: a run the apply switch stopped resumes as a finish run with its change, from a person or the dashboard.
+const applyStopped = async () => {
+  const w = fakeWorld();
+  withSwitches(w, "apply");
+  w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
+  await runFinishPipeline(w);
+  w.ci.started.length = 0;
+  return w;
+};
+test("@factory resume or a dashboard resume of a run the apply switch stopped starts a finish run with the change", async () => {
+  const w = await applyStopped();
+  w.ci.vars = { ...w.ci.vars, payload: command("resume"), ticket: undefined, change: undefined, buildRun: undefined, run: "3" };
+  await runStep("event", event.run, { dir: tmp(), make: () => w.ctx });
+  expect(w.ci.started).toEqual([{ kind: "finish", ticket: "8", change: "5", buildRun: "41" }]);
+  expect(w.restored).toEqual([]);
+  expect(w.states).toEqual(["running"]);
+  const viaDashboard = await applyStopped();
+  const d = fakeDashboard({ requests: [{ ...restartRequest("run-1"), kind: "resume" }] });
+  viaDashboard.ctx.dashboard = d;
+  await handleRequests(viaDashboard.ctx);
+  expect(viaDashboard.ci.started).toEqual([{ kind: "finish", ticket: "8", change: "5", buildRun: "41" }]);
+  expect(viaDashboard.states).toEqual(["running"]);
+  expect(d.done).toEqual([["q1", "done"]]);
+});
+// R30: after a cancel, the newest factory note is the cancel, so an older stop is not resumed.
+test("@factory resume after a cancel from the dashboard starts nothing", async () => {
+  const w = fakeWorld({ state: "stopped", payload: command("resume") });
+  await w.tracker.comment("8", "Stopped run: pipeline 1");
+  await w.tracker.comment("8", cancelNote("dev"));
+  w.ci.buildRecord = async () => (await stopRecord()).record;
+  await runBuildJobs(w, tmp());
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "cancelled" } });
+  expect(w.restored).toEqual([]);
+  expect(w.states).toEqual(["stopped"]);
 });

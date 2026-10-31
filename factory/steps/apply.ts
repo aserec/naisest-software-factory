@@ -1,4 +1,4 @@
-import { block, data, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { block, data, isMain, runStep, save, stopped, switchOn, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 import { askPerson } from "./decision";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
@@ -17,6 +17,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     await ctx.tracker.mark(ref, "merged");
     return "next";
   }
+  // The switch is about the factory merging, so a finish run after a hand merge (above) never stops for it.
+  if (!(await switchOn(ctx, "apply"))) return stopped(ctx, "apply", { reason: "switch off apply", change });
+  // Through the watched tracker, so the run's label_change tells the dashboard it runs again after a switch stop.
+  await ctx.tracker.setState(ref, "running");
   // Only an auto decision merges without a person. Anything else waits for a person to merge it.
   if (data(ctx, "decision")?.kind !== "auto") return block(ctx, `Change ${change} waits for a person to merge it, so the factory did not merge it.`);
   const headSha = data(ctx, "risk-check")?.headSha;

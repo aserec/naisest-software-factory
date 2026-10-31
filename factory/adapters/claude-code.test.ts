@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { SETTINGS_PATH } from "../agents";
 import type { HarnessJob, Provider } from "../seams";
-import { agentEnv, buildClaudeArgs, claudeCode, parseStream } from "./claude-code";
+import { agentEnv, buildClaudeArgs, claudeCode, parseStream, toolCalls } from "./claude-code";
 
 const load = (f: string) => readFileSync(new URL(`../fixtures/${f}`, import.meta.url), "utf8");
 const teamPlan: Provider = { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { "claude-sonnet-5-5": "claude" } };
@@ -87,7 +87,7 @@ test("a code job runs in the job cwd and maps the stream to a result", async () 
   vi.stubEnv("FACTORY_GITLAB_TOKEN", "gl-secret");
   vi.stubEnv("TENSORX_API_KEY", "tx-secret");
   const r = await claudeCode.run(job());
-  expect(r).toEqual({ session: "11111111-1111-4111-8111-111111111111", ok: true, limitHit: false, stopped: false, costUsd: 0.0042, tokens: { input: 120, output: 8 }, text: "ok" });
+  expect(r).toEqual({ session: "11111111-1111-4111-8111-111111111111", ok: true, limitHit: false, stopped: false, costUsd: 0.0042, tokens: { input: 120, output: 8, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: "ok" });
   expect(readFileSync(join(bin, "cwd"), "utf8").trim()).toBe(realpathSync(tmpdir()));
   expect(readFileSync(join(bin, "args"), "utf8")).not.toContain("--tools");
   const env = readFileSync(join(bin, "env"), "utf8");
@@ -144,4 +144,30 @@ test("the run's settings carry the inbox hook only when the job has an inbox", a
   expect(JSON.parse(readFileSync(join(bin, "settings.json"), "utf8")).hooks.PostToolUse[0].hooks[0].command).toContain("claude-inbox-hook.ts");
   await claudeCode.run(job());
   expect(JSON.parse(readFileSync(join(bin, "settings.json"), "utf8")).hooks.PostToolUse).toBeUndefined();
+});
+
+test("a stream with tools gives one call per tool_result, paired by id, with ok from is_error", () => {
+  let t = 0;
+  const calls = toolCalls(() => (t += 50));
+  const got = load("claude-stream-tools.jsonl").split("\n").filter(Boolean).flatMap((l) => calls.line(l));
+  expect(got).toEqual([
+    { name: "Read", input: JSON.stringify({ file_path: "src/List.tsx" }), result: "export const List = () => null;", ms: 50, ok: true },
+    { name: "Bash", input: JSON.stringify({ command: "pnpm test" }), result: "1 test failed", ms: 50, ok: false },
+  ]);
+});
+test("toolCalls skips a line that is not JSON, a result with no matching call, and gives each call once", () => {
+  const calls = toolCalls();
+  const r = JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "nope", content: "x" }] } });
+  expect([calls.line("not json"), calls.line(r), calls.line("")]).toEqual([[], [], []]);
+});
+test("the stream gives cache tokens, and the context size of the last model turn", () => {
+  expect(parseStream(load("claude-stream-tools.jsonl"))).toMatchObject({ tokens: { input: 36, output: 13, cacheRead: 450, cacheWrite: 70 }, contextTokens: 14 + 200 + 20 });
+});
+test("a job with onToolCall gets each tool call while claude runs; a job without it still runs", async () => {
+  fakeClaude("claude-stream-tools.jsonl");
+  const seen: string[] = [];
+  const r = await claudeCode.run(job({ onToolCall: (c) => seen.push(`${c.name}:${c.ok}`) }));
+  expect(seen).toEqual(["Read:true", "Bash:false"]);
+  expect(r).toMatchObject({ ok: true, tokens: { cacheRead: 450, cacheWrite: 70 }, contextTokens: 234 });
+  expect(await claudeCode.run(job())).toMatchObject({ ok: true });
 });

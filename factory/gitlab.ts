@@ -154,6 +154,10 @@ export class GitLab {
     await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { assignee_ids: [userId] });
   }
 
+  async closeMergeRequest(projectId: number, mrIid: number): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { state_event: "close" });
+  }
+
   // Merges now and returns the commit on the target branch. Call it only after the MR pipeline is "success".
   // Always squashes, with message as the commit message. With the fast-forward merge method,
   // the squash commit is the only commit that lands.

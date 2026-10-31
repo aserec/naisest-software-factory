@@ -1,7 +1,8 @@
 import { parseFindings, reviewerPrompt } from "../agents";
+import { emit } from "../emit";
 import { codeReviewLoop } from "../loops";
 import { proofPrompt, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
-import { agent, block, fix, install, isMain, modelRow, runStep, save, session, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, block, stopReason, fix, install, isMain, modelRow, runStep, save, session, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 class ReviewerFailed extends Error {}
 
@@ -12,8 +13,12 @@ export async function review(ctx: StepContext, job: string): Promise<StepResult 
   const { harness, provider, model } = row.reviewer;
   // Both must agree, or the reviewer would judge screens it cannot see.
   const readsImages = ctx.harnesses[harness].images && (ctx.seams.providers[provider].images ?? []).includes(model);
+  // A resumed run goes on from its last round. A check after the last fix counts as round 3, never 4.
+  const start = Math.min(ctx.record.rounds.review + 1, 3);
+  let round = start - 1;
   let last: { findings: ReturnType<typeof parseFindings>; proof: ReturnType<typeof readProof>; images: Record<string, Buffer> } | undefined;
   const reviewOnce = async () => {
+    round++;
     const proof = readProof(ctx.repo.readFile);
     const images = readImages(ctx.repo.readBytes, proof.proof);
     const attached = readsImages ? Object.keys(images) : [];
@@ -29,11 +34,10 @@ export async function review(ctx: StepContext, job: string): Promise<StepResult 
     const parsed = parseFindings(r.text);
     const judged = screenVerdicts(parsed, proof.proof, Object.keys(images), readsImages);
     const findings = parsed.map((f) => (f.verdict === "does_not_match" && judged.some((v) => v.screen === f.screen && v.verdict === "does_not_match") ? { ...f, blocking: true } : f));
+    for (const f of findings) emit(ctx, "review_finding", { text: f.file ? `${f.file}: ${f.text}` : f.text, blocking: f.blocking, round });
     last = { findings, proof, images };
     return findings;
   };
-  // A resumed run goes on from its last round. A check after the last fix counts as round 3, never 4.
-  const start = Math.min(ctx.record.rounds.review + 1, 3);
   let result;
   try {
     result = await codeReviewLoop({
@@ -47,7 +51,7 @@ export async function review(ctx: StepContext, job: string): Promise<StepResult 
   }
   ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, review: result.rounds } };
   if (result.kind === "limit") return waiting(ctx, job, result.sessionId);
-  if (result.kind === "stopped") return stopped(ctx, job, result.sessionId);
+  if (result.kind === "stopped") return stopped(ctx, job, { session: result.sessionId, reason: stopReason(ctx) });
   if (result.kind === "blocked") return block(ctx, `Code review did not pass after ${result.rounds} rounds. Open findings:\n\n${result.open.map((t) => `- ${t}`).join("\n")}`);
   const proof: ProofRecord = {
     proof: last?.proof.proof,

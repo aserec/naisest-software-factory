@@ -11,6 +11,7 @@ import { sh } from "../steps/repo";
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
   CI_PROJECT_ID: /^[0-9]+$/,
+  CI_JOB_ID: /^([0-9]+)?$/, // empty only outside CI
   FACTORY_PIPELINE: /^(build|finish)?$/, // empty only in a scheduled pipeline
   FACTORY_SCHEDULE: /^(poll|retry|watch)?$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
@@ -44,7 +45,7 @@ const need = (env: NodeJS.ProcessEnv, key: string): string => {
 };
 
 // Steps may ask for these. The trigger token stays inside the adapter.
-const SECRETS = ["FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL"];
+const SECRETS = ["FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN"];
 
 export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn: typeof fetch = fetch): CiRunner {
   checkVars(env);
@@ -69,6 +70,7 @@ export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn:
       skipApply: env.FACTORY_SKIP_APPLY === "1",
       buildRun: env.FACTORY_BUILD_PIPELINE_ID || undefined,
       run: env.CI_PIPELINE_ID || undefined,
+      job: env.CI_JOB_ID || undefined,
       runUrl: env.CI_PIPELINE_URL ?? "",
       payload: env.TRIGGER_PAYLOAD ? JSON.parse(readFileSync(env.TRIGGER_PAYLOAD, "utf8")) : undefined,
     },
@@ -93,6 +95,8 @@ export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn:
       for (const [k, v] of Object.entries(vars)) if (v !== undefined) body.set(`variables[${k}]`, v);
       const res = await fetchFn(`${GITLAB_URL}/api/v4/projects/${need(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
       if (!res.ok) throw new Error(`Starting a pipeline failed with status ${res.status}`);
+      // The pipeline has started: a body that does not parse gives no link rather than a throw.
+      return ((await res.json().catch(() => ({}))) as { web_url?: string }).web_url ?? "";
     },
     async buildRecord(run) {
       return (await gitlab().buildRecord(Number(need(env, "CI_PROJECT_ID")), Number(run))) as RunRecord;

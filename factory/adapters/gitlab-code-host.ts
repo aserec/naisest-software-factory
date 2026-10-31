@@ -72,5 +72,8 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     async attach(name, data) {
       return gitlab.uploadFile(await projectId(), name, data);
     },
+    async closeChange(ref) {
+      await gitlab.closeMergeRequest(await projectId(), Number(ref));
+    },
   };
 }

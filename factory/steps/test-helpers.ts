@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Finding } from "../agents";
 import { PROOF_DIR, PROOF_FILE } from "../proof";
 import { loadRouter, loadSeams, loadTarget } from "../config";
-import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
+import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeDashboard, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
 import { addStep, newRecord } from "../record";
 import type { Checks, FactoryEvent, FactoryState, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
 import type { Risk } from "../types";
@@ -127,12 +127,12 @@ export function fakeWorld(o: WorldOptions = {}) {
   const limit: Partial<HarnessResult> = { session: "sess-limit", ok: false, limitHit: true, text: "usage limit reached" };
   const stop: Partial<HarnessResult> = { session: "sess-stop", ok: false, stopped: true, text: "" };
   const harness = fakeHarness((job) => {
-    if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []) };
+    if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []), toolCalls: [{ name: "Read", input: "{}", result: "x", ms: 1, ok: true }] };
     if (o.prepare === "limit" && !job.resume) return limit;
     if (o.fixLimit && job.resume) return limit;
     if (o.fixStop && job.resume) return stop;
     if (o.prepare === "stop" && !job.resume) return stop;
-    return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20 }, text: "1. Which list?" };
+    return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20, cacheRead: 7, cacheWrite: 3 }, contextTokens: 110, toolCalls: [{ name: "Read", input: '{"file_path":"a.ts"}', result: "text", ms: 12, ok: true }], text: "1. Which list?" };
   });
   const ran: string[] = [];
   let lintFails = o.lintFails ?? 0;
@@ -156,13 +156,13 @@ export function fakeWorld(o: WorldOptions = {}) {
   const router = loadRouter(undefined, seams);
   seams.providers.tensorx.images = [router.low.reviewer.model];
   const ctx: StepContext = {
-    tracker, codeHost: host, ci, judge, chat,
+    tracker, codeHost: host, ci, judge, chat, dashboard: fakeDashboard(),
     harnesses: { "claude-code": harness, pi: harness },
     seams,
     record: newRecord(),
     target: loadTarget("react_frontend", { defaultApprover: "approver" }),
     router,
-    dir: "/fake/run/target",
+    dir: join(mkdtempSync(join(tmpdir(), "run-")), "target"), // emit writes events.jsonl in its parent
     repo,
     sleep: async () => {},
   };
@@ -233,9 +233,10 @@ export function fakeCtx(o: { ready?: number[]; waiting?: { iid: number; sessionI
   const resumed: string[] = [];
   const start = world.ci.start;
   world.ci.start = async (run) => {
-    await start(run);
+    const url = await start(run);
     const from = waiting.find((x) => String(100 + x.iid) === run.buildRun);
     if (from) resumed.push(from.sessionId);
+    return url;
   };
   return Object.assign(world.ctx, { resumed, world });
 }

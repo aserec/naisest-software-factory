@@ -86,7 +86,7 @@ describe("start", () => {
   let posted: { url: string; body: URLSearchParams }[] = [];
   const fetchFn = (async (url: string, init: RequestInit) => {
     posted.push({ url, body: init.body as URLSearchParams });
-    return new Response("{}", { status: url.includes("fail") ? 500 : 200 });
+    return new Response(JSON.stringify({ id: 77, web_url: "https://gitlab.example/p/-/pipelines/77" }), { status: url.includes("fail") ? 500 : 200 });
   }) as unknown as typeof fetch;
   const runner = (o: Record<string, string> = {}) => {
     const { dir, env } = setup({ CI_COMMIT_REF_NAME: "main", FACTORY_TRIGGER_TOKEN: "", ...o }, { gl: "glpat-x", teams: "https://t", trig: "trigger-token" });
@@ -95,7 +95,7 @@ describe("start", () => {
 
   test("maps the run to trigger variables as the bot, with the token in the body only", async () => {
     posted = [];
-    await runner().start({ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true });
+    expect(await runner().start({ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true })).toBe("https://gitlab.example/p/-/pipelines/77");
     expect(posted[0].url).toBe(`${GITLAB_URL}/api/v4/projects/3/trigger/pipeline`);
     expect(Object.fromEntries(posted[0].body)).toEqual({
       token: "trigger-token", ref: "main", "variables[FACTORY_PIPELINE]": "finish", "variables[FACTORY_TARGET]": "react_frontend",
@@ -106,6 +106,11 @@ describe("start", () => {
     posted = [];
     await runner().start({ kind: "build", ticket: "8" });
     expect([...posted[0].body.keys()].sort()).toEqual(["ref", "token", "variables[FACTORY_PIPELINE]", "variables[FACTORY_TARGET]", "variables[FACTORY_WORK_ITEM_IID]"]);
+  });
+  test("a started pipeline whose reply does not parse gives an empty link, not a throw", async () => {
+    const badBody = ((async () => new Response("not json", { status: 201 })) as unknown) as typeof fetch;
+    const { dir, env } = setup({ CI_COMMIT_REF_NAME: "main" }, { gl: "glpat-x", teams: "https://t", trig: "trigger-token" });
+    expect(await makeGitLabCi({ ...env, FACTORY_TRIGGER_TOKEN: join(dir, "trig") }, dir, badBody).start({ kind: "build", ticket: "8" })).toBe("");
   });
   test("fails without a trigger token, and a failed call names the status but not the token", async () => {
     await expect(ci({ CI_COMMIT_REF_NAME: "main" }).start({ kind: "build", ticket: "8" })).rejects.toThrow(/FACTORY_TRIGGER_TOKEN/);

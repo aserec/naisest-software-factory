@@ -95,10 +95,50 @@ Otherwise the script labels `factory_needs_approval`, assigns the merge request 
 
 Two scheduled pipelines run for each target (see `docs/add-a-repo.md`).
 
-- **Poller**, every 5 minutes. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire.
+- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire.
 - **Retry**, every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
 
 At most 2 runs at once per target, and one run per work item.
+
+The poller also carries out the dashboard's resume and restart requests (see below), so a request waits up to a minute.
+
+## The dashboard
+
+The dashboard at `https://factory.<domain>` shows what the factory does, live. Each step sends it events: steps, tool calls, Jev answers, review findings, checks, label changes, usage and cost. `docs/setup.md` section 10 sets it up.
+
+- **Board.** The work items of each target, by state label.
+- **Run.** One run: its steps, tool calls, findings, checks and cost, updated every second, and the GitLab job logs.
+- **Runner.** Disk and memory of each runner VM, and its logs of the last 15 minutes (`docker`, `gitlab-runner`, `system`), read from Grafana. Alloy on each VM ships them (`deploy/alloy/runner.alloy`).
+- **Switches.** Turn parts of the factory off.
+
+Only GitLab users with the Developer role (or higher) on the factory project can sign in. The role is checked again on every action.
+
+### Stop, resume and restart
+
+- **Stop** asks the running step to stop at its next check. The item gets `factory_stopped`, as after `@factory stop`. If the run has not stopped after 60 seconds, the dashboard cancels the pipeline. A cancelled run saved nothing, so it can only be restarted.
+- **Resume** continues a stopped run at the step that stopped, as `@factory resume` does. The person must also be trusted on the target project (Developer or higher there), or the poller refuses the request.
+- **Restart** ends the stopped run as `factory_blocked` and starts a new run for the item from the beginning. If the old run left a merge request open, the factory closes it with a comment that links the new pipeline. If the new run did not start within 15 minutes, the item goes back to `factory_stopped` with a comment, and a person can press Restart again.
+- Resume and restart work only on the item's newest run. For an older run the dashboard refuses with "run is not the ticket's newest run".
+
+### Switches
+
+Each switch is on or off for one target or for all targets (`*`). A switch with no saved value is on.
+
+| Switch | When it is off |
+| --- | --- |
+| `new_runs` | No new run starts. The item stays `factory_ready` and starts when the switch is on again. |
+| `questions` | A run that would ask questions on the ticket stops instead. |
+| `prepare_patch` | A run stops before Claude writes the change. |
+| `auto_merge` | Every change goes to a person for approval. |
+| `apply` | A run stops before it merges. |
+| `retry` | The retry schedule resumes no `factory_waiting` run. |
+| `watcher` | The watcher opens no tickets. |
+
+A run that a switch stopped gets `factory_stopped`. The poller continues it once the switch is on again.
+
+### When the dashboard is down
+
+The factory keeps working. A step never waits for the dashboard or fails because of it: events it cannot send are dropped, so the dashboard misses them. Every switch counts as on, except `new_runs`: no new run starts while the factory cannot read its switches, and the poller acts on no dashboard request. `@factory stop` and `@factory resume` comments still work.
 
 ## The watcher
 

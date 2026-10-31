@@ -1,8 +1,9 @@
+import { emit } from "../emit";
 import { precommitGate } from "../loops";
 import { readImages, readProof, proofSection } from "../proof";
 import { findSecrets } from "../rules";
 import { review } from "./code-review";
-import { block, data, fix, install, isMain, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
+import { block, data, fix, install, isMain, stopReason, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
 
 // The CI skips the pipeline of a commit or change whose title says so, and the hard rules need that pipeline.
 // [AM] is the finish run's mark, so no text of the agent or the ticket keeps it. Repeat the replace:
@@ -55,10 +56,15 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   for (;;) {
     // A resumed run goes on from its last round. A check after the last fix counts as round 3, never 4.
     const start = Math.min(ctx.record.rounds.gate + 1, 3);
-    result = await precommitGate({ review: async () => [], fix: (feedback) => fix(ctx, feedback), run: (cmd) => ctx.repo.run(cmd) }, data(ctx, "prepare-patch").commands, 3, start);
+    result = await precommitGate({ review: async () => [], fix: (feedback) => fix(ctx, feedback), run: async (cmd) => {
+      const r = await ctx.repo.run(cmd);
+      // ponytail: the Repo seam gives ok, not the exit code; add it to Repo.run if the dashboard needs the real code.
+      emit(ctx, "gate_check", { command: cmd, exitCode: r.ok ? 0 : 1, outputTail: r.output });
+      return r;
+    } }, data(ctx, "prepare-patch").commands, 3, start);
     ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
     if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
-    if (result.kind === "stopped") return stopped(ctx, "precommit-gate", result.sessionId);
+    if (result.kind === "stopped") return stopped(ctx, "precommit-gate", { session: result.sessionId, reason: stopReason(ctx) });
     if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.join("\n")}`);
     if (!unreviewed && result.rounds === start) break; // passed with no fix since the last review
     // The rounds add up across passes, so this ends inside 3 review and 3 gate rounds.

@@ -125,7 +125,7 @@ async function watch(o: { logs?: LogSource; createdToday?: number; tracker?: Ret
   const prompts: string[] = [];
   const writer = async (prompt: string): Promise<HarnessResult> => {
     prompts.push(prompt);
-    return { session: "w", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: HUMAN };
+    return { session: "w", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: HUMAN };
   };
   const r = await runWatcher({ logs: o.logs ?? makeFileLogs("watcher/fixtures", () => NOW), tracker, judge, chat, writer, now: NOW });
   return { r, tracker, chat, prompts, states, made: tracker.created.slice(before) };

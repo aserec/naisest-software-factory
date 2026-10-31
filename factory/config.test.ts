@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { loadRouter, loadSeams, loadTarget, modelChoice, parseFactoryFile } from "./config";
+import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, parseFactoryFile } from "./config";
 
 const real = (name: string) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), "utf8");
 // The real file with one text replaced, in a temp dir.
@@ -25,7 +25,7 @@ test("router.yml gives the spec's models and bump", () => {
 });
 test("seams.yml picks the GitLab, model judge and console adapters and gives the providers to the harness", () => {
   const s = loadSeams();
-  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "gitlab", judge: "model-call", chat: "console", logSource: "files" });
+  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "gitlab", judge: "model-call", chat: "console", logSource: "files", dashboard: "http" });
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
     provider: { name: "tensorx", api: "openai", baseUrl: "https://api.tensorx.ai/v1", keyEnv: "TENSORX_API_KEY", models: { "deepseek/deepseek-v4.1-flash-1017": "deepseek", "z-ai/glm-5.3-flash": "glm" } },
     model: "z-ai/glm-5.3-flash",
@@ -83,4 +83,20 @@ test("a target names its base branch; a missing or empty one is refused", () => 
   expect(loadTarget("react_frontend").baseBranch).toBe("develop");
   expect(() => loadTarget("react_frontend", { baseBranch: "" })).toThrow(/targets\/react_frontend\.yml: baseBranch/);
   expect(() => loadTarget("react_frontend", { baseBranch: undefined })).toThrow(/baseBranch Required/);
+});
+test("a dashboardUrl that is still a placeholder is refused when the context is built, not when seams.yml loads", () => {
+  expect(loadSeams().dashboardUrl).toBe("REPLACE_WITH_DASHBOARD_URL");
+  expect(() => checkDashboardUrl(loadSeams())).toThrow(/dashboardUrl is still a placeholder/);
+  const path = edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", "REPLACE_WITH_URL");
+  expect(() => checkDashboardUrl(loadSeams(path))).toThrow(/dashboardUrl is still a placeholder/);
+  expect(checkDashboardUrl(loadSeams(edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", "https://factory.example.com")))).toBe("https://factory.example.com");
+});
+test("a dashboardUrl that is not an https address is refused, so the token never goes in clear", () => {
+  for (const bad of ["http://factory.example.com", "factory.example.com", "ftp://factory.example.com"]) {
+    expect(() => checkDashboardUrl(loadSeams(edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", bad))), bad).toThrow(/dashboardUrl must be an https/);
+  }
+});
+test("a target may set stuckMinutes, and a zero or negative value is refused", () => {
+  expect(loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 30 } }).stuckMinutes).toEqual({ verify: 30 });
+  expect(() => loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 0 } })).toThrow(/stuckMinutes/);
 });

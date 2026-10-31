@@ -1,9 +1,131 @@
 #cloud-config
-# Runs once when a Hetzner VM starts. Installs Docker on Ubuntu 24.04.
+# Runs once when a Hetzner VM starts. Installs Docker and Grafana Alloy on Ubuntu 24.04.
+# The runner host's copy (/etc/gitlab-runner/cloud-init.yml) has the real values for the <angle brackets>.
+# The push credential is write-only and stays on the VM host in /etc/alloy/. The runner config mounts no host
+# path into a job container, and the DOCKER-USER rule below keeps job containers away from the Hetzner metadata
+# service, which serves this file (with the credential) to anyone on the VM.
 package_update: true
 packages:
   - docker.io
+write_files:
+  - path: /etc/alloy/push-password
+    permissions: "0600"
+    content: "<ALLOY_PUSH_PASSWORD>"
+  # A copy of deploy/alloy/runner.alloy. factory/runner-config.test.ts checks that they match.
+  - path: /etc/alloy/runner.alloy
+    content: |
+      // Grafana Alloy on each runner VM. Ships job container logs, the journal and node metrics to ops.<domain>.
+      // runner/cloud-init.yml holds a copy of this file (factory/runner-config.test.ts checks they match).
+      // Replace the values in <angle brackets> in the runner host's copy of cloud-init.yml, never in git.
+      // Every line carries job="factory-runner" and host; logs also carry source (docker, gitlab-runner or system).
+
+      // Job container logs, from Docker's json-file logs.
+      local.file_match "docker" {
+      	path_targets = [{"__path__" = "/var/lib/docker/containers/*/*-json.log"}]
+      }
+
+      loki.source.file "docker" {
+      	targets    = local.file_match.docker.targets
+      	forward_to = [loki.process.docker.receiver]
+      }
+
+      loki.process "docker" {
+      	stage.docker { }
+
+      	stage.static_labels {
+      		values = {source = "docker"}
+      	}
+      	forward_to = [loki.write.ops.receiver]
+      }
+
+      // The journal: gitlab-runner's unit is source="gitlab-runner", the rest source="system".
+      loki.relabel "journal" {
+      	forward_to = []
+
+      	rule {
+      		target_label = "source"
+      		replacement  = "system"
+      	}
+
+      	rule {
+      		source_labels = ["__journal__systemd_unit"]
+      		regex         = "gitlab-runner\\.service"
+      		target_label  = "source"
+      		replacement   = "gitlab-runner"
+      	}
+      }
+
+      loki.source.journal "journal" {
+      	relabel_rules = loki.relabel.journal.rules
+      	forward_to    = [loki.write.ops.receiver]
+      }
+
+      loki.write "ops" {
+      	endpoint {
+      		url = "<LOKI_PUSH_URL>"
+
+      		basic_auth {
+      			username      = "<ALLOY_PUSH_USER>"
+      			password_file = "/etc/alloy/push-password"
+      		}
+      	}
+      	external_labels = {job = "factory-runner", host = constants.hostname}
+      }
+
+      // Disk, memory and CPU of the VM.
+      prometheus.exporter.unix "node" { }
+
+      prometheus.scrape "node" {
+      	targets         = prometheus.exporter.unix.node.targets
+      	forward_to      = [prometheus.relabel.runner.receiver]
+      	scrape_interval = "30s"
+      }
+
+      // The exporter sets its own job label, so set job and host here.
+      prometheus.relabel "runner" {
+      	forward_to = [prometheus.remote_write.ops.receiver]
+
+      	rule {
+      		target_label = "job"
+      		replacement  = "factory-runner"
+      	}
+
+      	rule {
+      		target_label = "host"
+      		replacement  = constants.hostname
+      	}
+      }
+
+      prometheus.remote_write "ops" {
+      	endpoint {
+      		url = "<METRICS_PUSH_URL>"
+
+      		basic_auth {
+      			username      = "<ALLOY_PUSH_USER>"
+      			password_file = "/etc/alloy/push-password"
+      		}
+      	}
+      }
+  # Root reads Docker's log files and the journal. The package's own config.alloy is not used.
+  - path: /etc/systemd/system/alloy.service.d/runner.conf
+    content: |
+      [Service]
+      User=root
+      ExecStart=
+      ExecStart=/usr/bin/alloy run --storage.path=/var/lib/alloy/data /etc/alloy/runner.alloy
+# runcmd runs as one script without `set -e`, so only the last command's exit status counts. A failed Alloy
+# line does not stop the VM: it still takes jobs, without logs. The last line fails cloud-init when the metadata
+# block is missing, so such a VM never becomes ready (instance_ready_command in config.toml).
 runcmd:
   # Ubuntu 24.04 takes the capabilities from user namespaces by default, and the agent sandbox (bubblewrap) needs them.
   - sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
   - systemctl enable --now docker
+  - iptables -I DOCKER-USER -d 169.254.169.254 -j DROP
+  - mkdir -p /etc/apt/keyrings
+  - curl -fsSL -m 30 https://apt.grafana.com/gpg.key | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
+  - echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main" > /etc/apt/sources.list.d/grafana.list
+  - apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y alloy=1.8.3
+  - systemctl daemon-reload
+  - systemctl enable alloy
+  - systemctl restart alloy
+  - iptables -C DOCKER-USER -d 169.254.169.254 -j DROP

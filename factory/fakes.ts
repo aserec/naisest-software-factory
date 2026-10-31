@@ -1,8 +1,9 @@
 import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
 import { findSecrets } from "./rules";
+import { SWITCHES } from "./run-events";
 import { NotFactoryRunError } from "./seams";
-import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunVars, Ticket, TicketDraft, TicketRef, Tracker } from "./seams";
+import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
@@ -171,6 +172,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       attached.push({ name, size: data.length });
       return `/uploads/${attached.length}/${name}`;
     },
+    closeChange: async (ref: ChangeRef) => void (get(ref).open = false),
   } satisfies CodeHost & Record<string, unknown>;
   return host;
 }
@@ -200,6 +202,7 @@ export function fakeCi(o: FakeCiOptions = {}) {
     start: async (run: Start) => {
       ci.started.push(run);
       if (run.kind === "finish") Object.assign(ci, { finishTriggered: true, finishVars: run });
+      return "https://ci.example/runs/new";
     },
     buildRecord: async (run: string): Promise<RunRecord> => {
       const r = o.records?.[run];
@@ -217,6 +220,27 @@ export function fakeChat(): Chat & { sent: { kind: Notice; title: string; lines:
   return { sent, notify: async (kind, title, lines, url) => void sent.push({ kind, title, lines, url }) };
 }
 
+// A Dashboard for tests. It keeps every event and every finished request. While `down` is true it
+// drops events and `control` and `requestDone` throw, as the real one does when it cannot be reached.
+export function fakeDashboard(state: Partial<ControlState> = {}): Dashboard & { events: RunEvent[]; done: [string, string][]; down: boolean } {
+  const dash = {
+    events: [] as RunEvent[],
+    done: [] as [string, string][],
+    down: false,
+    send: (e: RunEvent) => void (dash.down || dash.events.push(e)),
+    flush: async () => {},
+    control: async () => {
+      if (dash.down) throw new Error("dashboard is down");
+      return { switches: Object.fromEntries(SWITCHES.map((n) => [n, true])) as ControlState["switches"], stop: false, requests: [], ...state };
+    },
+    requestDone: async (id: string, outcome: "done" | "refused") => {
+      if (dash.down) throw new Error("dashboard is down");
+      dash.done.push([id, outcome]);
+    },
+  };
+  return dash;
+}
+
 // A Judge for tests. `answer` gives the answer to one question; `asked` counts the ask calls.
 export function fakeJudge(answer: (q: JevQuestion, state: unknown) => JevAnswer): Judge & { asked: number } {
   const judge = {
@@ -231,7 +255,8 @@ export function fakeJudge(answer: (q: JevQuestion, state: unknown) => JevAnswer)
 }
 
 // A Harness for tests. `script` gives the result of job n (from 0); the rest is filled with an ok answer.
-export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<HarnessResult> = () => ({})): Harness & { jobs: HarnessJob[] } {
+// `toolCalls` in the script's answer are given to the job's onToolCall before run resolves, when the job has one.
+export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<HarnessResult> & { toolCalls?: ToolCall[] } = () => ({})): Harness & { jobs: HarnessJob[] } {
   const jobs: HarnessJob[] = [];
   return {
     apis: ["anthropic", "openai"],
@@ -239,7 +264,9 @@ export function fakeHarness(script: (job: HarnessJob, n: number) => Partial<Harn
     jobs,
     run: async (job) => {
       const n = jobs.push(job) - 1;
-      return { session: `fake-session-${n}`, ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: "", ...script(job, n) };
+      const { toolCalls = [], ...result } = script(job, n);
+      toolCalls.forEach((c) => job.onToolCall?.(c));
+      return { session: `fake-session-${n}`, ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: "", ...result };
     },
   };
 }

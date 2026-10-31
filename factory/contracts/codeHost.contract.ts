@@ -47,5 +47,12 @@ export function codeHostContract(make: () => Promise<{ host: CodeHost; branch: s
       const { host } = await make();
       expect(await host.attach("a.png", PNG)).not.toBe("");
     });
+
+    test("closeChange closes the change without merging it", async () => {
+      const { host, branch, ticket } = await make();
+      const { ref } = await host.openChange(branch, "Contract change", "Text.", ticket);
+      await host.closeChange(ref);
+      expect(await host.change(ref)).toMatchObject({ open: false, merged: false });
+    });
   });
 }
