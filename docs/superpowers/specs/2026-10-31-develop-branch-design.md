@@ -155,8 +155,8 @@ These are the designer's calls. The user did not decide them.
 12. `develop` has no required approval rule for factory merge requests. This is a go-live step, not code.
 13. The factory rebases through the GitLab API. It does not clone the branch in the finish pipeline.
 14. A rebased change counts as the reviewed change when each file's added and removed lines match. A green pipeline on the rebased head is still required.
-15. Apply rebases at most 3 times, then blocks.
-16. A failed rebase blocks. The factory does not try to resolve conflicts.
+15. Apply rebases at most 3 times, then sends the change to a person.
+16. A failed rebase sends the change to a person. The factory does not try to resolve conflicts.
 
 ## 9. Left to the builder
 
