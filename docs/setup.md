@@ -112,3 +112,21 @@ pnpm install
 pnpm vitest run
 pnpm tsx factory/steps/<step>.ts
 ```
+
+### Before and after screenshots
+
+A target with `preview` and `previewUrl` in its `.factory.yml` gets screenshots of a visual change. Install Chromium once: `(cd react_frontend/apps/web && pnpm exec playwright install chromium)`. `local-run.sh` sets `PLAYWRIGHT_BROWSERS_PATH` to `~/Library/Caches/ms-playwright`.
+
+The author takes each shot with one shell command (`prompts/prepare.md` holds it). It starts the preview in the background, waits up to 120 s for `previewUrl`, shoots, and stops the server:
+
+```bash
+root=$PWD; set -m; (<preview>) > run/preview.log 2>&1 & pid=$!
+for i in $(seq 120); do curl -sf <previewUrl> > /dev/null && break; sleep 1; done
+(cd apps/web && pnpm exec playwright screenshot --viewport-size "1280, 800" --wait-for-timeout 3000 <previewUrl> "$root/run/proof/after-x-1280.png"); kill -- -$pid
+```
+
+Not yet proven in the sandbox. The spike (this command under `srt` on macOS, under `srt` in the runner image on Linux, and under Claude Code's sandbox) is still to run. A good result is a PNG of the app, not the "Opening your workspace" screen. Results:
+
+- [ ] macOS, Pi under `srt`: not run yet
+- [ ] Linux, runner image under `srt`: not run yet
+- [ ] Claude Code sandbox: not run yet

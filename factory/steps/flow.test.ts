@@ -894,6 +894,12 @@ test("the author gets the preview flag only when the target has a preview", asyn
   expect(without.find((j) => j.resume)).toBeDefined();
   expect(without.every((j) => !j.preview)).toBe(true);
 });
+test("the first author prompt tells how the preview runs, or to take no screenshots", async () => {
+  const first = async (factoryFile?: string) => (await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, factoryFile }))).harness.jobs.find((j) => j.role === "author" && !j.resume)!.prompt;
+  expect(await first("install: pnpm install\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\npreview: NEXT_PUBLIC_APP_ENV=development NEXT_PUBLIC_MOCK_ALL=true pnpm dev\npreviewUrl: http://localhost:3000\n"))
+    .toContain("Preview: start the app with `NEXT_PUBLIC_APP_ENV=development NEXT_PUBLIC_MOCK_ALL=true pnpm dev`. It serves http://localhost:3000.");
+  expect(await first()).toContain("Take no screenshots");
+});
 test("a reviewer model that does not read images gets none, and every screen is unsure", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
   w.ctx.seams.providers.tensorx.images = [];
