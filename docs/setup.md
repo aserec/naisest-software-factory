@@ -33,8 +33,9 @@ Store each one as a masked, protected CI variable.
   - At most 4 VMs: `max_instances = 4`.
   - Location `fsn1` (Germany). Server type `ccx23` (4 vCPU, 16 GB). Image Ubuntu 24.04.
   - `privileged = false` and no Docker socket volume.
+  - `security_opt` turns off the seccomp and AppArmor profiles of the job container, so bubblewrap can make user namespaces.
   - Runner tag: `factory`. Every job in `.gitlab-ci.yml` must use it.
-- `runner/cloud-init.yml`: installs Docker on each new VM. Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
+- `runner/cloud-init.yml`: installs Docker on each new VM and lets user namespaces keep their capabilities. Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
 
 ### Hetzner Cloud firewall
 
@@ -59,8 +60,7 @@ Attach a firewall to the runner VMs (for example by label):
 ## 6. Agent files
 
 - [ ] From the repo root, run `bash /path/to/agent-config/sync.sh`. It copies `.agents/`.
-- [ ] In the job image, install the `claude` CLI and Pi (`@earendil-works/pi-coding-agent`, binary `pi`) at exact pinned versions, in a system path such as `/usr/local/bin`. Factory jobs run with a fixed `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`), so a CLI in another place is not found.
-- [ ] The job image must have `jq`, or every agent job fails at `guardReady`.
+- [ ] Build the job image from `runner/Dockerfile` (see `docs/go-live.md`, section 3). It holds the pinned `claude` CLI and Pi in `/usr/local/bin`, which is on the fixed `PATH` of factory jobs, and `jq`, without which every agent job fails at `guardReady`.
 
 ## 7. Target webhook
 

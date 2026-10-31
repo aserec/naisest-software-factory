@@ -52,6 +52,10 @@ test("the smoke job type-checks before it runs the tests", () => {
   expect(ci.smoke.script).toEqual(["corepack enable", "pnpm install --frozen-lockfile", "pnpm tsc --noEmit", "pnpm vitest run"]);
 });
 
+test("the job image builds only on a push to main", () => {
+  expect(ci["job-image"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH', changes: ["runner/Dockerfile"] }]);
+});
+
 test("the real contract job runs only when started by hand from a web pipeline", () => {
   expect(ci["contract-real"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "web"', when: "manual" }]);
 });

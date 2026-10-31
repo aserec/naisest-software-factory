@@ -26,8 +26,8 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] Create the Hetzner firewall: no inbound rules, outbound internet only, no internal networks. Attach it.
 - [ ] Push the repo. Check that the `smoke` job runs on a fresh VM and the VM is deleted after the job.
 - [ ] Run `sync.sh` from agent-config to copy `.agents/`.
-- [ ] Job image: install the `claude` CLI and Pi (`@earendil-works/pi-coding-agent@1.4.0`, binary `pi`) at pinned versions in `/usr/local/bin`. Add `unzip`. Pin `node:22` by digest.
-- [ ] Check that bubblewrap works in the job image for the sandbox. Check `enableWeakerNestedSandbox` and the `/proc` read deny against Node and pnpm.
+- [ ] Job image: turn on the container registry for the factory project. Merge `runner/Dockerfile` to `main`. The `job-image` job prints the image with its digest. Put that exact string in the `.factory` image in `.gitlab-ci.yml` and in `jobImage` in `targets/react_frontend.yml`.
+- [ ] In a job on a fresh VM, run `bwrap --unshare-user --dev-bind / / true` in the job image. It must exit 0. The runner's `security_opt` and the sysctl in `runner/cloud-init.yml` allow it. Then check `enableWeakerNestedSandbox` and the `/proc` read deny against Node and pnpm.
 - [ ] Check the image user, HOME, PATH and proxy settings with the `env -i` line in `.gitlab-ci.yml`.
 - [ ] Check the runner's `<project>.tmp` secret directory layout, and the `TRIGGER_PAYLOAD` path.
 - [ ] Check that the job artifact size limit is big enough, and that resumed runs use the same `CI_PROJECT_DIR`.

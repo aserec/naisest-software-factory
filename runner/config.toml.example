@@ -15,6 +15,9 @@ concurrent = 4
     privileged = false
     # No Docker socket volume. Jobs must never see the host Docker.
     volumes = ["/cache"]
+    # The agent sandbox (bubblewrap) needs user namespaces, and Docker's default seccomp and AppArmor profiles block them.
+    # This is safe only because each VM runs one job and is then deleted. Never copy it to a shared runner.
+    security_opt = ["seccomp=unconfined", "apparmor=unconfined"]
 
   [runners.autoscaler]
     plugin = "hetznercloud/fleeting-plugin-hetzner:1.4.7"

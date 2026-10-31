@@ -4,4 +4,6 @@ package_update: true
 packages:
   - docker.io
 runcmd:
+  # Ubuntu 24.04 takes the capabilities from user namespaces by default, and the agent sandbox (bubblewrap) needs them.
+  - sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
   - systemctl enable --now docker

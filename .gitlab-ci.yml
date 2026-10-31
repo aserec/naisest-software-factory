@@ -43,6 +43,23 @@ smoke:
   - pnpm tsc --noEmit
   - pnpm vitest run
 
+# Builds runner/Dockerfile into this project's registry, only on main, so only a reviewed change makes an image.
+# kaniko needs no Docker socket and no privileged mode. Factory jobs name the image by digest, so a later push
+# to the same tag changes nothing they run.
+job-image:
+  stage: test
+  tags: [factory]
+  image:
+    name: ghcr.io/osscontainertools/kaniko:v1.29.0-debug@sha256:350929376b8a69afb1d8b362086c809e4ef6799fa1bcb317c2806ae1447b3845
+    entrypoint: [""]
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    changes: [runner/Dockerfile]
+  script:
+  - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+  - /kaniko/executor --context "$CI_PROJECT_DIR" --dockerfile "$CI_PROJECT_DIR/runner/Dockerfile" --destination "$CI_REGISTRY_IMAGE/job:$CI_COMMIT_SHORT_SHA" --digest-file /kaniko/digest
+  - echo "Job image, for the .factory image and every jobImage in targets/*.yml - $CI_REGISTRY_IMAGE/job@$(cat /kaniko/digest)"
+
 # Runs the contracts against a real GitLab test project. Start it by hand from a web pipeline.
 contract-real:
   stage: test
