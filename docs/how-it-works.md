@@ -14,7 +14,7 @@ Build pipeline:
 2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
 3. **Prepare patch.** Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`. The router picks the model.
 4. **Code review.** A reviewer (DeepSeek through TensorX, in Pi with no tools) reads the diff and returns findings. The author fixes blocking findings. At most 3 rounds.
-5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures. At most 3 rounds. Then the script pushes the branch and opens a merge request.
+5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures. At most 3 rounds. A fix here is code no review saw, so code review runs again, and a review fix runs the gate again, until both pass with no fix between them (inside the same 3 review and 3 gate rounds). Then the script pushes the branch and opens a merge request.
 6. **Risk check.** Hard rules first: protected paths, dependency files, more than 300 changed lines, a secret scanner hit, a red merge request pipeline. Then Jev 2 reads the diff and answers `diff_risk`, `scope` and `sensitive`.
 7. **Decision.** Merge without a person, or ask for approval. See the merge rule below.
 
@@ -41,7 +41,21 @@ A work item has at most one state label at a time.
 | `factory_blocked` | The factory stopped. A person must look. |
 | `factory_done` | Merged and verified. |
 
-An active run is any of `factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`. Adding `factory_ready` to an item that is `factory_needs_info`, `factory_blocked` or `factory_done` starts a new run.
+An active run is any of `factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`. Adding `factory_ready` to an item that is `factory_needs_info` or `factory_done` starts a new run. On a `factory_blocked` item it continues the blocked run at the step that blocked (prepare patch to decision), with new rounds for that step. It does so only when the factory's newest block comment ends with `Blocked run: pipeline <n>` and that run's record can be loaded and belongs to this item. Otherwise it starts a new run, and if the record was the problem, it comments why.
+
+The factory also adds progress labels. They stay next to the state label. A new run removes all of them except `factory_watcher`; a continued run keeps them.
+
+| Label | Meaning |
+| --- | --- |
+| `factory_triaged` | Triage passed and the run goes on to build. |
+| `factory_risk_<class>` | The triage risk class: `trivial`, `low`, `medium` or `high`. Only one at a time. |
+| `factory_implemented` | The author agent finished its change. |
+| `factory_reviewed` | Code review passed. Removed when a gate fix sends the change back to review. |
+| `factory_checked` | The precommit gate passed, with code review passed on the same code. |
+| `factory_risk_checked` | Jev 2 in the risk check passed. Not set when its answers send the change to a person. |
+| `factory_merged` | The merge request is merged, by the factory or by a person. |
+| `factory_reverted` | The main pipeline was red after the merge, and the factory opened a revert merge request. |
+| `factory_watcher` | The watcher opened this ticket from error logs. |
 
 ## Stop and resume
 

@@ -71,9 +71,11 @@ test("an anthropic provider writes anthropic-messages to models.json", async () 
   expect(JSON.parse(readFileSync(join(bin, "models.json"), "utf8")).providers.gw.api).toBe("anthropic-messages");
 });
 
-test("a pi that exits 1 with no output is a failed run, not a throw", async () => {
-  fakePi("exit 1");
-  expect(await pi.run(job())).toMatchObject({ ok: false, limitHit: false, text: "" });
+test("a pi that exits 1 with no output is a failed run that names the exit code and stderr, not a throw", async () => {
+  fakePi("echo 'no API key' >&2\nexit 1");
+  const r = await pi.run(job());
+  expect(r).toMatchObject({ ok: false, limitHit: false });
+  expect(r.text).toBe("Pi exited with code 1. The end of its error output:\nno API key");
 });
 
 // --- the author path: `pi` runs inside `srt` (a fake srt that runs the command, so quoting is tested too) ---
@@ -162,6 +164,14 @@ test("a pi cut in the middle of a JSON line is a failed run, not a throw and not
   fakePi(`printf '%s\\n' '${JSON.stringify(header)}'\nprintf '{"type":"message_end","mess'\nexit 1`);
   fakeSrt();
   expect(await pi.run(authorJob(runDir()))).toMatchObject({ ok: false, limitHit: false });
+});
+
+test("an author run that fails before Pi writes a message names the exit code and stderr", async () => {
+  fakePi(`${events(header)}\necho 'srt: sandbox refused' >&2\nexit 2`);
+  fakeSrt();
+  const r = await pi.run(authorJob(runDir()));
+  expect(r).toMatchObject({ ok: false, limitHit: false });
+  expect(r.text).toBe("Pi exited with code 2. The end of its error output:\nsrt: sandbox refused");
 });
 
 test("an author job also checks the command guard before anything starts", async () => {

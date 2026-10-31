@@ -32,6 +32,8 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
     say: (ref, author, body, at = new Date().toISOString()) => void notes.set(ref, [{ author, byFactory: false, body, at }, ...(notes.get(ref) ?? [])]),
     ticket: async (ref) => get(ref),
     setState: async (ref, state: FactoryState) => { get(ref).state = state; },
+    mark: async (ref, mark) => { const t = get(ref); if (!t.marks.includes(mark)) t.marks = [...t.marks, mark]; },
+    unmark: async (ref, mark) => { const t = get(ref); t.marks = t.marks.filter((m) => m !== mark); },
     comment: async (ref, text) => {
       get(ref);
       if (findSecrets(text).length > 0) throw new Error("Comment refused: it contains a secret");

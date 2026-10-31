@@ -5,10 +5,12 @@ export type TicketRef = string; // opaque to steps; the GitLab adapter uses the 
 export type PersonRef = string; // a username
 export type ChangeRef = string;
 export type FactoryState = "ready" | "running" | "needs_info" | "needs_approval" | "waiting" | "stopped" | "blocked" | "done";
-export type Mark = "watcher";
+// Progress marks: labels next to the state. A new run removes all but watcher.
+export type Mark = "watcher" | "triaged" | "risk_trivial" | "risk_low" | "risk_medium" | "risk_high" | "implemented" | "reviewed" | "checked" | "risk_checked" | "merged" | "reverted";
 
 export interface Ticket {
   ref: TicketRef; title: string; body: string; open: boolean; state?: FactoryState; marks: Mark[];
+  ended?: FactoryState; // with state ready: the state of the ended run that a person set ready again
   tags: string[]; // the non-factory labels
   assignees: PersonRef[]; url: string;
 }
@@ -25,6 +27,8 @@ export interface TicketDraft { title: string; body: string; state?: FactoryState
 export interface Tracker {
   ticket(ref: TicketRef): Promise<Ticket>;
   setState(ref: TicketRef, state: FactoryState): Promise<void>;
+  mark(ref: TicketRef, mark: Mark): Promise<void>; // adds the mark and keeps every other one
+  unmark(ref: TicketRef, mark: Mark): Promise<void>; // removes the mark and keeps every other one
   comment(ref: TicketRef, text: string): Promise<void>;
   assign(ref: TicketRef, person: PersonRef): Promise<void>;
   close(ref: TicketRef): Promise<void>;

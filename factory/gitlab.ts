@@ -94,6 +94,14 @@ export class GitLab {
     await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label, remove_labels: others });
   }
 
+  async addLabel(projectId: number, iid: number, label: string): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label });
+  }
+
+  async removeLabel(projectId: number, iid: number, label: string): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { remove_labels: label });
+  }
+
   private async note(endpoint: string, body: string): Promise<void> {
     const full = noQuickActions(`${AI_LINE}\n\n${body}`);
     if (findSecrets(full).length > 0) throw new Error("Comment refused: it contains a secret");

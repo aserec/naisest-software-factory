@@ -28,7 +28,14 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   ].join("\n"));
 
   if (outcome.kind === "blocked") return block(ctx, outcome.reason);
-  if (outcome.kind === "build") return "next";
+  if (outcome.kind === "build") {
+    // One risk mark at a time: the earlier run's other risk marks go.
+    const risk = `risk_${outcome.risk}` as const;
+    for (const m of ticket.marks) if (m !== risk && ["risk_trivial", "risk_low", "risk_medium", "risk_high"].includes(m)) await ctx.tracker.unmark(ref, m);
+    await ctx.tracker.mark(ref, "triaged");
+    await ctx.tracker.mark(ref, risk);
+    return "next";
+  }
 
   return questions(ctx, row);
 }

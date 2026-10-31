@@ -59,11 +59,9 @@ test("a usage limit during a fix stops with limit, not blocked", async () => {
   const deps = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, session: "s1" } });
   expect(await codeReviewLoop(deps)).toEqual({ kind: "limit", rounds: 1, sessionId: "s1" });
 });
-test("a failed author run blocks", async () => {
-  const deps = fakeDeps({ reviews: [[B]], fixResult: { ok: false, text: "boom" } });
-  const r = await codeReviewLoop(deps);
-  expect(r.kind).toBe("blocked");
-  expect(JSON.stringify(r)).toContain("author run failed");
+test("a failed author run blocks with the findings it was asked to fix and its own error", async () => {
+  const deps = fakeDeps({ reviews: [[{ ...B, file: "a.ts" }]], fixResult: { ok: false, text: "boom" } });
+  expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 1, open: ["a.ts: bug", "author run failed: boom"] });
 });
 
 // A resumed run continues its round count, so 3 rounds are never exceeded across a resume.

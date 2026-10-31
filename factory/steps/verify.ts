@@ -1,4 +1,4 @@
-import { block, data, isMain, runStep, save, waitFor, type StepContext, type StepResult } from "./context";
+import { block, data, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const branch = await ctx.codeHost.defaultBranch();
@@ -13,6 +13,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // Only red checks are a reason to revert. Canceled, skipped, or still no result after an hour: a person checks.
   if (status !== "red") return block(ctx, `There is no main pipeline result for ${sha} on ${branch} (status ${status}), so the factory did not revert. A person must check the merge.`);
   const revert = await ctx.codeHost.revert(sha);
+  await ctx.tracker.mark(ticketRef(ctx), "reverted");
   return block(ctx, `The ${branch} pipeline is ${status} after the merge. A person must merge this revert: ${revert.url}`);
 }
 

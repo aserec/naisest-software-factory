@@ -32,6 +32,23 @@ export async function askRisk(jev: JevClient, ticket: { title: string; descripti
   };
 }
 
+// Why Jev 2's answers do not let the change merge alone. Empty: they pass.
+export function riskReasons(risk: RiskAnswers): string[] {
+  const reasons: string[] = [];
+  // NaN fails every check below, so a bad answer goes to a person.
+  const v = risk.diffRisk.value;
+  if (!(Number.isInteger(v) && v >= 2 && v <= 10)) reasons.push(`diff_risk ${v} is not a whole number from 2 to 10`);
+  else if (v > DIFF_RISK_MAX) reasons.push(`diff_risk ${v} is above ${DIFF_RISK_MAX}`);
+  const inRange = (n: number) => n >= 0 && n <= 1;
+  if (!inRange(risk.diffRisk.confidence)) reasons.push(`diff_risk confidence ${risk.diffRisk.confidence} is not between 0 and 1`);
+  if (!inRange(risk.scopeYes)) reasons.push(`scope yes ${risk.scopeYes} is not between 0 and 1`);
+  if (!inRange(risk.sensitiveYes)) reasons.push(`sensitive yes ${risk.sensitiveYes} is not between 0 and 1`);
+  if (!(risk.diffRisk.confidence >= MIN_CONFIDENCE - EPSILON)) reasons.push(`diff_risk confidence ${risk.diffRisk.confidence} is below ${MIN_CONFIDENCE}`);
+  if (!(risk.scopeYes >= MIN_CONFIDENCE - EPSILON)) reasons.push(`scope yes ${risk.scopeYes} is below ${MIN_CONFIDENCE}`);
+  if (!(risk.sensitiveYes <= 1 - MIN_CONFIDENCE + EPSILON)) reasons.push(`sensitive yes ${risk.sensitiveYes} is above ${+(1 - MIN_CONFIDENCE).toFixed(2)}`);
+  return reasons;
+}
+
 export function decideMerge(input: { triageRisk: Risk; reviewPassed: boolean; gateGreen: boolean; rules: RuleResult[]; risk: RiskAnswers }): MergeDecision {
   const { triageRisk, reviewPassed, gateGreen, rules, risk } = input;
   const reasons: string[] = [];
@@ -46,16 +63,6 @@ export function decideMerge(input: { triageRisk: Risk; reviewPassed: boolean; ga
     if (!RULE_NAMES.includes(r.rule)) reasons.push(`unknown hard rule ${String(r.rule)}`);
     else if (r.passed !== true) reasons.push(`hard rule ${r.rule} failed: ${r.detail}`);
   }
-  // NaN fails every check below, so a bad answer goes to a person.
-  const v = risk.diffRisk.value;
-  if (!(Number.isInteger(v) && v >= 2 && v <= 10)) reasons.push(`diff_risk ${v} is not a whole number from 2 to 10`);
-  else if (v > DIFF_RISK_MAX) reasons.push(`diff_risk ${v} is above ${DIFF_RISK_MAX}`);
-  const inRange = (n: number) => n >= 0 && n <= 1;
-  if (!inRange(risk.diffRisk.confidence)) reasons.push(`diff_risk confidence ${risk.diffRisk.confidence} is not between 0 and 1`);
-  if (!inRange(risk.scopeYes)) reasons.push(`scope yes ${risk.scopeYes} is not between 0 and 1`);
-  if (!inRange(risk.sensitiveYes)) reasons.push(`sensitive yes ${risk.sensitiveYes} is not between 0 and 1`);
-  if (!(risk.diffRisk.confidence >= MIN_CONFIDENCE - EPSILON)) reasons.push(`diff_risk confidence ${risk.diffRisk.confidence} is below ${MIN_CONFIDENCE}`);
-  if (!(risk.scopeYes >= MIN_CONFIDENCE - EPSILON)) reasons.push(`scope yes ${risk.scopeYes} is below ${MIN_CONFIDENCE}`);
-  if (!(risk.sensitiveYes <= 1 - MIN_CONFIDENCE + EPSILON)) reasons.push(`sensitive yes ${risk.sensitiveYes} is above ${+(1 - MIN_CONFIDENCE).toFixed(2)}`);
+  reasons.push(...riskReasons(risk));
   return reasons.length ? { kind: "needs_approval", reasons } : { kind: "auto" };
 }

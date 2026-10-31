@@ -1,6 +1,7 @@
 import { decideMerge, type MergeDecision } from "../decision";
 import type { RuleResult } from "../rules";
 import type { Ticket } from "../seams";
+import { changeText } from "./precommit-gate";
 import { block, data, inbox, isMain, modelRow, notify, person, runStep, save, session, stopped, ticketRef, type StepContext, type StepResult } from "./context";
 
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
@@ -30,7 +31,12 @@ function decideByChecks(ctx: StepContext): MergeDecision {
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  const { change, changeUrl } = data(ctx, "precommit-gate");
+  const { change, changeUrl, branch } = data(ctx, "precommit-gate");
+  // A run continued after the gate job: the change still names the run that opened it. An approval must load this run's record.
+  if (["risk-check", "decision"].includes(data(ctx, "event")?.resumeAt)) {
+    const { title, body } = changeText(ctx);
+    await ctx.codeHost.openChange(branch, title, body, ref);
+  }
   const ticket = await ctx.tracker.ticket(ref);
   const d = decide(ctx, ticket);
   // A stop posted after the last author run (during review, the gate or the risk check) must not merge.

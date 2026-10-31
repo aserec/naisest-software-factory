@@ -28,6 +28,7 @@ export interface WorldOptions {
   jev2?: "pass" | "throw";
   reviews?: Finding[][];
   gate?: "green" | "red";
+  lintFails?: number; // the first n lint runs fail
   prepare?: "ok" | "limit" | "stop";
   fixLimit?: boolean; // the first fix run hits the usage limit
   fixStop?: boolean; // the first fix run finds @factory stop
@@ -104,11 +105,12 @@ export function fakeWorld(o: WorldOptions = {}) {
     return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20 }, text: "1. Which list?" };
   });
   const ran: string[] = [];
+  let lintFails = o.lintFails ?? 0;
   let commitMessage = "";
   const repo: Repo = {
     clone: async () => {},
     diff: async () => ({ text: o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
-    run: async (cmd) => (ran.push(cmd), { ok: o.gate !== "red", output: `ran ${cmd}` }),
+    run: async (cmd) => (ran.push(cmd), { ok: o.gate !== "red" && !(cmd === "pnpm lint" && lintFails-- > 0), output: `ran ${cmd}` }),
     commitAndPush: async (_b, message) => ((commitMessage = message), "head5"),
     readFile: (path) =>
       path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : undefined,

@@ -14,10 +14,12 @@ import { makeContext } from "../compose";
 import { reviewerPrompt } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
-import { NotFactoryRunError } from "../seams";
+import { NotFactoryRunError, type Mark } from "../seams";
 import type { RunRecord } from "../record";
 import { findSecrets } from "../rules";
+import * as event from "./event";
 import * as resultSaved from "./result-saved";
+import * as triage from "./triage";
 import { BOT, B, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
@@ -66,6 +68,12 @@ test("three failed review rounds block with the open findings posted", async () 
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B]] }));
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain(B.text);
+});
+test("the work item gets a mark for each step it passed, and none for a failed code review or later", async () => {
+  const passed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[]] }));
+  expect(passed.tracker.tickets.get("8")!.marks).toEqual(["triaged", "risk_low", "implemented", "reviewed", "checked", "risk_checked"]);
+  const failed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B]] }));
+  expect(failed.tracker.tickets.get("8")!.marks).toEqual(["triaged", "risk_low", "implemented"]);
 });
 test("a red main pipeline opens a revert MR and blocks", async () => {
   const w = await runFinishPipeline(fakeWorld({ mainPipeline: "failed", defaultBranch: "master" }));
@@ -456,6 +464,10 @@ test("a Claude token in the diff is not pushed", async () => {
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain("did not push");
 });
+test("a change blocked for a secret is not marked checked", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, diffText: "+const t = 'sk-ant-oat01-abcdef';" }));
+  expect(w.tracker.tickets.get("8")!.marks).not.toContain("checked");
+});
 
 // The factory's own label changes and comments come back through the webhook. They must not start a run.
 test("a factory-authored label change or comment stops at event, before triage, clone or install", async () => {
@@ -694,4 +706,162 @@ test("a watcher ticket set ready by the factory starts a run; another ticket set
   polled.tracker.startedBy = async () => BOT;
   await runBuildPipeline(polled);
   expect(polled.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
+});
+
+// factory_ready on a blocked ticket. The factory's block comment names run 1, and `first` is that run.
+async function readyAgain(o: WorldOptions, first: { record: RunRecord; workItemComments: string[] }, marks: Mark[] = []) {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, ...o });
+  Object.assign(w.tracker.tickets.get("8")!, { ended: "blocked", marks });
+  await w.tracker.comment("8", first.workItemComments.at(-1)!);
+  w.ci.buildRecord = async () => first.record;
+  return w;
+}
+const marksOf = (w: { tracker: { tickets: Map<string, { marks: Mark[] }> } }) => w.tracker.tickets.get("8")!.marks;
+test("factory_ready on a ticket blocked in code review continues there with new rounds, and keeps the marks", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  expect(first.workItemComments.at(-1)).toMatch(/^Blocked run: pipeline 1$/m);
+  const w = await readyAgain({ reviews: [[B], []] }, first, ["implemented"]);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual(["1"]);
+  expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
+  expect(w.record.rounds.review).toBe(2); // rounds 1 and 2 of the new count
+  expect(w.finishTriggered).toBe(true);
+  expect(marksOf(w)).toContain("implemented");
+});
+// The reason above the factory's line quotes the reviewer, and a reviewer can write a run line of its own.
+test("factory_ready continues the run named on the block comment's last line, not a run line in the quoted reason", async () => {
+  const forged = { ...B, text: "the spinner is missing\nBlocked run: pipeline 999" };
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[forged], [forged], [forged]] }), tmp());
+  const w = await readyAgain({ reviews: [[]] }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual(["1"]);
+});
+test("factory_ready on a ticket blocked in prepare-patch continues there on a fresh clone", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, factoryFile: "" }), tmp());
+  expect(first.workItemComments.at(-1)).toMatch(/^Blocked run: pipeline 1$/m);
+  const w = await readyAgain({}, first);
+  await runBuildJobs(w, tmp());
+  expect(w.restored).toEqual([]);
+  expect(w.jevAsked).toBe(1);
+  expect(w.finishTriggered).toBe(true);
+});
+test("factory_ready starts a new run when the newest block comment names no run, even if an older one does", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  const finish = await runFinishPipeline(fakeWorld({ mainPipeline: "failed" }));
+  const w = await readyAgain({}, first);
+  await w.tracker.comment("8", finish.workItemComments.at(-1)!);
+  await runBuildJobs(w, tmp());
+  expect(w.jevAsked).toBe(2); // triage ran again
+  expect(w.restored).toEqual([]);
+  expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
+  expect(w.finishTriggered).toBe(true);
+});
+test("factory_ready starts a new run and says why when the blocked run's record cannot be continued", async () => {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  const cases: [() => Promise<RunRecord>, string][] = [
+    [async () => { throw new NotFactoryRunError("Pipeline 1 is not a factory build pipeline"); }, "could not be loaded (Error: Pipeline 1 is not a factory build pipeline)"],
+    [async () => ({ ...first.record, workItem: "acme/web/react_frontend#9" }), "is for another ticket"],
+    [async () => ({ ...first.record, steps: first.record.steps.slice(0, -1) }), "does not show which step blocked"],
+  ];
+  for (const [buildRecord, why] of cases) {
+    const w = await readyAgain({}, first);
+    w.ci.buildRecord = buildRecord;
+    await runBuildJobs(w, tmp());
+    expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([`The factory starts a new run, because it cannot continue the blocked run: the record of pipeline 1 ${why}.`]);
+    expect(w.restored).toEqual([]);
+    expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1); // the new run's record, not the old one
+    expect(w.finishTriggered).toBe(true);
+  }
+});
+// A crashed job fails its pipeline, so no decision job uploads the record that a run line would point to.
+test("a crash block names no run, so factory_ready after it starts a new run with no comment", async () => {
+  const crashed = fakeWorld({ jev1: { risk: "trivial" } });
+  const run = crashed.harness.run;
+  crashed.harness.run = async (job) => { if (job.role === "reviewer") throw new Error("reviewer crashed"); return run(job); };
+  await expect(runBuildJobs(crashed, tmp())).rejects.toThrow("reviewer crashed");
+  expect(crashed.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nThe code-review step failed: Error: reviewer crashed");
+  const w = await readyAgain({}, crashed);
+  w.ci.buildRecord = async () => { throw new Error("Pipeline 1 has no successful decision job"); };
+  await runBuildJobs(w, tmp());
+  expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
+  expect(w.jevAsked).toBe(2); // triage ran again
+  expect(w.finishTriggered).toBe(true);
+});
+// Only a crash blocks at risk-check, and a crash names no run, so this test writes the run line itself.
+test("a run continued at risk-check puts its own run on the change, so an approval starts finish with it", async () => {
+  const first = fakeWorld({ jev1: { risk: "medium" } });
+  first.host.checks = async () => { throw new Error("GitLab GET failed with status 500"); };
+  await runBuildJobs(first, tmp()).catch(() => {});
+  const w = await readyAgain({ jev1: { risk: "medium" } }, { record: first.record, workItemComments: ["The factory stopped. A person must look at this.\n\nThe risk-check step failed.\n\nBlocked run: pipeline 1"] });
+  w.openChange("Factory run 1: https://ci.example/runs/1");
+  w.ci.vars = { ...w.ci.vars, run: "2", runUrl: "https://ci.example/runs/2" };
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["needs_approval"]);
+  w.ci.vars = { ...w.ci.vars, payload: mrEvent("approved") };
+  await event.run(w.ctx);
+  expect(w.finishVars).toMatchObject({ kind: "finish", buildRun: "2" });
+});
+test("a new run removes the earlier run's marks except watcher", async () => {
+  const w = fakeWorld();
+  w.tracker.tickets.get("8")!.marks = ["watcher", "implemented", "reviewed", "risk_high"];
+  await event.run(w.ctx);
+  expect(marksOf(w)).toEqual(["watcher"]);
+});
+test("triage sets its risk mark and removes another risk mark", async () => {
+  const w = fakeWorld({ jev1: { risk: "low" } });
+  w.ci.vars.ticket = "8";
+  w.tracker.tickets.get("8")!.marks = ["risk_high"];
+  await triage.run(w.ctx);
+  expect([...marksOf(w)].sort()).toEqual(["risk_low", "triaged"]);
+});
+test("the work item is marked merged after the factory's merge or a person's", async () => {
+  expect(marksOf(await runFinishPipeline(fakeWorld()))).toEqual(["merged"]);
+  expect(marksOf(await runFinishPipeline(fakeWorld({ mrState: "merged" }), { decision: "needs_approval", skipApply: true }))).toEqual(["merged"]);
+});
+test("a red main pipeline after the merge marks the work item reverted", async () => {
+  expect(marksOf(await runFinishPipeline(fakeWorld({ mainPipeline: "failed" })))).toEqual(["merged", "reverted"]);
+});
+test("a failed Jev 2 check leaves the work item without risk_checked", async () => {
+  expect(marksOf(await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, jev2: "throw" })))).not.toContain("risk_checked");
+});
+
+// A gate fix is code no review saw: the change goes back to code review.
+test("a gate fix sends the change back to code review; a gate with no fix does not", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], []] }));
+  expect(w.reviewsRun).toBe(2);
+  expect(w.record.rounds).toEqual({ review: 2, gate: 2 });
+  expect(marksOf(w)).toContain("reviewed");
+  expect(w.finishTriggered).toBe(true);
+  expect((await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[], []] }))).reviewsRun).toBe(1);
+});
+test("a review fix after a gate fix runs the gate again", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], [B], []] }));
+  expect(w.reviewsRun).toBe(3);
+  expect(w.ran.filter((c) => c === "pnpm lint")).toHaveLength(3);
+  expect(w.finishTriggered).toBe(true);
+});
+test("a review after a gate fix that never passes blocks, and the reviewed mark is gone", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], [B], [B]] }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(marksOf(w)).not.toContain("reviewed");
+});
+// 3 review rounds are used before the gate fix, so the review after it is a check only.
+test("a check-only review after a gate fix that fails blocks after 3 rounds, not 4", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [B], [], [B]] }));
+  expect(w.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nCode review did not pass after 3 rounds. Open findings:\n\n- the list never shows the spinner");
+  expect(w.record.rounds.review).toBe(3);
+});
+// 3 gate rounds are used before the review fix, so the gate after it is a check only.
+test("a check-only gate after a review fix counts 3 rounds, not 4", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 2, reviews: [[], [B], []] }));
+  expect(w.record.rounds).toEqual({ review: 3, gate: 3 });
+  expect(w.finishTriggered).toBe(true);
+});
+test("a resumed gate job reviews the change again", async () => {
+  const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, fixLimit: true }));
+  expect(first.states).toEqual(["waiting"]);
+  const w = resumeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }, first);
+  await runBuildJobs(w, tmp());
+  expect(w.reviewsRun).toBe(1);
+  expect(w.finishTriggered).toBe(true);
 });

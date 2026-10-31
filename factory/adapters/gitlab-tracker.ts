@@ -2,22 +2,29 @@ import { DEVELOPER, GitLab, type StateLabel } from "../gitlab";
 import type { FactoryEvent, FactoryState, Mark, Ticket, Tracker } from "../seams";
 
 const READY = "factory_ready";
-const MARK_LABELS: Record<Mark, string> = { watcher: "factory_watcher" };
+const MARK_LABELS: Record<Mark, string> = {
+  watcher: "factory_watcher", triaged: "factory_triaged", risk_trivial: "factory_risk_trivial", risk_low: "factory_risk_low", risk_medium: "factory_risk_medium",
+  risk_high: "factory_risk_high", implemented: "factory_implemented", reviewed: "factory_reviewed", checked: "factory_checked", risk_checked: "factory_risk_checked",
+  merged: "factory_merged", reverted: "factory_reverted",
+};
 const labelOf = (state: FactoryState) => `factory_${state}` as StateLabel;
 const fingerprintMarker = (fp: string) => `<!-- factory:fingerprint ${fp} -->`;
 const titles = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap((l) => (typeof l?.title === "string" ? [l.title] : [])) : []);
 // A person can add factory_ready next to another state label. An active run wins over ready, ready wins over an ended run.
-const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", "needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
+const ENDED = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
+const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", ...ENDED] as const satisfies readonly FactoryState[];
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
 
 function toTicket(w: any): Ticket {
   const labels: string[] = w.labels ?? [];
+  const state = STATE_ORDER.find((s) => labels.includes(labelOf(s)));
   return {
     ref: String(w.iid),
     title: w.title,
     body: w.description ?? "",
     open: w.state === "opened",
-    state: STATE_ORDER.find((s) => labels.includes(labelOf(s))),
+    state,
+    ended: state === "ready" ? ENDED.find((s) => labels.includes(labelOf(s))) : undefined,
     marks: (Object.keys(MARK_LABELS) as Mark[]).filter((m) => labels.includes(MARK_LABELS[m])),
     tags: labels.filter((l) => !l.startsWith("factory_")),
     assignees: (w.assignees ?? []).map((a: { username: string }) => a.username),
@@ -39,6 +46,12 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     },
     async setState(ref, state) {
       await gitlab.setState(await projectId(), iid(ref), labelOf(state));
+    },
+    async mark(ref, mark) {
+      await gitlab.addLabel(await projectId(), iid(ref), MARK_LABELS[mark]);
+    },
+    async unmark(ref, mark) {
+      await gitlab.removeLabel(await projectId(), iid(ref), MARK_LABELS[mark]);
     },
     async comment(ref, text) {
       await gitlab.comment(await projectId(), iid(ref), text);

@@ -1,6 +1,6 @@
 import { parseFactoryFile } from "../config";
 import type { FactoryCommands } from "../types";
-import { agent, block, CONTINUE, data, install, isMain, modelRow, prompt, resumeSession, runStep, save, stopped, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, block, CONTINUE, data, install, isMain, modelRow, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   await ctx.repo.clone(await ctx.codeHost.defaultBranch());
@@ -23,8 +23,9 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const r = await agent(ctx, "author", modelRow(ctx).author, { tools: "code", prompt: text, maxTurns: 60, cwd: ctx.dir, resume: resumeSessionId });
   if (r.stopped) return stopped(ctx, "prepare-patch", r.session, { commands });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });
-  if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 500)}`);
+  if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 2000)}`);
   save(ctx, "prepare-patch", { sessionId: r.session, commands });
+  await ctx.tracker.mark(ticketRef(ctx), "implemented");
   return "next";
 }
 

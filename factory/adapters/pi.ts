@@ -41,6 +41,8 @@ export function piSandboxSettings(cwd: string, home: string, provider: Provider)
 
 const EXTENSION = fileURLToPath(new URL("./pi-extension.ts", import.meta.url));
 const quote = (a: string) => `'${a.replaceAll("'", `'\\''`)}'`;
+// Pi or srt can fail before Pi writes a message. The exit code and stderr then hold the only reason.
+const exitText = (code: number | null, err: string) => `Pi exited with code ${code}. The end of its error output:\n${err.trim() || "(empty)"}`;
 
 // ponytail: event and field names below (session header, message_end, usage, stopReason, errorMessage) follow Pi's JSON mode docs.
 // Confirm them on the runner's Pi version before the first real author run.
@@ -83,11 +85,11 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     rmSync(inboxFile, { force: true });
     rmSync(`${inboxFile}.read`, { force: true });
     if (job.inbox) pump = pumpInbox(job.inbox, inboxFile);
-    const { code, out } = await runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd);
+    const { code, out, err } = await runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd);
     const stopped = (await pump?.end()) ?? false; // the extension aborts the agent at its next tool result after a stop line
     pump = undefined;
     const r = parsePiOutput(out);
-    return { session: r.session, ok: code === 0 && !r.error && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, text: r.text };
+    return { session: r.session, ok: code === 0 && !r.error && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, text: r.error || code === 0 ? r.text : exitText(code, err) };
   } finally {
     await pump?.end(); // only still set when the run threw
     rmSync(tmp, { recursive: true, force: true });
@@ -104,9 +106,9 @@ export const pi: Harness = {
     const dir = mkdtempSync(join(tmpdir(), "pi-"));
     try {
       writeFileSync(join(dir, "models.json"), JSON.stringify(piModels(job.model)));
-      const { code, out } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt), agentEnv(process.env, job.model.provider, dir), dir);
+      const { code, out, err } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt), agentEnv(process.env, job.model.provider, dir), dir);
       // Pi has no session to resume and reports no cost, so those stay empty. It has no tools, so the inbox is not used and it is never stopped.
-      return { session: "", ok: code === 0, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: out };
+      return { session: "", ok: code === 0, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0 }, text: code === 0 ? out : exitText(code, err) };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
