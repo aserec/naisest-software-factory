@@ -8,9 +8,9 @@ import { makeInbox } from "../inbox";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { modelChoice } from "../config";
-import { addStep, loadRecord, newRecord, RUN_DIR, saveRecord, type RunRecord } from "../record";
+import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type PausableStep, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type ChangeRef, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
-import type { RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
+import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
   tracker: Tracker;
@@ -39,19 +39,14 @@ const RECORD_TRIES = 8; // about 4 minutes in all
 
 export const prompt = (name: string) => readFileSync(fileURLToPath(new URL(`../../prompts/${name}.md`, import.meta.url)), "utf8");
 
-// The data of the last record step with this name.
-export const data = (ctx: StepContext, step: string): any => [...ctx.record.steps].reverse().find((s) => s.step === step)?.data;
-export const save = (ctx: StepContext, step: string, d: unknown) => void (ctx.record = addStep(ctx.record, step, d));
-// The newest author session in the record. Fixes and resumed runs continue it.
-export const session = (ctx: StepContext): string | undefined => [...ctx.record.steps].reverse().map((s: any) => s.data?.sessionId).find(Boolean);
-// On a resumed run, the saved session if this job is the one that hit the limit.
-export const resumeSession = (ctx: StepContext, job: string): string | undefined =>
-  data(ctx, "event")?.resumeAt === job ? data(ctx, "event").sessionId : undefined;
+// The facts of this run's record, as they are now.
+export const facts = (ctx: StepContext) => runFacts(ctx.record);
+export const save = <K extends StepName>(ctx: StepContext, step: K, d: StepData[K]) => void (ctx.record = addStep(ctx.record, step, d));
 export const CONTINUE = "You stopped before you finished. Continue the same task from where you stopped.";
 
 // The ticket of this run: from the run's variables, or from the event step's record.
 export function ticketRef(ctx: StepContext): TicketRef {
-  const ref: TicketRef | undefined = ctx.ci.vars.ticket ?? data(ctx, "event")?.ticket;
+  const ref: TicketRef | undefined = ctx.ci.vars.ticket ?? facts(ctx).ticket;
   if (!ref) throw new Error("This run has no ticket");
   return ref;
 }
@@ -62,11 +57,11 @@ export function ticketText(ctx: StepContext): string {
   return wrapTicket(`${t.title}\n\n${t.description}`);
 }
 
-export const modelRow = (ctx: StepContext): RouterRow => data(ctx, "triage").row;
+export const modelRow = (ctx: StepContext): RouterRow => need(facts(ctx).row, "triage router row");
 
 // Installs the target's dependencies in the sandbox. Each job that runs target code needs it,
 // because node_modules is not kept between jobs.
-export async function install(ctx: StepContext, commands = data(ctx, "prepare-patch").commands): Promise<StepResult | undefined> {
+export async function install(ctx: StepContext, commands: FactoryCommands = need(facts(ctx).commands, ".factory.yml commands")): Promise<StepResult | undefined> {
   const r = await ctx.repo.run(commands.install);
   if (!r.ok) return block(ctx, `The install command failed:\n${r.output.slice(-2000)}`);
   return undefined;
@@ -108,7 +103,7 @@ export const waitingNote = (run: string | undefined) =>
 export const WAITING_RUN = /^Waiting run: pipeline (\d+)$/m;
 
 // The agent hit a usage limit: keep the session so a later run can resume it.
-export async function waiting(ctx: StepContext, step: string, sessionId: string, extra: object = {}): Promise<StepResult> {
+export async function waiting(ctx: StepContext, step: PausableStep, sessionId: string, extra: { commands?: FactoryCommands } = {}): Promise<StepResult> {
   const ref = ticketRef(ctx);
   save(ctx, step, { ...extra, sessionId, limit: true });
   await ctx.tracker.setState(ref, "waiting");
@@ -150,7 +145,7 @@ export function parseStoppedNote(body: string): StoppedNote | undefined {
   return { run, step, reason, ...(change ? { change, buildRun: field("Build run") } : {}) };
 }
 
-export async function stopped(ctx: StepContext, step: string, o: { session?: string; reason: string; change?: ChangeRef; extra?: object }): Promise<StepResult> {
+export async function stopped(ctx: StepContext, step: PausableStep, o: { session?: string; reason: string; change?: ChangeRef; extra?: { commands?: FactoryCommands } }): Promise<StepResult> {
   const ref = ticketRef(ctx);
   save(ctx, step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
   await ctx.tracker.setState(ref, "stopped");
@@ -197,7 +192,7 @@ export async function startStopped(ctx: StepContext, ref: TicketRef, note: Stopp
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
 // It also asks the dashboard whether a person stopped this run there.
 export const inbox = (ctx: StepContext) =>
-  makeInbox(ctx.tracker, ticketRef(ctx), [...ctx.record.steps].reverse().find((s) => s.step === "event")?.at ?? new Date().toISOString(), async () => {
+  makeInbox(ctx.tracker, ticketRef(ctx), facts(ctx).eventAt ?? new Date().toISOString(), async () => {
     const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
     if (stop) ctx.dashboardStop = true;
     return stop;
@@ -224,9 +219,10 @@ export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, jo
 
 // Resume the author session with feedback from the reviewer or the gate.
 export function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
-  const resume = session(ctx);
+  const f = facts(ctx);
+  const resume = f.session;
   if (!resume) throw new Error("The run record has no author session to fix");
-  const preview = !!data(ctx, "prepare-patch")?.commands?.preview;
+  const preview = !!f.commands?.preview;
   return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) });
 }
 
@@ -265,14 +261,14 @@ const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|E
 // A resumed run skips the build jobs that finished before the one that hit the limit.
 function doneBeforeResume(ctx: StepContext, name: string): boolean {
   const i = BUILD_JOBS.indexOf(name);
-  return i > 0 && i < BUILD_JOBS.indexOf(data(ctx, "event")?.resumeAt);
+  return i > 0 && i < BUILD_JOBS.indexOf(facts(ctx).resumeAt ?? "");
 }
 
 // A stop saved by stopped() or waiting() ends the step as "stopped" or "waiting".
 function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
   if (result === "next") return "next";
-  const last = ctx.record.steps.at(-1)?.data as { stopped?: boolean; limit?: boolean } | undefined;
-  return last?.stopped ? "stopped" : last?.limit ? "waiting" : "stop";
+  const p = facts(ctx).paused;
+  return p?.stopped ? "stopped" : p?.limit ? "waiting" : "stop";
 }
 
 // Sends a label_change for every state the steps set and a jev_answer for every Jev answer, so no step has to.

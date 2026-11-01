@@ -1,9 +1,10 @@
 import { emit } from "../emit";
 import { precommitGate } from "../loops";
 import { readImages, readProof, proofSection } from "../proof";
+import { need } from "../record";
 import { findSecrets } from "../rules";
 import { review } from "./code-review";
-import { block, data, fix, install, isMain, stopReason, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
+import { block, facts, fix, install, isMain, stopReason, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
 
 // The CI skips the pipeline of a commit or change whose title says so, and the hard rules need that pipeline.
 // [AM] is the finish run's mark, so no text of the agent or the ticket keeps it. Repeat the replace:
@@ -29,9 +30,9 @@ export function commitMessage(ctx: StepContext, ticketUrl: string): CommitMessag
 // The finish run finds this run's record through the run link (approval and manual merge paths).
 // The code host adds the AI line and the closing line.
 // links, failed and commit come from the gate; a later step reads them from the saved gate data.
-export function changeText(ctx: StepContext, links: Record<string, string> = data(ctx, "precommit-gate")?.images ?? {}, failed: string[] = data(ctx, "precommit-gate")?.uploadFailed ?? [], commit: CommitMessage = data(ctx, "precommit-gate")?.commit) {
+export function changeText(ctx: StepContext, links: Record<string, string> = facts(ctx).images ?? {}, failed: string[] = facts(ctx).uploadFailed ?? [], commit: CommitMessage = need(facts(ctx).commit, "commit message")) {
   const testChanges = ctx.repo.readFile("run/test-changes.md");
-  const proof = proofSection(data(ctx, "code-review")?.proof, links, failed);
+  const proof = proofSection(facts(ctx).proof, links, failed);
   return { title: commit.title, body: [`Factory run ${ctx.ci.vars.run}: ${ctx.ci.vars.runUrl}`, `## Commit message\n\n${commit.message}`, ...(testChanges ? ["Changed tests, and why:", testChanges] : []), proof].join("\n\n") };
 }
 
@@ -51,7 +52,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const stop = await install(ctx);
   if (stop) return stop;
   // Done only when code review passed on the code the gate passed. A continued gate job may hold changes no review saw.
-  let unreviewed = data(ctx, "event")?.resumeAt === "precommit-gate";
+  let unreviewed = facts(ctx).resumeAt === "precommit-gate";
   let result;
   for (;;) {
     // A resumed run goes on from its last round. A check after the last fix counts as round 3, never 4.
@@ -61,7 +62,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
       // ponytail: the Repo seam gives ok, not the exit code; add it to Repo.run if the dashboard needs the real code.
       emit(ctx, "gate_check", { command: cmd, exitCode: r.ok ? 0 : 1, outputTail: r.output });
       return r;
-    } }, data(ctx, "prepare-patch").commands, 3, start);
+    } }, need(facts(ctx).commands, ".factory.yml commands"), 3, start);
     ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
     if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
     if (result.kind === "stopped") return stopped(ctx, "precommit-gate", { session: result.sessionId, reason: stopReason(ctx) });
@@ -78,7 +79,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const { title, body: scanned } = changeText(ctx, {}, [], commit);
   // Scan before anything leaves the runner. The raw manifest holds the test tails, which the section does not show.
   if (findSecrets((await ctx.repo.diff()).text + scanned + (readProof(ctx.repo.readFile).raw ?? "")).length > 0) return block(ctx, "The change contains a secret-looking value, so the factory did not push it.");
-  const { links, failed } = await attachAll(ctx, readImages(ctx.repo.readBytes, data(ctx, "code-review")?.proof?.proof));
+  const { links, failed } = await attachAll(ctx, readImages(ctx.repo.readBytes, facts(ctx).proof?.proof));
   const { body } = changeText(ctx, links, failed, commit);
   const branch = `factory/${ref}-${slug(clean(ctx.record.ticket!.title))}`;
   const sha = await ctx.repo.commitAndPush(branch, commit.message);

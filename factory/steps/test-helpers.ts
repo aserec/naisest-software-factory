@@ -6,7 +6,7 @@ import type { Finding } from "../agents";
 import { PROOF_DIR, PROOF_FILE } from "../proof";
 import { loadRouter, loadSeams, loadTarget } from "../config";
 import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeDashboard, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
-import { addStep, newRecord } from "../record";
+import { addStep, newRecord, type StepData, type StepName } from "../record";
 import type { Checks, FactoryEvent, FactoryState, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
 import type { Risk } from "../types";
 import { runStep, waitingNote, type StepContext } from "./context";
@@ -246,15 +246,14 @@ export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_appr
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: o.workItemIid ?? "8", change: o.mrIid ?? "5", skipApply: !!o.skipApply };
   w.tracker.tickets.get("8")!.state = "running";
   w.openChange();
-  let r = newRecord();
-  r = { ...r, workItem: "acme/web/react_frontend#8" };
-  for (const [step, d] of [
-    ["event", { ticket: "8" }],
-    ["prepare-patch", { sessionId: "sess-1", commands: { install: "i", lint: "l", test: "t", build: "b", ...(o.smoke ? { smoke: o.smoke } : {}) } }],
-    ["precommit-gate", { passed: true, sha: "head5", change: "5", changeUrl: "https://host.example/changes/5", commit: COMMIT }],
-    ["risk-check", { headSha: "head5" }],
-    ["decision", { kind: o.decision ?? "auto" }],
-  ] as const) r = addStep(r, step, d);
+  // Typed by the steps' own data types, so these fixtures cannot drift from what the build run saves.
+  let r = { ...newRecord(), workItem: "acme/web/react_frontend#8" };
+  const add = <K extends StepName>(step: K, d: StepData[K]) => void (r = addStep(r, step, d));
+  add("event", { ticket: "8" });
+  add("prepare-patch", { sessionId: "sess-1", commands: { install: "i", lint: "l", test: "t", build: "b", ...(o.smoke ? { smoke: o.smoke } : {}) } });
+  add("precommit-gate", { passed: true, rounds: 1, branch: "factory/8-fix", sha: "head5", change: "5", changeUrl: "https://host.example/changes/5", images: {}, uploadFailed: [], commit: COMMIT });
+  add("risk-check", { headSha: "head5", checks: "green", rules: [] });
+  add("decision", o.decision === "needs_approval" ? { kind: "needs_approval", reasons: [] } : { kind: "auto" });
   w.ctx.record = r;
   return runSteps(w, FINISH);
 }

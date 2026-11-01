@@ -1,12 +1,13 @@
-import { block, data, isMain, runStep, save, stopped, switchOn, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { block, facts, isMain, runStep, save, stopped, switchOn, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 import { askPerson } from "./decision";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const change = ctx.ci.vars.change;
   if (!change) throw new Error("This finish run has no change");
+  const f = facts(ctx);
   // The record must belong to this ticket and this change, not to some other run.
-  if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}` || data(ctx, "precommit-gate")?.change !== change) {
+  if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}` || f.change !== change) {
     return block(ctx, `The run record is for another ticket or change (${ctx.record.workItem || "none"}), so the factory did not merge change ${change}.`);
   }
   if (ctx.ci.vars.skipApply) {
@@ -22,14 +23,13 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // Through the watched tracker, so the run's label_change tells the dashboard it runs again after a switch stop.
   await ctx.tracker.setState(ref, "running");
   // Only an auto decision merges without a person. Anything else waits for a person to merge it.
-  if (data(ctx, "decision")?.kind !== "auto") return block(ctx, `Change ${change} waits for a person to merge it, so the factory did not merge it.`);
-  const headSha = data(ctx, "risk-check")?.headSha;
+  if (f.decisionKind !== "auto") return block(ctx, `Change ${change} waits for a person to merge it, so the factory did not merge it.`);
+  const headSha = f.reviewedHead;
   if (!headSha) return block(ctx, "The run record has no reviewed commit, so the factory did not merge.");
-  const gate = data(ctx, "precommit-gate");
   // A record from before the commit message was saved has no commit: throw, so runStep blocks.
-  if (!gate?.commit?.message) throw new Error("The run record has no commit message, so the factory cannot merge change " + change);
+  if (!f.commit?.message) throw new Error("The run record has no commit message, so the factory cannot merge change " + change);
   const base = await ctx.codeHost.baseBranch();
-  const message = `[AM] ${gate.commit.message}\nMerge request: ${gate.changeUrl}`;
+  const message = `[AM] ${f.commit.message}\nMerge request: ${f.changeUrl}`;
   // The branch is often behind the base branch: rebase it, at most 3 times, and merge only the reviewed lines on a green head.
   let head = headSha;
   let reviewed: Record<string, string> | undefined;

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { emit } from "../emit";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO, decideStart } from "../event";
 import type { FactoryEvent, Ticket, TicketRef } from "../seams";
-import { block, BLOCKED, BLOCKED_RUN, CONTINUABLE, data, isCancelNote, isMain, lastStop, parseStoppedNote, runStep, save, startStopped, STOPPED_RUN, switchOn, type StepContext, type StepResult } from "./context";
+import { block, BLOCKED, BLOCKED_RUN, CONTINUABLE, facts, isCancelNote, isMain, lastStop, parseStoppedNote, runStep, save, startStopped, STOPPED_RUN, switchOn, type StepContext, type StepResult } from "./context";
 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
 // and the running state is set before the job ends.
@@ -40,15 +40,10 @@ export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket):
 }
 
 // Why the record of buildRun cannot be continued for this ticket, or undefined if it can.
-function unusable(ctx: StepContext, ref: TicketRef, buildRun: string): string | undefined {
-  if (ctx.record.workItem !== `${ctx.target.projectPath}#${ref}`) return `the record of pipeline ${buildRun} is for another ticket`;
-  // A record from before the router named a harness per role cannot be continued.
-  if (typeof data(ctx, "triage")?.row?.author !== "object") return `the record of pipeline ${buildRun} is from an older factory version`;
-  return undefined;
-}
+const unusable = (ctx: StepContext, ref: TicketRef, buildRun: string) => facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
 
 // Continue the loaded run: the build jobs before resumeAt skip.
-async function continueAt(ctx: StepContext, ref: TicketRef, resumeAt: string, d: object): Promise<StepResult> {
+async function continueAt(ctx: StepContext, ref: TicketRef, resumeAt: string, d: { actor?: string; fromPipeline: string; sessionId?: string }): Promise<StepResult> {
   save(ctx, "event", { start: true, resume: true, ticket: ref, resumeAt, ...d });
   ctx.stepEvent = emit(ctx, "step_start", {});
   await ctx.tracker.setState(ref, "running");
@@ -73,16 +68,15 @@ async function resume(ctx: StepContext, ref: TicketRef, buildRun: string): Promi
   const quiet = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: ref }), "stop" as const);
   const state = (await ctx.tracker.ticket(ref)).state;
   if (state !== "waiting" && state !== "stopped") return quiet("not-waiting");
-  const last = ctx.record.steps.at(-1);
-  const d = last?.data as { sessionId?: string; limit?: boolean; stopped?: boolean; switchOff?: boolean } | undefined;
+  const p = facts(ctx).paused;
   // A run a switch stopped has no session: that step starts afresh.
-  const why = unusable(ctx, ref, buildRun) ?? (!(d?.limit || d?.stopped) || !(d.sessionId || d.switchOff) ? `the record of pipeline ${buildRun} has no saved session` : undefined);
+  const why = unusable(ctx, ref, buildRun) ?? (!p || !(p.sessionId || p.switchOff) ? `the record of pipeline ${buildRun} has no saved session` : undefined);
   if (why) return block(ctx, `The factory could not resume this run: ${why}. Add factory_ready to start again.`);
   // This ticket is waiting, so it is one of the active runs already.
   if ((await activeRuns(ctx)) - 1 >= MAX_RUNS_PER_REPO) return quiet("repo-full");
   await ctx.ci.restoreRun(buildRun);
   // The questions agent runs inside the triage job.
-  return continueAt(ctx, ref, last!.step === "questions" ? "triage" : last!.step, { fromPipeline: buildRun, sessionId: d!.sessionId });
+  return continueAt(ctx, ref, p!.step === "questions" ? "triage" : p!.step, { fromPipeline: buildRun, sessionId: p!.sessionId });
 }
 
 // A person set a blocked ticket ready again: continue the run at the job that blocked. Undefined: start a new run.
@@ -96,8 +90,7 @@ async function continueBlocked(ctx: StepContext, e: Extract<FactoryEvent, { kind
   let why: string | undefined;
   try {
     ctx.record = await ctx.ci.buildRecord(buildRun);
-    const last = ctx.record.steps.at(-1);
-    at = last?.step === "blocked" ? (last.data as { step?: string }).step : undefined;
+    at = facts(ctx).blockedStep;
     why = unusable(ctx, e.ticket, buildRun) ?? (at && CONTINUABLE.includes(at) ? undefined : `the record of pipeline ${buildRun} does not show which step blocked`);
   } catch (err) {
     why = `the record of pipeline ${buildRun} could not be loaded (${String(err).slice(0, 300)})`;
