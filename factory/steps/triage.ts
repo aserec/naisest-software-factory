@@ -3,7 +3,8 @@ import { need } from "../record";
 import { pickModels } from "../router";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
-import { agent, block, stopReason, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { block, stopReason, stopped, waiting } from "./run";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);

@@ -3,8 +3,8 @@
 import { makeContext } from "../compose";
 import { MAX_RUNS_PER_REPO } from "../event";
 import type { TicketRef } from "../seams";
-import { block, isMain, switchOn, WAITING_RUN, type StepContext } from "./context";
-import { activeRuns } from "./event";
+import { isMain, switchOn, type StepContext } from "./context";
+import { activeRuns, block, pauseNote } from "./run";
 
 export async function retryWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if (!(await switchOn(ctx, "retry"))) return [];
@@ -12,8 +12,7 @@ export async function retryWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if ((await activeRuns(ctx)) - 1 >= MAX_RUNS_PER_REPO) return [];
   const started: TicketRef[] = [];
   for (const { ref } of await ctx.tracker.list("waiting")) {
-    // Only the factory's own comment counts: anyone who can comment could write the same line.
-    const run = (await ctx.tracker.comments(ref)).filter((c) => c.byFactory).map((c) => WAITING_RUN.exec(c.body)?.[1]).find(Boolean);
+    const run = (await pauseNote(ctx, ref, "waiting"))?.run;
     if (!run) {
       await block({ ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } }, "The factory could not resume this run: it found no waiting-run comment from the factory. Add factory_ready to start again.");
       continue;

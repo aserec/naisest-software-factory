@@ -4,7 +4,8 @@ import { readImages, readProof, proofSection } from "../proof";
 import { need } from "../record";
 import { findSecrets } from "../rules";
 import { review } from "./code-review";
-import { block, facts, fix, install, isMain, stopReason, runStep, save, stopped, ticketRef, waiting, type StepContext, type StepResult } from "./context";
+import { facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
+import { block, stopReason, stopped, waiting } from "./run";
 
 // The CI skips the pipeline of a commit or change whose title says so, and the hard rules need that pipeline.
 // [AM] is the finish run's mark, so no text of the agent or the ticket keeps it. Repeat the replace:

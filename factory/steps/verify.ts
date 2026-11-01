@@ -1,5 +1,6 @@
 import { need } from "../record";
-import { block, facts, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { facts, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { block } from "./run";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const branch = await ctx.codeHost.baseBranch();

@@ -2,7 +2,8 @@ import { parseFindings, reviewerPrompt } from "../agents";
 import { emit } from "../emit";
 import { codeReviewLoop } from "../loops";
 import { proofPrompt, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
-import { agent, block, stopReason, fix, install, isMain, modelRow, runStep, save, facts, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, fix, install, isMain, modelRow, runStep, save, facts, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { block, stopReason, stopped, waiting } from "./run";
 
 class ReviewerFailed extends Error {}
 

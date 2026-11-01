@@ -1,6 +1,7 @@
 import { parseFactoryFile } from "../config";
 import type { FactoryCommands } from "../types";
-import { agent, block, stopReason, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
   c.preview ? `Preview: start the app with \`${c.preview}\`. It serves ${c.previewUrl}.` : "Preview: this repo has no preview command. Take no screenshots; prove the change with tests only.";

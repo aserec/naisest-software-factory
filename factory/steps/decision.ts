@@ -4,7 +4,8 @@ import { proofReasons } from "../proof";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { Ticket } from "../seams";
 import { changeText } from "./precommit-gate";
-import { block, facts, inbox, isMain, modelRow, notify, person, stopReason, runStep, save, stopped, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
+import { facts, inbox, isMain, modelRow, notify, person, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
+import { block, stopReason, stopped } from "./run";
 
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
 

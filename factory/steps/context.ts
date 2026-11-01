@@ -1,4 +1,4 @@
-// Shared parts of the CI steps: the context and helpers for blocking, waiting and agent runs.
+// Shared parts of the CI steps: the context, the dashboard controls and agent runs. Pausing a run lives in run.ts.
 // Steps see the factory's outside tools only through the seams. makeContext (factory/compose.ts) picks the adapters.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,10 +8,13 @@ import { makeInbox } from "../inbox";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { modelChoice } from "../config";
-import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type PausableStep, type RunRecord, type StepData, type StepName } from "../record";
-import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type ChangeRef, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
+import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
+import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
 import type { ControlRequest } from "../run-events";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
+import { block, doneBeforeResume } from "./run";
+// The tests read the note formats from here.
+export { cancelNote, isCancelNote, parseStoppedNote, stoppedNote } from "./run";
 
 export interface StepContext {
   tracker: Tracker;
@@ -76,43 +79,6 @@ export async function notify(ctx: StepContext, kind: Notice, lines: string[], ur
   await ctx.chat.notify(kind, t.title, lines, url || t.url);
 }
 
-const BUILD_JOBS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
-// A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
-export const CONTINUABLE = BUILD_JOBS.slice(2);
-export const BLOCKED = "The factory stopped. A person must look at this.";
-// Only the comment's last line: the reason above it can quote agent text with a run line of its own.
-export const BLOCKED_RUN = /\nBlocked run: pipeline (\d+)\s*$/;
-
-// Stop the run for a person: state, comment, assign, notice.
-// continuable false: this pipeline fails, so its record never uploads and the comment names no run.
-export async function block(ctx: StepContext, reason: string, continuable = CONTINUABLE.includes(ctx.step ?? "")): Promise<StepResult> {
-  const ref = ticketRef(ctx);
-  const t = await ctx.tracker.ticket(ref);
-  save(ctx, "blocked", { reason, step: ctx.step });
-  if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
-  await ctx.tracker.setState(ref, "blocked");
-  emit(ctx, "run_end", { outcome: "blocked" });
-  const line = continuable ? `\n\nBlocked run: pipeline ${ctx.ci.vars.run ?? "unknown"}` : "";
-  await ctx.tracker.comment(ref, `${BLOCKED}\n\n${reason}${line}`);
-  await ctx.tracker.assign(ref, person(ctx, t));
-  await ctx.chat.notify("blocked", t.title, [reason], t.url);
-  return "stop";
-}
-
-// The hourly retry finds the run to resume from in this comment.
-export const waitingNote = (run: string | undefined) =>
-  `The author agent reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline ${run ?? "unknown"}`;
-export const WAITING_RUN = /^Waiting run: pipeline (\d+)$/m;
-
-// The agent hit a usage limit: keep the session so a later run can resume it.
-export async function waiting(ctx: StepContext, step: PausableStep, sessionId: string, extra: { commands?: FactoryCommands } = {}): Promise<StepResult> {
-  const ref = ticketRef(ctx);
-  save(ctx, step, { ...extra, sessionId, limit: true });
-  await ctx.tracker.setState(ref, "waiting");
-  await ctx.tracker.comment(ref, waitingNote(ctx.ci.vars.run));
-  return "stop";
-}
-
 // The dashboard's switches and requests as one step or one poll tick sees them.
 export interface Controls {
   switchOn(name: SwitchName): boolean; // a running step's switch, or new_runs before a new run starts
@@ -138,73 +104,6 @@ export function takeSnapshot(ctx: StepContext): void {
 }
 
 export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<boolean> => (await controls(ctx)).switchOn(name);
-
-// A person (`@factory stop`) or a dashboard switch stopped the run. The note names the run to resume:
-// `@factory resume` continues a person's stop, the poller a switch stop once the switch is on again.
-export interface StoppedNote { run: string; step: string; reason: string; change?: ChangeRef; buildRun?: string }
-export const stoppedNote = (n: StoppedNote) =>
-  [
-    n.reason.startsWith("switch off") ? "A dashboard switch stopped this run. The factory continues it when the switch is on again." : "A person stopped this run. Comment the line @factory resume to continue it.",
-    "",
-    `Stopped run: pipeline ${n.run}`,
-    `Stopped step: ${n.step}`,
-    `Reason: ${n.reason}`,
-    ...(n.change ? [`Change: ${n.change}`, `Build run: ${n.buildRun ?? "unknown"}`] : []),
-  ].join("\n");
-export const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
-// Reads a stopped note back. Only the factory's own comments may be passed in.
-export function parseStoppedNote(body: string): StoppedNote | undefined {
-  const field = (name: string) => new RegExp(`^${name}: (.+)$`, "m").exec(body)?.[1];
-  const run = STOPPED_RUN.exec(body)?.[1];
-  const step = field("Stopped step");
-  const reason = field("Reason");
-  if (!run || !step || !reason) return undefined;
-  const change = field("Change");
-  return { run, step, reason, ...(change ? { change, buildRun: field("Build run") } : {}) };
-}
-
-export async function stopped(ctx: StepContext, step: PausableStep, o: { session?: string; reason: string; change?: ChangeRef; extra?: { commands?: FactoryCommands } }): Promise<StepResult> {
-  const ref = ticketRef(ctx);
-  save(ctx, step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
-  await ctx.tracker.setState(ref, "stopped");
-  await ctx.tracker.comment(ref, stoppedNote({ run: ctx.ci.vars.run ?? "unknown", step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun }));
-  return "stop";
-}
-const PERSON_STOP = "stopped by @factory stop";
-export const DASHBOARD_STOP = "stopped from the dashboard";
-// Why the inbox stopped the run: the dashboard, or else a person's `@factory stop`.
-export const stopReason = (ctx: StepContext) => (ctx.dashboardStop ? DASHBOARD_STOP : PERSON_STOP);
-
-// The poller's comment when the dashboard cancelled a pipeline that did not stop in time. Such a run cannot be resumed.
-const CANCEL_REASON = "Reason: pipeline cancelled from the dashboard";
-export const cancelNote = (user: string) =>
-  `The run was stopped from the dashboard by @${user}. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\n${CANCEL_REASON}`;
-// Only the factory's own comments may be passed in.
-export const isCancelNote = (body: string) => body.split("\n").includes(CANCEL_REASON);
-
-// The factory's newest stop comment on the ticket: a stopped note, or the cancel note. A resume reads only this one:
-// a person or the dashboard may have stopped the run again since an older note.
-export const lastStop = async (ctx: StepContext, ref: TicketRef): Promise<string | undefined> =>
-  (await ctx.tracker.comments(ref)).find((c) => c.byFactory && (STOPPED_RUN.test(c.body) || isCancelNote(c.body)))?.body;
-
-// Starts a stopped run again, in the kind of pipeline it stopped in. A build run resumes through its event step,
-// which checks the ticket and the record again. False when the note does not say enough to start it.
-export async function startStopped(ctx: StepContext, ref: TicketRef, note: StoppedNote): Promise<boolean> {
-  if (note.step !== "apply") {
-    await ctx.ci.start({ kind: "build", ticket: ref, buildRun: note.run });
-    return true;
-  }
-  if (!note.change || !/^\d+$/.test(note.buildRun ?? "")) return false;
-  // Also a guard against a second start by the next poll. Apply sets "running" again through its run, for the dashboard.
-  await ctx.tracker.setState(ref, "running");
-  try {
-    await ctx.ci.start({ kind: "finish", ticket: ref, change: note.change, buildRun: note.buildRun });
-  } catch (e) {
-    await ctx.tracker.setState(ref, "stopped"); // the next try starts it
-    throw e;
-  }
-  return true;
-}
 
 // The ticket's inbox from the start of this run (the newest event step), so a stop posted
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
@@ -276,12 +175,6 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
 }
 
 const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN/;
-// A resumed run skips the build jobs that finished before the one that hit the limit.
-function doneBeforeResume(ctx: StepContext, name: string): boolean {
-  const i = BUILD_JOBS.indexOf(name);
-  return i > 0 && i < BUILD_JOBS.indexOf(facts(ctx).resumeAt ?? "");
-}
-
 // A stop saved by stopped() or waiting() ends the step as "stopped" or "waiting".
 function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
   if (result === "next") return "next";

@@ -1,4 +1,5 @@
-import { block, facts, isMain, runStep, save, stopped, switchOn, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { facts, isMain, runStep, save, switchOn, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { block, stopped } from "./run";
 import { askPerson } from "./decision";
 
 export async function run(ctx: StepContext): Promise<StepResult> {

@@ -9,7 +9,8 @@ import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeDashboard, fakeHarnes
 import { addStep, newRecord, type StepData, type StepName } from "../record";
 import type { Checks, FactoryEvent, FactoryState, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
 import type { Risk } from "../types";
-import { runStep, waitingNote, type StepContext } from "./context";
+import { runStep, type StepContext } from "./context";
+import { waitingNote } from "./run";
 import * as event from "./event";
 import * as triage from "./triage";
 import * as preparePatch from "./prepare-patch";
