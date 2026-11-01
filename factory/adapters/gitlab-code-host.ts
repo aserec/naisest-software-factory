@@ -1,5 +1,5 @@
 import { AI_LINE, GitLab, GITLAB_URL } from "../gitlab";
-import { gitRepo } from "../steps/repo";
+import { gitRepo } from "../repo";
 import type { Checks, CodeHost } from "../seams";
 
 export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
@@ -8,6 +8,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
   const projectId = async () => (await proj()).id;
   const mrUrl = async (ref: string) => `/projects/${await projectId()}/merge_requests/${Number(ref)}`;
   const opened = (m: { iid: number; webUrl: string }) => ({ ref: String(m.iid), url: m.webUrl });
+  const put = async (endpoint: string, body?: unknown) => gitlab.call("PUT", endpoint, body);
 
   return {
     baseBranch: async () => baseBranch,
@@ -26,21 +27,29 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     async checks(at): Promise<Checks> {
       const id = await projectId();
       if ("change" in at) {
-        const s = await gitlab.mergeRequestPipelineStatus(id, Number(at.change), at.sha);
-        return s === "success" ? "green" : s === "failed" ? "red" : "running";
+        // Branch-ref queries miss merge request pipelines, so read the MR's own list (newest first).
+        // Only a pipeline for the head counts: a green pipeline of an older commit says nothing about this one.
+        const newest = (await gitlab.getJson(`${await mrUrl(at.change)}/pipelines`))[0];
+        if (newest?.sha !== at.sha) return "running";
+        return newest.status === "success" ? "green" : newest.status === "failed" || newest.status === "canceled" ? "red" : "running";
       }
-      const s = await gitlab.pipelineStatus(id, at.branch, at.sha);
-      return s === "success" ? "green" : s === "failed" ? "red" : s;
+      // A canceled or skipped pipeline will never give a result. No pipeline yet is running.
+      const s = (await gitlab.getJson(`/projects/${id}/pipelines?ref=${encodeURIComponent(at.branch)}&sha=${at.sha}&per_page=1`))[0]?.status;
+      return s === "success" ? "green" : s === "failed" ? "red" : s === "canceled" || s === "skipped" ? "none" : "running";
     },
+    // Merges now and returns the commit on the target branch. Always squashes, with message as the commit message.
+    // With the fast-forward merge method, the squash commit is the only commit that lands.
+    // sha is the reviewed head: GitLab refuses the merge if the branch moved since.
     async merge(ref, sha, message) {
-      return gitlab.merge(await projectId(), Number(ref), sha, message);
+      const mr = await (await put(`${await mrUrl(ref)}/merge`, { sha, squash: true, squash_commit_message: message })).json();
+      return (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string;
     },
     async rebase(ref) {
       // GitLab updates the MR's sha in a later job, after rebase_in_progress ends. Apply rebases only a branch
       // that is behind, so the sha must change: wait until it leaves the head from before the rebase.
       const before = (await gitlab.getJson(await mrUrl(ref))).sha;
       try {
-        await gitlab.rebaseMergeRequest(await projectId(), Number(ref));
+        await put(`${await mrUrl(ref)}/rebase`); // runs in the background: the MR shows rebase_in_progress
       } catch (e) {
         return { ok: false, error: String(e) };
       }
@@ -67,13 +76,16 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       await gitlab.commentMergeRequest(await projectId(), Number(ref), text);
     },
     async assignChange(ref, person) {
-      await gitlab.assignMergeRequest(await projectId(), Number(ref), await gitlab.userId(person));
+      await put(await mrUrl(ref), { assignee_ids: [await gitlab.userId(person)] });
     },
+    // The returned url works in the Markdown of a change of this project.
     async attach(name, data) {
-      return gitlab.uploadFile(await projectId(), name, data);
+      const form = new FormData();
+      form.append("file", new Blob([new Uint8Array(data)], { type: "image/png" }), name);
+      return (await (await gitlab.call("POST", `/projects/${await projectId()}/uploads`, form)).json()).url as string;
     },
     async closeChange(ref) {
-      await gitlab.closeMergeRequest(await projectId(), Number(ref));
+      await put(await mrUrl(ref), { state_event: "close" });
     },
   };
 }

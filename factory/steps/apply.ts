@@ -1,6 +1,6 @@
-import { facts, isMain, runStep, save, switchOn, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { facts, isMain, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
 import { block, stopped } from "./run";
-import { askPerson } from "./decision";
+import { mergeMessage, mergeReviewed } from "./merge";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
@@ -29,52 +29,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (!headSha) return block(ctx, "The run record has no reviewed commit, so the factory did not merge.");
   // A record from before the commit message was saved has no commit: throw, so runStep blocks.
   if (!f.commit?.message) throw new Error("The run record has no commit message, so the factory cannot merge change " + change);
-  const base = await ctx.codeHost.baseBranch();
-  const message = `[AM] ${f.commit.message}\nMerge request: ${f.changeUrl}`;
-  // The branch is often behind the base branch: rebase it, at most 3 times, and merge only the reviewed lines on a green head.
-  let head = headSha;
-  let reviewed: Record<string, string> | undefined;
-  const rebased: string[] = [];
-  const refuse = (c: { open: boolean; target: string; head: string }) =>
-    !c.open ? block(ctx, `Change ${change} is no longer open, so the factory did not merge it.`)
-    : c.target !== base ? block(ctx, `Change ${change} targets ${c.target}, not ${base}, so the factory did not merge it.`)
-    : c.head !== head ? block(ctx, `Someone pushed to change ${change} after the review (head ${c.head}, expected ${head}), so the factory did not merge it.`)
-    : undefined;
-  for (;;) {
-    const c = await ctx.codeHost.change(change);
-    const stop = await refuse(c);
-    if (stop) return stop;
-    if (c.behind) {
-      if (rebased.length === 3) return askPerson(ctx, [`it fell behind ${base} again after 3 rebases. Rebase it by hand and merge it`]);
-      reviewed ??= await ctx.codeHost.branchDiff(headSha); // read before the rebase replaces it
-      const r = await ctx.codeHost.rebase(change);
-      if (!r.ok) return askPerson(ctx, [`the factory could not rebase it onto ${base}: ${r.error}. Rebase it by hand and merge it`]);
-      if (!sameChange(reviewed, await ctx.codeHost.branchDiff(r.head))) return block(ctx, `The rebased change ${change} is not the change that was reviewed, so the factory did not merge it.`);
-      rebased.push((head = r.head));
-    }
-    // Merge only after the change's own checks are green on the head that merges.
-    const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: head }));
-    if (checks !== "green") return block(ctx, `The change's pipeline is ${checks}, so the factory did not merge.`);
-    // The wait can take an hour: a person may have retargeted, pushed to or closed the change since the checks above.
-    const again = await refuse(await ctx.codeHost.change(change));
-    if (again) return again;
-    try {
-      save(ctx, "apply", { change, sha: await ctx.codeHost.merge(change, head, message), reviewed: headSha, rebased });
-      break;
-    } catch (e) {
-      if (!(await ctx.codeHost.change(change)).behind) throw e; // the base branch moved since the check: rebase again
-    }
-  }
+  const stop = await mergeReviewed(ctx, change, headSha, mergeMessage(f.commit.message, f.changeUrl));
+  if (stop) return stop;
   await ctx.tracker.mark(ref, "merged");
   return "next";
 }
-
-// The same change: the same files, each with the same added and removed lines in the same order.
-// Hunk headers and context lines move when the base moves, so they do not count. The diff text has no
-// file header lines, so a line that starts with +++ or --- is a changed line too (an added "++i;").
-const changedLines = (diff: Record<string, string>) =>
-  JSON.stringify(Object.keys(diff).sort().map((file) => [file, diff[file].split("\n").filter((l) => /^[+-]/.test(l))]));
-const sameChange = (a: Record<string, string>, b: Record<string, string>) => changedLines(a) === changedLines(b);
 
 export const main = () => runStep("apply", run);
 if (isMain(import.meta.url)) await main();

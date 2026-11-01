@@ -1,4 +1,5 @@
 import type { FactoryEvent } from "../seams";
+import { buildRunOf } from "./merge";
 import { isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
 // The start rules sit in run.ts: run.ts cannot import this file, whose isMain line runs at load.
 import { activeRuns, continueBlocked, decideStart, mayStart, readyActor, resume, resumeOnCommand, startRun } from "./run";
@@ -15,8 +16,7 @@ async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "m
   if (!(await ctx.tracker.trusted(e.actor))) return quiet("not-member");
   // Only a change that waits for a person. This also ignores merges while the build is still running.
   if ((await ctx.tracker.ticket(e.ticket)).state !== "needs_approval") return quiet("not-waiting");
-  // No end anchor: a body edited in the web UI may end its lines in \r\n.
-  const buildRun = /^Factory run (\d+): /m.exec((await ctx.codeHost.change(e.change)).body)?.[1];
+  const buildRun = buildRunOf((await ctx.codeHost.change(e.change)).body);
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };
   save(ctx, "event", { start: true, ticket: e.ticket, actor: e.actor, action: e.kind, change: e.change });
   await ctx.tracker.setState(e.ticket, "running");
