@@ -128,7 +128,7 @@ test("gate sandbox: agent network allowlist, no /proc, writes only to the clone,
   expect(s.network.allowedDomains).toContain("registry.npmjs.org");
   // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL.
   // The runner keeps File-type variables in <project dir>.tmp; run/claude-home and run/pi-home hold the agent sessions.
-  const root = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+  const root = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
   expect(s.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home", "/w/run/pi-home"]);
   expect(s.filesystem.allowWrite).toEqual(["/w/run/target", "/tmp/h", "/tmp"]);
   expect(s.network).not.toHaveProperty("allowLocalBinding");

@@ -4,10 +4,11 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
+import { BUILD_STEPS, STEPS as RUN_STEPS } from "./steps/run";
 import { main as watcher } from "./steps/watcher";
 
 const ci = parse(readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "utf8"));
-const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved", "poll", "retry-waiting", "watcher"];
+const STEPS = [...RUN_STEPS, "poll", "retry-waiting", "watcher"];
 const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const passed = (name: string) => `${name}="$${name}"`;
 const STEP_PREFIX = [
@@ -29,6 +30,14 @@ test("every factory job starts its step through the env -i allowlist", () => {
     expect(ci[job].before_script, job).toBeUndefined();
     expect(ci[job].script, job).toEqual([`${STEP_PREFIX} node --import tsx factory/steps/${job}.ts`]);
   }
+});
+
+// The step order lives in STEPS. The CI stages and local-run.sh copy it and must not drift.
+test(".gitlab-ci.yml and local-run.sh run the steps in the order of STEPS", () => {
+  expect((ci.stages as string[]).filter((s) => RUN_STEPS.includes(s))).toEqual(RUN_STEPS);
+  for (const step of RUN_STEPS) expect(ci[step].stage, step).toBe(step);
+  const local = readFileSync(new URL("../local-run.sh", import.meta.url), "utf8");
+  expect(/^steps=\((.*)\)$/m.exec(local)?.[1].split(" ")).toEqual(BUILD_STEPS);
 });
 
 test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {

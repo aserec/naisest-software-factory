@@ -6,10 +6,11 @@ import type { Finding } from "../agents";
 import { PROOF_DIR, PROOF_FILE } from "../proof";
 import { loadRouter, loadSeams, loadTarget } from "../config";
 import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeDashboard, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
-import { addStep, newRecord } from "../record";
+import { addStep, newRecord, type StepData, type StepName } from "../record";
 import type { Checks, FactoryEvent, FactoryState, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
 import type { Risk } from "../types";
-import { runStep, waitingNote, type StepContext } from "./context";
+import { runStep, type StepContext } from "./context";
+import { BUILD_STEPS, FINISH_STEPS, waitingNote } from "./run";
 import * as event from "./event";
 import * as triage from "./triage";
 import * as preparePatch from "./prepare-patch";
@@ -201,8 +202,12 @@ export function fakeWorld(o: WorldOptions = {}) {
 }
 
 type World = ReturnType<typeof fakeWorld>;
-const BUILD = [event, triage, preparePatch, codeReview, precommitGate, riskCheck, decision];
-const FINISH = [apply, verify, resultSaved];
+// Each step's module, in the order of STEPS.
+const MODULES: Record<string, { run(ctx: StepContext): Promise<"next" | "stop"> }> = {
+  event, triage, "prepare-patch": preparePatch, "code-review": codeReview, "precommit-gate": precommitGate, "risk-check": riskCheck, decision, apply, verify, "result-saved": resultSaved,
+};
+const BUILD = BUILD_STEPS.map((n) => MODULES[n]);
+const FINISH = FINISH_STEPS.map((n) => MODULES[n]);
 
 async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next" | "stop"> }[]) {
   for (const s of steps) if ((await s.run(w.ctx)) === "stop") break;
@@ -211,8 +216,7 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
 export const runBuildPipeline = (w: World) => runSteps(w, BUILD);
 // The build pipeline as CI runs it: one runStep per job, with the record passed through dir.
 export async function runBuildJobs(w: World, dir = mkdtempSync(join(tmpdir(), "jobs-"))) {
-  const names = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
-  for (const [i, s] of BUILD.entries()) await runStep(names[i], s.run, { dir, make: () => w.ctx });
+  for (const [i, s] of BUILD.entries()) await runStep(BUILD_STEPS[i], s.run, { dir, make: () => w.ctx });
   return w;
 }
 
@@ -246,15 +250,14 @@ export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_appr
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: o.workItemIid ?? "8", change: o.mrIid ?? "5", skipApply: !!o.skipApply };
   w.tracker.tickets.get("8")!.state = "running";
   w.openChange();
-  let r = newRecord();
-  r = { ...r, workItem: "acme/web/react_frontend#8" };
-  for (const [step, d] of [
-    ["event", { ticket: "8" }],
-    ["prepare-patch", { sessionId: "sess-1", commands: { install: "i", lint: "l", test: "t", build: "b", ...(o.smoke ? { smoke: o.smoke } : {}) } }],
-    ["precommit-gate", { passed: true, sha: "head5", change: "5", changeUrl: "https://host.example/changes/5", commit: COMMIT }],
-    ["risk-check", { headSha: "head5" }],
-    ["decision", { kind: o.decision ?? "auto" }],
-  ] as const) r = addStep(r, step, d);
+  // Typed by the steps' own data types, so these fixtures cannot drift from what the build run saves.
+  let r = { ...newRecord(), workItem: "acme/web/react_frontend#8" };
+  const add = <K extends StepName>(step: K, d: StepData[K]) => void (r = addStep(r, step, d));
+  add("event", { ticket: "8" });
+  add("prepare-patch", { sessionId: "sess-1", commands: { install: "i", lint: "l", test: "t", build: "b", ...(o.smoke ? { smoke: o.smoke } : {}) } });
+  add("precommit-gate", { passed: true, rounds: 1, branch: "factory/8-fix", sha: "head5", change: "5", changeUrl: "https://host.example/changes/5", images: {}, uploadFailed: [], commit: COMMIT });
+  add("risk-check", { headSha: "head5", checks: "green", rules: [] });
+  add("decision", o.decision === "needs_approval" ? { kind: "needs_approval", reasons: [] } : { kind: "auto" });
   w.ctx.record = r;
   return runSteps(w, FINISH);
 }

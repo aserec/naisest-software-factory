@@ -1,8 +1,9 @@
 import { emit } from "../emit";
 import { askRisk, riskReasons } from "../decision";
+import { need } from "../record";
 import { checkHardRules, parseNumstat, type RuleResult } from "../rules";
 import type { Target } from "../types";
-import { data, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { facts, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
 // Fails closed: if the changed files cannot be read, the three rules that need them fail.
 function hardRules(numstat: string, diffText: string, target: Target, pipelineGreen: boolean): RuleResult[] {
@@ -16,7 +17,9 @@ function hardRules(numstat: string, diffText: string, target: Target, pipelineGr
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   // headSha is the commit that was reviewed and checked. apply merges only that commit.
-  const { change, sha: headSha } = data(ctx, "precommit-gate");
+  const f = facts(ctx);
+  const change = need(f.change, "change");
+  const headSha = need(f.gateHead, "pushed commit");
   const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: headSha }));
   const diff = await ctx.repo.diff();
   const rules = hardRules(diff.numstat, diff.text, ctx.target, checks === "green");

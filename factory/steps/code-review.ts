@@ -2,13 +2,14 @@ import { parseFindings, reviewerPrompt } from "../agents";
 import { emit } from "../emit";
 import { codeReviewLoop } from "../loops";
 import { proofPrompt, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
-import { agent, block, stopReason, fix, install, isMain, modelRow, runStep, save, session, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, fix, install, isMain, modelRow, runStep, save, facts, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { block, stopReason, stopped, waiting } from "./run";
 
 class ReviewerFailed extends Error {}
 
 // One code review loop from the record's next round. The gate job runs it again after a gate fix.
 // fixed: the author changed the code during this loop.
-export async function review(ctx: StepContext, job: string): Promise<StepResult | { fixed: boolean }> {
+export async function review(ctx: StepContext, job: "code-review" | "precommit-gate"): Promise<StepResult | { fixed: boolean }> {
   const row = modelRow(ctx);
   const { harness, provider, model } = row.reviewer;
   // Both must agree, or the reviewer would judge screens it cannot see.
@@ -60,7 +61,7 @@ export async function review(ctx: StepContext, job: string): Promise<StepResult 
     readsImages,
     reviewer: `${harness}/${model}`,
   };
-  save(ctx, "code-review", { passed: true, rounds: result.rounds, sessionId: session(ctx), proof });
+  save(ctx, "code-review", { passed: true, rounds: result.rounds, sessionId: facts(ctx).session, proof });
   await ctx.tracker.mark(ticketRef(ctx), "reviewed");
   return { fixed: result.rounds > start };
 }

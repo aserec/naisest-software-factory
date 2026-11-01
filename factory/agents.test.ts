@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { expect, test } from "vitest";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { sandboxSettings } from "./steps/repo";
+import { sandboxSettings } from "./repo";
 import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, parseFindings, reviewerPrompt, runCommand, wrapTicket } from "./agents";
 
 test("settings path is absolute and exists, so the agent cwd cannot replace it", () => {

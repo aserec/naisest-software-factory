@@ -1,14 +1,17 @@
 import { emit } from "../emit";
+import { need } from "../record";
 import { pickModels } from "../router";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
-import { agent, block, stopReason, switchOn, CONTINUE, data, isMain, notify, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { block, endRun, stopReason, stopped, waiting } from "./run";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   // A resumed run: triage already ran, and the questions agent hit the limit or was stopped.
   // A switch stop saved no session, so its resume asks for questions afresh.
-  if (data(ctx, "event")?.resumeAt === "triage") return questions(ctx, data(ctx, "triage").row, resumeSession(ctx, "triage"));
+  const f = facts(ctx);
+  if (f.resumeAt === "triage") return questions(ctx, need(f.row, "triage router row"), f.resumeSession("triage"));
   const ticket = await ctx.tracker.ticket(ref);
   const state = buildTriageState(ticket.title, ticket.body, ticket.tags);
   let answers: TriageAnswers;
@@ -53,7 +56,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
   await ctx.tracker.comment(ref, `This ticket is not clear enough to build yet. Please answer these questions, then add factory_ready again.\n\n${r.text}`);
   await ctx.tracker.setState(ref, "needs_info");
-  emit(ctx, "run_end", { outcome: "needs_info" });
+  endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked questions on the ticket."], "");
   return "stop";
 }
