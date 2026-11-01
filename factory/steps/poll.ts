@@ -6,8 +6,6 @@ import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
 import { ACTIVE_STATES, activeRuns, finishCancelledStops, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
 
-export { finishCancelledStops, handleRequests, resumeSwitchedOff };
-
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
   if (!(await controls(ctx)).switchOn("new_runs")) return [];

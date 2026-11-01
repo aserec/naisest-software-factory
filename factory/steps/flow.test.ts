@@ -9,8 +9,8 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { cancelNote, parseStoppedNote, runStep, save, stoppedNote, ticketText } from "./context";
-import { handleRequests, resumeSwitchedOff } from "./poll";
+import { runStep, save, ticketText } from "./context";
+import { cancelNote, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";

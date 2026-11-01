@@ -13,8 +13,6 @@ import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, typ
 import type { ControlRequest } from "../run-events";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 import { block, doneBeforeResume } from "./run";
-// The tests read the note formats from here.
-export { cancelNote, isCancelNote, parseStoppedNote, stoppedNote } from "./run";
 
 export interface StepContext {
   tracker: Tracker;

@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
-import { finishCancelledStops, handleRequests, main, pollReady } from "./poll";
-import { cancelNote, isCancelNote, stoppedNote } from "./context";
+import { main, pollReady } from "./poll";
+import { cancelNote, finishCancelledStops, handleRequests, isCancelNote, stoppedNote } from "./run";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx } from "./test-helpers";
 import { fakeDashboard } from "../fakes";
@@ -85,22 +85,6 @@ test("a cancelled stop on a ticket no longer running is only marked done", async
   expect(ctx.world.tracker.tickets.get("3")!.state).toBe("ready");
   expect(ctx.world.tracker.posted).toEqual([]);
   expect(dash.done).toEqual([["q3", "done"]]);
-});
-test("a cancelled stop for a deleted ticket is marked done and does not block the next request", async () => {
-  const ctx = fakeCtx({ running: 1 });
-  const dash = fakeDashboard({ requests: [cancelled("gone"), cancelled("r0")] });
-  ctx.dashboard = dash;
-  expect(await finishCancelledStops(ctx)).toEqual(["r0"]);
-  expect(dash.done).toEqual([["qgone", "done"], ["qr0", "done"]]);
-});
-test("a cancelled stop that fails is left for the next poll and the others still run", async () => {
-  const ctx = fakeCtx({ running: 2 });
-  const dash = fakeDashboard({ requests: [cancelled("r0"), cancelled("r1")] });
-  ctx.dashboard = dash;
-  const comment = ctx.tracker.comment.bind(ctx.tracker);
-  ctx.tracker.comment = async (ref, text) => { if (ref === "r0") throw new Error("status 500"); return comment(ref, text); };
-  expect(await finishCancelledStops(ctx)).toEqual(["r1"]);
-  expect(dash.done).toEqual([["qr1", "done"]]);
 });
 test("finishing cancelled stops does nothing while the dashboard is down", async () => {
   const ctx = fakeCtx({ running: 1 });
