@@ -6,6 +6,7 @@ dist/
 .env.*
 !.env.example
 .pnpm-store/
+/deploy/runner/
 
 # graft local graph cache, regenerable (run `graft build`)
 /graft/

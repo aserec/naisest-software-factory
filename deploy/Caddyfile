@@ -1,3 +1,9 @@
 {$DASHBOARD_HOST} {
 	reverse_proxy dashboard:3000
 }
+
+# The worker container sends its events here. It trusts Caddy's own CA, so this works for any DASHBOARD_HOST.
+caddy.internal {
+	tls internal
+	reverse_proxy dashboard:3000
+}

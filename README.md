@@ -1,5 +1,55 @@
 # Software Factory
 
+## Install
+
+1. Install Docker with Compose v2: [Docker Engine](https://docs.docker.com/engine/install/) on Linux, [Docker Desktop](https://docs.docker.com/desktop/) on macOS and Windows. The installer does not install it for you.
+2. Get the values in the table below ready.
+3. Run:
+
+   ```bash
+   git clone https://gitlab.example.com/Ceresa/software-factory.git
+   cd software-factory && ./install.sh
+   ```
+
+The installer asks for each value, with where to get it, and writes `deploy/.env` (never in git). It then starts the dashboard behind HTTPS and the factory worker, which runs tickets on this machine. Answer `hetzner` instead, and a GitLab Runner starts one Hetzner VM per CI job in place of the worker. Run `./install.sh` again after `git pull` to update. To change a value, edit `deploy/.env` and run it again.
+
+**Always needed**
+
+| Value | Where to get it |
+| --- | --- |
+| `DASHBOARD_HOST` | The name people open the dashboard at, e.g. `factory.example.com`, with a DNS A record to this machine and ports 80 and 443 open. `localhost` on your own computer. |
+| `GITLAB_URL` | The address of your GitLab. |
+| `FACTORY_PROJECT_ID` | The factory project's page in GitLab: the menu at the top right (three dots) > Copy project ID. |
+| `GITLAB_OAUTH_CLIENT_ID`, `GITLAB_OAUTH_CLIENT_SECRET` | GitLab > User settings > Applications > Add new application. Name `Factory dashboard`, redirect URI `https://<DASHBOARD_HOST>/api/auth/callback/gitlab`, Confidential, scope `read_user` only. Copy the ID and the secret (shown once). |
+| `GITLAB_READ_TOKEN` | Signed in as a read-only bot user, Reporter on the factory project and on every target project: User settings > Access tokens, scope `read_api`. |
+| `GITLAB_CANCEL_TOKEN` | The factory project > Settings > Access tokens: role Developer, scope `api`. Only used to cancel a stuck pipeline. |
+
+**Optional: the Runner page.** All four values, or none.
+
+| Value | Where to get it |
+| --- | --- |
+| `GRAFANA_URL` | The address of your Grafana. |
+| `GRAFANA_TOKEN` | Grafana > Administration > Service accounts: add one with the Viewer role, then Add token. |
+| `LOKI_UID`, `METRICS_UID` | Grafana > Connections > Data sources > the Loki source, and the metrics source: the last part of each one's URL. |
+
+**With `worker` (the default)**
+
+| Value | Where to get it |
+| --- | --- |
+| `GL_TOKEN` | Signed in as the factory bot, which reads tickets and pushes and merges in the target repo ([setup.md section 1](docs/setup.md#1-gitlab-project)): User settings > Access tokens, scope `api`. |
+| `TENSORX_API_KEY` | Your TensorX account > API keys. The agents' models run there (`router.yml`). |
+
+**With `hetzner`.** GitLab also needs the CI variables and poll schedules in [setup.md](docs/setup.md) sections 1, 2, 7 and 8.
+
+| Value | Where to get it |
+| --- | --- |
+| Runner token | The factory project > Settings > CI/CD > Runners > New project runner, with the tag `factory`. Copy the token (`glrt-...`). |
+| Hetzner API token | Hetzner Cloud console > your project > Security > API tokens > Generate, with Read & Write. |
+
+These two go into `deploy/runner/config.toml`, not into `deploy/.env`.
+
+**Made for you:** `AUTH_SECRET` (sign-in cookies) and `FACTORY_DASHBOARD_TOKEN`. With `hetzner`, copy `FACTORY_DASHBOARD_TOKEN` from `deploy/.env` into the factory project's CI variables (masked, protected, type File).
+
 
 
 ## Getting started

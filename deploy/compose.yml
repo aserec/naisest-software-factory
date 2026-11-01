@@ -1,5 +1,6 @@
-# Runs on the dashboard VM: docker compose -f deploy/compose.yml up -d --build
-# deploy/.env (never in git) holds the dashboard's secrets and DASHBOARD_HOST for Caddy.
+# Installed by ./install.sh. By hand: docker compose -f deploy/compose.yml up -d --build
+# deploy/.env (never in git) holds the secrets, DASHBOARD_HOST for Caddy and COMPOSE_PROFILES: worker (runs tickets here)
+# or hetzner (GitLab CI runs them on Hetzner VMs).
 services:
   dashboard:
     build:
@@ -20,9 +21,52 @@ services:
     - ./Caddyfile:/etc/caddy/Caddyfile:ro
     - caddy_data:/data
     - caddy_config:/config
+    networks:
+      default:
+        aliases: [caddy.internal] # the worker's way in, see the Caddyfile
     depends_on: [dashboard]
+    restart: unless-stopped
+  # Only builds the CI job image (runner/Dockerfile) for the worker to start from. It exits at once.
+  runner-image:
+    profiles: [worker]
+    build:
+      context: ..
+      dockerfile: runner/Dockerfile
+    command: ["true"]
+  worker:
+    profiles: [worker]
+    build:
+      context: ..
+      dockerfile: deploy/worker.Dockerfile
+      additional_contexts:
+        runner: service:runner-image
+    # Only what the worker needs, not the dashboard's tokens.
+    environment:
+      GL_TOKEN: ${GL_TOKEN:-}
+      TENSORX_API_KEY: ${TENSORX_API_KEY:-}
+      FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
+      FACTORY_DASHBOARD_URL: https://caddy.internal
+      NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
+    volumes:
+    - caddy_data:/caddy:ro
+    - worker_cache:/app.cache # the pnpm store
+    # The same as the CI runner's job containers: bubblewrap must be able to make user namespaces.
+    security_opt: ["seccomp=unconfined", "apparmor=unconfined"]
+    depends_on: [caddy]
+    restart: unless-stopped
+  # Instead of the worker: GitLab CI schedules poll, and this runner starts one Hetzner VM per job.
+  # install.sh fills deploy/runner/ from runner/config.toml.example and runner/cloud-init.yml.
+  hetzner-runner:
+    profiles: [hetzner]
+    image: gitlab/gitlab-runner:alpine-v19.5.0
+    entrypoint: ["sh", "-c", "gitlab-runner fleeting install && exec gitlab-runner run"]
+    volumes:
+    - ./runner:/etc/gitlab-runner
+    - fleeting_plugins:/root/.config/fleeting
     restart: unless-stopped
 volumes:
   data:
   caddy_data:
   caddy_config:
+  worker_cache:
+  fleeting_plugins:

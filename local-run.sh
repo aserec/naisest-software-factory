@@ -17,10 +17,11 @@ secrets="$PWD.tmp" # the only dir the CI adapter reads secret files from
 mkdir -p "$secrets"
 # A copy-on-write clone of your pnpm store, so sandboxed installs reuse it instead of downloading every package.
 store="$PWD.cache/pnpm-store"
-if [ ! -d "$store/v11" ]; then
+if [ ! -d "$store/v11" ] && [ -d "$HOME/Library/pnpm/store/v11" ]; then # macOS only; elsewhere pnpm fills it
   echo "== copying the pnpm store (first run only)"
   mkdir -p "$store" && cp -cR "$HOME/Library/pnpm/store/v11" "$store/"
 fi
+mkdir -p "$store"
 if [ -n "$from" ]; then
   rm -f run/stop # a stop skips every later step
   while [ "${steps[0]}" != "$from" ]; do steps=("${steps[@]:1}"); done
@@ -32,7 +33,7 @@ for step in "${steps[@]}"; do
   printf %s "$GL_TOKEN" > "$secrets/gl" # the step reads the files and deletes them
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
   # Chromium for the screenshots, installed once with: (cd react_frontend/apps/web && pnpm exec playwright install chromium)
-  env -i PATH="$PATH" HOME="$HOME" PLAYWRIGHT_BROWSERS_PATH="$HOME/Library/Caches/ms-playwright" CI_SERVER_URL=https://gitlab.example.com \
+  env -i PATH="$PATH" HOME="$HOME" PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_PIPELINE=build FACTORY_TARGET=react_frontend \
     FACTORY_WORK_ITEM_IID="$iid" FACTORY_GITLAB_TOKEN="$secrets/gl" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
     node --import tsx "factory/steps/$step.ts"
