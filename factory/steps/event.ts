@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { emit } from "../emit";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO, decideStart } from "../event";
 import type { FactoryEvent, Ticket, TicketRef } from "../seams";
-import { block, BLOCKED, BLOCKED_RUN, CONTINUABLE, facts, isCancelNote, isMain, lastStop, parseStoppedNote, runStep, save, startStopped, STOPPED_RUN, switchOn, type StepContext, type StepResult } from "./context";
+import { block, BLOCKED, controls, BLOCKED_RUN, CONTINUABLE, facts, isCancelNote, isMain, lastStop, parseStoppedNote, runStep, save, startStopped, STOPPED_RUN, switchOn, type StepContext, type StepResult } from "./context";
 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
 // and the running state is set before the job ends.
@@ -55,9 +55,9 @@ export const RESTART_MS = 15 * 60_000;
 // in the last 15 minutes, is that request's user's. mayStart still checks that person.
 export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<string> {
   if (!(await ctx.tracker.isFactory(actor))) return actor;
-  const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
+  const control = await controls(ctx);
   const age = (at: string) => Date.now() - Date.parse(at); // a future `at` (NaN or below 0) never counts
-  const restart = control?.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && age(r.at) >= 0 && age(r.at) <= RESTART_MS);
+  const restart = control.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && age(r.at) >= 0 && age(r.at) <= RESTART_MS);
   return restart?.user ?? actor;
 }
 

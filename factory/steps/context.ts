@@ -10,6 +10,7 @@ import { emit } from "../emit";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type PausableStep, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type ChangeRef, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
+import type { ControlRequest } from "../run-events";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 
 export interface StepContext {
@@ -30,6 +31,7 @@ export interface StepContext {
   step?: string; // the CI job, set by runStep; a block saves it
   stepEvent?: string; // the ID of its step_start event, the parent of what the step sends
   dashboardStop?: boolean; // the dashboard asked this run to stop (seen by the inbox)
+  snapshot?: () => Promise<Controls>; // set by takeSnapshot: the dashboard's controls for this step or poll tick
 }
 export type StepResult = "next" | "stop";
 
@@ -111,15 +113,31 @@ export async function waiting(ctx: StepContext, step: PausableStep, sessionId: s
   return "stop";
 }
 
-// Is this dashboard switch on for this target? An unreachable dashboard counts as on, so a running step goes on,
-// except new_runs: no new run starts while the factory cannot see its switches.
-export async function switchOn(ctx: StepContext, name: SwitchName): Promise<boolean> {
-  try {
-    return (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).switches[name];
-  } catch {
-    return name !== "new_runs";
-  }
+// The dashboard's switches and requests as one step or one poll tick sees them.
+export interface Controls {
+  switchOn(name: SwitchName): boolean; // a running step's switch, or new_runs before a new run starts
+  resumeOn(name: SwitchName): boolean; // the poller may resume a run this switch stopped
+  requests: ControlRequest[]; // the poller's resume, restart and cancelled-stop requests; readyActor's restarts
 }
+
+// The one rule for a dashboard the factory cannot reach: a running step goes on (its switch counts as on),
+// no new run starts (new_runs counts as off), the poller's resumes and requests wait for the next tick,
+// and readyActor keeps the actor it was given (no requests).
+async function readControls(ctx: StepContext): Promise<Controls> {
+  const c = await ctx.dashboard.control(ctx.target.name, ctx.record.runId).catch(() => undefined);
+  if (!c) return { switchOn: (name) => name !== "new_runs", resumeOn: () => false, requests: [] };
+  return { switchOn: (name) => c.switches[name], resumeOn: (name) => c.switches[name], requests: c.requests };
+}
+
+// Inside a snapshot (a step in runStep, a poll tick in poll.ts main) the dashboard is read once, at the first ask.
+// Outside one each call reads it. The inbox's stop check never uses this: a stop must reach a running agent at once.
+export const controls = (ctx: StepContext): Promise<Controls> => ctx.snapshot?.() ?? readControls(ctx);
+export function takeSnapshot(ctx: StepContext): void {
+  let read: Promise<Controls> | undefined;
+  ctx.snapshot = () => (read ??= readControls(ctx));
+}
+
+export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<boolean> => (await controls(ctx)).switchOn(name);
 
 // A person (`@factory stop`) or a dashboard switch stopped the run. The note names the run to resume:
 // `@factory resume` continues a person's stop, the poller a switch stop once the switch is on again.
@@ -310,6 +328,7 @@ export async function runStep(
   watch(ctx);
   ctx.step = name;
   ctx.stepEvent = undefined;
+  takeSnapshot(ctx);
   let result: StepResult;
   try {
     try {
@@ -340,6 +359,7 @@ export async function runStep(
   } finally {
     saveRecord(ctx.record, dir); // also creates the dir
     await ctx.dashboard.flush();
+    ctx.snapshot = undefined; // the next step reads the dashboard again
   }
   if (result === "stop") writeFileSync(stopFile, name);
 }

@@ -3,20 +3,19 @@
 // claims the run, as it does for a webhook.
 import { makeContext } from "../compose";
 import { ACTIVE_STATES, MAX_RUNS_PER_REPO } from "../event";
-import type { ControlRequest } from "../run-events";
+import { SWITCHES, type ControlRequest } from "../run-events";
 import type { SwitchName, TicketRef } from "../seams";
 import { emit } from "../emit";
-import { cancelNote, isCancelNote, isMain, lastStop, parseStoppedNote, startStopped, switchOn, type StepContext } from "./context";
+import { cancelNote, isCancelNote, isMain, lastStop, parseStoppedNote, startStopped, takeSnapshot, controls, type StepContext } from "./context";
 import { activeRuns, mayStart, readyActor, RESTART_MS } from "./event";
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
-  if (!(await switchOn(ctx, "new_runs"))) return [];
+  if (!(await controls(ctx)).switchOn("new_runs")) return [];
   const free = MAX_RUNS_PER_REPO - (await activeRuns(ctx));
   if (free <= 0) return [];
   // A pending restart owns its ticket: handleRequests starts it, also after a failed start.
-  const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
-  const restarting = control?.requests.filter((r) => r.kind === "restart" && !r.outcome).map((r) => r.ticket) ?? [];
+  const restarting = (await controls(ctx)).requests.filter((r) => r.kind === "restart" && !r.outcome).map((r) => r.ticket);
   const start: TicketRef[] = [];
   for (const t of await ctx.tracker.list("ready")) {
     if (start.length >= free) break;
@@ -33,16 +32,16 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
 // A run a dashboard switch stopped goes on once that switch is on again, in the same kind of pipeline it stopped in.
 // A build run resumes through its event step, which checks the ticket and the record again.
 export async function resumeSwitchedOff(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
-  // Unlike a running step, a resume needs the dashboard: a switch someone turned off must not count as on.
-  const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
-  if (!control) return [];
+  // Unlike a running step, a resume needs the dashboard: a switch someone turned off must not count as on (controls()).
+  const control = await controls(ctx);
+  if (!SWITCHES.some((n) => control.resumeOn(n))) return []; // also while the dashboard cannot be reached
   const started: TicketRef[] = [];
   for (const { ref } of await ctx.tracker.list("stopped")) {
     if (skip.includes(ref)) continue;
     const body = await lastStop(ctx, ref);
     const note = body && parseStoppedNote(body);
     const name = note && /^switch off (\w+)$/.exec(note.reason)?.[1];
-    if (!note || !name || !control.switches[name as SwitchName]) continue;
+    if (!note || !name || !control.resumeOn(name as SwitchName)) continue;
     if (await startStopped(ctx, ref, note)) started.push(ref);
   }
   return started;
@@ -51,8 +50,7 @@ export async function resumeSwitchedOff(ctx: StepContext, skip: TicketRef[] = []
 // The dashboard cancelled a pipeline that did not stop in time. That run saved nothing, so the poller marks the ticket stopped
 // and says it can only be restarted. Then the dashboard hears the request is done.
 export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[]> {
-  const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
-  if (!control) return [];
+  const control = await controls(ctx);
   const finished: TicketRef[] = [];
   for (const r of control.requests) {
     if (r.kind !== "stop" || r.outcome !== "cancelled") continue;
@@ -70,8 +68,7 @@ export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[
 // Resume and restart requests from the dashboard. The dashboard checked the person's role; the poller checks the ticket.
 // Returns the tickets it started. A failed request stays pending for the next poll and does not stop the others.
 export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
-  const control = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
-  if (!control) return [];
+  const control = await controls(ctx);
   const started: TicketRef[] = [];
   for (const r of control.requests) {
     if (r.outcome || (r.kind !== "resume" && r.kind !== "restart")) continue;
@@ -142,7 +139,8 @@ async function closeStoppedChange(ctx: StepContext, r: ControlRequest, url: stri
 // Tests pass their own context.
 export async function main(ctx?: StepContext) {
   if (process.env.FACTORY_SCHEDULE !== "poll") throw new Error("FACTORY_SCHEDULE must be poll");
-  ctx ??= makeContext(process.env);
+  ctx = { ...(ctx ?? makeContext(process.env)) };
+  takeSnapshot(ctx); // one read of the dashboard for the whole tick
   // local-factory.sh: print the tickets to start, start no pipeline. The script runs them on this machine.
   if (process.argv.includes("--list")) {
     console.log((await pollReady({ ...ctx, ci: { ...ctx.ci, start: async () => "" } })).join(" "));
@@ -152,6 +150,7 @@ export async function main(ctx?: StepContext) {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
     console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx)).join(", ") || "none"}`);
     const handled = await handleRequests(ctx);
+    takeSnapshot(ctx); // handleRequests answered requests: pollReady must see the new outcomes, as before
     console.log(`Started runs the dashboard asked for: ${handled.join(", ") || "none"}`);
     console.log(`Started build runs for tickets: ${(await pollReady(ctx, handled)).join(", ") || "none"}`);
     console.log(`Resumed runs a switch stopped: ${(await resumeSwitchedOff(ctx, handled)).join(", ") || "none"}`);
