@@ -69,7 +69,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   if (!token) throw new Error("FACTORY_GITLAB_TOKEN is not set");
   if (seams.chat === "teams" && !webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
   if (!dashboardToken) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
-  const dashboardUrl = checkDashboardUrl(seams);
+  const dashboardUrl = checkDashboardUrl(seams, env);
   // No comment, change text or pushed diff may carry any of these.
   addKnownSecrets(token, webhook, dashboardToken, env.BERGET_API_KEY, ...Object.values(seams.providers).map((p) => env[p.keyEnv]));
   // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.

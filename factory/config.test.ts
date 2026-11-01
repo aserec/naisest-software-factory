@@ -92,6 +92,12 @@ test("a dashboardUrl that is still a placeholder is refused when the context is 
   }
   expect(checkDashboardUrl(loadSeams(withUrl("https://factory.example.com")))).toBe("https://factory.example.com");
 });
+test("FACTORY_DASHBOARD_URL replaces dashboardUrl outside GitLab CI only, and gets the same checks", () => {
+  const seams = loadSeams(withUrl("https://factory.example.com"));
+  expect(checkDashboardUrl(seams, { FACTORY_DASHBOARD_URL: "https://localhost:3000" })).toBe("https://localhost:3000");
+  expect(checkDashboardUrl(seams, { FACTORY_DASHBOARD_URL: "https://evil.example", GITLAB_CI: "true" })).toBe("https://factory.example.com");
+  expect(() => checkDashboardUrl(seams, { FACTORY_DASHBOARD_URL: "http://localhost:3000" })).toThrow(/must be an https/);
+});
 test("a dashboardUrl that is not an https address is refused, so the token never goes in clear", () => {
   for (const bad of ["http://factory.example.com", "factory.example.com", "ftp://factory.example.com"]) {
     expect(() => checkDashboardUrl(loadSeams(withUrl(bad))), bad).toThrow(/dashboardUrl must be an https/);

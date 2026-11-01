@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The local factory: every minute it asks GitLab for react_frontend tickets labeled factory_ready
 # and runs each one with local-run.sh, one at a time. Needs GL_TOKEN, TENSORX_API_KEY and FACTORY_DASHBOARD_TOKEN
-# (the dashboard's value; its https address is dashboardUrl in seams.yml, trusted through mkcert's root CA).
+# (the dashboard's value). FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
 # Usage: ./local-factory.sh start|stop|status   (run: the same loop in the foreground)
 # Do not use local-run.sh while the factory runs: both use run/ and the same secret file.
 set -euo pipefail
@@ -22,7 +22,7 @@ ready() {
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
   env -i PATH="$PATH" HOME="$HOME" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_SCHEDULE=poll FACTORY_TARGET=react_frontend \
-    FACTORY_GITLAB_TOKEN="$secrets/gl" FACTORY_DASHBOARD_TOKEN="$secrets/dash" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="$TENSORX_API_KEY" \
+    FACTORY_GITLAB_TOKEN="$secrets/gl" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="$TENSORX_API_KEY" \
     node --import tsx factory/steps/poll.ts --list
 }
 
