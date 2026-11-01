@@ -1,10 +1,9 @@
 // Every hour: resume runs that stopped at the agent's usage limit (state waiting). It starts a build run
 // with the run that hit the limit. That build's event step loads the record, checks it and resumes.
 import { makeContext } from "../compose";
-import { MAX_RUNS_PER_REPO } from "../event";
 import type { TicketRef } from "../seams";
 import { isMain, switchOn, type StepContext } from "./context";
-import { activeRuns, block, pauseNote } from "./run";
+import { activeRuns, block, MAX_RUNS_PER_REPO, pauseNote } from "./run";
 
 export async function retryWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if (!(await switchOn(ctx, "retry"))) return [];

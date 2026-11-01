@@ -1,23 +1,78 @@
-// Pausing a run and picking a paused run up again (GLOSSARY.md: Paused run, Resume, Stop, Restart).
+// Starting, pausing, picking up and ending a run (GLOSSARY.md: Run, Paused run, Resume, Stop, Restart).
 // Each pause writes a note on the work item. The state label says which kind of note to read, the newest factory
 // note of that kind names the pipeline whose run record to load, and the record decides the rest.
 // A schedule (the poller, the hourly retry) only starts a pipeline. That pipeline's event step loads the record,
 // checks it and continues: the event job runs one at a time per target, which keeps the run count safe.
-import { emit } from "../emit";
-import { ACTIVE_STATES, MAX_RUNS_PER_REPO } from "../event";
+import { randomUUID } from "node:crypto";
+import { emit, emitFor, runIds, type RunIds } from "../emit";
 import type { PausableStep } from "../record";
 import { SWITCHES, type ControlRequest } from "../run-events";
-import type { ChangeRef, FactoryEvent, SwitchName, TicketRef } from "../seams";
+import type { ChangeRef, FactoryEvent, FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import type { FactoryCommands } from "../types";
 import { controls, facts, person, save, ticketRef, type StepContext, type StepResult } from "./context";
+
+export const MAX_RUNS_PER_REPO = 2;
+// A ticket in one of these states already has a run. needs_info, blocked and done do not.
+export const ACTIVE_STATES: FactoryState[] = ["running", "waiting", "stopped", "needs_approval"];
+
+export type StartDecision = { start: true } | { start: false; reason: "not-added" | "not-ready" | "not-member" | "active-run" | "repo-full" };
+
+// Caller contract:
+// (a) handle one ticket at a time (the event job runs in a CI resource_group per target, which also guards the run count);
+// (b) pass the state read live from the tracker, not from the event;
+// (c) set the running state before handling the next event;
+// (d) runningInRepo is the number of OTHER active runs in the repo, not counting this ticket.
+export function decideStart(e: FactoryEvent, ctx: { actorTrusted: boolean; state?: FactoryState; runningInRepo: number }): StartDecision {
+  if (e.kind !== "ready") return { start: false, reason: "not-added" };
+  const active = ctx.state !== undefined && ACTIVE_STATES.includes(ctx.state);
+  // The event may be old: someone may have taken the ready state off since.
+  if (ctx.state !== "ready" && !active) return { start: false, reason: "not-ready" };
+  if (!ctx.actorTrusted) return { start: false, reason: "not-member" };
+  if (active) return { start: false, reason: "active-run" };
+  if (ctx.runningInRepo >= MAX_RUNS_PER_REPO) return { start: false, reason: "repo-full" };
+  return { start: true };
+}
 
 // Tickets in the repo that hold a run slot.
 export async function activeRuns(ctx: StepContext): Promise<number> {
   const lists = await Promise.all(ACTIVE_STATES.map((s) => ctx.tracker.list(s)));
   return lists.reduce((n, l) => n + l.length, 0);
 }
-// How long a dashboard restart owns the ready the factory set for it (readyActor in event.ts).
+// How long a dashboard restart owns the ready the factory set for it (readyActor).
 export const RESTART_MS = 15 * 60_000;
+
+// May this person's ready start a run? A trusted person may. The factory may only for the watcher's own
+// tickets, which it opens ready. trusted() stays false for the factory, so it still cannot command.
+export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket): Promise<boolean> {
+  if (actor === "") return false;
+  if (await ctx.tracker.trusted(actor)) return true;
+  return ticket.marks.includes("watcher") && (await ctx.tracker.isFactory(actor));
+}
+
+// Who set the ticket ready. A ready the factory set for a dashboard restart of this ticket, pending or done
+// in the last 15 minutes, is that request's user's. mayStart still checks that person.
+export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<string> {
+  if (!(await ctx.tracker.isFactory(actor))) return actor;
+  const control = await controls(ctx);
+  const age = (at: string) => Date.now() - Date.parse(at); // a future `at` (NaN or below 0) never counts
+  const restart = control.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && age(r.at) >= 0 && age(r.at) <= RESTART_MS);
+  return restart?.user ?? actor;
+}
+
+// A new run gets its ID here, then the event step's start (runStep leaves it to that step).
+export async function startRun(ctx: StepContext, ref: TicketRef): Promise<StepResult> {
+  ctx.record = { ...ctx.record, runId: randomUUID() };
+  emit(ctx, "run_start", {});
+  ctx.stepEvent = emit(ctx, "step_start", {});
+  await ctx.tracker.setState(ref, "running");
+  return "next";
+}
+
+// The only place run_end is sent. A waiting or stopped run has not ended: the dashboard refuses
+// Stop, Resume and Restart once it saw run_end. ids: another run's IDs, for the poller's restart.
+export function endRun(ctx: StepContext, outcome: "done" | "blocked" | "needs_info" | "restarted", ids: RunIds = runIds(ctx)): void {
+  emitFor(ids, ctx, "run_end", { outcome });
+}
 
 const BUILD_JOBS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
 // A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
@@ -97,7 +152,7 @@ export async function block(ctx: StepContext, reason: string, continuable = CONT
   save(ctx, "blocked", { reason, step: ctx.step });
   if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
   await ctx.tracker.setState(ref, "blocked");
-  emit(ctx, "run_end", { outcome: "blocked" });
+  endRun(ctx, "blocked");
   const line = continuable ? `\n\nBlocked run: pipeline ${ctx.ci.vars.run ?? "unknown"}` : "";
   await ctx.tracker.comment(ref, `${BLOCKED}\n\n${reason}${line}`);
   await ctx.tracker.assign(ref, person(ctx, t));
@@ -321,8 +376,7 @@ async function retryRestart(ctx: StepContext, r: ControlRequest): Promise<boolea
 async function startRestart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
   const url = await ctx.ci.start({ kind: "build", ticket: r.ticket });
   // Only once the new run is on its way. The old run's event names its own ticket and no poller pipeline or job.
-  const vars = { ...ctx.ci.vars, ticket: r.ticket, run: undefined, job: undefined };
-  emit({ ...ctx, record: { ...ctx.record, runId: r.run }, ci: { ...ctx.ci, vars } }, "run_end", { outcome: "restarted" });
+  endRun(ctx, "restarted", { ...runIds(ctx), run: r.run, ticket: r.ticket, pipeline: undefined, job: undefined });
   // The new run is started: a failure here must not leave the request pending, or the next poll starts a second run.
   await closeStoppedChange(ctx, r, url).catch((e) => console.log(`Closing the change of ticket ${r.ticket} failed: ${String(e).slice(0, 300)}`));
   return true;

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { decideStart } from "./event.js";
-import type { FactoryEvent } from "./seams";
+import { decideStart } from "./run";
+import type { FactoryEvent } from "../seams";
 
 const e: FactoryEvent = { kind: "ready", ticket: "8", actor: "devone" };
 

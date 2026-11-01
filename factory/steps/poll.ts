@@ -2,11 +2,9 @@
 // tickets in the ready state. It sets no state. The build's event step re-checks the live state and
 // claims the run, as it does for a webhook.
 import { makeContext } from "../compose";
-import { ACTIVE_STATES, MAX_RUNS_PER_REPO } from "../event";
 import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
-import { mayStart, readyActor } from "./event";
-import { activeRuns, finishCancelledStops, handleRequests, resumeSwitchedOff } from "./run";
+import { ACTIVE_STATES, activeRuns, finishCancelledStops, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
 
 export { finishCancelledStops, handleRequests, resumeSwitchedOff };
 

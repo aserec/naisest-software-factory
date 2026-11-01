@@ -1,10 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { emit } from "../emit";
-import { decideStart } from "../event";
-import type { FactoryEvent, Ticket, TicketRef } from "../seams";
-import { controls, isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
-// activeRuns sits in run.ts: run.ts cannot import this file, whose isMain line runs at load.
-import { activeRuns, continueBlocked, RESTART_MS, resume, resumeOnCommand } from "./run";
+import type { FactoryEvent } from "../seams";
+import { isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
+// The start rules sit in run.ts: run.ts cannot import this file, whose isMain line runs at load.
+import { activeRuns, continueBlocked, decideStart, mayStart, readyActor, resume, resumeOnCommand, startRun } from "./run";
 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
 // and the running state is set before the job ends.
@@ -25,24 +22,6 @@ async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "m
   await ctx.tracker.setState(e.ticket, "running");
   await ctx.ci.start({ kind: "finish", ticket: e.ticket, change: e.change, ...(buildRun ? { buildRun } : {}), skipApply: true });
   return "stop";
-}
-
-// May this person's ready start a run? A trusted person may. The factory may only for the watcher's own
-// tickets, which it opens ready. trusted() stays false for the factory, so it still cannot command.
-export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket): Promise<boolean> {
-  if (actor === "") return false;
-  if (await ctx.tracker.trusted(actor)) return true;
-  return ticket.marks.includes("watcher") && (await ctx.tracker.isFactory(actor));
-}
-
-// Who set the ticket ready. A ready the factory set for a dashboard restart of this ticket, pending or done
-// in the last 15 minutes, is that request's user's. mayStart still checks that person.
-export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<string> {
-  if (!(await ctx.tracker.isFactory(actor))) return actor;
-  const control = await controls(ctx);
-  const age = (at: string) => Date.now() - Date.parse(at); // a future `at` (NaN or below 0) never counts
-  const restart = control.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && age(r.at) >= 0 && age(r.at) <= RESTART_MS);
-  return restart?.user ?? actor;
 }
 
 // A person's `@factory stop` or `@factory resume`. A stop only matters inside a run, where the agent's inbox or the decision step sees it.
@@ -91,12 +70,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (!decision.start) return "stop";
   // A new run: the marks of the earlier run no longer say anything.
   for (const m of t.marks) if (m !== "watcher") await ctx.tracker.unmark(e.ticket, m);
-  // A new run gets its ID here, then this step's start (runStep leaves it to this step).
-  ctx.record = { ...ctx.record, runId: randomUUID() };
-  emit(ctx, "run_start", {});
-  ctx.stepEvent = emit(ctx, "step_start", {});
-  await ctx.tracker.setState(e.ticket, "running");
-  return "next";
+  return startRun(ctx, e.ticket);
 }
 
 export const main = () => runStep("event", run);
