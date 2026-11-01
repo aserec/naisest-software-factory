@@ -74,14 +74,18 @@ export function endRun(ctx: StepContext, outcome: "done" | "blocked" | "needs_in
   emitFor(ids, ctx, "run_end", { outcome });
 }
 
-const BUILD_JOBS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
+// The steps of a run in order: the build pipeline, then the finish pipeline from apply on.
+// The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
+export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+export const BUILD_STEPS = STEPS.slice(0, STEPS.indexOf("apply"));
+export const FINISH_STEPS = STEPS.slice(STEPS.indexOf("apply"));
 // A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
-const CONTINUABLE = BUILD_JOBS.slice(2);
+const CONTINUABLE = BUILD_STEPS.slice(2);
 
 // A resumed run skips the build jobs that finished before the one it continues at.
 export function doneBeforeResume(ctx: StepContext, name: string): boolean {
-  const i = BUILD_JOBS.indexOf(name);
-  return i > 0 && i < BUILD_JOBS.indexOf(facts(ctx).resumeAt ?? "");
+  const i = BUILD_STEPS.indexOf(name);
+  return i > 0 && i < BUILD_STEPS.indexOf(facts(ctx).resumeAt ?? "");
 }
 
 // The four note formats. They must not change: work items paused before a deploy carry the old ones.

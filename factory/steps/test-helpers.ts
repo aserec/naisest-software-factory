@@ -10,7 +10,7 @@ import { addStep, newRecord, type StepData, type StepName } from "../record";
 import type { Checks, FactoryEvent, FactoryState, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
 import type { Risk } from "../types";
 import { runStep, type StepContext } from "./context";
-import { waitingNote } from "./run";
+import { BUILD_STEPS, FINISH_STEPS, waitingNote } from "./run";
 import * as event from "./event";
 import * as triage from "./triage";
 import * as preparePatch from "./prepare-patch";
@@ -202,8 +202,12 @@ export function fakeWorld(o: WorldOptions = {}) {
 }
 
 type World = ReturnType<typeof fakeWorld>;
-const BUILD = [event, triage, preparePatch, codeReview, precommitGate, riskCheck, decision];
-const FINISH = [apply, verify, resultSaved];
+// Each step's module, in the order of STEPS.
+const MODULES: Record<string, { run(ctx: StepContext): Promise<"next" | "stop"> }> = {
+  event, triage, "prepare-patch": preparePatch, "code-review": codeReview, "precommit-gate": precommitGate, "risk-check": riskCheck, decision, apply, verify, "result-saved": resultSaved,
+};
+const BUILD = BUILD_STEPS.map((n) => MODULES[n]);
+const FINISH = FINISH_STEPS.map((n) => MODULES[n]);
 
 async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next" | "stop"> }[]) {
   for (const s of steps) if ((await s.run(w.ctx)) === "stop") break;
@@ -212,8 +216,7 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
 export const runBuildPipeline = (w: World) => runSteps(w, BUILD);
 // The build pipeline as CI runs it: one runStep per job, with the record passed through dir.
 export async function runBuildJobs(w: World, dir = mkdtempSync(join(tmpdir(), "jobs-"))) {
-  const names = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision"];
-  for (const [i, s] of BUILD.entries()) await runStep(names[i], s.run, { dir, make: () => w.ctx });
+  for (const [i, s] of BUILD.entries()) await runStep(BUILD_STEPS[i], s.run, { dir, make: () => w.ctx });
   return w;
 }
 
