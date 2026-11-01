@@ -1,6 +1,7 @@
 import { parseFactoryFile } from "../config";
 import type { FactoryCommands } from "../types";
-import { agent, block, stopReason, switchOn, CONTINUE, data, install, isMain, modelRow, prompt, resumeSession, runStep, save, stopped, ticketRef, ticketText, waiting, type StepContext, type StepResult } from "./context";
+import { agent, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
   c.preview ? `Preview: start the app with \`${c.preview}\`. It serves ${c.previewUrl}.` : "Preview: this repo has no preview command. Take no screenshots; prove the change with tests only.";
@@ -9,12 +10,12 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (!(await switchOn(ctx, "prepare_patch"))) return stopped(ctx, "prepare-patch", { reason: "switch off prepare_patch" });
   await ctx.repo.clone(await ctx.codeHost.baseBranch());
   // A resumed run continues the session that hit the limit, in the clone restored from that pipeline.
-  const resumeSessionId = resumeSession(ctx, "prepare-patch");
+  const resumeSessionId = facts(ctx).resumeSession("prepare-patch");
   // Read the commands before the agent runs, so the agent cannot change what the gate runs.
   // A resumed clone holds the agent's edits, so it uses the commands saved at the limit.
-  let commands: FactoryCommands;
+  let commands: FactoryCommands | undefined;
   if (resumeSessionId) {
-    commands = data(ctx, "prepare-patch")?.commands;
+    commands = facts(ctx).commands;
     if (!commands) return block(ctx, "The factory could not resume this run: the record has no saved .factory.yml commands.");
   } else {
     const factoryFile = ctx.repo.readFile(".factory.yml");

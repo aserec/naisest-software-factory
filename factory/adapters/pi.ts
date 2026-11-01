@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
 import { SRT, piHome } from "../sandbox";
-import { sandboxSettings } from "../steps/repo";
+import { sandboxSettings } from "../repo";
 import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider, ToolCall } from "../seams";
 
 // Pi config for one job: the job's provider is the only provider. Tools are turned off by flags in piArgs.

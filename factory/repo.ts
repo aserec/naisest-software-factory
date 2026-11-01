@@ -6,12 +6,12 @@ import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTINGS_PATH, SRT, sandboxDenyRead } from "../sandbox";
-import type { Repo } from "../seams";
+import { SETTINGS_PATH, SRT, sandboxDenyRead } from "./sandbox";
+import type { Repo } from "./seams";
 
 // Paths come from this file's place, not from env, which a trigger caller can set.
 // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL; the runner keeps File-type variables in <project dir>.tmp.
-export const FACTORY_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+export const FACTORY_ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
   return new Promise((done, fail) => {

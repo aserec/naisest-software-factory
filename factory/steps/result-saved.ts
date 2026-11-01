@@ -1,16 +1,16 @@
-import { emit } from "../emit";
 import { formatResult } from "../record";
-import { data, isMain, notify, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
+import { facts, isMain, notify, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
+import { endRun } from "./run";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
-  const changeUrl = data(ctx, "precommit-gate")?.changeUrl ?? `change ${ctx.ci.vars.change}`;
+  const changeUrl = facts(ctx).changeUrl ?? `change ${ctx.ci.vars.change}`;
   const text = formatResult(ctx.record, changeUrl, ctx.ci.vars.runUrl, new Date());
   save(ctx, "result-saved", {});
   await ctx.tracker.comment(ref, text);
   await ctx.tracker.close(ref);
   await ctx.tracker.setState(ref, "done");
-  emit(ctx, "run_end", { outcome: "done" });
+  endRun(ctx, "done");
   await notify(ctx, "done", text.split("\n"), changeUrl);
   return "next";
 }

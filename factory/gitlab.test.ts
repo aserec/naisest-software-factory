@@ -52,53 +52,6 @@ test("memberAccessLevel is 0 on 404", async () => {
   fakeResponse({ access_level: 30 });
   expect(await gl.memberAccessLevel(1, 5)).toBe(30);
 });
-test("pipelineStatus maps anything else to running", async () => {
-  fakeResponse([{ status: "success" }]);
-  expect(await gl.pipelineStatus(1, "b", "abc")).toBe("success");
-  fakeResponse([{ status: "pending" }]);
-  expect(await gl.pipelineStatus(1, "b", "abc")).toBe("running");
-  fakeResponse([]);
-  expect(await gl.pipelineStatus(1, "b", "abc")).toBe("running");
-});
-test("pipelineStatus: a canceled or skipped pipeline is none, it will never give a result", async () => {
-  fakeResponse([{ status: "canceled" }]);
-  expect(await gl.pipelineStatus(1, "b", "abc")).toBe("none");
-  fakeResponse([{ status: "skipped" }]);
-  expect(await gl.pipelineStatus(1, "b", "abc")).toBe("none");
-});
-test("mergeRequestPipelineStatus reads the newest MR pipeline; canceled is failed, none is running", async () => {
-  fakeResponse([{ status: "success", sha: "h" }, { status: "failed", sha: "h" }]);
-  expect(await gl.mergeRequestPipelineStatus(1, 2, "h")).toBe("success");
-  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/pipelines");
-  fakeResponse([{ status: "canceled", sha: "h" }, { status: "success", sha: "h" }]);
-  expect(await gl.mergeRequestPipelineStatus(1, 2, "h")).toBe("failed");
-  fakeResponse([{ status: "failed", sha: "h" }]);
-  expect(await gl.mergeRequestPipelineStatus(1, 2, "h")).toBe("failed");
-  fakeResponse([{ status: "pending", sha: "h" }]);
-  expect(await gl.mergeRequestPipelineStatus(1, 2, "h")).toBe("running");
-  fakeResponse([]);
-  expect(await gl.mergeRequestPipelineStatus(1, 2, "h")).toBe("running");
-});
-test("mergeRequestPipelineStatus counts only a pipeline for the head sha", async () => {
-  fakeResponse([{ status: "success", sha: "older" }]);
-  expect(await gl.mergeRequestPipelineStatus(1, 2, "head")).toBe("running");
-  fakeResponse([{ status: "failed", sha: "older" }]);
-  expect(await gl.mergeRequestPipelineStatus(1, 2, "head")).toBe("running");
-});
-test("merge squashes with the given message and returns the commit that landed", async () => {
-  fakeResponse({ merge_commit_sha: null, squash_commit_sha: "sq1", sha: "head" });
-  expect(await gl.merge(1, 2, "head", "[AM] feat(list): x")).toBe("sq1");
-  expect(lastBody()).toEqual({ sha: "head", squash: true, squash_commit_message: "[AM] feat(list): x" });
-  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/merge");
-  expect(last().init.method).toBe("PUT");
-  fakeResponse({ merge_commit_sha: "m1", sha: "head" });
-  expect(await gl.merge(1, 2, "head", "[AM] feat(list): x")).toBe("m1");
-});
-test("rebaseMergeRequest asks GitLab to rebase the MR", async () => {
-  await gl.rebaseMergeRequest(1, 2);
-  expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/rebase");
-  expect(last().init.method).toBe("PUT");
-});
 test("MR comments start with the AI line and refuse secrets", async () => {
   await gl.commentMergeRequest(1, 2, "Reasons");
   expect(last().url).toBe("https://gl.example/api/v4/projects/1/merge_requests/2/notes");

@@ -48,8 +48,12 @@ _Avoid_: Toggle, flag, kill switch
 A person's request to halt one run now. A stopped run waits until someone resumes or restarts it.
 _Avoid_: Pause, cancel, kill
 
+**Paused run**:
+A run that halted before a final state and can still go on: blocked at a step that can continue, waiting at the author's usage limit, or stopped. A run blocked at triage is not a paused run: a ready starts a new run.
+_Avoid_: Suspended run, halted run
+
 **Resume**:
-Continuing a stopped run at the step where it stopped, with the same record and agent session.
+Continuing a paused run at the step where it paused, with the same run record and author session.
 _Avoid_: Retry, continue
 
 **Restart**:

@@ -17,7 +17,7 @@ import { makeJevClient } from "./jev";
 import { newRecord, RUN_DIR } from "./record";
 import { addKnownSecrets } from "./rules";
 import type { StepContext } from "./steps/context";
-import { FACTORY_ROOT } from "./steps/repo";
+import { FACTORY_ROOT } from "./repo";
 import type { Chat } from "./seams";
 import type { SeamsConfig, Target } from "./types";
 

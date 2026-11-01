@@ -15,7 +15,8 @@ export const noQuickActions = (text: string) => text.replace(/^([ \t]*)\//gm, "$
 export class GitLab {
   constructor(private baseUrl: string, private token: string, private fetchFn: typeof fetch = fetch) {}
 
-  private async call(method: string, endpoint: string, body?: unknown): Promise<Response> {
+  // Public for the adapters' own endpoints. A failed call names the status and endpoint, never the token.
+  async call(method: string, endpoint: string, body?: unknown): Promise<Response> {
     const form = body instanceof FormData; // fetch sets the multipart type itself
     const res = await this.fetchFn(`${this.baseUrl}/api/v4${endpoint}`, {
       method,
@@ -49,13 +50,6 @@ export class GitLab {
     if (findSecrets(`${title}\n${full}`).length > 0) throw new Error("Work item refused: it contains a secret");
     const w = await this.json("POST", `/projects/${projectId}/issues`, { title, description: full, labels: labels.join(",") });
     return { iid: w.iid as number, webUrl: w.web_url as string };
-  }
-
-  // Uploads a PNG to the project. The returned url works in the Markdown of a change of that project.
-  async uploadFile(projectId: number, name: string, data: Buffer): Promise<string> {
-    const form = new FormData();
-    form.append("file", new Blob([new Uint8Array(data)], { type: "image/png" }), name);
-    return (await (await this.call("POST", `/projects/${projectId}/uploads`, form)).json()).url as string;
   }
 
   async getProject(path: string) {
@@ -150,38 +144,6 @@ export class GitLab {
   }
 
 
-  async assignMergeRequest(projectId: number, mrIid: number, userId: number): Promise<void> {
-    await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { assignee_ids: [userId] });
-  }
-
-  async closeMergeRequest(projectId: number, mrIid: number): Promise<void> {
-    await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}`, { state_event: "close" });
-  }
-
-  // Merges now and returns the commit on the target branch. Call it only after the MR pipeline is "success".
-  // Always squashes, with message as the commit message. With the fast-forward merge method,
-  // the squash commit is the only commit that lands.
-  // sha is the reviewed head: GitLab refuses the merge if the branch moved since.
-  async merge(projectId: number, mrIid: number, sha: string, message: string): Promise<string> {
-    const mr = await this.json("PUT", `/projects/${projectId}/merge_requests/${mrIid}/merge`, { sha, squash: true, squash_commit_message: message });
-    return (mr.merge_commit_sha ?? mr.squash_commit_sha ?? mr.sha) as string;
-  }
-
-  // Starts a rebase of the MR onto its target branch. It runs in the background: the MR shows rebase_in_progress.
-  async rebaseMergeRequest(projectId: number, mrIid: number): Promise<void> {
-    await this.call("PUT", `/projects/${projectId}/merge_requests/${mrIid}/rebase`);
-  }
-
-  // Branch-ref queries miss merge request pipelines, so read the MR's own list (newest first).
-  // Only a pipeline for headSha counts: a green pipeline of an older commit says nothing about this one.
-  async mergeRequestPipelineStatus(projectId: number, mrIid: number, headSha: string): Promise<"success" | "failed" | "running"> {
-    const newest = (await this.json("GET", `/projects/${projectId}/merge_requests/${mrIid}/pipelines`))[0];
-    if (newest?.sha !== headSha) return "running";
-    const status = newest.status;
-    if (status === "success") return "success";
-    return status === "failed" || status === "canceled" ? "failed" : "running";
-  }
-
   async revertMerge(projectId: number, sha: string, base: string) {
     // A unique name, so an earlier revert branch for the same commit does not get in the way.
     const branch = `factory/revert-${sha.slice(0, 8)}-${Date.now()}`;
@@ -218,14 +180,6 @@ export class GitLab {
   // The whole artifacts zip of a build pipeline, for a resumed run.
   async runArtifacts(projectId: number, pipelineId: number): Promise<ArrayBuffer> {
     return (await this.call("GET", `/projects/${projectId}/jobs/${await this.decisionJob(projectId, pipelineId)}/artifacts`)).arrayBuffer();
-  }
-
-  // "none": the pipeline was canceled or skipped, so it will never give a result. No pipeline yet is "running".
-  async pipelineStatus(projectId: number, ref: string, sha: string): Promise<"success" | "failed" | "running" | "none"> {
-    const list = await this.json("GET", `/projects/${projectId}/pipelines?ref=${encodeURIComponent(ref)}&sha=${sha}&per_page=1`);
-    const status = list[0]?.status;
-    if (status === "canceled" || status === "skipped") return "none";
-    return status === "success" || status === "failed" ? status : "running";
   }
 
   async closeWorkItem(projectId: number, iid: number): Promise<void> {

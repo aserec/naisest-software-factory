@@ -5,7 +5,7 @@ import { GitLab, GITLAB_URL } from "../gitlab";
 import { RUN_DIR, type RunRecord } from "../record";
 import { addKnownSecrets } from "../rules";
 import type { CiRunner } from "../seams";
-import { sh } from "../steps/repo";
+import { sh } from "../repo";
 
 
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
