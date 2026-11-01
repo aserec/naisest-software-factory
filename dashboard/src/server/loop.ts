@@ -1,4 +1,5 @@
 import type { Db } from "./db";
+import { backupDir } from "./db-instance";
 import type { makeGitLab } from "./gitlab";
 
 type GitLab = ReturnType<typeof makeGitLab>;
@@ -74,7 +75,7 @@ export async function tick({ db, gitlab, now }: LoopDeps, state: LoopState = sha
   if (now.getUTCHours() >= BACKUP_FROM_HOUR && state.backupDay !== day) {
     try {
       db.prune(now);
-      db.backup(process.env.BACKUP_DIR ?? "/data/backups", now);
+      db.backup(backupDir(), now);
       state.backupDay = day;
     } catch (err) {
       console.error("loop: prune or backup failed", err);

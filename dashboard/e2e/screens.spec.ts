@@ -5,8 +5,8 @@ test("open the board, a run, the prepare-patch step and a tool call", async ({ p
   await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Factory" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /running/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Board" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /running/i })).toBeVisible();
   await page.getByRole("link", { name: "Fix login" }).click();
 
   await expect(page).toHaveURL(new RegExp(`/runs/${RUN}$`));

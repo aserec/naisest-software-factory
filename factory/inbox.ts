@@ -20,11 +20,12 @@ export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, st
       if (Date.now() - lastRead < TRACKER_EVERY_MS) return { comments: [], stop: dashboardStop };
       lastRead = Date.now();
       const all = (await tracker.comments(ticket, since)).reverse(); // oldest first
-      if (all.length > 0) since = all.reduce((latest, c) => (c.at > latest ? c.at : latest), since);
       const trust = new Map<string, Promise<boolean>>();
       const kept = [];
       // Only people the factory trusts. The factory's own comments never count, even when they quote the command.
       for (const c of all) if (!c.byFactory && (await (trust.get(c.author) ?? trust.set(c.author, tracker.trusted(c.author)).get(c.author)!))) kept.push(c);
+      // Only after every trust check: if one throws, the next poll reads the same comments again and no stop is lost.
+      if (all.length > 0) since = all.reduce((latest, c) => (c.at > latest ? c.at : latest), since);
       return { comments: kept.map((c) => wrap(c.author, c.body)), stop: dashboardStop || kept.some((c) => hasLine(c.body, STOP)) };
     },
   };

@@ -53,6 +53,49 @@ test("a hostile .git/config in the clone has no effect on the factory's git", as
   expect(git(server, "rev-parse", "refs/heads/factory/8-test")).toBe(sha2);
 });
 
+// The branch moves on the server right after the clone. Our git dir must still hold the clone's commit.
+test("the clone and the factory's git dir start from the same commit when the branch moves in between", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-race-"));
+  const seed = join(root, "seed");
+  git(root, "init", "-q", "-b", "master", seed);
+  writeFileSync(join(seed, "a.txt"), "one\n");
+  git(seed, "add", ".");
+  git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+  const server = join(root, "server.git");
+  git(root, "clone", "-q", "--bare", seed, server);
+  // A git on PATH that pushes a new commit to the server after the first clone.
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  const real = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  writeFileSync(join(bin, "git"), `#!/bin/sh\n"${real}" "$@" || exit $?\ncase "$*" in *" clone "*) [ -e "${root}/moved" ] || { touch "${root}/moved"; cd "${seed}" && "${real}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m next && "${real}" push -q "${server}" master; } ;; esac\n`, { mode: 0o755 });
+  const dir = join(root, "run/target");
+  const gitDir = join(root, "run/target.git");
+  await gitRepo(dir, gitDir, `file://${server}`, "tok", { ...process.env, PATH: `${bin}:${process.env.PATH}` }).clone("master");
+  expect(existsSync(join(root, "moved"))).toBe(true);
+  expect(git(root, "--git-dir", gitDir, "rev-parse", "HEAD")).toBe(git(dir, "rev-parse", "HEAD"));
+});
+
+// An agent-written `* -diff` must not turn the change into "Binary files differ" for the review, secret scan and size rule.
+test("a -diff attribute in the clone does not hide the changed lines", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-test-"));
+  const seed = join(root, "seed");
+  git(root, "init", "-q", "-b", "master", seed);
+  writeFileSync(join(seed, "a.txt"), "one\n");
+  git(seed, "add", ".");
+  git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+  const server = join(root, "server.git");
+  git(root, "clone", "-q", "--bare", seed, server);
+  const dir = join(root, "run/target");
+  const repo = gitRepo(dir, join(root, "run/target.git"), `file://${server}`, "tok", process.env);
+  await repo.clone("master");
+  writeFileSync(join(dir, ".gitattributes"), "* -diff\n");
+  writeFileSync(join(dir, "a.txt"), "glpat-secret\n");
+  const d = await repo.diff();
+  expect(d.text).toContain("+glpat-secret");
+  // numstat still counts the file as binary, 0 lines. The protected-path rule on .gitattributes closes that gap for the size rule.
+  expect(d.numstat).toContain(".gitattributes");
+});
+
 // Our git dir is a bare clone, which has no index. Built by `add -A` alone, the index would leave out tracked files
 // under an ignored path, and the diff and the pushed commit would delete them.
 test("tracked files under an ignored path and a submodule are not part of the change", async () => {

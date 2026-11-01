@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
-import { finishCancelledStops, handleRequests, main, pollReady } from "./poll";
-import { cancelNote, isCancelNote, stoppedNote } from "./context";
+import { main, pollReady } from "./poll";
+import { cancelNote, finishCancelledStops, handleRequests, isCancelNote, stoppedNote } from "./run";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx } from "./test-helpers";
 import { fakeDashboard } from "../fakes";
@@ -40,6 +40,13 @@ test("poller starts a watcher ticket the factory set ready, but no other ticket 
   ctx.tracker.startedBy = async () => BOT;
   ctx.tracker.trusted = async (actor) => actor !== BOT; // the factory may not command itself
   expect(await pollReady(ctx)).toEqual(["3"]);
+});
+
+test("a ticket whose start fails is skipped and the next ticket still starts", async () => {
+  const ctx = fakeCtx({ ready: [3, 4], running: 0 });
+  const start = ctx.ci.start.bind(ctx.ci);
+  ctx.ci.start = async (job) => { if (job.ticket === "3") throw new Error("status 503"); return start(job); };
+  expect(await pollReady(ctx)).toEqual(["4"]);
 });
 
 // Task B4: new runs only while new_runs is on. An unreachable dashboard counts as off for new runs.

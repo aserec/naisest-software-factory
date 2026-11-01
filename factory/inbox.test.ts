@@ -67,6 +67,22 @@ test("a second poll does not return the same comment again, a newer one still co
   }
 });
 
+test("a failed trust check loses no comment: the next poll reads it again", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    const t = world();
+    const inbox = makeInbox(t, "8", SINCE);
+    t.say("8", "dev", "@factory stop", "2026-02-01T00:00:00.000Z");
+    t.trusted = async () => { throw new Error("status 502"); };
+    await expect(inbox.poll()).rejects.toThrow("502");
+    t.trusted = async (a) => a === "dev";
+    vi.setSystemTime(Date.now() + 60_000);
+    expect((await inbox.poll()).stop).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("the pump writes one JSON line for a poll with news, and says whether a stop came", async () => {
   const file = join(mkdtempSync(join(tmpdir(), "pump-")), "inbox.jsonl");
   const polls = [{ comments: [], stop: false }, { comments: ["c1"], stop: false }, { comments: [], stop: true }];

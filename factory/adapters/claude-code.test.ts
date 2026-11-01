@@ -39,11 +39,11 @@ test("another Anthropic-style provider's key is passed as ANTHROPIC_API_KEY with
 
 test("the stream gives session id, cost and tokens", () => expect(parseStream(load("stream-ok.jsonl"))).toMatchObject({ isError: false, limitHit: false, costUsd: 0.0042, tokens: { input: 120, output: 8 }, resultText: "ok", sessionId: "11111111-1111-4111-8111-111111111111" }));
 test("a usage limit is reported as limitHit, not as a plain error", () => expect(parseStream(load("stream-limit.jsonl"))).toMatchObject({ isError: true, limitHit: true }));
-test("a rate_limit retry event alone marks limitHit, and forces isError", () => {
+test("a rate_limit retry the CLI recovered from is not a limit hit", () => {
   const s = load("stream-limit.jsonl").split("\n").filter(Boolean);
   const r = JSON.parse(s[2]);
   r.is_error = false; r.result = "done";
-  expect(parseStream([s[0], s[1], JSON.stringify(r)].join("\n"))).toMatchObject({ isError: true, limitHit: true });
+  expect(parseStream([s[0], s[1], JSON.stringify(r)].join("\n"))).toMatchObject({ isError: false, limitHit: false });
 });
 test("a plain error is not a limit hit", () => expect(parseStream(load("stream-error.jsonl"))).toMatchObject({ isError: true, limitHit: false }));
 test("billing_error alone is a limit hit", () => {

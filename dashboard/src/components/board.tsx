@@ -1,11 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { api } from "@/lib/api";
+import { ago, usd } from "@/lib/utils";
 
 // One column per state label. Keep in step with STATES in server/gitlab.ts.
 export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"].map((s) => `factory_${s}`);
@@ -22,81 +21,115 @@ export interface BoardItem {
   stuck: boolean;
 }
 
-const columns: ColumnDef<BoardItem>[] = [
-  {
-    id: "item",
-    cell: ({ row: { original: i } }) => (
-      <>
-        {i.run ? (
-          <Link href={`/runs/${encodeURIComponent(i.run)}`} className="font-medium underline">
-            {i.title}
-          </Link>
-        ) : (
-          <a href={i.url} className="font-medium underline">
-            {i.title}
-          </a>
-        )}
-        <div className="text-xs text-muted-foreground">
-          {i.target} #{i.ticket}
-        </div>
-      </>
-    ),
-  },
-  {
-    id: "mark",
-    cell: ({ row: { original: i } }) => (
-      <div className="text-right">
-        {i.stuck && <Badge variant="destructive">Stuck</Badge>}
-        {i.costUsd !== undefined && <div className="text-xs text-muted-foreground">${i.costUsd.toFixed(2)}</div>}
-      </div>
-    ),
-  },
+// The board's name for each label, and what an empty one says.
+const STATE: Record<string, [name: string, empty: string]> = {
+  factory_needs_approval: ["Needs approval", "Nothing to approve."],
+  factory_needs_info: ["Needs info", "No open questions."],
+  factory_stopped: ["Stopped", "No stopped runs."],
+  factory_blocked: ["Blocked", "Nothing is blocked."],
+  factory_running: ["Running", "No run is going."],
+  factory_waiting: ["Waiting", "Nothing is waiting."],
+  factory_ready: ["Ready", "No ticket is queued."],
+  factory_done: ["Done", "Nothing finished yet."],
+};
+
+// Left: the labels that wait for a person. Right: the ones the factory is working through.
+const SIDES: [string, string[]][] = [
+  ["Waiting on you", ["factory_needs_approval", "factory_needs_info", "factory_stopped", "factory_blocked"]],
+  ["With the factory", ["factory_running", "factory_waiting", "factory_ready", "factory_done"]],
 ];
 
-function Column({ state, items }: { state: string; items: BoardItem[] }) {
-  const table = useReactTable({ data: items, columns, getCoreRowModel: getCoreRowModel() });
+function Row({ item: i }: { item: BoardItem }) {
+  const when = ago(i.updatedAt);
+  const title = i.run ? (
+    <Link href={`/runs/${encodeURIComponent(i.run)}`} className="font-medium hover:underline">
+      {i.title}
+    </Link>
+  ) : (
+    <a href={i.url} className="font-medium hover:underline">
+      {i.title}
+    </a>
+  );
   return (
-    <Card>
-      <CardHeader>
-        <h2 className="font-semibold">
-          {state.replace(/^factory_/, "").replace(/_/g, " ")} <span className="text-muted-foreground">({items.length})</span>
-        </h2>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableBody>
-            {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    <li className="flex items-start justify-between gap-4 border-b border-rule py-3 last:border-0">
+      <div className="min-w-0">
+        {title}
+        <div className="mt-0.5 text-xs text-muted-foreground">
+          <span className="font-mono">
+            {i.target} #{i.ticket}
+          </span>
+          {when && ` · ${when}`}
+        </div>
+      </div>
+      <div className="flex flex-none items-center gap-3 pt-px">
+        {i.stuck && <Badge variant="destructive">Stuck</Badge>}
+        <span className={`w-14 text-right ${i.costUsd === undefined ? "text-muted-foreground" : ""}`}>{i.costUsd === undefined ? "—" : usd(i.costUsd)}</span>
+      </div>
+    </li>
   );
 }
 
-export function Board() {
-  const { data, error } = useQuery({
+function Column({ state, items }: { state: string; items?: BoardItem[] }) {
+  const [name, empty] = STATE[state] ?? [state, "None."];
+  return (
+    <section>
+      <h2 className="flex items-baseline gap-2 border-b pb-2 text-base font-semibold">
+        {name} <span className="font-normal text-muted-foreground">{items ? items.length : "—"}</span>
+      </h2>
+      {items && (items.length ? <ul>{items.map((i) => <Row key={`${i.target}/${i.ticket}`} item={i} />)}</ul> : <p className="py-3 text-muted-foreground">{empty}</p>)}
+    </section>
+  );
+}
+
+// "1 to approve, 2 need an answer, 1 run stuck." The finding that goes under the title.
+export function finding(items: BoardItem[]) {
+  const n = (s: string) => items.filter((i) => i.state === `factory_${s}`).length;
+  const stuck = items.filter((i) => i.stuck).length;
+  const parts = [
+    n("needs_approval") && `${n("needs_approval")} to approve`,
+    n("needs_info") && `${n("needs_info")} ${n("needs_info") === 1 ? "needs" : "need"} an answer`,
+    n("stopped") && `${n("stopped")} stopped`,
+    stuck && `${stuck} ${stuck === 1 ? "run" : "runs"} stuck`,
+  ].filter(Boolean);
+  return parts.length ? `${parts.join(", ")}.` : "Nothing waits for you.";
+}
+
+export function useBoard() {
+  return useQuery({
     queryKey: ["board"],
     refetchInterval: 15_000,
     queryFn: async () => {
-      const r = await fetch("/api/board");
+      const r = await api("/api/board");
       if (!r.ok) throw new Error(`The board answered ${r.status}`);
       return (await r.json()) as BoardItem[];
     },
   });
+}
+
+export function Board() {
+  const { data, error } = useBoard();
   return (
     <>
-      {error && <p role="alert" className="mb-4 text-red-600">{error.message}</p>}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] items-start gap-4">
-        {STATES.map((s) => (
-          <Column key={s} state={s} items={(data ?? []).filter((i) => i.state === s)} />
+      {error && (
+        <p role="alert" className="mb-6 text-destructive">
+          {error.message}
+        </p>
+      )}
+      <div className="grid items-start gap-x-12 gap-y-10 lg:grid-cols-2">
+        {SIDES.map(([side, states]) => (
+          <div key={side} className="flex flex-col gap-8">
+            <p className="-mb-4 text-xs text-muted-foreground">{side}</p>
+            {states.map((s) => (
+              <Column key={s} state={s} items={data?.filter((i) => i.state === s)} />
+            ))}
+          </div>
         ))}
       </div>
     </>
   );
+}
+
+export function BoardFinding() {
+  const { data } = useBoard();
+  return data ? finding(data) : null;
 }

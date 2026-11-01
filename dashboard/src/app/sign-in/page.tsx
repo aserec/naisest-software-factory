@@ -1,4 +1,6 @@
-import { REFUSAL, signIn } from "@/server/auth";
+import { Mark } from "@/components/shell";
+import { Button } from "@/components/ui/button";
+import { DEV_LOGIN, REFUSAL, signIn } from "@/server/auth";
 
 const messages: Record<string, string> = {
   role: REFUSAL,
@@ -8,24 +10,40 @@ const messages: Record<string, string> = {
 export default async function SignIn({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   return (
-    <main className="mx-auto max-w-sm p-6">
-      <h1 className="text-2xl font-semibold">Factory</h1>
+    <main className="mx-auto mt-[14vh] max-w-sm rounded-xl border bg-background p-8 max-sm:mx-4">
+      <h1 className="flex items-center gap-2 text-[22px] leading-7 font-semibold">
+        <Mark /> Factory
+      </h1>
+      <p className="mt-2 text-muted-foreground">Watch the runs, stop or restart them, and set the switches. Members of the factory project only.</p>
       {error && (
-        <p role="alert" className="mt-4 text-red-600">
+        <p role="alert" className="mt-4 text-destructive">
           {messages[error] ?? "Sign in failed. Try again."}
         </p>
       )}
       <form
-        className="mt-4"
+        className="mt-6"
         action={async () => {
           "use server";
           await signIn("gitlab", { redirectTo: "/" });
         }}
       >
-        <button type="submit" className="rounded bg-black px-4 py-2 text-white">
+        <Button type="submit" size="lg" className="w-full">
           Sign in with GitLab
-        </button>
+        </Button>
       </form>
+      {DEV_LOGIN && (
+        <form
+          className="mt-2"
+          action={async () => {
+            "use server";
+            await signIn("dev", { redirectTo: "/" });
+          }}
+        >
+          <Button type="submit" variant="outline" size="lg" className="w-full">
+            Dev sign-in (no GitLab)
+          </Button>
+        </form>
+      )}
     </main>
   );
 }

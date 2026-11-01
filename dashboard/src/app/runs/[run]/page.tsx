@@ -1,23 +1,33 @@
-import Link from "next/link";
 import { RunControls } from "@/components/run-controls";
 import { RunTimeline } from "@/components/run-timeline";
+import { PageTitle } from "@/components/shell";
 import { getDb } from "@/server/db-instance";
+import { gitlab } from "@/server/gitlab";
 import { readTargets } from "@/server/targets";
 
 export const dynamic = "force-dynamic";
 
 export default async function RunPage({ params }: { params: Promise<{ run: string }> }) {
   const { run } = await params;
-  const target = getDb().events({ run, limit: 1 }).events[0]?.target;
-  const limits = readTargets().find((t) => t.name === target)?.stuckMinutes;
+  const first = getDb().events({ run, limit: 1 }).events[0];
+  const target = readTargets().find((t) => t.name === first?.target);
   return (
-    <main className="p-6">
-      <Link href="/" className="text-sm underline">
-        Back to the board
-      </Link>
-      <h1 className="mb-4 text-2xl font-semibold">Run {run}</h1>
-      <RunControls run={run} />
-      <RunTimeline run={run} limits={limits} />
+    <main>
+      <PageTitle
+        title={first ? `${first.target} #${first.ticket}` : `Run ${run}`}
+        actions={<RunControls run={run} />}
+      >
+        <span className="font-mono text-xs">{run}</span>
+        {target && (
+          <>
+            {" · "}
+            <a href={`${gitlab()}/${target.projectPath}/-/issues/${first.ticket}`} className="text-foreground hover:underline">
+              Open the ticket in GitLab
+            </a>
+          </>
+        )}
+      </PageTitle>
+      <RunTimeline run={run} limits={target?.stuckMinutes} />
     </main>
   );
 }

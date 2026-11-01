@@ -15,15 +15,15 @@ function JobLog({ job, log: { data, error, isLoading } }: { job?: string; log: {
   if (error) return <p role="alert">{error.message}</p>;
   if (isLoading) return <p>Loading the job log...</p>;
   return (
-    <ScrollArea className="h-80 rounded border">
-      <pre className="p-2 text-xs">{data}</pre>
+    <ScrollArea className="h-80 rounded-lg bg-raised">
+      <pre className="p-4 font-mono text-xs leading-5">{data}</pre>
     </ScrollArea>
   );
 }
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <section className="mb-4">
-    <h3 className="mb-1 font-semibold">{title}</h3>
+  <section className="mb-5">
+    <h3 className="mb-1.5 font-semibold">{title}</h3>
     {children}
   </section>
 );
@@ -46,7 +46,7 @@ function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
     },
   });
   return (
-    <Tabs defaultValue="summary">
+    <Tabs defaultValue="summary" className="min-w-0">
       <TabsList>
         <TabsTrigger value="summary">Summary</TabsTrigger>
         <TabsTrigger value="log">Job log</TabsTrigger>
@@ -55,11 +55,11 @@ function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
         <ScrollArea className="h-96">
           {prompt && (
             <Section title="Prompt">
-              <pre className="whitespace-pre-wrap text-xs">{prompt}</pre>
+              <pre className="rounded-md bg-raised p-3 font-mono text-xs whitespace-pre-wrap">{prompt}</pre>
             </Section>
           )}
           <Section title="Findings">
-            {findings.length === 0 && <p>None</p>}
+            {findings.length === 0 && <p className="text-muted-foreground">None</p>}
             {findings.map((f, i) => (
               <p key={i}>
                 Round {f.round}: {f.text} {f.blocking && <Badge variant="destructive">Blocking</Badge>}
@@ -67,16 +67,16 @@ function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
             ))}
           </Section>
           <Section title="Gate checks">
-            {gates.length === 0 && <p>None</p>}
+            {gates.length === 0 && <p className="text-muted-foreground">None</p>}
             {gates.map((g, i) => (
-              <div key={i}>
-                <code>{g.command}</code> exit {g.exitCode}
-                <pre className="text-xs">{g.outputTail}</pre>
+              <div key={i} className="mb-2">
+                <code className="font-mono">{g.command}</code> <span className={g.exitCode ? "text-destructive" : "text-muted-foreground"}>exit {g.exitCode}</span>
+                <pre className="mt-1 rounded-md bg-raised p-3 font-mono text-xs whitespace-pre-wrap">{g.outputTail}</pre>
               </div>
             ))}
           </Section>
           <Section title="Rule checks">
-            {rules.length === 0 && <p>None</p>}
+            {rules.length === 0 && <p className="text-muted-foreground">None</p>}
             {rules.map((r, i) => (
               <p key={i}>
                 {r.rule}: {r.passed ? "passed" : "failed"} ({r.detail})
@@ -84,7 +84,7 @@ function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
             ))}
           </Section>
           <Section title="Jev answers">
-            {answers.length === 0 && <p>None</p>}
+            {answers.length === 0 && <p className="text-muted-foreground">None</p>}
             {answers.map((a, i) => (
               <p key={i}>
                 {a.question} {a.answer} ({a.confidence})
@@ -114,7 +114,7 @@ export function StepDetail({ start, events }: { start: RunEvent; events: RunEven
       </DialogTrigger>
       <DialogContent className="sm:max-w-3xl">
         <DialogTitle>{start.step}</DialogTitle>
-        <DialogDescription>Step detail</DialogDescription>
+        <DialogDescription>Prompt, findings, checks and cost of this step, and its CI job log.</DialogDescription>
         <Panel start={start} events={events} />
       </DialogContent>
     </Dialog>

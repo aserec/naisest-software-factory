@@ -3,7 +3,10 @@ node_modules/
 run/
 dist/
 .env
+.env.*
+!.env.example
 .pnpm-store/
 
 # graft local graph cache, regenerable (run `graft build`)
 /graft/
+.cache/

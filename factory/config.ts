@@ -91,8 +91,10 @@ export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
 }
 
 // Not in seamsSchema: loadSeams runs in many tests, and makeContext is the one place that needs the address.
-export function checkDashboardUrl(seams: SeamsConfig): string {
-  const url = seams.dashboardUrl;
+// FACTORY_DASHBOARD_URL wins only outside GitLab CI (the local scripts): in CI anyone who starts a pipeline
+// can set a variable, and the bearer token goes to this address.
+export function checkDashboardUrl(seams: SeamsConfig, env: NodeJS.ProcessEnv = {}): string {
+  const url = (!env.GITLAB_CI && env.FACTORY_DASHBOARD_URL) || seams.dashboardUrl;
   if (url.startsWith("REPLACE_WITH_")) throw new Error("seams.yml dashboardUrl is still a placeholder (REPLACE_WITH_...): set the dashboard's address");
   // The bearer token goes to this address, so it must be https.
   if (!URL.canParse(url) || new URL(url).protocol !== "https:") throw new Error("seams.yml dashboardUrl must be an https:// address");

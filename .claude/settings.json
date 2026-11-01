@@ -18,6 +18,15 @@
             "command": "f=\"${CLAUDE_PROJECT_DIR:-${CURSOR_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}}/.agents/hooks/context-budget.sh\"; [ ! -f \"$f\" ] || bash \"$f\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-${CURSOR_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}}/.agents/hooks/jev.sh\"; [ ! -f \"$f\" ] || bash \"$f\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -28,6 +37,28 @@
             "command": "f=\"${CLAUDE_PROJECT_DIR:-${CURSOR_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}}/.agents/hooks/context-budget.sh\"; [ ! -f \"$f\" ] || bash \"$f\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-${CURSOR_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}}/.agents/hooks/jev.sh\"; [ ! -f \"$f\" ] || bash \"$f\"",
+            "timeout": 10
+          }
+        ],
+        "matcher": "Read|Bash|WebFetch"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-${CURSOR_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}}/.agents/hooks/jev.sh\"; [ ! -f \"$f\" ] || bash \"$f\"",
+            "timeout": 10
+          }
+        ],
+        "matcher": "Bash|Write|Edit"
       }
     ]
   }

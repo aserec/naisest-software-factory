@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { api } from "@/lib/api";
 
 type Action = "stop" | "resume" | "restart";
 interface RunState {
@@ -59,14 +60,14 @@ export function RunControls({ run }: { run: string }) {
     queryKey: key,
     refetchInterval: 3000,
     queryFn: async () => {
-      const r = await fetch(`/api/runs/${encodeURIComponent(run)}/state`);
+      const r = await api(`/api/runs/${encodeURIComponent(run)}/state`);
       if (!r.ok) throw new Error(`The run state answered ${r.status}`);
       return (await r.json()) as RunState;
     },
   });
   const send = useMutation({
     mutationFn: async (action: Action) => {
-      const r = await fetch(`/api/runs/${encodeURIComponent(run)}/${action}`, { method: "POST" });
+      const r = await api(`/api/runs/${encodeURIComponent(run)}/${action}`, { method: "POST" });
       if (!r.ok) throw new Error(await r.text());
     },
     onSettled: () => client.invalidateQueries({ queryKey: key }),
@@ -76,17 +77,17 @@ export function RunControls({ run }: { run: string }) {
   // A done restart ended the run: a new run carries on, so this one shows no buttons.
   const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : data.label === "factory_running" ? ["stop"] : data.label === "factory_stopped" ? ["resume", "restart"] : [];
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {buttons.map((a) => (
         <Ask key={a} action={a} busy={send.isPending} onConfirm={() => send.mutate(a)} />
       ))}
       {data.pending.map((a) => (
-        <span key={a} className="text-sm text-muted-foreground">
+        <span key={a} className="text-muted-foreground">
           {a[0].toUpperCase() + a.slice(1)} requested. The factory picks it up within a minute.
         </span>
       ))}
       {send.error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-destructive">
           {send.error.message}
         </p>
       )}

@@ -9,10 +9,9 @@ const real = (name: string) => readFileSync(fileURLToPath(new URL(`../${name}`, 
 // The real file with one text replaced, in a temp dir.
 const edited = (name: string, from: string | RegExp, to: string) => {
   const text = real(name);
-  const out = text.replace(from, to);
-  if (out === text) throw new Error(`test setup: ${from} not found in ${name}`);
+  if (!(typeof from === "string" ? text.includes(from) : from.test(text))) throw new Error(`test setup: ${from} not found in ${name}`);
   const path = join(mkdtempSync(join(tmpdir(), "config-")), name);
-  writeFileSync(path, out);
+  writeFileSync(path, text.replace(from, to));
   return path;
 };
 
@@ -58,7 +57,7 @@ test("an images entry must name a model of the provider", () => {
 test("react_frontend target has the 300-line limit and the protected paths", () => {
   const t = loadTarget("react_frontend", { defaultApprover: "approver" });
   expect(t.maxChangedLines).toBe(300);
-  expect(t.protectedPaths).toEqual(expect.arrayContaining([".gitlab-ci.yml", ".factory.yml", "CLAUDE.md", "AGENTS.md", ".claude/**", ".agents/**", "**/Dockerfile*"]));
+  expect(t.protectedPaths).toEqual(expect.arrayContaining([".gitlab-ci.yml", ".factory.yml", "CLAUDE.md", "AGENTS.md", ".claude/**", ".agents/**", "**/Dockerfile*", "**/.gitattributes"]));
 });
 test(".factory.yml without build is rejected", () => {
   expect(() => parseFactoryFile("lint: pnpm lint\ntest: pnpm test")).toThrow(/build/);
@@ -84,16 +83,24 @@ test("a target names its base branch; a missing or empty one is refused", () => 
   expect(() => loadTarget("react_frontend", { baseBranch: "" })).toThrow(/targets\/react_frontend\.yml: baseBranch/);
   expect(() => loadTarget("react_frontend", { baseBranch: undefined })).toThrow(/baseBranch Required/);
 });
+// Sets dashboardUrl itself, so these tests hold whatever the committed seams.yml says.
+const withUrl = (url: string) => edited("seams.yml", /^dashboardUrl: .*$/m, `dashboardUrl: ${url}`);
 test("a dashboardUrl that is still a placeholder is refused when the context is built, not when seams.yml loads", () => {
-  expect(loadSeams().dashboardUrl).toBe("REPLACE_WITH_DASHBOARD_URL");
-  expect(() => checkDashboardUrl(loadSeams())).toThrow(/dashboardUrl is still a placeholder/);
-  const path = edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", "REPLACE_WITH_URL");
-  expect(() => checkDashboardUrl(loadSeams(path))).toThrow(/dashboardUrl is still a placeholder/);
-  expect(checkDashboardUrl(loadSeams(edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", "https://factory.example.com")))).toBe("https://factory.example.com");
+  for (const placeholder of ["REPLACE_WITH_DASHBOARD_URL", "REPLACE_WITH_URL"]) {
+    const seams = loadSeams(withUrl(placeholder));
+    expect(() => checkDashboardUrl(seams)).toThrow(/dashboardUrl is still a placeholder/);
+  }
+  expect(checkDashboardUrl(loadSeams(withUrl("https://factory.example.com")))).toBe("https://factory.example.com");
+});
+test("FACTORY_DASHBOARD_URL replaces dashboardUrl outside GitLab CI only, and gets the same checks", () => {
+  const seams = loadSeams(withUrl("https://factory.example.com"));
+  expect(checkDashboardUrl(seams, { FACTORY_DASHBOARD_URL: "https://localhost:3000" })).toBe("https://localhost:3000");
+  expect(checkDashboardUrl(seams, { FACTORY_DASHBOARD_URL: "https://evil.example", GITLAB_CI: "true" })).toBe("https://factory.example.com");
+  expect(() => checkDashboardUrl(seams, { FACTORY_DASHBOARD_URL: "http://localhost:3000" })).toThrow(/must be an https/);
 });
 test("a dashboardUrl that is not an https address is refused, so the token never goes in clear", () => {
   for (const bad of ["http://factory.example.com", "factory.example.com", "ftp://factory.example.com"]) {
-    expect(() => checkDashboardUrl(loadSeams(edited("seams.yml", "REPLACE_WITH_DASHBOARD_URL", bad))), bad).toThrow(/dashboardUrl must be an https/);
+    expect(() => checkDashboardUrl(loadSeams(withUrl(bad))), bad).toThrow(/dashboardUrl must be an https/);
   }
 });
 test("a target may set stuckMinutes, and a zero or negative value is refused", () => {
