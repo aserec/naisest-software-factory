@@ -1,0 +1,11 @@
+
+[mcp_servers.figma]
+url = "https://mcp.figma.com/mcp"
+
+[mcp_servers.graft]
+command = "graft"
+args = ["mcp"]
+
+[mcp_servers.jev]
+command = "node"
+args = [".agents/jev/mcp.ts"]

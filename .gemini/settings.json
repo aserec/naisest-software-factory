@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "figma": {
+      "httpUrl": "https://mcp.figma.com/mcp"
+    },
+    "graft": {
+      "command": "graft",
+      "args": [
+        "mcp"
+      ]
+    },
+    "jev": {
+      "command": "node",
+      "args": [
+        ".agents/jev/mcp.ts"
+      ]
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"${CLAUDE_PROJECT_DIR:-${CURSOR_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}}/.agents/hooks/load-structured-output.sh\"; [ ! -f \"$f\" ] || bash \"$f\""
+          }
+        ]
+      }
+    ]
+  }
+}

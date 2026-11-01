@@ -1,0 +1,22 @@
+{
+  "servers": {
+    "figma": {
+      "type": "http",
+      "url": "https://mcp.figma.com/mcp"
+    },
+    "graft": {
+      "type": "stdio",
+      "command": "graft",
+      "args": [
+        "mcp"
+      ]
+    },
+    "jev": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        ".agents/jev/mcp.ts"
+      ]
+    }
+  }
+}

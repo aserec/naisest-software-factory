@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "figma": {
+      "type": "remote",
+      "url": "https://mcp.figma.com/mcp"
+    },
+    "graft": {
+      "type": "local",
+      "command": [
+        "graft",
+        "mcp"
+      ]
+    },
+    "jev": {
+      "type": "local",
+      "command": [
+        "node",
+        ".agents/jev/mcp.ts"
+      ]
+    }
+  },
+  "instructions": [
+    ".agents/skills/structured-output/SKILL.md",
+    ".agents/skills/structured-output/references/unslop-rules.md"
+  ]
+}
