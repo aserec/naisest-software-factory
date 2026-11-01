@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The local factory: every minute it asks GitLab for react_frontend tickets labeled factory_ready
-# and runs each one with local-run.sh, one at a time. Needs GL_TOKEN and TENSORX_API_KEY.
+# and runs each one with local-run.sh, one at a time. Needs GL_TOKEN, TENSORX_API_KEY and FACTORY_DASHBOARD_TOKEN
+# (the dashboard's value; its https address is dashboardUrl in seams.yml, trusted through mkcert's root CA).
 # Usage: ./local-factory.sh start|stop|status   (run: the same loop in the foreground)
 # Do not use local-run.sh while the factory runs: both use run/ and the same secret file.
 set -euo pipefail
@@ -17,16 +18,17 @@ drop_tokens() { rm -f "$secrets/gl" "$secrets/dash"; }
 
 # The poll step's checks (trusted person, no active run, at most 2 active runs), without starting a GitLab pipeline.
 ready() {
-  printf %s "$GL_TOKEN" > "$secrets/gl" # the step reads the file and deletes it
+  printf %s "$GL_TOKEN" > "$secrets/gl" # the step reads the files and deletes them
+  printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
   env -i PATH="$PATH" HOME="$HOME" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_SCHEDULE=poll FACTORY_TARGET=react_frontend \
-    FACTORY_GITLAB_TOKEN="$secrets/gl" TENSORX_API_KEY="$TENSORX_API_KEY" \
+    FACTORY_GITLAB_TOKEN="$secrets/gl" FACTORY_DASHBOARD_TOKEN="$secrets/dash" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="$TENSORX_API_KEY" \
     node --import tsx factory/steps/poll.ts --list
 }
 
 case "${1:-}" in
   start)
-    : "${GL_TOKEN:?GL_TOKEN is not set}" "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}"
+    : "${GL_TOKEN:?GL_TOKEN is not set}" "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
     if running; then echo "The factory already runs, pid $(cat "$pidfile")"; exit 1; fi
     set -m # own process group, so stop also ends the run in progress
     nohup "$0" run >> "$log" 2>&1 &
@@ -48,7 +50,7 @@ case "${1:-}" in
     if running; then echo "The factory runs, pid $(cat "$pidfile"). Log: $log"; else echo "The factory does not run"; fi
     ;;
   run)
-    : "${GL_TOKEN:?GL_TOKEN is not set}" "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}"
+    : "${GL_TOKEN:?GL_TOKEN is not set}" "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
     trap drop_tokens EXIT
     trap 'exit 143' TERM INT # bash skips the EXIT trap when an untrapped signal kills it
     while true; do

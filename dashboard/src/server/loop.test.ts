@@ -1,3 +1,4 @@
+import { backupDir } from "./db-instance";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -104,6 +105,15 @@ describe("tick: import and backup", () => {
     const backup = vi.spyOn(db, "backup");
     await tick({ db, gitlab, now: new Date("2026-10-30T10:00:00Z") }, state);
     expect(backup).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it("backs up next to the database when BACKUP_DIR is not set", () => {
+    vi.stubEnv("BACKUP_DIR", undefined);
+    vi.stubEnv("DASHBOARD_DB", "../.cache/factory.db");
+    expect(backupDir()).toBe(join("../.cache", "backups"));
+    vi.stubEnv("DASHBOARD_DB", undefined);
+    expect(backupDir()).toBe("/data/backups");
     vi.unstubAllEnvs();
   });
 });

@@ -6,7 +6,7 @@ chat: console
 logSource: files
 dashboard: http
 # The dashboard's address, e.g. https://factory.<domain>. makeContext refuses the placeholder.
-dashboardUrl: REPLACE_WITH_DASHBOARD_URL
+dashboardUrl: https://localhost:3000
 # Used when judge is model-call.
 judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
 providers:
