@@ -6,17 +6,17 @@ import { join } from "node:path";
 import type { RunEvent } from "software-factory/run-events";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { openDb } from "./db";
-import { newLoopState, tick } from "./loop";
+import { newLoopState, startDispatches, tick } from "./loop";
 
 const ev = (type: RunEvent["type"], run: string, extra: Partial<RunEvent> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data: {}, ...extra });
 const later = (s: number) => new Date(Date.now() + s * 1000);
 
 let db: ReturnType<typeof openDb>;
-let gitlab: { cancelPipeline: Mock<(pipeline: string) => Promise<void>>; importEvents: Mock<() => Promise<number>> };
+let gitlab: { cancelPipeline: Mock<(pipeline: string) => Promise<void>>; importEvents: Mock<() => Promise<number>>; startDispatch: Mock<(target: string) => Promise<void>> };
 let state: ReturnType<typeof newLoopState>;
 beforeEach(() => {
   db = openDb(":memory:");
-  gitlab = { cancelPipeline: vi.fn(async () => {}), importEvents: vi.fn(async () => 0) };
+  gitlab = { cancelPipeline: vi.fn(async () => {}), importEvents: vi.fn(async () => 0), startDispatch: vi.fn(async () => {}) };
   state = { ...newLoopState(), lastImport: Date.now() + 1e9, backupDay: "done" }; // no import or backup unless a test wants one
   db.addEvents([ev("run_start", "r1"), ev("step_start", "r1", { pipeline: "6" }), ev("step_start", "r1", { pipeline: "7" })]);
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -115,5 +115,38 @@ describe("tick: import and backup", () => {
     vi.stubEnv("DASHBOARD_DB", undefined);
     expect(backupDir()).toBe("/data/backups");
     vi.unstubAllEnvs();
+  });
+});
+
+describe("startDispatches", () => {
+  const add = (target = "demo") => db.addDispatch({ target, source: "pip-audit", key: "k", title: "t", details: "" });
+  const run = (s: number) => startDispatches({ db, gitlab, now: later(s) });
+
+  it("starts one run per target, again only after 15 minutes while the dispatch waits, and never once it is done", async () => {
+    add();
+    add();
+    await run(0);
+    expect(gitlab.startDispatch.mock.calls).toEqual([["demo"]]);
+    await run(14 * 60);
+    expect(gitlab.startDispatch).toHaveBeenCalledTimes(1);
+    await run(16 * 60); // the run failed: the dispatches still wait
+    expect(gitlab.startDispatch).toHaveBeenCalledTimes(2);
+    db.dispatches("demo").forEach((x) => db.dispatchDone(x.id));
+    await run(60 * 60);
+    expect(gitlab.startDispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits while the dispatches switch is off, and a failed start is tried again later", async () => {
+    add();
+    db.setSwitch("demo", "dispatches", false, "ann");
+    await run(0);
+    expect(gitlab.startDispatch).not.toHaveBeenCalled();
+    db.setSwitch("demo", "dispatches", true, "ann");
+    gitlab.startDispatch.mockRejectedValueOnce(new Error("GitLab down"));
+    await run(1);
+    await run(2);
+    expect(gitlab.startDispatch).toHaveBeenCalledTimes(1);
+    await run(16 * 60);
+    expect(gitlab.startDispatch).toHaveBeenCalledTimes(2);
   });
 });

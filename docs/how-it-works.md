@@ -147,4 +147,35 @@ The watcher opens tickets from error logs. Today it reads fake errors from `watc
 - **Manual run only.** With `logSource: files`, start it by hand: Run pipeline in the web UI with `FACTORY_SCHEDULE=watch` and `FACTORY_TARGET`, then press play on the manual `watcher` job. The fixtures stay recent forever, so a schedule would open the same tickets again after each one closes. The step also refuses a pipeline source other than `web`, but a pipeline variable can fake that value, so it is only a second check. Restrict who may set pipeline variables (project setting "Minimum role to use pipeline variables").
 - **What it does.** It takes the error groups seen in the last hour, keeps the escalating ones (code decides, from the hourly counts), removes customer data, and skips a group that already has an open ticket. The judge checks the text for prompt injection: a likely injection opens a `blocked` ticket, written by code only, and a chat notice. Otherwise the judge answers severity and fixable, the writer model writes the human part, and code adds the agent part below a marker line.
 - **At most 5 a day.** A watcher ticket gets `ready` only while fewer than 5 watcher tickets were opened today (UTC) and the judge thinks a code change can fix it. Otherwise it opens with no state, and the chat notice says why.
-- **No merge without a person.** A ticket with the watcher mark never merges alone while `logSource` is `files`. The decision step sends it to approval: a fix for an error that does not exist must not reach `develop` by itself.
+- **No merge without a person.** A ticket with the watcher mark (dispatch tickets have it too) never merges alone while `logSource` is `files`. The decision step sends it to approval: a fix for an error that does not exist must not reach `develop` by itself.
+
+## Dispatches
+
+A dispatch is how any other system tells the factory about a problem: a nightly `pip-audit`, a scheduled check, a monitor. The system POSTs one JSON object to the dashboard. The dashboard saves it and at once starts the factory's `dispatch` run for that target, which turns it into a ticket the same way the watcher does: customer data removed, one open ticket per problem, the injection check, the writer, `ready` or not by the same rules and the same daily limit of 5, and the watcher mark. The `dispatches` switch on the dashboard turns them off; they wait until it is on again. A dispatch whose run failed or did not start is started again 15 minutes later, until a run finishes it. The run takes every waiting dispatch of its target, and one run per target works at a time.
+
+```sh
+curl -fsS -X POST "https://factory.<domain>/api/dispatches" \
+  -H "Authorization: Bearer $FACTORY_DISPATCH_TOKEN" -H "Content-Type: application/json" \
+  -d '{"target":"react_frontend","source":"pip-audit","key":"requirements.txt","title":"Vulnerable Python packages","details":"<the tool output>","link":"<the failed job URL>"}'
+```
+
+- `target`: a name from `targets/`. `source`: the system, letters, digits, `.`, `_` and `-`. `key`: what it checked. The same `source` and `key` mean the same problem: while its ticket is open, a new dispatch opens no second one, so a job that fails every night is fine. `title`: one line. `details`: the evidence, at most 20,000 characters. `link`: optional.
+- The answer is `202` with the dispatch's `id` (the ticket comes a few minutes later), `400` for a bad body or an unknown target, `401` for a wrong token.
+- `FACTORY_DISPATCH_TOKEN` can only add dispatches. It cannot read the dashboard or send run events.
+
+A cron audit as a GitLab CI job in the target repo (a pipeline schedule runs it). Put `FACTORY_DISPATCH_TOKEN` and `FACTORY_URL` in the repo's CI variables (masked):
+
+```yaml
+pip-audit:
+  image: python:3.12
+  rules: [{ if: $CI_PIPELINE_SOURCE == "schedule" }]
+  script:
+  - pip install pip-audit
+  - |
+    if ! pip-audit -r requirements.txt > audit.txt 2>&1; then
+      cat audit.txt
+      python -c 'import json, os; print(json.dumps({"target": "react_frontend", "source": "pip-audit", "key": "requirements.txt", "title": "Vulnerable Python packages", "details": open("audit.txt").read()[-20000:], "link": os.environ["CI_JOB_URL"]}))' |
+        curl -fsS -X POST "$FACTORY_URL/api/dispatches" -H "Authorization: Bearer $FACTORY_DISPATCH_TOKEN" -H "Content-Type: application/json" --data-binary @-
+      exit 1
+    fi
+```

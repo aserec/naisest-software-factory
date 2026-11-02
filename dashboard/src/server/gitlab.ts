@@ -76,7 +76,16 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
       return jobs.map((j) => ({ job: String(j.id), name: j.name, pipeline: String(j.pipeline.id), startedAt: j.started_at, ...(j.runner?.description ? { runner: j.runner.description } : {}) }));
     },
 
-    // The only write the dashboard makes to GitLab.
+    // Starts the factory's dispatch run for a target through the trigger API. The trigger token goes in the body, so errors never show it.
+    async startDispatch(target: string) {
+      const token = process.env.FACTORY_TRIGGER_TOKEN;
+      if (!token) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
+      const body = new URLSearchParams({ token, ref: "main", "variables[FACTORY_PIPELINE]": "dispatch", "variables[FACTORY_TARGET]": target });
+      const r = await fetchFn(`${gitlab()}/api/v4/projects/${factory()}/trigger/pipeline`, { method: "POST", body });
+      if (!r.ok) throw new Error(`GitLab ${r.status} for the dispatch run of ${target}`);
+    },
+
+    // Besides startDispatch, the only write the dashboard makes to GitLab.
     async cancelPipeline(pipeline: string) {
       const r = await fetchFn(`${gitlab()}/api/v4/projects/${factory()}/pipelines/${id(pipeline)}/cancel`, { method: "POST", headers: { "PRIVATE-TOKEN": process.env.GITLAB_CANCEL_TOKEN ?? "" } });
       if (!r.ok) throw new Error(`GitLab ${r.status} for the pipeline cancel`);

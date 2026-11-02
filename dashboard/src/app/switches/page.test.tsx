@@ -8,7 +8,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const all = { watcher: true, new_runs: true, retry: true, questions: true, prepare_patch: true, auto_merge: true, apply: true };
+const all = { watcher: true, dispatches: true, new_runs: true, retry: true, questions: true, prepare_patch: true, auto_merge: true, apply: true };
 
 test("shows a switch per scope and sends the new value when one is flipped", async () => {
   const f = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response(null, { status: 204 }) : json({ "*": all, demo: { ...all, apply: false } })));

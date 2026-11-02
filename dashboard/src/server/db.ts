@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { SWITCHES, type ControlRequest, type RunEvent, type SwitchName } from "software-factory/run-events";
+import { SWITCHES, type ControlRequest, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
 
 export interface RunSummary {
   run: string;
@@ -31,6 +31,13 @@ export interface Db {
   /** The state label of the run's newest label_change. */
   label(run: string): string | undefined;
   finish(id: string, outcome: NonNullable<ControlRequest["outcome"]>): void;
+  addDispatch(s: DispatchInput): Dispatch;
+  /** Pending dispatches of the target, oldest first. */
+  dispatches(target: string): Dispatch[];
+  dispatchDone(id: string): void;
+  /** Targets with a waiting dispatch whose run was never started, or last started before `startedBefore`. */
+  dispatchTargets(startedBefore: string): string[];
+  dispatchStarted(target: string, at: string): void;
   isImported(job: string): boolean;
   markImported(job: string): void;
   prune(now: Date): void;
@@ -52,6 +59,11 @@ CREATE TABLE IF NOT EXISTS requests (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, run TEXT NOT NULL, target TEXT NOT NULL, ticket TEXT NOT NULL,
   user TEXT NOT NULL, at TEXT NOT NULL, outcome TEXT, done_at TEXT
 );
+CREATE TABLE IF NOT EXISTS dispatches (
+  id TEXT PRIMARY KEY, target TEXT NOT NULL, source TEXT NOT NULL, key TEXT NOT NULL, title TEXT NOT NULL,
+  details TEXT NOT NULL, link TEXT, at TEXT NOT NULL, started_at TEXT, done_at TEXT
+);
+CREATE INDEX IF NOT EXISTS dispatches_pending ON dispatches (target, done_at, at);
 CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);`;
 
 const DAY_MS = 864e5;
@@ -212,6 +224,30 @@ export function openDb(path: string): Db {
     finish(id, outcome) {
       if (outcome === "cancelled") cancelStmt.run(id);
       else finishStmt.run(new Date().toISOString(), outcome, id);
+    },
+
+    addDispatch(input) {
+      const s: Dispatch = { ...input, id: randomUUID(), at: new Date().toISOString() };
+      db.prepare("INSERT INTO dispatches (id, target, source, key, title, details, link, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(s.id, s.target, s.source, s.key, s.title, s.details, s.link ?? null, s.at);
+      return s;
+    },
+
+    dispatches(target) {
+      const rows = db.prepare("SELECT * FROM dispatches WHERE target = ? AND done_at IS NULL ORDER BY at, rowid").all(target) as Row[];
+      return rows.map((r) => ({ id: r.id as string, target: r.target as string, source: r.source as string, key: r.key as string, title: r.title as string, details: r.details as string, at: r.at as string, ...(r.link == null ? {} : { link: r.link as string }) }));
+    },
+
+    dispatchTargets(startedBefore) {
+      const rows = db.prepare("SELECT DISTINCT target FROM dispatches WHERE done_at IS NULL AND (started_at IS NULL OR started_at < ?) ORDER BY target").all(startedBefore) as Row[];
+      return rows.map((r) => r.target as string);
+    },
+
+    dispatchStarted(target, at) {
+      db.prepare("UPDATE dispatches SET started_at = ? WHERE target = ? AND done_at IS NULL").run(at, target);
+    },
+
+    dispatchDone(id) {
+      db.prepare("UPDATE dispatches SET done_at = ? WHERE id = ? AND done_at IS NULL").run(new Date().toISOString(), id);
     },
 
     isImported: (job) => db.prepare("SELECT 1 FROM imported_jobs WHERE job = ?").get(job) !== undefined,

@@ -137,6 +137,7 @@ Sign-in only reads who the user is. The dashboard then reads the user's role on 
 - [ ] `GRAFANA_TOKEN`: in Grafana at `https://ops.<domain>`, a service account with the Viewer role, and a token for it.
 - [ ] `LOKI_UID` and `METRICS_UID`: the UIDs of Grafana's Loki and metrics data sources (Connections > Data sources; the UID is the last part of the data source's URL).
 - [ ] `FACTORY_DASHBOARD_TOKEN`: a random value, for example `openssl rand -hex 32`. Put the same value in the VM's `deploy/.env` and in the factory project as a masked, protected CI variable of type **File**. Factory steps send events with it and read it before any agent runs.
+- [ ] `FACTORY_DISPATCH_TOKEN`: a random value, for example `openssl rand -hex 32`, in the VM's `deploy/.env`. Outside systems send dispatches with it (`POST /api/dispatches`, see docs/how-it-works.md). It can only add dispatches, so give it to cron jobs and monitors, never `FACTORY_DASHBOARD_TOKEN`. The dashboard starts the dispatch run itself, so `deploy/.env` also needs `FACTORY_TRIGGER_TOKEN` (the bot's trigger token from section 1). Dispatch runs need no schedule.
 - [ ] `AUTH_SECRET`: a random value for the sign-in cookies, for example `openssl rand -base64 32`.
 - [ ] In `seams.yml`, set `dashboardUrl` to `https://factory.<domain>` (it is `REPLACE_WITH_DASHBOARD_URL` until then, and every factory job stops with an error while it is).
 
@@ -150,6 +151,8 @@ Create `/opt/software-factory/deploy/.env`, owned by `deploy`, `chmod 600`. It i
 | `DASHBOARD_URL` | `https://factory.<domain>` |
 | `AUTH_SECRET` | from above |
 | `FACTORY_DASHBOARD_TOKEN` | from above, the same value as the CI variable |
+| `FACTORY_DISPATCH_TOKEN` | from above |
+| `FACTORY_TRIGGER_TOKEN` | the bot's pipeline trigger token, the same value as the CI variable. The dashboard starts dispatch runs with it |
 | `FACTORY_PROJECT_ID` | the factory project's numeric ID |
 | `GITLAB_URL` | `https://gitlab.example.com` |
 | `GITLAB_READ_TOKEN` | from above |

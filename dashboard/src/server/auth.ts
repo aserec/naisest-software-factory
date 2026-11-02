@@ -7,8 +7,9 @@ import { gitlab } from "./gitlab";
 // Hash both sides so the compare has equal lengths and the token length does not leak.
 const digest = (s: string) => createHash("sha256").update(s).digest();
 
-export function factoryAuthorized(req: Request): boolean {
-  const token = process.env.FACTORY_DASHBOARD_TOKEN;
+// FACTORY_DISPATCH_TOKEN only sends dispatches, so outside systems get it, never the factory's own token.
+export function factoryAuthorized(req: Request, tokenEnv: "FACTORY_DASHBOARD_TOKEN" | "FACTORY_DISPATCH_TOKEN" = "FACTORY_DASHBOARD_TOKEN"): boolean {
+  const token = process.env[tokenEnv];
   if (!token) return false;
   const given = /^Bearer (.+)$/.exec(req.headers.get("authorization") ?? "")?.[1];
   return given !== undefined && timingSafeEqual(digest(given), digest(token));

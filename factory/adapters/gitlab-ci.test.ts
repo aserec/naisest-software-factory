@@ -71,6 +71,8 @@ test("FACTORY_* values that do not match their pattern are refused", () => {
   expect(() => ci({ FACTORY_PIPELINE: "", FACTORY_SCHEDULE: "poll" })).not.toThrow();
   expect(() => ci({ FACTORY_PIPELINE: "", FACTORY_SCHEDULE: "retry" })).not.toThrow();
   expect(() => ci({ FACTORY_PIPELINE: "", FACTORY_SCHEDULE: "watch" })).not.toThrow();
+  expect(() => ci({ FACTORY_PIPELINE: "dispatch" })).not.toThrow();
+  expect(() => ci({ FACTORY_PIPELINE: "deploy" })).toThrow(/FACTORY_PIPELINE/);
   expect(() => ci({ FACTORY_PIPELINE: "", FACTORY_SCHEDULE: "deploy" })).toThrow(/FACTORY_SCHEDULE/);
   expect(() => ci({ FACTORY_SCHEDULE: "poll" })).toThrow(/FACTORY_PIPELINE/);
 });

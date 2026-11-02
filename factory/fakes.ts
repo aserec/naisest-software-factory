@@ -3,7 +3,7 @@ import type { RunRecord } from "./record";
 import { findSecrets } from "./rules";
 import { SWITCHES } from "./run-events";
 import { NotFactoryRunError } from "./seams";
-import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
+import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, Dispatch, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
@@ -222,11 +222,14 @@ export function fakeChat(): Chat & { sent: { kind: Notice; title: string; lines:
 
 // A Dashboard for tests. It keeps every event and every finished request. While `down` is true it
 // drops events and `control` and `requestDone` throw, as the real one does when it cannot be reached.
-export function fakeDashboard(state: Partial<ControlState> = {}): Dashboard & { events: RunEvent[]; done: [string, string][]; down: boolean } {
+export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispatch[] = []): Dashboard & { events: RunEvent[]; done: [string, string][]; down: boolean; pending: Dispatch[] } {
   const dash = {
     events: [] as RunEvent[],
     done: [] as [string, string][],
     down: false,
+    pending,
+    dispatches: async (target: string) => dash.pending.filter((s) => s.target === target),
+    dispatchDone: async (id: string) => void (dash.pending = dash.pending.filter((s) => s.id !== id)),
     send: (e: RunEvent) => void (dash.down || dash.events.push(e)),
     flush: async () => {},
     control: async () => {

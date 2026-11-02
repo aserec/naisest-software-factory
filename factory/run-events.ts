@@ -6,7 +6,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
 export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "switch_change"]);
 
-export const SWITCHES = ["watcher", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply"] as const;
+export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply"] as const;
 export type SwitchName = (typeof SWITCHES)[number];
 
 // The sender cuts long text to this size. The schema only guards it.
@@ -100,6 +100,19 @@ export interface ControlRequest {
   outcome?: "stopped" | "cancelled" | "done" | "refused";
   doneAt?: string;
 }
+
+// A dispatch: an outside system (a cron audit, a monitor, anything) tells the factory about a problem.
+// The dashboard keeps it until the dispatches job turns it into a ticket. Same source and key = same problem.
+export const dispatchInput = z.object({
+  target: z.string().min(1).max(200),
+  source: z.string().regex(/^[\w.-]{1,100}$/), // e.g. pip-audit
+  key: z.string().min(1).max(200), // e.g. the lock file; one open ticket per source and key
+  title: z.string().min(1).max(200),
+  details: field, // the tool's output: evidence for the ticket
+  link: z.string().url().max(2000).optional(), // e.g. the failed CI job
+});
+export type DispatchInput = z.infer<typeof dispatchInput>;
+export interface Dispatch extends DispatchInput { id: string; at: string }
 
 export interface ControlState {
   switches: Record<SwitchName, boolean>;

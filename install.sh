@@ -63,13 +63,14 @@ if [ ! -f "$env_file" ]; then
     ask HETZNER_TOKEN "Hetzner Cloud API token" "Hetzner Cloud console > your project > Security > API tokens > Generate, with Read & Write."
   fi
   echo
-  echo "== AUTH_SECRET and FACTORY_DASHBOARD_TOKEN are random values, made for you."
+  echo "== AUTH_SECRET, FACTORY_DASHBOARD_TOKEN and FACTORY_DISPATCH_TOKEN are random values, made for you."
   umask 077
   cat > "$env_file" <<EOF
 DASHBOARD_HOST=$DASHBOARD_HOST
 DASHBOARD_URL=https://$DASHBOARD_HOST
 AUTH_SECRET=$(openssl rand -base64 32)
 FACTORY_DASHBOARD_TOKEN=$(openssl rand -hex 32)
+FACTORY_DISPATCH_TOKEN=$(openssl rand -hex 32)
 FACTORY_PROJECT_ID=$FACTORY_PROJECT_ID
 GITLAB_URL=$GITLAB_URL
 GITLAB_READ_TOKEN=$GITLAB_READ_TOKEN
@@ -112,4 +113,6 @@ echo
 echo "The dashboard runs at https://$host"
 [ "$host" = localhost ] && echo "It uses Caddy's own certificate on localhost, so your browser warns once."
 echo "GitLab CI sends its events with FACTORY_DASHBOARD_TOKEN from $env_file: put the same value in the CI variable (type File)."
+echo "Outside systems (cron audits, monitors) send dispatches with FACTORY_DISPATCH_TOKEN from $env_file (docs/how-it-works.md, Dispatches)."
+echo "To start dispatch runs, the dashboard needs FACTORY_TRIGGER_TOKEN in $env_file: the bot's pipeline trigger token (docs/setup.md)."
 echo "Logs: docker compose -f deploy/compose.yml logs -f"

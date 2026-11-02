@@ -231,3 +231,15 @@ describe("prune and backup", () => {
     expect(existsSync(join(dir, "notes.txt"))).toBe(true);
   });
 });
+
+describe("dispatches", () => {
+  it("keeps a dispatch pending for its target until it is done", () => {
+    const db = openDb(":memory:");
+    const a = db.addDispatch({ target: "react_frontend", source: "pip-audit", key: "requirements.txt", title: "vulnerable", details: "jinja2", link: "https://ci.example/1" });
+    const b = db.addDispatch({ target: "react_frontend", source: "npm-audit", key: "package.json", title: "vulnerable", details: "" });
+    db.addDispatch({ target: "other", source: "pip-audit", key: "k", title: "t", details: "" });
+    expect(db.dispatches("react_frontend")).toEqual([a, b]);
+    db.dispatchDone(a.id);
+    expect(db.dispatches("react_frontend").map((s) => s.id)).toEqual([b.id]);
+  });
+});

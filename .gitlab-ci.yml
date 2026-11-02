@@ -124,7 +124,7 @@ contract-real:
 # factory/ci.test.ts checks this. The job shell itself still sees every variable (for example BASH_ENV):
 # docs/setup.md section 7 explains why webhook settings must stay Maintainer-only.
 # Allowed CI_* values: CI_SERVER_URL, CI_PROJECT_ID, CI_PIPELINE_ID, CI_PIPELINE_URL, CI_COMMIT_REF_NAME, CI_JOB_IMAGE, CI_PIPELINE_SOURCE, CI_JOB_ID.
-# FACTORY_SCHEDULE (poll or retry) selects a scheduled job; watch selects the watcher in a pipeline started by hand.
+# FACTORY_PIPELINE (build, finish or dispatch) selects a triggered pipeline. FACTORY_SCHEDULE (poll or retry) selects a scheduled job; watch selects the watcher in a pipeline started by hand.
 # The adapters (seams.yml) and the models (router.yml) are read from this checkout, never chosen by a variable.
 # FACTORY_GITLAB_TOKEN, TEAMS_WEBHOOK_URL, FACTORY_DASHBOARD_TOKEN, FACTORY_TRIGGER_TOKEN and TRIGGER_PAYLOAD are File variables, so only paths pass.
 .factory:
@@ -371,6 +371,29 @@ retry-waiting:
     FACTORY_DASHBOARD_TOKEN="$FACTORY_DASHBOARD_TOKEN" FACTORY_TRIGGER_TOKEN="$FACTORY_TRIGGER_TOKEN" CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"
     TENSORX_API_KEY="$TENSORX_API_KEY" BERGET_API_KEY="$BERGET_API_KEY"
     node --import tsx factory/steps/retry-waiting.ts
+# Turns dispatches from outside systems into tickets, like the watcher does. The dashboard starts it through
+# the trigger API when a dispatch arrives (POST /api/dispatches), and again for one still waiting after 15 minutes.
+dispatch:
+  extends: .factory
+  stage: event
+  # Two runs at once could both find no open ticket for the same dispatch and open two.
+  resource_group: dispatch-$FACTORY_TARGET
+  rules:
+  - if: $CI_PIPELINE_SOURCE == "trigger" && $FACTORY_PIPELINE == "dispatch"
+  script:
+  - >-
+    env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
+    CLAUDE_CONFIG_DIR="$PWD/run/claude-home"
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    CI_SERVER_URL="$CI_SERVER_URL" CI_PROJECT_ID="$CI_PROJECT_ID" CI_PIPELINE_ID="$CI_PIPELINE_ID"
+    CI_PIPELINE_URL="$CI_PIPELINE_URL" CI_COMMIT_REF_NAME="$CI_COMMIT_REF_NAME" CI_JOB_IMAGE="$CI_JOB_IMAGE" CI_PIPELINE_SOURCE="$CI_PIPELINE_SOURCE" CI_JOB_ID="$CI_JOB_ID"
+    FACTORY_PIPELINE="$FACTORY_PIPELINE" FACTORY_TARGET="$FACTORY_TARGET" FACTORY_WORK_ITEM_IID="$FACTORY_WORK_ITEM_IID"
+    FACTORY_MR_IID="$FACTORY_MR_IID" FACTORY_BUILD_PIPELINE_ID="$FACTORY_BUILD_PIPELINE_ID" FACTORY_SKIP_APPLY="$FACTORY_SKIP_APPLY"
+    FACTORY_SCHEDULE="$FACTORY_SCHEDULE"
+    TRIGGER_PAYLOAD="$TRIGGER_PAYLOAD" FACTORY_GITLAB_TOKEN="$FACTORY_GITLAB_TOKEN" TEAMS_WEBHOOK_URL="$TEAMS_WEBHOOK_URL"
+    FACTORY_DASHBOARD_TOKEN="$FACTORY_DASHBOARD_TOKEN" FACTORY_TRIGGER_TOKEN="$FACTORY_TRIGGER_TOKEN" CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN"
+    TENSORX_API_KEY="$TENSORX_API_KEY" BERGET_API_KEY="$BERGET_API_KEY"
+    node --import tsx factory/steps/dispatch.ts
 # The watcher opens tickets from error logs. While logSource is files (fake errors), a person starts it
 # by hand: Run pipeline in the web UI with FACTORY_SCHEDULE=watch and FACTORY_TARGET set, then press play on the
 # manual job. A trigger caller can forge CI_PIPELINE_SOURCE, so the manual play is the real guard.

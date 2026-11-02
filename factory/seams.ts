@@ -1,6 +1,6 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { RunRecord } from "./record";
-import type { ControlState, RunEvent } from "./run-events";
+import type { ControlState, RunEvent, Dispatch } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -114,10 +114,12 @@ export interface ErrorGroup { fingerprint: string; message: string; component?: 
 export interface LogSource { errors(since: Date): Promise<ErrorGroup[]> }
 
 // The factory's run dashboard. The factory sends events and reads the switches and requests a person set there.
-export type { RunEvent, ControlState, SwitchName } from "./run-events";
+export type { RunEvent, ControlState, Dispatch, SwitchName } from "./run-events";
 export interface Dashboard {
   send(e: RunEvent): void; // never throws, never waits
   flush(): Promise<void>; // at most 5 s
   control(target: string, run?: string): Promise<ControlState>; // throws when the dashboard cannot be reached
   requestDone(id: string, outcome: "done" | "refused"): Promise<void>;
+  dispatches(target: string): Promise<Dispatch[]>; // pending dispatches from outside systems, oldest first
+  dispatchDone(id: string): Promise<void>;
 }

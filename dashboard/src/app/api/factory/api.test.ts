@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { ControlRequest, ControlState, RunEvent } from "software-factory/run-events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// The dispatch route starts a run through GitLab: the test keeps the targets it was asked to start.
+const started = vi.hoisted(() => [] as string[]);
+vi.mock("@/server/gitlab-instance", () => ({ getGitLab: () => ({ startDispatch: async (target: string) => void started.push(target) }) }));
+
 process.env.DASHBOARD_DB = ":memory:";
 process.env.FACTORY_DASHBOARD_TOKEN = "secret-token";
 
@@ -101,5 +105,32 @@ describe("GET /api/factory/control", () => {
     expect(ids).toContain(resume.id);
     expect(ids).toContain(recent.id);
     expect(ids).not.toContain(old.id);
+  });
+});
+
+describe("dispatches", async () => {
+  process.env.FACTORY_DISPATCH_TOKEN = "dispatch-token";
+  const { POST: postDispatch } = await import("../dispatches/route");
+  const { GET: getDispatches } = await import("./dispatches/route");
+  const { POST: postDispatchDone } = await import("./dispatches/[id]/done/route");
+  const body = { target: "react_frontend", source: "pip-audit", key: "requirements.txt", title: "vulnerable", details: "jinja2 3.1.2" };
+  const dispatch = (b: unknown, token = "dispatch-token") => postDispatch(new Request("http://x/api/dispatches", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(b) }));
+  const pending = (headers: Record<string, string> = auth) => getDispatches(new Request("http://x/api/factory/dispatches?target=react_frontend", { headers }));
+
+  it("takes a dispatch with the dispatch token only, and the dispatch token reads nothing", async () => {
+    expect((await dispatch(body, "secret-token")).status).toBe(401);
+    expect((await pending({ authorization: "Bearer dispatch-token" })).status).toBe(401);
+    const r = await dispatch(body);
+    expect(r.status).toBe(202);
+    expect(started).toEqual(["react_frontend"]); // the run starts at once, not on a schedule
+    const { id } = (await r.json()) as { id: string };
+    expect(((await (await pending()).json()) as { id: string }[]).map((s) => s.id)).toContain(id);
+    await postDispatchDone(new Request("http://x", { method: "POST", headers: auth }), { params: Promise.resolve({ id }) });
+    expect(((await (await pending()).json()) as { id: string }[]).map((s) => s.id)).not.toContain(id);
+  });
+
+  it("refuses an unknown target and a bad body", async () => {
+    expect((await dispatch({ ...body, target: "nope" })).status).toBe(400);
+    expect((await dispatch({ ...body, title: "" })).status).toBe(400);
   });
 });
