@@ -11,3 +11,9 @@ dist/
 # graft local graph cache, regenerable (run `graft build`)
 /graft/
 .cache/
+
+# Impeccable platform binaries, the launcher downloads and verifies them
+/.agents/skills/impeccable/scripts/bin/
+/.claude/skills/impeccable/scripts/bin/
+/.cursor/skills/impeccable/scripts/bin/
+/.gemini/skills/impeccable/scripts/bin/
