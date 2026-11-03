@@ -76,7 +76,8 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     async changeOfTicket(ticket) {
       const mrs: any[] = await gitlab.getJson(`/projects/${await projectId()}/issues/${Number(ticket)}/related_merge_requests`);
       const m = mrs.filter((x) => String(x.source_branch).startsWith(changeBranchPrefix(ticket))).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
-      return m && { ref: String(m.iid), open: m.state === "opened", merged: m.state === "merged", url: m.web_url as string };
+      // locked: GitLab sets it while a merge is in flight, so the change is not closed
+      return m && { ref: String(m.iid), open: m.state === "opened" || m.state === "locked", merged: m.state === "merged", url: m.web_url as string };
     },
     async revert(sha) {
       return opened(await gitlab.revertMerge(await projectId(), sha, baseBranch));

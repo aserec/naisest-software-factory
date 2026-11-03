@@ -176,6 +176,10 @@ describe("changeOfTicket", () => {
     related({ iid: 4 });
     expect(await host().changeOfTicket("12")).toMatchObject({ ref: "4", open: true, merged: false });
   });
+  test("a locked merge request (a merge in flight) is open, not closed", async () => {
+    related({ iid: 4, state: "locked" });
+    expect(await host().changeOfTicket("12")).toMatchObject({ ref: "4", open: true, merged: false });
+  });
 });
 
 describe("checks", () => {
