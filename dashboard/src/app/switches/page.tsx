@@ -54,7 +54,7 @@ export default function SwitchesPage() {
               <TableCell className="sticky left-0 bg-background pr-6 font-medium">{scope === "*" ? "All targets" : <span className="font-mono">{scope}</span>}</TableCell>
               {SWITCHES.map((name) => (
                 <TableCell key={name} className="text-center">
-                  <Switch aria-label={`${name} for ${scope}`} checked={row[name]} disabled={change.isPending} onCheckedChange={(on) => change.mutate({ scope, name, on })} />
+                  <Switch aria-label={`${label(name)} for ${scope === "*" ? "all targets" : scope}`} checked={row[name]} disabled={change.isPending} onCheckedChange={(on) => change.mutate({ scope, name, on })} />
                 </TableCell>
               ))}
             </TableRow>

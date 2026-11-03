@@ -5,7 +5,7 @@ import type { makeGitLab } from "./gitlab";
 type GitLab = ReturnType<typeof makeGitLab>;
 export interface LoopDeps {
   db: Db;
-  gitlab: Pick<GitLab, "cancelPipeline" | "importEvents">;
+  gitlab: Pick<GitLab, "cancelPipeline" | "importEvents" | "startDispatch">; // GitLab CI, or the worker (getCi)
   now: Date;
 }
 // What the loop remembers between ticks. It lives in memory, so a restart imports once and may back up again the same day.
@@ -20,6 +20,22 @@ const STOP_WAIT_MS = 60_000;
 const IMPORT_EVERY_MS = 10 * 60_000;
 const BACKUP_FROM_HOUR = 3; // UTC
 const PAGE = 500;
+const DISPATCH_AGAIN_MS = 15 * 60_000;
+
+// Starts one dispatch run for each target with a waiting dispatch that has no run yet, or whose run started 15 minutes
+// ago and did not finish it (the run failed). The run takes every waiting dispatch of its target. The time is set first,
+// so a failing start is tried again in 15 minutes, not on every tick. A target with the dispatches switch off waits.
+export async function startDispatches({ db, gitlab, now }: LoopDeps): Promise<void> {
+  for (const target of db.dispatchTargets(new Date(now.getTime() - DISPATCH_AGAIN_MS).toISOString())) {
+    if (!db.switches(target).dispatches) continue;
+    db.dispatchStarted(target, now.toISOString());
+    try {
+      await gitlab.startDispatch(target);
+    } catch (err) {
+      console.error(`loop: starting the dispatch run of ${target} failed`, err);
+    }
+  }
+}
 
 // The pipeline of the run's newest step_start, or undefined when the run has none that names a pipeline.
 function newestPipeline(db: Db, run: string): string | undefined {
@@ -70,7 +86,14 @@ export async function tick({ db, gitlab, now }: LoopDeps, state: LoopState = sha
     }
   }
 
-  // 3. Once a day after 03:00 UTC: prune and back up. A failure is tried again on the next tick.
+  // 3. Dispatch runs not started yet: a switch turned back on, a failed start or a failed run.
+  try {
+    await startDispatches({ db, gitlab, now });
+  } catch (err) {
+    console.error("loop: reading dispatches failed", err);
+  }
+
+  // 4. Once a day after 03:00 UTC: prune and back up. A failure is tried again on the next tick.
   const day = now.toISOString().slice(0, 10);
   if (now.getUTCHours() >= BACKUP_FROM_HOUR && state.backupDay !== day) {
     try {

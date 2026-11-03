@@ -2,7 +2,7 @@ import picomatch from "picomatch";
 import type { Target } from "./types";
 
 // GitLab personal and CI job tokens, Anthropic keys (the Claude OAuth token too), private keys.
-const SECRET_PATTERNS = [/glpat-[A-Za-z0-9_-]{20,}/g, /glcbt-[A-Za-z0-9_-]+/g, /sk-ant-[A-Za-z0-9_-]+/g, /-----BEGIN [A-Z ]*PRIVATE KEY-----/g];
+const SECRET_PATTERNS = [/glpat-[A-Za-z0-9_-]{20,}/g, /gh[pousr]_[A-Za-z0-9]{36,}/g, /github_pat_[A-Za-z0-9_]{22,}/g, /glcbt-[A-Za-z0-9_-]+/g, /sk-ant-[A-Za-z0-9_-]+/g, /-----BEGIN [A-Z ]*PRIVATE KEY-----/g];
 
 // The secret values this process holds (makeContext adds them). Short values are skipped: real tokens
 // and webhook URLs are long, and a short value would match ordinary text.

@@ -1,5 +1,6 @@
 import { DASHBOARD_TYPES, EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
 import type { Db } from "./db";
+import { makeGitHub } from "./github";
 import { readTargets } from "./targets";
 
 // The GitLab base URL. Here and not in auth.ts, so the background loop does not load next-auth.
@@ -15,7 +16,11 @@ const id = (v: string) => {
 };
 
 export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
-  const factory = () => id(process.env.FACTORY_PROJECT_ID ?? "");
+  const github = makeGitHub(fetchFn);
+  const factory = () => {
+    if (!process.env.FACTORY_PROJECT_ID) throw new Error("FACTORY_PROJECT_ID is not set, so there are no GitLab CI jobs to show");
+    return id(process.env.FACTORY_PROJECT_ID);
+  };
   // ponytail: one page of 100 per call, add paging if a state ever holds more than 100 issues.
   const get = (path: string) => fetchFn(`${gitlab()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" } });
   const getJson = async <T>(path: string) => {
@@ -27,13 +32,16 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
   let cached: { at: number; rows: ReturnType<typeof fetchBoard> } | undefined;
   async function fetchBoard() {
     type Issue = { iid: number; title: string; web_url: string; updated_at: string };
-    const lists = readTargets().flatMap((t) =>
+    // Each target's tickets come from its own tracker: GitLab issues, or GitHub issues and boards.
+    // Without a GitLab read token, as in a GitHub-only setup, the GitLab targets are left out.
+    const targets = readTargets();
+    const lists = targets.filter((t) => !t.github && process.env.GITLAB_READ_TOKEN).flatMap((t) =>
       STATES.map(async (state) => {
         const issues = await getJson<Issue[]>(`/projects/${encodeURIComponent(t.projectPath)}/issues?labels=${state}&per_page=100`);
         return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at }));
       }),
     );
-    return (await Promise.all(lists)).flat();
+    return [...(await Promise.all(lists)).flat(), ...(await github.board(targets))];
   }
 
   async function importJob(db: Db, job: string): Promise<number> {
@@ -76,7 +84,16 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
       return jobs.map((j) => ({ job: String(j.id), name: j.name, pipeline: String(j.pipeline.id), startedAt: j.started_at, ...(j.runner?.description ? { runner: j.runner.description } : {}) }));
     },
 
-    // The only write the dashboard makes to GitLab.
+    // Starts the factory's dispatch run for a target through the trigger API. The trigger token goes in the body, so errors never show it.
+    async startDispatch(target: string) {
+      const token = process.env.FACTORY_TRIGGER_TOKEN;
+      if (!token) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
+      const body = new URLSearchParams({ token, ref: "main", "variables[FACTORY_PIPELINE]": "dispatch", "variables[FACTORY_TARGET]": target });
+      const r = await fetchFn(`${gitlab()}/api/v4/projects/${factory()}/trigger/pipeline`, { method: "POST", body });
+      if (!r.ok) throw new Error(`GitLab ${r.status} for the dispatch run of ${target}`);
+    },
+
+    // Besides startDispatch, the only write the dashboard makes to GitLab.
     async cancelPipeline(pipeline: string) {
       const r = await fetchFn(`${gitlab()}/api/v4/projects/${factory()}/pipelines/${id(pipeline)}/cancel`, { method: "POST", headers: { "PRIVATE-TOKEN": process.env.GITLAB_CANCEL_TOKEN ?? "" } });
       if (!r.ok) throw new Error(`GitLab ${r.status} for the pipeline cancel`);

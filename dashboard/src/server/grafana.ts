@@ -17,6 +17,7 @@ const SEL = 'job="factory-runner"';
 
 async function grafana<T>(uid: string | undefined, path: string, params: Record<string, string>, fetchFn: typeof fetch): Promise<T> {
   const base = (process.env.GRAFANA_URL ?? "").replace(/\/+$/, "");
+  if (!base || !uid) throw new Error("Grafana is not set up (GRAFANA_URL, METRICS_UID, LOKI_UID)");
   const r = await fetchFn(`${base}/api/datasources/proxy/uid/${uid}${path}?${new URLSearchParams(params)}`, { headers: { Authorization: `Bearer ${process.env.GRAFANA_TOKEN ?? ""}` } });
   if (!r.ok) throw new Error(`Grafana ${r.status}`);
   return ((await r.json()) as { data: T }).data;

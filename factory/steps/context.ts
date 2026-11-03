@@ -10,7 +10,7 @@ import { emit } from "../emit";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
-import type { ControlRequest } from "../run-events";
+import { MAX_FIELD, type ControlRequest } from "../run-events";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 import { block, doneBeforeResume } from "./run";
 
@@ -172,6 +172,21 @@ async function loadRunRecord(ctx: StepContext, dir: string): Promise<RunRecord> 
   throw new Error(`Could not load the run record of build pipeline ${buildRun}: ${String(last)}`);
 }
 
+// Copies what the step writes to stdout and stderr, as a CI job log would hold it. Output of a child process
+// that writes to the terminal itself is not in it. Calling the returned function stops the copy and gives the end of it.
+function copyOutput(): () => string {
+  let out = "";
+  const undo = [process.stdout, process.stderr].map((s) => {
+    const write = s.write;
+    s.write = ((chunk: unknown, ...rest: unknown[]) => {
+      out = (out + String(chunk)).slice(-MAX_FIELD);
+      return (write as (...a: unknown[]) => boolean).call(s, chunk, ...rest);
+    }) as typeof s.write;
+    return () => (s.write = write);
+  });
+  return () => (undo.forEach((u) => u()), out);
+}
+
 const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN/;
 // A stop saved by stopped() or waiting() ends the step as "stopped" or "waiting".
 function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
@@ -217,6 +232,9 @@ export async function runStep(
   }
   const ctx = (opts.make ?? makeContext)(opts.env ?? process.env);
   watch(ctx);
+  // Without a CI job there is no job log to read, so the step's output goes with its step_end event.
+  const output = ctx.ci.vars.job ? undefined : copyOutput();
+  const log = () => (output ? { log: output() } : {});
   ctx.step = name;
   ctx.stepEvent = undefined;
   takeSnapshot(ctx);
@@ -240,14 +258,15 @@ export async function runStep(
     // The event step sends its own start once it knows the run goes on, so a declined start or resume sends nothing to the run.
     if (name !== "event") ctx.stepEvent = emit(ctx, "step_start", {});
     result = await run(ctx);
-    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: endOutcome(ctx, result) });
+    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: endOutcome(ctx, result), ...log() });
   } catch (e) {
     emit(ctx, "error", { message: String(e).slice(0, 500) });
     // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
     await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`, false).catch(() => {});
-    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: "error" });
+    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: "error", ...log() });
     throw e;
   } finally {
+    output?.(); // stops the copy when the step ended before step_end, as in a skip
     saveRecord(ctx.record, dir); // also creates the dir
     await ctx.dashboard.flush();
     ctx.snapshot = undefined; // the next step reads the dashboard again

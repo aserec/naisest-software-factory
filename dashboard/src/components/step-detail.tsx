@@ -3,39 +3,56 @@
 import { useQuery } from "@tanstack/react-query";
 import type { RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { duration, usd } from "@/lib/utils";
+import { SectionHeading } from "./shell";
 
 const ofType = (events: RunEvent[], type: RunEvent["type"]) => events.filter((e) => e.type === type).map((e) => e.data as Record<string, any>);
+const count = (n: number) => n.toLocaleString("en");
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const pre = "rounded-md bg-raised p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words";
 
-function JobLog({ job, log: { data, error, isLoading } }: { job?: string; log: { data?: string; error: Error | null; isLoading: boolean } }) {
-  if (!job) return <p>This step has no CI job.</p>;
-  if (error) return <p role="alert">{error.message}</p>;
-  if (isLoading) return <p>Loading the job log...</p>;
-  return (
-    <ScrollArea className="h-80 rounded-lg bg-raised">
-      <pre className="p-4 font-mono text-xs leading-5">{data}</pre>
-    </ScrollArea>
-  );
+// A step that ran without CI (local-run.sh, the worker) sends its output with its step_end event instead.
+function JobLog({ job, end, log: { data, error, isLoading } }: { job?: string; end?: RunEvent; log: { data?: string; error: Error | null; isLoading: boolean } }) {
+  const note = (text: string) => <p className="text-muted-foreground">{text}</p>;
+  if (!job) {
+    if (!end) return note("The log shows when the step ends.");
+    if (typeof end.data.log !== "string") return note("This step has no CI job and sent no log.");
+    data = end.data.log;
+  } else if (error)
+    return (
+      <p role="alert" className="text-destructive">
+        {error.message}
+      </p>
+    );
+  else if (isLoading) return note("Loading the job log…");
+  return <pre className={pre}>{data}</pre>;
 }
 
-const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <section className="mb-5">
-    <h3 className="mb-1.5 font-semibold">{title}</h3>
+const Section = ({ title, children }: { title: React.ReactNode; children: React.ReactNode }) => (
+  <section>
+    <SectionHeading as="h3">{title}</SectionHeading>
     {children}
   </section>
 );
 
-function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
+const Fact = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <>
+    <dt className="text-muted-foreground">{label}</dt>
+    <dd className="min-w-0">{children}</dd>
+  </>
+);
+
+// Everything about one step, for the side panel. It is mounted only while the panel is open, so GitLab is asked for the log only then.
+export function StepDetail({ start, end, tools = [], events }: { start: RunEvent; end?: RunEvent; tools?: RunEvent[]; events: RunEvent[] }) {
   const findings = ofType(events, "review_finding");
   const gates = ofType(events, "gate_check");
   const rules = ofType(events, "rule_check");
   const answers = ofType(events, "jev_answer");
-  const cost = ofType(events, "usage").reduce((sum, u) => sum + (u.costUsd as number), 0);
+  const usage = ofType(events, "usage");
+  const cost = usage.reduce((sum, u) => sum + (u.costUsd as number), 0);
+  const models = [...new Set(usage.map((u) => `${u.role} · ${u.model}`))];
+  const tokens = (k: string) => usage.reduce((sum, u) => sum + ((u[k] as number) ?? 0), 0);
   const prompt = start.data.prompt as string | undefined;
-  // The Panel is mounted only while the dialog is open, so GitLab is asked only then.
   const log = useQuery({
     queryKey: ["log", start.job],
     enabled: !!start.job,
@@ -46,77 +63,128 @@ function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
     },
   });
   return (
-    <Tabs defaultValue="summary" className="min-w-0">
-      <TabsList>
-        <TabsTrigger value="summary">Summary</TabsTrigger>
-        <TabsTrigger value="log">Job log</TabsTrigger>
-      </TabsList>
-      <TabsContent value="summary">
-        <ScrollArea className="h-96">
-          {prompt && (
-            <Section title="Prompt">
-              <pre className="rounded-md bg-raised p-3 font-mono text-xs whitespace-pre-wrap">{prompt}</pre>
-            </Section>
-          )}
-          <Section title="Findings">
-            {findings.length === 0 && <p className="text-muted-foreground">None</p>}
+    <div className="flex flex-col gap-8">
+      <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
+        <Fact label="Started">{clock(start.at)}</Fact>
+        <Fact label="Duration">{end ? duration((Date.parse(end.at) - Date.parse(start.at)) / 1000) : "Still running"}</Fact>
+        {models.length > 0 && <Fact label="Model">{models.join(", ")}</Fact>}
+        {usage.length > 0 && (
+          <Fact label="Tokens">
+            {count(tokens("input"))} in · {count(tokens("output"))} out
+          </Fact>
+        )}
+        <Fact label="Cost">{usd(cost)}</Fact>
+        {start.job && (
+          <Fact label="CI job">
+            <span className="font-mono">{start.job}</span>
+          </Fact>
+        )}
+      </dl>
+
+      {findings.length > 0 && (
+        <Section title="Review findings">
+          <ul className="flex flex-col gap-3">
             {findings.map((f, i) => (
-              <p key={i}>
-                Round {f.round}: {f.text} {f.blocking && <Badge variant="destructive">Blocking</Badge>}
-              </p>
+              <li key={i} className="flex items-start gap-3">
+                <Badge variant="secondary" className="mt-0.5">
+                  Round {f.round}
+                </Badge>
+                <span className="min-w-0 flex-1">{f.text}</span>
+                {f.blocking && (
+                  <Badge variant="destructive" className="mt-0.5">
+                    Blocking
+                  </Badge>
+                )}
+              </li>
             ))}
-          </Section>
-          <Section title="Gate checks">
-            {gates.length === 0 && <p className="text-muted-foreground">None</p>}
+          </ul>
+        </Section>
+      )}
+
+      {gates.length > 0 && (
+        <Section title="Gate checks">
+          <ul className="flex flex-col gap-4">
             {gates.map((g, i) => (
-              <div key={i} className="mb-2">
-                <code className="font-mono">{g.command}</code> <span className={g.exitCode ? "text-destructive" : "text-muted-foreground"}>exit {g.exitCode}</span>
-                <pre className="mt-1 rounded-md bg-raised p-3 font-mono text-xs whitespace-pre-wrap">{g.outputTail}</pre>
+              <li key={i}>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <code className="min-w-0 truncate font-mono text-xs">{g.command}</code>
+                  <Badge variant={g.exitCode ? "destructive" : "positive"}>exit {g.exitCode}</Badge>
+                </div>
+                <pre className={`${pre} max-h-60 overflow-y-auto`}>{g.outputTail}</pre>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {rules.length > 0 && (
+        <Section title="Rule checks">
+          <ul className="flex flex-col gap-2">
+            {rules.map((r, i) => (
+              <li key={i} className="grid grid-cols-[4rem_minmax(0,1fr)] items-baseline gap-3">
+                <Badge variant={r.passed ? "positive" : "destructive"}>{r.passed ? "passed" : "failed"}</Badge>
+                <span>
+                  <span className="font-mono text-xs">{r.rule}</span> <span className="text-muted-foreground">{r.detail}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {answers.length > 0 && (
+        <Section title="Jev answers">
+          <dl className="flex flex-col gap-3">
+            {answers.map((a, i) => (
+              <div key={i}>
+                <dt>{a.question}</dt>
+                <dd className="text-muted-foreground">
+                  {a.answer} · {a.confidence} confidence
+                </dd>
               </div>
             ))}
-          </Section>
-          <Section title="Rule checks">
-            {rules.length === 0 && <p className="text-muted-foreground">None</p>}
-            {rules.map((r, i) => (
-              <p key={i}>
-                {r.rule}: {r.passed ? "passed" : "failed"} ({r.detail})
-              </p>
-            ))}
-          </Section>
-          <Section title="Jev answers">
-            {answers.length === 0 && <p className="text-muted-foreground">None</p>}
-            {answers.map((a, i) => (
-              <p key={i}>
-                {a.question} {a.answer} ({a.confidence})
-              </p>
-            ))}
-          </Section>
-          <Section title="Cost">
-            <p>${cost.toFixed(2)}</p>
-          </Section>
-        </ScrollArea>
-      </TabsContent>
-      <TabsContent value="log">
-        <JobLog job={start.job} log={log} />
-      </TabsContent>
-    </Tabs>
-  );
-}
+          </dl>
+        </Section>
+      )}
 
-// `events` are the step's own events (not its tool calls). The panel, and its log request, exist only while it is open.
-export function StepDetail({ start, events }: { start: RunEvent; events: RunEvent[] }) {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          Details
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogTitle>{start.step}</DialogTitle>
-        <DialogDescription>Prompt, findings, checks and cost of this step, and its CI job log.</DialogDescription>
-        <Panel start={start} events={events} />
-      </DialogContent>
-    </Dialog>
+      {tools.length > 0 && (
+        <Section
+          title={
+            <>
+              Tool calls <span className="font-normal text-muted-foreground">{tools.length}</span>
+            </>
+          }
+        >
+          <ul className="flex flex-col gap-1">
+            {tools.map((t) => (
+              <li key={t.id}>
+                <details className="group">
+                  <summary className="flex w-full items-baseline justify-between gap-3 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
+                    <span className="font-medium group-open:underline">{t.data.name as string}</span>
+                    <span className={`text-xs ${t.data.ok ? "text-muted-foreground" : "text-destructive"}`}>
+                      {t.data.ms as number} ms{t.data.ok ? "" : ", failed"}
+                    </span>
+                  </summary>
+                  <div className="mt-1 mb-3 flex flex-col gap-2">
+                    <pre className={pre}>{t.data.input as string}</pre>
+                    <pre className={pre}>{t.data.result as string}</pre>
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {prompt && (
+        <Section title="Prompt">
+          <pre className={pre}>{prompt}</pre>
+        </Section>
+      )}
+
+      <Section title={start.job ? "Job log" : "Log"}>
+        <JobLog job={start.job} end={end} log={log} />
+      </Section>
+    </div>
   );
 }

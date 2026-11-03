@@ -5,6 +5,13 @@
       {
         "command": "f=\"${CLAUDE_PROJECT_DIR:-${CURSOR_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}}}/.agents/hooks/load-structured-output.sh\"; [ ! -f \"$f\" ] || bash \"$f\" cursor"
       }
+    ],
+    "postToolUse": [
+      {
+        "command": "[ ! -f \".cursor/skills/impeccable/scripts/impeccable\" ] || \".cursor/skills/impeccable/scripts/impeccable\" hook",
+        "matcher": "^Write$",
+        "timeout": 5
+      }
     ]
   }
 }

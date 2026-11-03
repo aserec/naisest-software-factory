@@ -1,6 +1,6 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { RunRecord } from "./record";
-import type { ControlState, RunEvent } from "./run-events";
+import type { ControlState, RunEvent, Dispatch } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -101,7 +101,8 @@ export type { JevClient as Judge, JevQuestion, JevAnswer } from "./jev";
 
 // An agent harness: the program that runs a model with tools. Steps give it a job and get a result.
 export type ApiStyle = "anthropic" | "openai";
-export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[] } // models: model id -> family; images: model ids that read images
+export interface Price { input: number; output: number; cacheRead?: number; cacheWrite?: number } // USD per million tokens
+export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[]; prices?: Record<string, Price> } // models: model id -> family; images: model ids that read images
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
 export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
@@ -117,10 +118,12 @@ export interface ErrorGroup { fingerprint: string; message: string; component?: 
 export interface LogSource { errors(since: Date): Promise<ErrorGroup[]> }
 
 // The factory's run dashboard. The factory sends events and reads the switches and requests a person set there.
-export type { RunEvent, ControlState, SwitchName } from "./run-events";
+export type { RunEvent, ControlState, Dispatch, SwitchName } from "./run-events";
 export interface Dashboard {
   send(e: RunEvent): void; // never throws, never waits
   flush(): Promise<void>; // at most 5 s
   control(target: string, run?: string): Promise<ControlState>; // throws when the dashboard cannot be reached
   requestDone(id: string, outcome: "done" | "refused"): Promise<void>;
+  dispatches(target: string): Promise<Dispatch[]>; // pending dispatches from outside systems, oldest first
+  dispatchDone(id: string): Promise<void>;
 }

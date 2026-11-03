@@ -12,7 +12,7 @@ import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider, ToolCal
 export function piModels({ provider, model }: ModelChoice) {
   return {
     providers: {
-      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model, ...(provider.images?.includes(model) && { input: ["text", "image"] }) }] },
+      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model, ...(provider.images?.includes(model) && { input: ["text", "image"] }), ...(provider.prices?.[model] && { cost: { cacheRead: 0, cacheWrite: 0, ...provider.prices[model] } }) }] },
     },
   };
 }
@@ -102,8 +102,9 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     const args = [
       "--print", "--mode", "json", "--no-extensions", "--extension", EXTENSION, "--no-skills", "--no-prompt-templates",
       "--no-context-files", "--no-mcp", "--provider", job.model.provider.name, "--model", job.model.model,
-      // ponytail: --session <dir> --continue is from the plan. Confirm it on the runner's Pi (it may be --session-dir).
-      ...(job.resume ? ["--session", home, "--continue"] : []), "--", job.prompt,
+      // --continue picks the newest session of this cwd under PI_CODING_AGENT_DIR (home). Pi 1.4.0's --session takes a
+      // session file or id, so a directory there fails with EISDIR.
+      ...(job.resume ? ["--continue"] : []), "--", job.prompt,
     ];
     // The extension reads the inbox file from Pi's home (the one place inside the sandbox that Pi may read). A new run starts with a new inbox.
     const inboxFile = join(home, "inbox.jsonl");

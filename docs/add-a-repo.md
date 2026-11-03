@@ -42,3 +42,16 @@ Create two schedules for the target (Build > Pipeline schedules). Sign in as the
 ## 4. Check
 
 - [ ] Add `factory_ready` to a small test work item. The `event` job should run (from the webhook or within a minute from the poller).
+
+## A repo on GitHub
+
+The target file picks `tracker: github-project` (or `github`) and `codeHost: github`, which replace `seams.yml` for that target only. See `targets/musicapp_webapp.yml`.
+
+- [ ] Until the factory has its own GitHub account, a token of a person's account works with `sharedAccount: true` in the target: that person's Ready counts, and the factory tells its own comments apart by the AI line.
+- [ ] Set `githubRepo` (`owner/name`), `githubProject` (the board number from its URL) and `defaultApprover` (a GitHub login).
+- [ ] Give the board a single-select `Status` field whose columns are factory states: `Ready`, `Running`, `Waiting`, `Stopped`, `Needs approval`, `Needs info`, `Blocked`, `Done`.
+- [ ] Set `FACTORY_GITHUB_TOKEN` for the worker. A board owned by a user (not an organization) needs a classic token with scopes `repo` and `project`; otherwise a fine-grained token with Contents, Issues, Pull requests and Projects read and write, and Checks and Commit statuses read.
+- [ ] Run GitHub Actions (or another check) on pull requests into the base branch and on pushes to it. Without them every change waits an hour, then goes to a person.
+- [ ] Allow squash merges in the repo settings, and add `.factory.yml` as in section 1.
+- [ ] The dashboard lists a GitHub target's tickets from its board (or its factory_* labels) with `GITHUB_READ_TOKEN`, a token that reads the target repos and the board (classic: `repo` and `read:project`).
+- [ ] GitHub sign-in: add an OAuth app (GitHub > Settings > Developer settings > OAuth Apps) with the callback URL `https://<dashboard>/api/auth/callback/github`, and set `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` in the dashboard's env. A user gets in with write access to the repo of any GitHub target. The GitLab button shows only when `GITLAB_OAUTH_CLIENT_ID` is set.

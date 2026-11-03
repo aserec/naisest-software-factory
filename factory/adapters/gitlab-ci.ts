@@ -10,25 +10,23 @@ import { sh } from "../repo";
 
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
-  CI_PROJECT_ID: /^[0-9]+$/,
-  CI_JOB_ID: /^([0-9]+)?$/, // empty only outside CI
-  FACTORY_PIPELINE: /^(build|finish)?$/, // empty only in a scheduled pipeline
+  FACTORY_PIPELINE: /^(build|finish|dispatch)?$/, // empty only in a scheduled pipeline
   FACTORY_SCHEDULE: /^(poll|retry|watch)?$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
   FACTORY_MR_IID: /^([0-9]+)?$/,
   FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,
   FACTORY_SKIP_APPLY: /^1?$/,
 };
-function checkVars(env: NodeJS.ProcessEnv) {
-  if (env.CI_SERVER_URL !== GITLAB_URL) throw new Error(`CI_SERVER_URL must be ${GITLAB_URL}`);
-  for (const [k, re] of Object.entries(PATTERNS)) if (!re.test(env[k] ?? "")) throw new Error(`${k} has a value the factory does not accept`);
+// The FACTORY_* checks every CI adapter shares; more holds the CI's own variables.
+export function checkVars(env: NodeJS.ProcessEnv, more: Record<string, RegExp> = {}) {
+  for (const [k, re] of Object.entries({ ...more, ...PATTERNS })) if (!re.test(env[k] ?? "")) throw new Error(`${k} has a value the factory does not accept`);
   if (!env.FACTORY_PIPELINE === !env.FACTORY_SCHEDULE) throw new Error("Set exactly one of FACTORY_PIPELINE and FACTORY_SCHEDULE");
 }
 
 // GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
 // before any agent, install or gate command runs, so the environment only holds a path to nothing.
 // Only paths inside the runner's temp dir count, so no other file is ever read or deleted.
-function secretFile(env: NodeJS.ProcessEnv, key: string, secretDir: string): string | undefined {
+export function secretFile(env: NodeJS.ProcessEnv, key: string, secretDir: string): string | undefined {
   const raw = env[key];
   if (!raw) return undefined;
   const path = resolve(raw);
@@ -38,17 +36,18 @@ function secretFile(env: NodeJS.ProcessEnv, key: string, secretDir: string): str
   return value;
 }
 
-const need = (env: NodeJS.ProcessEnv, key: string): string => {
+export const need = (env: NodeJS.ProcessEnv, key: string): string => {
   const v = env[key];
   if (!v) throw new Error(`${key} is not set`);
   return v;
 };
 
 // Steps may ask for these. The trigger token stays inside the adapter.
-const SECRETS = ["FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN"];
+export const SECRETS = ["FACTORY_GITLAB_TOKEN", "FACTORY_GITHUB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN"];
 
 export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn: typeof fetch = fetch): CiRunner {
-  checkVars(env);
+  if (env.CI_SERVER_URL !== GITLAB_URL) throw new Error(`CI_SERVER_URL must be ${GITLAB_URL}`);
+  checkVars(env, { CI_PROJECT_ID: /^[0-9]+$/, CI_JOB_ID: /^([0-9]+)?$/ }); // CI_JOB_ID is empty only outside CI
   const secrets = new Map<string, string>();
   for (const k of SECRETS) {
     const v = secretFile(env, k, secretDir);

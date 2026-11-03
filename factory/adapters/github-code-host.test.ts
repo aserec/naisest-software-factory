@@ -1,0 +1,150 @@
+import { beforeEach, describe, expect, test } from "vitest";
+import { AI_LINE } from "../gitlab";
+import { GitHub } from "../github";
+import { makeGitHubCodeHost } from "./github-code-host";
+
+const R = "/repos/o/app";
+// One answer per "METHOD path" (or path for any method); everything else is 404. Calls are recorded.
+let calls: { path: string; method: string; body?: any }[] = [];
+let routes: Record<string, unknown>;
+const fakeFetch = (async (url: string, init: RequestInit) => {
+  const path = url.replace("https://api.github.com", "");
+  const call = { path, method: init.method!, body: init.body ? JSON.parse(init.body as string) : undefined };
+  calls.push(call);
+  const key = path.split("?")[0];
+  const hit = routes[`${call.method} ${key}`] ?? routes[key];
+  const body = typeof hit === "function" ? hit(call) : hit;
+  return new Response(JSON.stringify(body ?? {}), { status: hit === undefined ? 404 : 200 });
+}) as unknown as typeof fetch;
+const host = () => makeGitHubCodeHost(new GitHub("tok", fakeFetch, async () => {}), "o/app", "tok", {}, "develop", async () => {});
+const sent = (method: string, path: string) => calls.find((c) => c.method === method && c.path.split("?")[0] === path)?.body;
+const withChecks = (runs: object[], statuses: object[] = []) => {
+  routes[`${R}/pulls/5`] = { head: { sha: "h" } };
+  routes[`${R}/commits/h/check-runs`] = { check_runs: runs };
+  routes[`${R}/commits/h/status`] = { statuses };
+};
+
+beforeEach(() => {
+  calls = [];
+  routes = {};
+});
+
+describe("openChange", () => {
+  test("opens a pull request into the base branch with the AI line, the closing line and no line that starts with a slash", async () => {
+    routes[`GET ${R}/pulls`] = [];
+    routes[`POST ${R}/pulls`] = { number: 5, html_url: "u5" };
+    expect(await host().openChange("factory/8-x", "Add a spinner", "Text\n/merge", "8")).toEqual({ ref: "5", url: "u5" });
+    const body = sent("POST", `${R}/pulls`);
+    expect(body).toMatchObject({ head: "factory/8-x", base: "develop", title: "Add a spinner" });
+    expect(body.body.startsWith([AI_LINE, "Closes #8"].join("\n\n"))).toBe(true);
+    expect(body.body).not.toMatch(/^\s*\//m);
+  });
+  test("a re-run reuses the open pull request of the branch and updates its text", async () => {
+    routes[`GET ${R}/pulls`] = [{ number: 4, base: { ref: "develop" } }];
+    routes[`PATCH ${R}/pulls/4`] = { number: 4, html_url: "u4" };
+    expect(await host().openChange("factory/8-x", "t", "d", "8")).toEqual({ ref: "4", url: "u4" });
+    expect(calls[0].path).toBe(`${R}/pulls?state=open&head=o%3Afactory%2F8-x`);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+});
+
+describe("change", () => {
+  test("reads state, head, target and whether the base has commits the change lacks", async () => {
+    routes[`${R}/pulls/5`] = { state: "open", merged: false, head: { sha: "h" }, base: { ref: "develop" }, html_url: "u", body: "B", merge_commit_sha: null };
+    routes[`${R}/compare/develop...h`] = { behind_by: 2 };
+    expect(await host().change("5")).toMatchObject({ open: true, merged: false, head: "h", target: "develop", body: "B", behind: true });
+  });
+});
+
+describe("checks", () => {
+  test("a commit that is not the head is never green", async () => {
+    withChecks([{ status: "completed", conclusion: "success" }]);
+    expect(await host().checks({ change: "5", sha: "old" })).toBe("running");
+  });
+  test("all checks passed is green", async () => {
+    withChecks([{ status: "completed", conclusion: "success" }, { status: "completed", conclusion: "skipped" }], [{ state: "success" }]);
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("green");
+  });
+  test("one failed check run or commit status is red", async () => {
+    withChecks([{ status: "completed", conclusion: "success" }, { status: "completed", conclusion: "failure" }]);
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("red");
+    withChecks([{ status: "completed", conclusion: "success" }], [{ state: "error" }]);
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("red");
+  });
+  test("no checks yet, or one still in progress, is running", async () => {
+    withChecks([]);
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("running");
+    withChecks([{ status: "in_progress", conclusion: null }]);
+    expect(await host().checks({ branch: "develop", sha: "h" })).toBe("running");
+  });
+  test("a canceled check gives no result on the base branch, and is red on a change", async () => {
+    withChecks([{ status: "completed", conclusion: "cancelled" }]);
+    expect(await host().checks({ branch: "develop", sha: "h" })).toBe("none");
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("red");
+  });
+});
+
+test("merge squashes the reviewed head with the message and returns the landed commit", async () => {
+  routes[`PUT ${R}/pulls/5/merge`] = { sha: "landed" };
+  expect(await host().merge("5", "h", "[AM] feat: x\n\nbody")).toBe("landed");
+  expect(sent("PUT", `${R}/pulls/5/merge`)).toEqual({ sha: "h", merge_method: "squash", commit_title: "[AM] feat: x", commit_message: "body" });
+});
+
+test("rebase updates the branch and returns its new head", async () => {
+  let heads = ["h", "h", "h2"];
+  routes[`GET ${R}/pulls/5`] = () => ({ head: { sha: heads.shift() } });
+  routes[`PUT ${R}/pulls/5/update-branch`] = {};
+  expect(await host().rebase("5")).toEqual({ ok: true, head: "h2" });
+  expect(sent("PUT", `${R}/pulls/5/update-branch`)).toEqual({ expected_head_sha: "h" });
+});
+
+describe("branchDiff", () => {
+  test("gives each file's patch against the base branch", async () => {
+    routes[`${R}/compare/develop...s`] = { files: [{ filename: "a.ts", patch: "@@ -1 +1 @@\n-a\n+b", changes: 2 }, { filename: "i.png", changes: 0 }] };
+    expect(await host().branchDiff("s")).toEqual({ "a.ts": "@@ -1 +1 @@\n-a\n+b", "i.png": "" });
+  });
+  test("throws when GitHub leaves out a changed file's patch", async () => {
+    routes[`${R}/compare/develop...s`] = { files: [{ filename: "big.ts", changes: 5000 }] };
+    await expect(host().branchDiff("s")).rejects.toThrow(/cut off/);
+  });
+});
+
+describe("revert", () => {
+  test("opens a pull request whose commit takes the tree of the merged commit's parent", async () => {
+    routes[`${R}/git/ref/heads/develop`] = { object: { sha: "m" } };
+    routes[`${R}/git/commits/m`] = { parents: [{ sha: "p" }] };
+    routes[`${R}/git/commits/p`] = { tree: { sha: "tp" } };
+    routes[`POST ${R}/git/commits`] = { sha: "rv" };
+    routes[`POST ${R}/git/refs`] = {};
+    routes[`POST ${R}/pulls`] = { number: 9, html_url: "u9" };
+    expect(await host().revert("m")).toEqual({ ref: "9", url: "u9" });
+    expect(sent("POST", `${R}/git/commits`)).toMatchObject({ tree: "tp", parents: ["m"] });
+    expect(sent("POST", `${R}/git/refs`).sha).toBe("rv");
+    expect(sent("POST", `${R}/pulls`)).toMatchObject({ base: "develop" });
+  });
+  test("refuses when the base branch moved past the commit", async () => {
+    routes[`${R}/git/ref/heads/develop`] = { object: { sha: "newer" } };
+    await expect(host().revert("m")).rejects.toThrow(/moved past/);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+});
+
+test("a comment with a secret is refused", async () => {
+  await expect(host().commentChange("5", "token glpat-abcdefghijklmnopqrst")).rejects.toThrow(/secret/);
+  expect(calls).toHaveLength(0);
+});
+
+test("attach puts the image on its own branch, made from the base the first time", async () => {
+  routes[`${R}/git/ref/heads/develop`] = { object: { sha: "b" } };
+  routes[`POST ${R}/git/refs`] = {};
+  routes[`PUT ${R}/contents/factory-assets/1-a.png`] = {};
+  const now = Date.now;
+  Date.now = () => 1;
+  try {
+    expect(await host().attach("a.png", Buffer.from("png"))).toBe("https://github.com/o/app/blob/factory-assets/factory-assets/1-a.png?raw=true");
+  } finally {
+    Date.now = now;
+  }
+  expect(sent("POST", `${R}/git/refs`)).toEqual({ ref: "refs/heads/factory-assets", sha: "b" });
+  expect(sent("PUT", `${R}/contents/factory-assets/1-a.png`)).toMatchObject({ branch: "factory-assets", content: Buffer.from("png").toString("base64") });
+});

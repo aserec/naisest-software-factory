@@ -34,9 +34,10 @@ export async function main(env = process.env, argv = process.argv.slice(2)) {
   if (!targetName || !Number.isInteger(count) || count < 1 || count > 100) throw new Error("Usage: pnpm tsx factory/steps/jev-shadow.ts <target> <count> (count is at most 100)");
   // A shadow test with the mock would tell us nothing, so refuse it.
   if (!env.BERGET_API_KEY) throw new Error("BERGET_API_KEY is not set. The shadow test needs the real Jev, not the mock. Stopping.");
-  if (!env.FACTORY_GITLAB_TOKEN) throw new Error("FACTORY_GITLAB_TOKEN is not set. It is needed to read closed tickets.");
+  const token = env.FACTORY_GITHUB_TOKEN || env.FACTORY_GITLAB_TOKEN; // the token of the tracker seams.yml picks
+  if (!token) throw new Error("FACTORY_GITLAB_TOKEN (or FACTORY_GITHUB_TOKEN for a github tracker) is not set. It is needed to read closed tickets.");
   const jev = makeJevClient(env);
-  const tracker = makeTracker(env.FACTORY_GITLAB_TOKEN, loadTarget(targetName));
+  const tracker = makeTracker(token, loadTarget(targetName));
   const lines = [csvLine(CSV_HEADER)];
   for (const t of await tracker.listClosed(count)) lines.push(await shadowRow(jev, t));
   mkdirSync("run", { recursive: true });

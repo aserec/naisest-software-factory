@@ -1,4 +1,4 @@
-import type { ControlState, Dashboard, RunEvent } from "../seams";
+import type { ControlState, Dashboard, RunEvent, Dispatch } from "../seams";
 
 const FLUSH_EVERY_MS = 1000;
 const SEND_AT = 100; // events waiting that start a send at once
@@ -99,6 +99,15 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
     async requestDone(id, outcome) {
       const res = await call(`/api/factory/requests/${encodeURIComponent(id)}/done`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ outcome }) });
       if (!res.ok) throw new Error(`dashboard requestDone: HTTP ${res.status}`);
+    },
+    async dispatches(target) {
+      const res = await call(`/api/factory/dispatches?${new URLSearchParams({ target })}`);
+      if (!res.ok) throw new Error(`dashboard dispatches: HTTP ${res.status}`);
+      return (await res.json()) as Dispatch[];
+    },
+    async dispatchDone(id) {
+      const res = await call(`/api/factory/dispatches/${encodeURIComponent(id)}/done`, { method: "POST" });
+      if (!res.ok) throw new Error(`dashboard dispatchDone: HTTP ${res.status}`);
     },
   };
 }

@@ -38,6 +38,8 @@ const seamsSchema = z.object({
     keyEnv: z.string().min(1),
     models: z.record(z.string().min(1)), // model id -> family
     images: z.array(z.string().min(1)).optional(), // model ids that read images
+    // USD per million tokens. Pi works out a run's cost from these; without them a custom provider costs $0.
+    prices: z.record(z.object({ input: z.number(), output: z.number(), cacheRead: z.number().optional(), cacheWrite: z.number().optional() })).optional(),
   })),
 });
 
@@ -52,6 +54,11 @@ const targetSchema = z.object({
   maxChangedLines: z.number().int().positive(),
   defaultApprover: real,
   jobImage: z.string().min(1),
+  githubRepo: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional(),
+  githubProject: z.number().int().positive().optional(),
+  tracker: z.string().min(1).optional(),
+  codeHost: z.string().min(1).optional(),
+  sharedAccount: z.boolean().optional(),
   stuckMinutes: z.record(z.number().positive()).optional(),
 });
 
@@ -84,7 +91,8 @@ function family(seams: SeamsConfig, c: { provider: string; model: string }, fiel
 export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
   const seams = validate(seamsSchema, readYaml(path), "seams.yml");
   for (const [name, p] of Object.entries(seams.providers))
-    for (const id of p.images ?? []) if (!Object.hasOwn(p.models, id)) throw new Error(`seams.yml providers.${name}.images: model ${id} is not in models`);
+    for (const [field, ids] of [["images", p.images ?? []], ["prices", Object.keys(p.prices ?? {})]] as const)
+      for (const id of ids) if (!Object.hasOwn(p.models, id)) throw new Error(`seams.yml providers.${name}.${field}: model ${id} is not in models`);
   family(seams, seams.judgeModel, "seams.yml judgeModel");
   if (seams.providers[seams.judgeModel.provider].keyEnv === TEAM_PLAN_KEY) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider}: the Team plan works only with claude-code`);
   return seams;

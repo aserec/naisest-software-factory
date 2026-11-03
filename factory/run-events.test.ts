@@ -36,6 +36,6 @@ describe("runEvent", () => {
   });
 });
 
-it("has 7 switches", () => {
-  expect(SWITCHES).toHaveLength(7);
+it("has 8 switches", () => {
+  expect(SWITCHES).toHaveLength(8);
 });

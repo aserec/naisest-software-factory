@@ -34,6 +34,11 @@ test("a model that reads images gets image input in models.json", () => {
   expect(piModels({ provider: { ...tensorx, images: ["m1"] }, model: "m1" }).providers.tensorx.models[0].input).toEqual(["text", "image"]);
   expect(piModels({ provider: tensorx, model: "m1" }).providers.tensorx.models[0].input ?? []).not.toContain("image");
 });
+test("a model with a price gets it as cost in models.json, so Pi reports what a run costs", () => {
+  const price = { input: 0.5, output: 1.5, cacheRead: 0.13, cacheWrite: 0 };
+  expect(piModels({ provider: { ...tensorx, prices: { m1: price } }, model: "m1" }).providers.tensorx.models[0].cost).toEqual(price);
+  expect(piModels({ provider: tensorx, model: "m1" }).providers.tensorx.models[0].cost).toBeUndefined();
+});
 test("Pi env holds only the allowed keys and the provider key", () => {
   const e = agentEnv({ PATH: "/bin", HOME: "/h", FACTORY_GITLAB_TOKEN: "g", TEAMS_WEBHOOK_URL: "w", BERGET_API_KEY: "b", CLAUDE_CODE_OAUTH_TOKEN: "t", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
   expect(e).toEqual({ PATH: "/bin", HOME: "/tmp/d", PI_CODING_AGENT_DIR: "/tmp/d", PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", TENSORX_API_KEY: "k" });
@@ -167,8 +172,8 @@ test("a resume continues the session kept in the pi home", async () => {
   const cwd = runDir();
   await pi.run(authorJob(cwd, { resume: "sess-1" }));
   const args = readFileSync(join(bin, "args"), "utf8").split("\n");
-  expect(args).toEqual(expect.arrayContaining(["--session", "--continue"]));
-  expect(args[args.indexOf("--session") + 1]).toBe(join(cwd, "..", "pi-home"));
+  expect(args).toContain("--continue");
+  expect(args).not.toContain("--session"); // Pi 1.4.0 reads --session as a file: a directory fails with EISDIR
 });
 
 test("a provider 429 in the output is a limit hit", async () => {

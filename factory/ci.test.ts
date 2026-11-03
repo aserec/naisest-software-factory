@@ -8,7 +8,7 @@ import { BUILD_STEPS, STEPS as RUN_STEPS } from "./steps/run";
 import { main as watcher } from "./steps/watcher";
 
 const ci = parse(readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "utf8"));
-const STEPS = [...RUN_STEPS, "poll", "retry-waiting", "watcher"];
+const STEPS = [...RUN_STEPS, "poll", "retry-waiting", "dispatch", "watcher"];
 const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const passed = (name: string) => `${name}="$${name}"`;
 const STEP_PREFIX = [
@@ -54,6 +54,8 @@ test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {
 test("the poll and retry jobs run only in their own scheduled pipeline", () => {
   expect(ci.poll.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "poll"' }]);
   expect(ci["retry-waiting"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "retry"' }]);
+  expect(ci.dispatch.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "trigger" && $FACTORY_PIPELINE == "dispatch"' }]);
+  expect(ci.dispatch.resource_group).toBe("dispatch-$FACTORY_TARGET");
   expect(ci.smoke.rules[0].if).toContain('$CI_PIPELINE_SOURCE != "schedule"');
 });
 
@@ -92,7 +94,7 @@ test("the watcher runs only from a pipeline started by hand", async () => {
   // With logSource files, main refuses any other pipeline before it reads a secret.
   await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "schedule" })).rejects.toThrow(/started by hand/);
   // From a web pipeline it goes on to build the context.
-  await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "web" })).rejects.toThrow(/CI_SERVER_URL/);
+  await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "web" })).rejects.toThrow(/is not set/);
 });
 
 test("the dashboard deploys only on a push to main that changes what its image holds", () => {
@@ -105,3 +107,4 @@ test("the dashboard deploys only on a push to main that changes what its image h
   expect(job.environment).toEqual({ name: "dashboard" });
   expect(job.script.at(-1)).toContain("ssh -i \"$DASHBOARD_DEPLOY_KEY\" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$DASHBOARD_KNOWN_HOSTS\" ");
 });
+

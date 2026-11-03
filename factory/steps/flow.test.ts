@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, vi } from "vitest";
 // targets/react_frontend.yml keeps its placeholder approver until go-live, and loadTarget refuses it.
@@ -16,6 +16,7 @@ import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type Mark } from "../seams";
+import { newRecord, saveRecord } from "../record";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
 import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
@@ -339,6 +340,18 @@ test("runStep saves the record and writes the stop file on a stop", async () => 
   expect(readFileSync(join(dir, "stop"), "utf8")).toBe("event");
   expect(JSON.parse(readFileSync(join(dir, "record.json"), "utf8")).steps[0].step).toBe("event");
 });
+test("runStep sends the step's output with step_end when no CI job holds a log", async () => {
+  const dir = tmp();
+  const w = fakeWorld();
+  w.ci.vars = { ...w.ci.vars, ticket: "8", job: undefined };
+  saveRecord({ ...newRecord(), runId: "r1" }, dir);
+  await runStep("triage", async () => (process.stdout.write("installed 12 packages\n"), "next"), { dir, make: () => w.ctx });
+  const end = readFileSync(join(dirname(w.ctx.dir), "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "step_end");
+  expect(end.data.log).toContain("installed 12 packages");
+  w.ci.vars.job = "7";
+  await runStep("triage", async () => (process.stdout.write("in the CI log\n"), "next"), { dir, make: () => w.ctx });
+  expect(readFileSync(join(dirname(w.ctx.dir), "events.jsonl"), "utf8")).not.toContain("in the CI log");
+});
 test("runStep blocks the work item on an unexpected error and still fails the job", async () => {
   const dir = tmp();
   const w = fakeWorld();
@@ -404,6 +417,17 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
   expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir, seams)).toThrow(/image/);
   expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }), dir, seams)).not.toThrow();
+});
+test("a target on GitHub needs only the GitHub token and builds the GitHub tracker and code host", () => {
+  const dir = tmp();
+  const env = (o: Record<string, string>) => {
+    for (const k of ["gh", "dash"]) writeFileSync(join(dir, k), "x");
+    return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "musicapp_webapp", TENSORX_API_KEY: "k", FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+  };
+  expect(() => makeContext(env({}), dir, seamsFile(dir))).toThrow(/FACTORY_GITHUB_TOKEN is not set/);
+  const ctx = makeContext(env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") }), dir, seamsFile(dir));
+  expect(ctx.seams).toMatchObject({ tracker: "github-project", codeHost: "github" });
+  expect(ctx.repo).toBeDefined();
 });
 test("a build record that fails the provenance check is not retried", async () => {
   const w = fakeWorld();
@@ -636,7 +660,7 @@ test("makeContext registers the secrets it holds, so no comment or push can carr
   const teams = "https://teams.example/webhook/0123456789";
   makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789",
     TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
-    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir));
+    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir, (t) => t.replace(/^ci: local$/m, "ci: gitlab")));
   for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", teams, "dashboard-token-0123456789", "trigger-0123456789"]) {
     expect(findSecrets(`text ${v} text`), v).toHaveLength(1);
   }
@@ -729,9 +753,9 @@ test("makeContext refuses an unknown adapter in seams.yml before it builds any",
   expect(() => makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl") }, dir, seams)).toThrow("seams.yml tracker: unknown adapter jira");
   expect(existsSync(join(dir, "gl"))).toBe(true); // the CI adapter never ran, so it read no secret
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: jira", "tracker: toString"));
-  expect(() => makeContext({}, dir, seams)).toThrow("seams.yml tracker: unknown adapter toString");
+  expect(() => makeContext({ FACTORY_TARGET: "react_frontend" }, dir, seams)).toThrow("seams.yml tracker: unknown adapter toString");
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: toString", "tracker: gitlab").replace("logSource: files", "logSource: filez"));
-  expect(() => makeContext({}, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
+  expect(() => makeContext({ FACTORY_TARGET: "react_frontend" }, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
 });
 // chat: console needs no Teams webhook.
 test("prepare patch and the questions agent clone the base branch", async () => {

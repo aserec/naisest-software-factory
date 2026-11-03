@@ -88,6 +88,13 @@ describe("session", () => {
     expect(t).toMatchObject({ userId: 7, username: "dev" });
   });
 
+  it("the jwt callback keeps a GitHub user's login and marks the session as GitHub", async () => {
+    const { authConfig } = await load();
+    const t = await authConfig.callbacks.jwt({ token: {}, account: { provider: "github", access_token: "at" }, profile: { id: 9, login: "ann", name: "Ann" } });
+    expect(t).toMatchObject({ userId: 9, username: "ann", provider: "github" });
+    expect(Object.keys(t!).sort()).toEqual(["loginAt", "provider", "userId", "username"]);
+  });
+
   it("sessionUser gives the id and username from the cookie, and nothing without one or 8 h after sign-in", async () => {
     const { sessionUser } = await load();
     request.cookie = await cookieFor({ userId: 7, username: "dev", loginAt: Date.now() - 7 * 3_600_000 });

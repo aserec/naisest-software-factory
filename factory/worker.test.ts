@@ -1,0 +1,118 @@
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+import type { QueuedRun } from "./adapters/local-ci";
+import { FACTORY_ROOT } from "./repo";
+import { BUILD_STEPS } from "./steps/run";
+import { handler, machineHost, nextId, runOne, stepEnv, takeQueue, targetLock, type Exec, type Live } from "./worker";
+
+const tmp = () => mkdtempSync(join(tmpdir(), "worker-"));
+const base = { GL_TOKEN: "glpat-x", FACTORY_DASHBOARD_TOKEN: "dash", TENSORX_API_KEY: "tx" };
+
+// A fake docker: `start -a` ends each step with codes[step] (0 by default). Copying run/ out makes out/run;
+// decision's queue copy leaves a finish request, as decision's start() would.
+function fakeDocker(codes: Record<string, number> = {}) {
+  const calls: string[][] = [];
+  const exec: Exec = async (_cmd, args) => {
+    calls.push(args);
+    if (args[0] === "start") return { code: codes[args[2].split("-").slice(2).join("-")] ?? 0, out: "" };
+    if (args[0] === "cp" && args[1].endsWith(`:${FACTORY_ROOT}/run`)) mkdirSync(join(args[2], "run"), { recursive: true });
+    if (args[0] === "cp" && args[1].includes("-decision:")) writeFileSync(join(args[2], "1-a.json"), JSON.stringify({ kind: "finish", target: "react_frontend", ticket: "8", buildRun: "7" }));
+    return { code: 0, out: "" };
+  };
+  return { calls, exec, started: () => calls.filter((a) => a[0] === "start").map((a) => a[2].split("-").slice(2).join("-")) };
+}
+const run = (d: ReturnType<typeof fakeDocker>, runs: string, queue: string, q: QueuedRun = { kind: "build", target: "react_frontend", ticket: "8" }) =>
+  runOne(d.exec, base, machineHost(), "factory-worker", q, "7", targetLock(), runs, queue);
+
+test("a build run starts each step in its own container, saves run/ and marks it ok after decision, then queues what it asked", async () => {
+  const d = fakeDocker(), runs = tmp(), queue = tmp();
+  await run(d, runs, queue);
+  expect(d.started()).toEqual(BUILD_STEPS);
+  const create = d.calls.find((a) => a[0] === "create" && a.includes("factory/steps/triage.ts"))!;
+  expect(create).toContain(`factory-run-7:${FACTORY_ROOT}/run`);
+  expect(create).toContain(`FACTORY_GITLAB_TOKEN=${FACTORY_ROOT}.tmp/FACTORY_GITLAB_TOKEN`); // a path, never the token
+  expect(create.join(" ")).not.toContain("glpat-x");
+  expect(existsSync(join(runs, "7", "ok"))).toBe(true);
+  expect(readdirSync(queue)).toEqual(["1-a.json"]);
+  expect(d.calls.at(-1)).toEqual(["volume", "rm", "-f", "factory-run-7", "factory-ref-7"]);
+});
+
+test("a failed step ends the run, and a run whose decision did not pass gets no ok", async () => {
+  const d = fakeDocker({ "code-review": 1 }), runs = tmp();
+  await run(d, runs, tmp());
+  expect(d.started()).toEqual(["event", "triage", "prepare-patch", "code-review"]);
+  expect(existsSync(join(runs, "7", "ok"))).toBe(false);
+});
+
+test("a finish run mounts its build run read-only, and only one the worker marked ok", async () => {
+  const runs = tmp();
+  const finish = { kind: "finish" as const, target: "react_frontend", ticket: "8", change: "3", buildRun: "4" };
+  await expect(run(fakeDocker(), runs, tmp(), finish)).rejects.toThrow(/not a finished build run/);
+  mkdirSync(join(runs, "4"));
+  writeFileSync(join(runs, "4", "ok"), "");
+  const d = fakeDocker();
+  await run(d, runs, tmp(), finish);
+  expect(d.started()).toEqual(["apply", "verify", "result-saved"]);
+  expect(d.calls.find((a) => a[0] === "create" && a.includes("factory/steps/apply.ts"))).toContain(`factory-ref-7:${FACTORY_ROOT}.runs:ro`);
+});
+
+test("a queued run with a bad value starts nothing", async () => {
+  const d = fakeDocker();
+  await expect(run(d, tmp(), tmp(), { kind: "build", target: "react_frontend", ticket: "8; rm -rf /" })).rejects.toThrow(/FACTORY_WORK_ITEM_IID/);
+  expect(d.calls).toEqual([]);
+});
+
+test("the event steps of one target run one at a time", async () => {
+  const lock = targetLock();
+  const order: string[] = [];
+  const job = (n: string) => lock("t", async () => { order.push(`${n} in`); await new Promise((r) => setTimeout(r, 5)); order.push(`${n} out`); return true; });
+  await Promise.all([job("a"), job("b")]);
+  expect(order).toEqual(["a in", "a out", "b in", "b out"]);
+});
+
+test("takeQueue takes valid runs oldest first and moves a bad file aside; nextId counts up", () => {
+  const q = tmp();
+  writeFileSync(join(q, "2.json"), JSON.stringify({ kind: "finish", target: "t", ticket: "9" }));
+  writeFileSync(join(q, "1.json"), JSON.stringify({ kind: "build", target: "t", ticket: "8" }));
+  writeFileSync(join(q, "3.json"), JSON.stringify({ kind: "deploy", target: "t" }));
+  expect(takeQueue(q).map((r) => r.ticket)).toEqual(["8", "9"]);
+  expect(readdirSync(q)).toEqual(["3.json.bad"]);
+  const runs = tmp();
+  expect([nextId(runs), nextId(runs)]).toEqual(["1", "2"]);
+});
+
+test("a cancel kills the running step's container and starts no next step", async () => {
+  const d = fakeDocker(), live: Live = { cancelled: false };
+  const exec: Exec = async (cmd, args, env) => {
+    if (args[0] === "start" && args[2].endsWith("-triage")) { live.cancelled = true; await live.kill?.(); return { code: 137, out: "" }; }
+    return d.exec(cmd, args, env);
+  };
+  await runOne(exec, base, machineHost(), "factory-worker", { kind: "build", target: "react_frontend", ticket: "8" }, "7", targetLock(), tmp(), tmp(), live);
+  expect(d.calls.filter((a) => a[0] === "start").map((a) => a[2])).toEqual(["factory-7-event"]);
+  expect(d.calls).toContainEqual(["kill", "factory-7-triage"]);
+});
+
+test("the dashboard's calls need its token, and only cancel and dispatch are served", async () => {
+  const seen: string[] = [];
+  const h = handler("dash", { cancel: async (r) => (seen.push(`cancel ${r}`), r === "7"), dispatch: (t) => (seen.push(`dispatch ${t}`), true) });
+  const post = async (url: string, token = "dash", method = "POST") => {
+    let code = 0;
+    const res = { writeHead: (c: number) => ((code = c), { end: () => {} }) } as never;
+    await h({ url, method, headers: { authorization: `Bearer ${token}` } }, res);
+    return code;
+  };
+  expect(await post("/runs/7/cancel", "wrong")).toBe(401);
+  expect(await post("/runs/7/cancel")).toBe(204);
+  expect(await post("/runs/8/cancel")).toBe(404);
+  expect(await post("/runs/7/cancel", "dash", "GET")).toBe(404);
+  expect(await post("/dispatch/react_frontend")).toBe(202);
+  expect(await post("/dispatch/../x")).toBe(404);
+  expect(seen).toEqual(["cancel 7", "cancel 8", "dispatch react_frontend"]);
+});
+
+test("the watcher gets the person's source only when one is given", () => {
+  expect(stepEnv(base, { schedule: "watch", target: "react_frontend", source: "web" }).CI_PIPELINE_SOURCE).toBe("web");
+  expect(stepEnv(base, { schedule: "poll", target: "react_frontend" }).CI_PIPELINE_SOURCE).toBeUndefined();
+});

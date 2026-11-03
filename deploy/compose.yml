@@ -33,8 +33,11 @@ services:
       context: ..
       dockerfile: runner/Dockerfile
     command: ["true"]
+  # factory/worker.ts. It runs each step in a new container from its own image (factory-worker): on this
+  # machine (FACTORY_EXECUTOR machine, the default) or on a new Hetzner VM per run (hetzner).
   worker:
     profiles: [worker]
+    image: factory-worker
     build:
       context: ..
       dockerfile: deploy/worker.Dockerfile
@@ -42,15 +45,23 @@ services:
         runner: service:runner-image
     # Only what the worker needs, not the dashboard's tokens.
     environment:
+      FACTORY_EXECUTOR: ${FACTORY_EXECUTOR:-machine}
+      HETZNER_TOKEN: ${HETZNER_TOKEN:-}
       GL_TOKEN: ${GL_TOKEN:-}
+      FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
       TENSORX_API_KEY: ${TENSORX_API_KEY:-}
       FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
-      FACTORY_DASHBOARD_URL: https://caddy.internal
+      # Containers on this machine reach Caddy on the factory network; VMs reach it at its public name.
+      FACTORY_DASHBOARD_URL: ${FACTORY_DASHBOARD_URL:-https://caddy.internal}
       NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
     volumes:
     - caddy_data:/caddy:ro
-    - worker_cache:/app.cache # the pnpm store
-    # The same as the CI runner's job containers: bubblewrap must be able to make user namespaces.
+    - runs:/app.runs # finished runs; only the worker writes here
+    - ./runner:/app/deploy/runner:ro # the Hetzner VMs' cloud-init.yml, written by install.sh
+    # The worker starts the step containers. ponytail: the socket gives the worker root on this machine; no step
+    # container gets it, and no agent runs in the worker. Use the hetzner executor to keep runs off this machine.
+    - /var/run/docker.sock:/var/run/docker.sock
+    # poll, retry and dispatch run in the worker itself, and the dispatch writer is an agent: bubblewrap needs user namespaces.
     security_opt: ["seccomp=unconfined", "apparmor=unconfined"]
     depends_on: [caddy]
     restart: unless-stopped
@@ -64,9 +75,13 @@ services:
     - ./runner:/etc/gitlab-runner
     - fleeting_plugins:/root/.config/fleeting
     restart: unless-stopped
+# Named, so the worker can put step containers on it (docker run --network factory).
+networks:
+  default:
+    name: factory
 volumes:
+  runs:
   data:
   caddy_data:
   caddy_config:
-  worker_cache:
   fleeting_plugins:

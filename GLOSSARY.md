@@ -24,6 +24,10 @@ _Avoid_: Status
 The saved summary of a run: steps reached, models used, rounds, cost and tokens.
 _Avoid_: Report, log
 
+**Dispatch**:
+A request from an outside system, such as a nightly audit or a monitor, for the factory to open a work item about a problem it found. The same source and key always mean the same problem.
+_Avoid_: Signal, event, alert, request
+
 ## Agents
 
 **Author**:

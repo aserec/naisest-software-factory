@@ -6,7 +6,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
 export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "switch_change"]);
 
-export const SWITCHES = ["watcher", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply"] as const;
+export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply"] as const;
 export type SwitchName = (typeof SWITCHES)[number];
 
 // The sender cuts long text to this size. The schema only guards it.
@@ -29,7 +29,8 @@ export const EVENT_DATA: Record<EventType, z.ZodTypeAny> = {
   run_start: z.object({}).passthrough(),
   run_end: z.object({ outcome: z.enum(["done", "blocked", "needs_info", "restarted"]) }),
   step_start: z.object({ prompt: z.string().optional() }).passthrough(),
-  step_end: z.object({ outcome: z.enum(["next", "stop", "stopped", "waiting", "error"]) }),
+  // log: the end of the step's output, sent only when no CI job holds it (local-run.sh, the worker).
+  step_end: z.object({ outcome: z.enum(["next", "stop", "stopped", "waiting", "error"]), log: field.optional() }),
   tool_call: z.object({ name: z.string(), input: field, result: field, ms: z.number(), ok: z.boolean() }),
   jev_answer: z.object({ question: z.string(), answer: z.string(), confidence: z.string() }),
   review_finding: z.object({ text: z.string(), blocking: z.boolean(), round: z.number() }),
@@ -100,6 +101,19 @@ export interface ControlRequest {
   outcome?: "stopped" | "cancelled" | "done" | "refused";
   doneAt?: string;
 }
+
+// A dispatch: an outside system (a cron audit, a monitor, anything) tells the factory about a problem.
+// The dashboard keeps it until the dispatches job turns it into a ticket. Same source and key = same problem.
+export const dispatchInput = z.object({
+  target: z.string().min(1).max(200),
+  source: z.string().regex(/^[\w.-]{1,100}$/), // e.g. pip-audit
+  key: z.string().min(1).max(200), // e.g. the lock file; one open ticket per source and key
+  title: z.string().min(1).max(200),
+  details: field, // the tool's output: evidence for the ticket
+  link: z.string().url().max(2000).optional(), // e.g. the failed CI job
+});
+export type DispatchInput = z.infer<typeof dispatchInput>;
+export interface Dispatch extends DispatchInput { id: string; at: string }
 
 export interface ControlState {
   switches: Record<SwitchName, boolean>;
