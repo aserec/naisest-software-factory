@@ -68,6 +68,16 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       }
       return { ok: false, error: "the branch update did not end within 5 minutes" };
     },
+    // The raw media type returns the file text itself, not JSON with base64.
+    async readFile(path) {
+      try {
+        const url = `${r}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(baseBranch)}`;
+        return await (await gh.call("GET", url, undefined, { Accept: "application/vnd.github.raw" })).text();
+      } catch (e) {
+        if (String(e).includes("failed with status 404")) return undefined;
+        throw e;
+      }
+    },
     async branchDiff(sha) {
       const c = await gh.json("GET", `${r}/compare/${encodeURIComponent(baseBranch)}...${sha}`);
       const files: { filename: string; patch?: string; changes: number }[] = c.files ?? [];

@@ -5,11 +5,11 @@ export const GITHUB_API = "https://api.github.com";
 export class GitHub {
   constructor(private token: string, private fetchFn: typeof fetch = fetch, private sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))) {}
 
-  async call(method: string, path: string, body?: unknown): Promise<Response> {
+  async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Response> {
     for (let attempt = 1; ; attempt++) {
       const res = await this.fetchFn(`${GITHUB_API}${path}`, {
         method,
-        headers: { Authorization: `Bearer ${this.token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${this.token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json", ...headers },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(60_000),
       });

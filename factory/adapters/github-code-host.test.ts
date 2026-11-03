@@ -5,16 +5,16 @@ import { makeGitHubCodeHost } from "./github-code-host";
 
 const R = "/repos/o/app";
 // One answer per "METHOD path" (or path for any method); everything else is 404. Calls are recorded.
-let calls: { path: string; method: string; body?: any }[] = [];
+let calls: { path: string; method: string; body?: any; accept?: string }[] = [];
 let routes: Record<string, unknown>;
 const fakeFetch = (async (url: string, init: RequestInit) => {
   const path = url.replace("https://api.github.com", "");
-  const call = { path, method: init.method!, body: init.body ? JSON.parse(init.body as string) : undefined };
+  const call = { path, method: init.method!, body: init.body ? JSON.parse(init.body as string) : undefined, accept: (init.headers as Record<string, string>).Accept };
   calls.push(call);
   const key = path.split("?")[0];
   const hit = routes[`${call.method} ${key}`] ?? routes[key];
   const body = typeof hit === "function" ? hit(call) : hit;
-  return new Response(JSON.stringify(body ?? {}), { status: hit === undefined ? 404 : 200 });
+  return new Response(typeof body === "string" ? body : JSON.stringify(body ?? {}), { status: hit === undefined ? 404 : 200 });
 }) as unknown as typeof fetch;
 const host = () => makeGitHubCodeHost(new GitHub("tok", fakeFetch, async () => {}), "o/app", "tok", {}, "develop", async () => {});
 const sent = (method: string, path: string) => calls.find((c) => c.method === method && c.path.split("?")[0] === path)?.body;
@@ -96,6 +96,20 @@ test("rebase updates the branch and returns its new head", async () => {
   routes[`PUT ${R}/pulls/5/update-branch`] = {};
   expect(await host().rebase("5")).toEqual({ ok: true, head: "h2" });
   expect(sent("PUT", `${R}/pulls/5/update-branch`)).toEqual({ expected_head_sha: "h" });
+});
+
+describe("readFile", () => {
+  test("reads the raw file at the head of the base branch, with each path segment URL-encoded", async () => {
+    routes[`${R}/contents/docs/my%20dir/CODEOWNERS`] = "* @alice\n";
+    expect(await host().readFile("docs/my dir/CODEOWNERS")).toBe("* @alice\n");
+    expect(calls[0]).toMatchObject({ method: "GET", path: `${R}/contents/docs/my%20dir/CODEOWNERS?ref=develop`, accept: "application/vnd.github.raw" });
+  });
+  test("a missing file is undefined, any other failure throws", async () => {
+    expect(await host().readFile("CODEOWNERS")).toBeUndefined();
+    const boom = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    const h = makeGitHubCodeHost(new GitHub("tok", boom, async () => {}), "o/app", "tok", {}, "develop", async () => {});
+    await expect(h.readFile("CODEOWNERS")).rejects.toThrow(/500/);
+  });
 });
 
 describe("branchDiff", () => {
