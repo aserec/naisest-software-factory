@@ -1,8 +1,11 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import GitHub from "next-auth/providers/github";
 import GitLab from "next-auth/providers/gitlab";
+import { makeGitHub } from "./github";
 import { gitlab } from "./gitlab";
+import { readTargets } from "./targets";
 
 // Hash both sides so the compare has equal lengths and the token length does not leak.
 const digest = (s: string) => createHash("sha256").update(s).digest();
@@ -15,10 +18,12 @@ export function factoryAuthorized(req: Request, tokenEnv: "FACTORY_DASHBOARD_TOK
   return given !== undefined && timingSafeEqual(digest(given), digest(token));
 }
 
-// ---- User sign-in (GitLab through Auth.js) ----
+// ---- User sign-in (GitLab or GitHub through Auth.js) ----
+// Each sign-in is on when its OAuth app is set: GitLab for GitLab targets, GitHub for GitHub targets.
 
 export const MIN_LEVEL = 30; // GitLab Developer
 export const REFUSAL = "You need the Developer role on the factory project.";
+export const GITHUB_REFUSAL = "You need write access to the repo of a GitHub target.";
 export const SESSION_HOURS = 8;
 const HOUR = 3_600_000;
 
@@ -65,29 +70,46 @@ export async function canAct(userId: number, fetchFn: FetchFn = fetch): Promise<
   return level !== undefined && level >= MIN_LEVEL;
 }
 
+// A GitHub user may act while they have write access to a GitHub target's repo, read again on every action.
+export async function canActOnGitHub(login: string, fetchFn: FetchFn = fetch): Promise<boolean> {
+  return makeGitHub(fetchFn).canWrite(login, readTargets()).catch(() => false);
+}
+
 declare module "next-auth" {
   interface Session {
     userId?: number;
     username?: string;
+    provider?: "github";
   }
 }
 
+export const GITLAB_LOGIN = !!process.env.GITLAB_OAUTH_CLIENT_ID;
+export const GITHUB_LOGIN = !!process.env.GITHUB_OAUTH_CLIENT_ID;
+
 export const authConfig = {
   providers: [
-    GitLab({
+    ...(GITLAB_LOGIN ? [GitLab({
       baseUrl: `${gitlab()}/`,
       clientId: process.env.GITLAB_OAUTH_CLIENT_ID,
       clientSecret: process.env.GITLAB_OAUTH_CLIENT_SECRET,
       authorization: `${gitlab()}/oauth/authorize?scope=read_user`,
       checks: ["pkce", "state"],
-    }),
+    })] : []),
+    // No scope: sign-in only reads who the user is. The role comes from the server's GITHUB_READ_TOKEN.
+    ...(GITHUB_LOGIN ? [GitHub({
+      clientId: process.env.GITHUB_OAUTH_CLIENT_ID,
+      clientSecret: process.env.GITHUB_OAUTH_CLIENT_SECRET,
+      authorization: { params: { scope: "" } },
+      checks: ["pkce", "state"],
+    })] : []),
     ...(DEV_LOGIN ? [Credentials({ id: "dev", name: "Dev", credentials: {}, authorize: () => DEV_USER })] : []),
   ],
   session: { strategy: "jwt" as const, maxAge: SESSION_HOURS * 3600 },
   pages: { signIn: "/sign-in", error: "/sign-in" },
   callbacks: {
-    async signIn({ account }: { account?: { provider?: string; access_token?: string } | null }) {
+    async signIn({ account, profile }: { account?: { provider?: string; access_token?: string } | null; profile?: any }) {
       if (DEV_LOGIN && account?.provider === "dev") return true;
+      if (account?.provider === "github") return (await canActOnGitHub(String(profile?.login ?? ""))) || "/sign-in?error=github-role";
       const r = await checkRole(account?.access_token ?? "");
       if (!("refused" in r)) return true;
       return `/sign-in?error=${r.refused === REFUSAL ? "role" : "unconfirmed"}`;
@@ -96,6 +118,7 @@ export const authConfig = {
     // The session ends 8 h after sign-in, even if it was used since.
     async jwt({ token, account, profile }: { token: any; account?: any; profile?: any }) {
       if (account?.provider === "dev") profile = { id: DEV_USER.id, username: DEV_USER.name };
+      if (account?.provider === "github") return { userId: Number(profile?.id), username: String(profile?.login), provider: "github", loginAt: Date.now() };
       if (account) return { userId: Number(profile?.id), username: String(profile?.username), loginAt: Date.now() };
       if (!token.username || !token.loginAt || Date.now() - token.loginAt > SESSION_HOURS * HOUR) return null;
       return token;
@@ -103,6 +126,7 @@ export const authConfig = {
     async session({ session, token }: { session: any; token: any }) {
       session.userId = token.userId;
       session.username = token.username;
+      if (token.provider === "github") session.provider = "github";
       session.user = { name: token.username };
       return session;
     },
@@ -112,7 +136,8 @@ export const authConfig = {
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
 
 // The user in the request's session, or undefined without a live session.
-export async function sessionUser(): Promise<{ userId: number; username: string } | undefined> {
+export async function sessionUser(): Promise<{ userId: number; username: string; provider?: "github" } | undefined> {
   const s = await auth();
-  return s?.userId !== undefined && s.username ? { userId: s.userId, username: s.username } : undefined;
+  if (s?.userId === undefined || !s.username) return undefined;
+  return { userId: s.userId, username: s.username, ...(s.provider && { provider: s.provider }) };
 }

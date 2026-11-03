@@ -1,5 +1,6 @@
 import { DASHBOARD_TYPES, EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
 import type { Db } from "./db";
+import { makeGitHub } from "./github";
 import { readTargets } from "./targets";
 
 // The GitLab base URL. Here and not in auth.ts, so the background loop does not load next-auth.
@@ -15,6 +16,7 @@ const id = (v: string) => {
 };
 
 export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
+  const github = makeGitHub(fetchFn);
   const factory = () => id(process.env.FACTORY_PROJECT_ID ?? "");
   // ponytail: one page of 100 per call, add paging if a state ever holds more than 100 issues.
   const get = (path: string) => fetchFn(`${gitlab()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" } });
@@ -27,14 +29,15 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
   let cached: { at: number; rows: ReturnType<typeof fetchBoard> } | undefined;
   async function fetchBoard() {
     type Issue = { iid: number; title: string; web_url: string; updated_at: string };
-    // ponytail: the board reads GitLab tickets only; a GitHub target's tickets are on its issues page.
-    const lists = readTargets().filter((t) => !t.githubIssues).flatMap((t) =>
+    // Each target's tickets come from its own tracker: GitLab issues, or GitHub issues and boards.
+    const targets = readTargets();
+    const lists = targets.filter((t) => !t.github).flatMap((t) =>
       STATES.map(async (state) => {
         const issues = await getJson<Issue[]>(`/projects/${encodeURIComponent(t.projectPath)}/issues?labels=${state}&per_page=100`);
         return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at }));
       }),
     );
-    return (await Promise.all(lists)).flat();
+    return [...(await Promise.all(lists)).flat(), ...(await github.board(targets))];
   }
 
   async function importJob(db: Db, job: string): Promise<number> {
