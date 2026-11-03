@@ -74,6 +74,16 @@ The factory also adds progress labels. They stay next to the state label. A new 
 
 While an author agent runs, the factory reads new comments on the work item about once a minute. Comments from people who may command the factory (Developer and above) reach the agent as data. A comment with the line `@factory stop` stops the agent at its next tool call: the item gets `factory_stopped`, and the factory comments `Stopped run: pipeline <n>`. A person then comments the line `@factory resume`: the factory loads that run's record and continues the saved agent session at the step that stopped. A `@factory stop` outside a run does nothing.
 
+A person can also end a run by closing its work item or its merge request. The factory reads the live state of both at the moment it acts, because webhooks can arrive out of order: an item closed and then opened again goes on.
+
+- The author agent's inbox checks both about once a minute. A closed one stops the agent at its next tool call.
+- The gate checks right before it pushes, decision checks before it decides, and apply checks before each rebase and before the merge.
+- A closed work item ends the run quietly. The factory closes the run's open merge request with the comment `This merge request was closed because a person closed work item #<n>.`, removes the state label and ends the run as `closed`. Marks stay.
+- A merge request closed without a merge, while the work item is open, blocks the run with a comment that links it.
+- Only a work item in a run state counts (`factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`), and never one whose merge request merged. The factory closes the work item itself: the merge request's closing line closes it at the merge, while verify still runs, and result-saved sets `factory_done`.
+- A merge request counts only when it is this run's. Every run of a work item uses the same branch, so until the gate pushes, the newest merge request on it belongs to an older run, for example one a restart closed.
+- A run with no step running would keep its run slot for good. Every minute the poller checks the work items in `factory_needs_approval`, `factory_waiting` and `factory_stopped`, open or closed, and applies the same two outcomes. It has no run record, so it counts a closed merge request only for a work item past the push: `factory_needs_approval`, or `factory_stopped` with a stop note at decision or apply. A run the poller ends sends no `run_end`, because the poller does not know its run ID.
+
 ## The merge rule
 
 A change merges without a person only when all four are true:
@@ -103,7 +113,7 @@ The person is the first of these:
 
 Two scheduled pipelines run for each target (see `docs/add-a-repo.md`).
 
-- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire.
+- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume).
 - **Retry**, every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
 
 At most 2 runs at once per target, and one run per work item.

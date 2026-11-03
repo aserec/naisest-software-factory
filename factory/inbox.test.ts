@@ -166,3 +166,9 @@ test("the pump polls every 10 s by default", async () => {
     vi.useRealTimers();
   }
 });
+
+// Part C: a person closed the work item or the run's change.
+test("a closed check that says closed stops; one that throws does not", async () => {
+  expect((await makeInbox(world(), "8", SINCE, undefined, async () => true).poll()).stop).toBe(true);
+  expect((await makeInbox(world(), "8", SINCE, undefined, async () => { throw new Error("status 502"); }).poll()).stop).toBe(false);
+});

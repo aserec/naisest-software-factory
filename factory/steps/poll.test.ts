@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { main, pollReady } from "./poll";
-import { cancelNote, finishCancelledStops, handleRequests, isCancelNote, stoppedNote } from "./run";
+import { cancelNote, endClosedRuns, finishCancelledStops, handleRequests, isCancelNote, stoppedNote } from "./run";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx } from "./test-helpers";
 import { fakeDashboard } from "../fakes";
@@ -291,4 +291,70 @@ test("a restart retry older than 15 minutes starts nothing, stops the ticket aga
   expect(ctx.world.tracker.posted.map((p) => p.text)).toEqual(["The restart could not start a new run within 15 minutes. The ticket is stopped again. Press Restart on the dashboard to try again."]);
   expect(dash.done).toEqual([["q7", "refused"]]);
   expect(dash.events.filter((e) => e.type === "run_end")).toEqual([]);
+});
+
+// Part C: the poller ends runs with no step running whose work item or change a person closed.
+const closedWorld = (state: "needs_approval" | "stopped" | "waiting" | "running" | "done", o: { open?: boolean; note?: string } = {}) => {
+  const ctx = fakeCtx({ running: 0 });
+  const w = ctx.world;
+  const t = w.tracker.tickets.get("8")!;
+  Object.assign(t, { state, open: o.open ?? true });
+  w.openChange(); // change 5 of ticket 8
+  if (o.note) ctx.tracker.comments = async () => [{ author: BOT, byFactory: true, body: o.note!, at: "2026-10-29T00:00:00Z" }];
+  return { ctx, w, t };
+};
+test("a closed needs_approval ticket loses its state and its open change is closed with a comment", async () => {
+  const { ctx, w, t } = closedWorld("needs_approval", { open: false });
+  expect(await endClosedRuns(ctx)).toEqual(["8"]);
+  expect(t.state).toBeUndefined();
+  expect(w.host.changes.get("5")!.open).toBe(false);
+  expect(w.mrComments).toEqual(["This merge request was closed because a person closed work item #8."]);
+});
+test("an open needs_approval ticket whose change was closed unmerged is blocked", async () => {
+  const { ctx, w, t } = closedWorld("needs_approval");
+  w.host.close("5");
+  expect(await endClosedRuns(ctx)).toEqual(["8"]);
+  expect(t.state).toBe("blocked");
+  expect(w.workItemComments.at(-1)).toContain("The merge request https://host.example/changes/5 was closed without a merge.");
+});
+test("a closed done ticket, and a closed ticket whose change merged, are left alone", async () => {
+  const done = closedWorld("done", { open: false });
+  expect(await endClosedRuns(done.ctx)).toEqual([]);
+  expect(done.t.state).toBe("done");
+  // A person merged it: the closing line closed the ticket, and the finish run takes it from here.
+  const merged = closedWorld("needs_approval", { open: false });
+  merged.w.host.mergeByPerson("5");
+  expect(await endClosedRuns(merged.ctx)).toEqual([]);
+  expect(merged.t.state).toBe("needs_approval");
+});
+// Regression: the factory's merge closes the ticket while verify still runs, up to an hour.
+test("a running ticket whose change merged is not ended by the poller", async () => {
+  const { ctx, w, t } = closedWorld("running", { open: false });
+  w.host.mergeByPerson("5");
+  expect(await endClosedRuns(ctx)).toEqual([]);
+  expect(t.state).toBe("running");
+  expect(w.tracker.cleared).toEqual([]);
+});
+// Regression: before the push, the newest change is an older run's.
+test("a waiting or stopped ticket that paused before the push is not blocked for an older run's closed change", async () => {
+  const waiting = closedWorld("waiting");
+  waiting.w.host.close("5");
+  expect(await endClosedRuns(waiting.ctx)).toEqual([]);
+  expect(waiting.t.state).toBe("waiting");
+  const early = closedWorld("stopped", { note: personStop });
+  early.w.host.close("5");
+  expect(await endClosedRuns(early.ctx)).toEqual([]);
+  expect(early.t.state).toBe("stopped");
+  const atApply = closedWorld("stopped", { note: stoppedNote({ run: "55", step: "apply", reason: "switch off apply", change: "5", buildRun: "55" }) });
+  atApply.w.host.close("5");
+  expect(await endClosedRuns(atApply.ctx)).toEqual(["8"]);
+  expect(atApply.t.state).toBe("blocked");
+});
+test("a closed waiting ticket ends, and one failed ticket does not stop the others", async () => {
+  const { ctx, w, t } = closedWorld("waiting", { open: false });
+  w.tracker.tickets.set("10", { ...t, ref: "10", state: "stopped" });
+  const ticket = ctx.tracker.ticket;
+  ctx.tracker.ticket = async (ref) => { if (ref === "10") throw new Error("status 502"); return ticket(ref); };
+  expect(await endClosedRuns(ctx)).toEqual(["8"]);
+  expect(t.state).toBeUndefined();
 });

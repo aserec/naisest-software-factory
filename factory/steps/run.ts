@@ -70,7 +70,7 @@ export async function startRun(ctx: StepContext, ref: TicketRef): Promise<StepRe
 
 // The only place run_end is sent. A waiting or stopped run has not ended: the dashboard refuses
 // Stop, Resume and Restart once it saw run_end. ids: another run's IDs, for the poller's restart.
-export function endRun(ctx: StepContext, outcome: "done" | "blocked" | "needs_info" | "restarted", ids: RunIds = runIds(ctx)): void {
+export function endRun(ctx: StepContext, outcome: "done" | "blocked" | "needs_info" | "restarted" | "closed", ids: RunIds = runIds(ctx)): void {
   emitFor(ids, ctx, "run_end", { outcome });
 }
 
@@ -173,14 +173,84 @@ export async function waiting(ctx: StepContext, step: PausableStep, sessionId: s
   return "stop";
 }
 
-// A person (`@factory stop`) or a dashboard switch stopped the run.
+// A person (`@factory stop`) or a dashboard switch stopped the run. A stop the inbox saw because a person closed
+// the work item or the change ends the run here instead.
 export async function stopped(ctx: StepContext, step: PausableStep, o: { session?: string; reason: string; change?: ChangeRef; extra?: { commands?: FactoryCommands } }): Promise<StepResult> {
+  const end = await endIfClosed(ctx);
+  if (end) return end;
   const ref = ticketRef(ctx);
   save(ctx, step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
   await ctx.tracker.setState(ref, "stopped");
   await ctx.tracker.comment(ref, stoppedNote({ run: ctx.ci.vars.run ?? "unknown", step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun }));
   return "stop";
 }
+// Part C (GLOSSARY.md: Closed run). What a person closed, read live when the caller acts: a webhook may have seen the
+// work item closed and then opened again. The factory closes the ticket itself (the change's closing line at its merge,
+// then result-saved), so only a ticket in one of `states` counts, and never one whose change merged.
+// ours: the change belongs to this run. An older run's change stays the newest on the branch until this run pushes.
+type Closed = { ticket: true; change?: { ref: ChangeRef; open: boolean } } | { ticket: false; url: string };
+async function closedNow(ctx: StepContext, ref: TicketRef, states: FactoryState[], ours: (t: Ticket, c: ChangeRef) => boolean | Promise<boolean>): Promise<Closed | undefined> {
+  const t = await ctx.tracker.ticket(ref);
+  if (!t.state || !states.includes(t.state)) return undefined;
+  const c = await ctx.codeHost.changeOfTicket(ref);
+  if (c?.merged) return undefined;
+  if (!t.open) return { ticket: true, change: c };
+  if (c && !c.open && (await ours(t, c.ref))) return { ticket: false, url: c.url };
+  return undefined;
+}
+
+// A closed work item ends the run quietly: its open change is closed, then its state is removed. A change closed
+// without a merge, while the work item is open, blocks the run. ctx: the ticket's own context (ticketRef).
+async function endClosed(ctx: StepContext, ref: TicketRef, closed: Closed): Promise<StepResult> {
+  if (!closed.ticket) return block(ctx, `The merge request ${closed.url} was closed without a merge.`, false);
+  if (closed.change?.open) {
+    await ctx.codeHost.commentChange(closed.change.ref, `This merge request was closed because a person closed work item #${ref}.`);
+    await ctx.codeHost.closeChange(closed.change.ref);
+  }
+  await ctx.tracker.clearState(ref);
+  endRun(ctx, "closed");
+  return "stop";
+}
+
+// In a step the run's change is the one its record names. Before the gate's push the run has none.
+const ownChange = (ctx: StepContext) => (_t: Ticket, c: ChangeRef) => c === facts(ctx).change;
+// For the inbox: did a person close the work item or this run's change?
+export const closedByPerson = async (ctx: StepContext): Promise<boolean> => (await closedNow(ctx, ticketRef(ctx), ACTIVE_STATES, ownChange(ctx))) !== undefined;
+
+// Before a step writes: end the run if a person closed its work item or its change. Undefined: go on.
+export async function endIfClosed(ctx: StepContext): Promise<StepResult | undefined> {
+  const ref = ticketRef(ctx);
+  const closed = await closedNow(ctx, ref, ACTIVE_STATES, ownChange(ctx));
+  return closed && endClosed(ctx, ref, closed);
+}
+
+// The runs with no step running. A running run's own steps check for itself.
+const PAUSED: FactoryState[] = ["needs_approval", "waiting", "stopped"];
+// The poller has no run record. A ticket is past the gate's push when it waits for a person,
+// or a stop note names the decision or apply step. Before the push, the newest change is an older run's.
+const pushed = async (ctx: StepContext, t: Ticket) =>
+  t.state === "needs_approval" || (t.state === "stopped" && ["decision", "apply"].includes((await pauseNote(ctx, t.ref, "stopped"))?.step ?? ""));
+
+// The poller: a paused run whose work item or change a person closed would keep its run slot for good. Same outcomes
+// as endIfClosed. Returns the tickets it ended. One failed ticket is logged and tried again next minute.
+export async function endClosedRuns(ctx: StepContext): Promise<TicketRef[]> {
+  const closed = (await ctx.tracker.listClosed(100)).filter((t) => t.state && PAUSED.includes(t.state));
+  const open = (await Promise.all(PAUSED.map((s) => ctx.tracker.list(s)))).flat();
+  const ended: TicketRef[] = [];
+  for (const { ref } of [...closed, ...open]) {
+    try {
+      const one = { ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } };
+      const c = await closedNow(one, ref, PAUSED, (t) => pushed(ctx, t));
+      if (!c) continue;
+      await endClosed(one, ref, c);
+      ended.push(ref);
+    } catch (e) {
+      console.log(`Ending closed ticket ${ref} failed: ${String(e).slice(0, 300)}`);
+    }
+  }
+  return ended;
+}
+
 const PERSON_STOP = "stopped by @factory stop";
 const DASHBOARD_STOP = "stopped from the dashboard";
 // Why the inbox stopped the run: the dashboard, or else a person's `@factory stop`.

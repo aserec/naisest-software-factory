@@ -12,7 +12,7 @@ vi.mock("../config", async (importOriginal) => {
 import { prompt, runStep, save, ticketText } from "./context";
 import { previewLine } from "./prepare-patch";
 import { parseFactoryFile } from "../config";
-import { cancelNote, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
+import { cancelNote, endIfClosed, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
@@ -1646,4 +1646,100 @@ test("a failed CODEOWNERS read or diff read goes to the default approver and doe
   b.host.branchDiff = async () => { throw new Error("diff too large"); };
   expect(assignedTo(await runBuildPipeline(b))).toEqual(["approver"]);
   expect(b.states).toEqual(["needs_approval"]);
+});
+
+// Part C: a person closes the work item or the merge request while a run is on.
+const CLOSED_NOTE = "This merge request was closed because a person closed work item #8.";
+const ends = (w: ReturnType<typeof fakeWorld>) => (w.ctx.dashboard as ReturnType<typeof fakeDashboard>).events.filter((e) => e.type === "run_end").map((e) => e.data.outcome);
+// The author run polls its inbox once, as the tool hook would, and stops on a stop. before: what happens first.
+function pollingAuthor(w: ReturnType<typeof fakeWorld>, before: () => void = () => {}) {
+  const run = w.harness.run;
+  w.harness.run = async (job) => {
+    if (!job.inbox) return run(job);
+    before();
+    return (await job.inbox.poll()).stop ? { ...(await run(job)), session: "sess-c", ok: false, stopped: true } : run(job);
+  };
+}
+test("a person closes the work item while the author runs: the run ends closed, with no state, and its open change is closed with a comment", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.openChange(); // an open change of the ticket
+  pollingAuthor(w, () => void (w.tracker.tickets.get("8")!.open = false));
+  w.ctx.dashboard = fakeDashboard();
+  await runBuildPipeline(w);
+  expect(w.states).toEqual([]);
+  expect(w.tracker.cleared).toEqual(["8"]);
+  expect(w.workItemComments.some((c) => /Stopped run/.test(c))).toBe(false);
+  expect(w.host.changes.get("5")!.open).toBe(false);
+  expect(w.mrComments).toEqual([CLOSED_NOTE]);
+  expect(ends(w)).toEqual(["closed"]);
+  expect(w.finishTriggered).toBe(false);
+});
+test("a person closes the merge request before the decision step: the ticket is blocked and nothing merges", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  const ask = w.judge.ask;
+  w.judge.ask = async (s, q) => (q.some((x) => x.id === "diff_risk") && w.host.close("5"), ask(s, q));
+  await runBuildPipeline(w);
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("The merge request https://host.example/changes/5 was closed without a merge.");
+  expect(w.finishTriggered).toBe(false);
+});
+test("a work item closed before the gate's push: nothing is pushed and the run ends closed", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  const run = w.harness.run;
+  w.harness.run = async (job) => (job.role === "reviewer" && (w.tracker.tickets.get("8")!.open = false), run(job));
+  w.ctx.dashboard = fakeDashboard();
+  await runBuildPipeline(w);
+  expect(w.commitMessage).toBe("");
+  expect(w.mrOpened).toBe(false);
+  expect(w.states).toEqual([]);
+  expect(ends(w)).toEqual(["closed"]);
+});
+// Review Focus 2: every decision reads the live state when it acts.
+test("a work item closed and opened again before the gate's push goes on", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  const t = w.tracker.tickets.get("8")!;
+  const run = w.harness.run;
+  w.harness.run = async (job) => (job.role === "reviewer" && (t.open = false), run(job));
+  const repoRun = w.ctx.repo.run;
+  w.ctx.repo.run = async (cmd) => ((t.open = true), repoRun(cmd)); // opened again while the gate runs
+  await runBuildPipeline(w);
+  expect(w.mrOpened).toBe(true);
+  expect(w.finishTriggered).toBe(true);
+});
+// Review Focus 1: the factory closes the ticket itself.
+test("the factory's own close never ends a run: result-saved ends done, and a merged change never counts", async () => {
+  const w = await runFinishPipeline(fakeWorld());
+  expect(w.states).toEqual(["done"]);
+  expect(await endIfClosed(w.ctx)).toBeUndefined();
+  // Between the merge and result-saved the ticket is closed and running, and its change is merged.
+  w.tracker.tickets.get("8")!.state = "running";
+  expect(await endIfClosed(w.ctx)).toBeUndefined();
+  expect(w.tracker.cleared).toEqual([]);
+});
+// Regression: an older run's change stays the newest one on the branch until this run pushes.
+test("a new run after a dashboard restart closed the old change is not blocked", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped" });
+  w.openChange();
+  await w.tracker.comment("8", stoppedNote({ run: "1", step: "apply", reason: "switch off apply", change: "5", buildRun: "1" }));
+  const request = restartRequest("run-1");
+  w.ctx.dashboard = fakeDashboard({ requests: [request] });
+  await handleRequests(w.ctx);
+  expect(w.host.changes.get("5")!.open).toBe(false); // closeStoppedChange
+  request.outcome = "done";
+  w.tracker.startedBy = async () => BOT;
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8" };
+  pollingAuthor(w);
+  await runBuildPipeline(w);
+  expect(w.states).not.toContain("blocked");
+  expect(w.finishTriggered).toBe(true);
+});
+test("a ticket whose old change a person closed runs again and is not blocked before its push", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.openChange();
+  w.host.close("5");
+  pollingAuthor(w);
+  await runBuildPipeline(w);
+  expect(w.states).not.toContain("blocked");
+  expect(w.mrOpened || w.host.changes.get("5")!.open).toBe(true);
+  expect(w.finishTriggered).toBe(true);
 });

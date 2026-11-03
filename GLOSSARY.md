@@ -67,6 +67,10 @@ _Avoid_: Retry, continue
 Ending a stopped run and starting a new run for the same work item from the first step.
 _Avoid_: Rerun, reset
 
+**Closed run**:
+A run that ended because a person closed its work item. The factory closes the run's open change, removes the state and ends the run as `closed`. A change a person closed without a merge blocks the run instead.
+_Avoid_: Cancelled run, aborted run
+
 ## Observability
 
 **Dashboard**:

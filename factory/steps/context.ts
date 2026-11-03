@@ -13,7 +13,7 @@ import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, ty
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
 import { MAX_FIELD, type ControlRequest } from "../run-events";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
-import { block, doneBeforeResume } from "./run";
+import { block, closedByPerson, doneBeforeResume } from "./run";
 
 export interface StepContext {
   tracker: Tracker;
@@ -106,13 +106,14 @@ export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<bool
 
 // The ticket's inbox from the start of this run (the newest event step), so a stop posted
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
-// It also asks the dashboard whether a person stopped this run there.
+// It also asks the dashboard whether a person stopped this run there, and the tracker and code host whether a person
+// closed the work item or the run's change. The stop step then ends a closed run (stopped() in run.ts).
 export const inbox = (ctx: StepContext) =>
   makeInbox(ctx.tracker, ticketRef(ctx), facts(ctx).eventAt ?? new Date().toISOString(), async () => {
     const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
     if (stop) ctx.dashboardStop = true;
     return stop;
-  });
+  }, () => closedByPerson(ctx));
 
 // Runs one agent job on the harness the router picked, and adds its cost and tokens to the record.
 // An author run with tools gets the inbox: comments from trusted people reach it, and a stop line stops it.

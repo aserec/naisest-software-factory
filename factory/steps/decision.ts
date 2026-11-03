@@ -6,7 +6,7 @@ import type { PersonRef, Ticket } from "../seams";
 import { CODEOWNERS_PATHS, parseCodeowners, topOwners } from "../codeowners";
 import { changeText } from "./precommit-gate";
 import { facts, inbox, isMain, modelRow, notify, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
-import { block, stopReason, stopped } from "./run";
+import { block, endIfClosed, stopReason, stopped } from "./run";
 
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
 
@@ -45,6 +45,9 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     const { title, body } = changeText(ctx);
     await ctx.codeHost.openChange(need(f.branch, "change branch"), title, body, ref);
   }
+  // After that re-open, or a continued run whose change was closed would block again at once.
+  const end = await endIfClosed(ctx);
+  if (end) return end;
   const ticket = await ctx.tracker.ticket(ref);
   let d = decide(ctx, ticket);
   if (d.kind === "auto" && !(await switchOn(ctx, "auto_merge"))) d = { kind: "needs_approval", reasons: ["auto-merge is switched off"] };

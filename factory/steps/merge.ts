@@ -3,7 +3,7 @@
 import type { ChangeRef } from "../seams";
 import { save, waitFor, type StepContext, type StepResult } from "./context";
 import { askPerson } from "./decision";
-import { block } from "./run";
+import { block, endIfClosed } from "./run";
 
 // The CI skips the pipeline of a commit or change whose title says so, and the hard rules need that pipeline.
 // [AM] is the finish run's mark, so no text of the agent or the ticket keeps it. Repeat the replace:
@@ -36,6 +36,9 @@ export async function mergeReviewed(ctx: StepContext, change: ChangeRef, reviewe
     : c.head !== head ? block(ctx, `Someone pushed to change ${change} after the review (head ${c.head}, expected ${head}), so the factory did not merge it.`)
     : undefined;
   for (;;) {
+    // Before each rebase and merge: a person may have closed the work item or the change.
+    const ended = await endIfClosed(ctx);
+    if (ended) return ended;
     const c = await ctx.codeHost.change(change);
     const stop = await refuse(c);
     if (stop) return stop;
@@ -51,6 +54,8 @@ export async function mergeReviewed(ctx: StepContext, change: ChangeRef, reviewe
     const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: head }));
     if (checks !== "green") return block(ctx, `The change's pipeline is ${checks}, so the factory did not merge.`);
     // The wait can take an hour: a person may have retargeted, pushed to or closed the change since the checks above.
+    const endedNow = await endIfClosed(ctx);
+    if (endedNow) return endedNow;
     const again = await refuse(await ctx.codeHost.change(change));
     if (again) return again;
     try {

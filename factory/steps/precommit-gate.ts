@@ -6,7 +6,7 @@ import { findSecrets } from "../rules";
 import { review } from "./code-review";
 import { facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
 import { runLine, withoutMarks } from "./merge";
-import { block, stopReason, stopped, waiting } from "./run";
+import { block, endIfClosed, stopReason, stopped, waiting } from "./run";
 
 const COMMIT_TITLE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^()]+\))?!?: \S.*$/;
 const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
@@ -77,6 +77,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const { links, failed } = await attachAll(ctx, readImages(ctx.repo.readBytes, facts(ctx).proof?.proof));
   const { body } = changeText(ctx, links, failed, commit);
   const branch = `factory/${ref}-${slug(withoutMarks(ctx.record.ticket!.title))}`;
+  const end = await endIfClosed(ctx);
+  if (end) return end;
   const sha = await ctx.repo.commitAndPush(branch, commit.message);
   const c = await ctx.codeHost.openChange(branch, title, body, ref);
   save(ctx, "precommit-gate", { passed: true, rounds: result.rounds, branch, sha, change: c.ref, changeUrl: c.url, images: links, uploadFailed: failed, commit });

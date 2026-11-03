@@ -27,7 +27,7 @@ const user = z.object({ user: z.string() });
 
 export const EVENT_DATA: Record<EventType, z.ZodTypeAny> = {
   run_start: z.object({}).passthrough(),
-  run_end: z.object({ outcome: z.enum(["done", "blocked", "needs_info", "restarted"]) }),
+  run_end: z.object({ outcome: z.enum(["done", "blocked", "needs_info", "restarted", "closed"]) }),
   step_start: z.object({ prompt: z.string().optional() }).passthrough(),
   // log: the end of the step's output, sent only when no CI job holds it (local-run.sh, the worker).
   step_end: z.object({ outcome: z.enum(["next", "stop", "stopped", "waiting", "error"]), log: field.optional() }),

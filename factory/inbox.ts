@@ -11,14 +11,16 @@ const wrap = (author: string, body: string) =>
 
 // `since` is an ISO time. Each poll returns the comments newer than the last one it saw.
 // `stopCheck` (the dashboard's stop) is asked on every poll, the tracker at most once a minute. A check that throws does not stop.
+// `closedCheck` (a person closed the work item or the run's change) is asked with the tracker.
 const TRACKER_EVERY_MS = 60_000;
-export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, stopCheck?: () => Promise<boolean>): Inbox {
+export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, stopCheck?: () => Promise<boolean>, closedCheck?: () => Promise<boolean>): Inbox {
   let lastRead = -Infinity;
   return {
     async poll() {
       const dashboardStop = (await stopCheck?.().catch(() => false)) ?? false;
       if (Date.now() - lastRead < TRACKER_EVERY_MS) return { comments: [], stop: dashboardStop };
       lastRead = Date.now();
+      const closed = (await closedCheck?.().catch(() => false)) ?? false;
       const all = (await tracker.comments(ticket, since)).reverse(); // oldest first
       const trust = new Map<string, Promise<boolean>>();
       const kept = [];
@@ -26,7 +28,7 @@ export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, st
       for (const c of all) if (!c.byFactory && (await (trust.get(c.author) ?? trust.set(c.author, tracker.trusted(c.author)).get(c.author)!))) kept.push(c);
       // Only after every trust check: if one throws, the next poll reads the same comments again and no stop is lost.
       if (all.length > 0) since = all.reduce((latest, c) => (c.at > latest ? c.at : latest), since);
-      return { comments: kept.map((c) => wrap(c.author, c.body)), stop: dashboardStop || kept.some((c) => hasLine(c.body, STOP)) };
+      return { comments: kept.map((c) => wrap(c.author, c.body)), stop: dashboardStop || closed || kept.some((c) => hasLine(c.body, STOP)) };
     },
   };
 }

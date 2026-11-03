@@ -4,7 +4,7 @@
 import { makeContext } from "../compose";
 import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
-import { ACTIVE_STATES, activeRuns, finishCancelledStops, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
+import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
@@ -44,6 +44,7 @@ export async function main(ctx?: StepContext) {
   try {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
     console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx)).join(", ") || "none"}`);
+    console.log(`Ended runs whose work item or change a person closed: ${(await endClosedRuns(ctx)).join(", ") || "none"}`);
     const handled = await handleRequests(ctx);
     takeSnapshot(ctx); // handleRequests answered requests: pollReady must see the new outcomes, as before
     console.log(`Started runs the dashboard asked for: ${handled.join(", ") || "none"}`);
