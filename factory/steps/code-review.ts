@@ -1,6 +1,6 @@
 import { parseFindings, reviewerPrompt } from "../agents";
 import { emit } from "../emit";
-import { codeReviewLoop } from "../loops";
+import { codeReviewLoop, MAX_AGENT_ROUNDS } from "../loops";
 import { proofPrompt, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
 import { agent, fix, install, isMain, modelRow, runStep, save, facts, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
@@ -14,8 +14,8 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
   const { harness, provider, model } = row.reviewer;
   // Both must agree, or the reviewer would judge screens it cannot see.
   const readsImages = ctx.harnesses[harness].images && (ctx.seams.providers[provider].images ?? []).includes(model);
-  // A resumed run goes on from its last round. A check after the last fix counts as round 3, never 4.
-  const start = Math.min(ctx.record.rounds.review + 1, 3);
+  // A resumed run goes on from its last round. A check after the last fix counts as the last round, never one more.
+  const start = Math.min(ctx.record.rounds.review + 1, MAX_AGENT_ROUNDS);
   let round = start - 1;
   let last: { findings: ReturnType<typeof parseFindings>; proof: ReturnType<typeof readProof>; images: Record<string, Buffer> } | undefined;
   const reviewOnce = async () => {
@@ -45,7 +45,7 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
       review: reviewOnce,
       fix: (feedback) => fix(ctx, feedback),
       run: async () => { throw new Error("code review runs no commands"); },
-    }, 3, start);
+    }, MAX_AGENT_ROUNDS, start);
   } catch (e) {
     if (e instanceof ReviewerFailed) return block(ctx, `The reviewer run failed: ${e.message.slice(0, 2000)}`);
     throw e;

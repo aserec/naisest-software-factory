@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { codeReviewLoop, precommitGate, type LoopDeps } from "./loops.js";
+import { codeReviewLoop, MAX_AGENT_ROUNDS, precommitGate, type LoopDeps } from "./loops.js";
 import type { Finding } from "./agents.js";
 import type { HarnessResult } from "./seams.js";
 
@@ -37,22 +37,22 @@ test("review passes on round 2 after one fix", async () => {
   expect(deps.fixCalls[0]).toContain("null check");
 });
 test("non-blocking findings alone pass", async () => expect(await codeReviewLoop(fakeDeps({ reviews: [[{ blocking: false, text: "nit" }]] }))).toEqual({ kind: "passed", rounds: 1 }));
-test("three rounds with blocking findings block", async () => {
-  const deps = fakeDeps({ reviews: [[B], [B], [B]] });
-  expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 3, open: ["bug"] });
-  expect(deps.fixCalls).toHaveLength(2);
+test("five rounds with blocking findings block", async () => {
+  const deps = fakeDeps({ reviews: [[B], [B], [B], [B], [B]] });
+  expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
+  expect(deps.fixCalls).toHaveLength(4);
 });
 test("gate runs lint, test and build in order and reruns all three after a fix", async () => {
   const deps = fakeDeps({ results: { "pnpm lint": [false, true], "pnpm test:unit": [true, true], "pnpm build": [true, true] } });
   expect(await precommitGate(deps, cmds)).toEqual({ kind: "passed", rounds: 2 });
   expect(deps.runCalls).toEqual(["pnpm lint", "pnpm lint", "pnpm test:unit", "pnpm build"]);
 });
-test("gate blocks after 3 failing rounds and names the command", async () => {
-  const deps = fakeDeps({ results: { "pnpm test:unit": [false, false, false] } });
+test("gate blocks after 5 failing rounds and names the command", async () => {
+  const deps = fakeDeps({ results: { "pnpm test:unit": [false, false, false, false, false] } });
   const r = await precommitGate(deps, cmds);
-  expect(r).toMatchObject({ kind: "blocked", rounds: 3 });
+  expect(r).toMatchObject({ kind: "blocked", rounds: 5 });
   expect(JSON.stringify(r)).toContain("pnpm test:unit");
-  expect(deps.fixCalls).toHaveLength(2);
+  expect(deps.fixCalls).toHaveLength(4);
   expect(deps.fixCalls[0]).toContain("out of pnpm test:unit");
 });
 test("a usage limit during a fix stops with limit, not blocked", async () => {
@@ -64,13 +64,13 @@ test("a failed author run blocks with the findings it was asked to fix and its o
   expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 1, open: ["a.ts: bug", "author run failed: boom"] });
 });
 
-// A resumed run continues its round count, so 3 rounds are never exceeded across a resume.
+// A resumed run continues its round count, so 5 rounds are never exceeded across a resume.
 test("loops started at a later round stop at the same limit", async () => {
-  const d = fakeDeps({ reviews: [[B], [B], [B]] });
-  expect(await codeReviewLoop(d, 3, 3)).toEqual({ kind: "blocked", rounds: 3, open: ["bug"] });
+  const d = fakeDeps({ reviews: [[B]] });
+  expect(await codeReviewLoop(d, MAX_AGENT_ROUNDS, 5)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
   expect(d.fixCalls).toHaveLength(0);
-  const g = fakeDeps({ results: { lint: [false, false, false] } });
-  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, 3, 3)).toMatchObject({ kind: "blocked", rounds: 3 });
+  const g = fakeDeps({ results: { lint: [false] } });
+  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, MAX_AGENT_ROUNDS, 5)).toMatchObject({ kind: "blocked", rounds: 5 });
   expect(g.fixCalls).toHaveLength(0);
 });
 test("a stopped fix run stops the loop with its session, not blocked", async () => {

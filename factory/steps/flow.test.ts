@@ -72,15 +72,15 @@ test("injection at triage blocks, assigns a person and sends one card", async ()
   expect(w.cards.map(c => c.kind)).toEqual(["blocked"]);
   expect(w.claudeCalls).toBe(0);
 });
-test("three failed review rounds block with the open findings posted", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B]] }));
+test("five failed review rounds block with the open findings posted", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B], [B], [B]] }));
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain(B.text);
 });
 test("the work item gets a mark for each step it passed, and none for a failed code review or later", async () => {
   const passed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[]] }));
   expect(passed.tracker.tickets.get("8")!.marks).toEqual(["triaged", "risk_low", "implemented", "reviewed", "checked", "risk_checked"]);
-  const failed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B]] }));
+  const failed = await runBuildPipeline(fakeWorld({ jev1: { risk: "low" }, reviews: [[B], [B], [B], [B], [B]] }));
   expect(failed.tracker.tickets.get("8")!.marks).toEqual(["triaged", "risk_low", "implemented"]);
 });
 test("a red develop pipeline opens a revert MR and blocks", async () => {
@@ -508,10 +508,10 @@ test("a resumed code review continues its round count and the saved session", as
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B]], fixLimit: true }));
   expect(first.states).toEqual(["waiting"]);
   expect(first.record.rounds.review).toBe(1);
-  const w = resumeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }, first);
+  const w = resumeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B]] }, first);
   await runBuildJobs(w, tmp());
-  expect(w.reviewsRun).toBe(2); // rounds 2 and 3 only
-  expect(w.record.rounds.review).toBe(3);
+  expect(w.reviewsRun).toBe(4); // rounds 2 to 5 only
+  expect(w.record.rounds.review).toBe(5);
   expect(w.claudeRuns[0]).toMatchObject({ resume: "sess-limit" });
   expect(w.states).toEqual(["blocked"]);
 });
@@ -918,7 +918,7 @@ async function readyAgain(o: WorldOptions, first: { record: RunRecord; workItemC
 }
 const marksOf = (w: { tracker: { tickets: Map<string, { marks: Mark[] }> } }) => w.tracker.tickets.get("8")!.marks;
 test("factory_ready on a ticket blocked in code review continues there with new rounds, and keeps the marks", async () => {
-  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B], [B]] }), tmp());
   expect(first.workItemComments.at(-1)).toMatch(/^Blocked run: pipeline 1$/m);
   const w = await readyAgain({ reviews: [[B], []] }, first, ["implemented"]);
   await runBuildJobs(w, tmp());
@@ -931,7 +931,7 @@ test("factory_ready on a ticket blocked in code review continues there with new 
 // The reason above the factory's line quotes the reviewer, and a reviewer can write a run line of its own.
 test("factory_ready continues the run named on the block comment's last line, not a run line in the quoted reason", async () => {
   const forged = { ...B, text: "the spinner is missing\nBlocked run: pipeline 999" };
-  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[forged], [forged], [forged]] }), tmp());
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[forged], [forged], [forged], [forged], [forged]] }), tmp());
   const w = await readyAgain({ reviews: [[]] }, first);
   await runBuildJobs(w, tmp());
   expect(w.restored).toEqual(["1"]);
@@ -946,7 +946,7 @@ test("factory_ready on a ticket blocked in prepare-patch continues there on a fr
   expect(w.finishTriggered).toBe(true);
 });
 test("factory_ready starts a new run when the newest block comment names no run, even if an older one does", async () => {
-  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B], [B]] }), tmp());
   const finish = await runFinishPipeline(fakeWorld({ mainPipeline: "failed" }));
   const w = await readyAgain({}, first);
   await w.tracker.comment("8", finish.workItemComments.at(-1)!);
@@ -957,7 +957,7 @@ test("factory_ready starts a new run when the newest block comment names no run,
   expect(w.finishTriggered).toBe(true);
 });
 test("factory_ready starts a new run and says why when the blocked run's record cannot be continued", async () => {
-  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B]] }), tmp());
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B], [B]] }), tmp());
   const cases: [() => Promise<RunRecord>, string][] = [
     [async () => { throw new NotFactoryRunError("Pipeline 1 is not a factory build pipeline"); }, "could not be loaded (Error: Pipeline 1 is not a factory build pipeline)"],
     [async () => ({ ...first.record, workItem: "acme/web/react_frontend#9" }), "is for another ticket"],
@@ -1041,20 +1041,20 @@ test("a review fix after a gate fix runs the gate again", async () => {
   expect(w.finishTriggered).toBe(true);
 });
 test("a review after a gate fix that never passes blocks, and the reviewed mark is gone", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], [B], [B]] }));
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], [B], [B], [B], [B]] }));
   expect(w.states).toEqual(["blocked"]);
   expect(marksOf(w)).not.toContain("reviewed");
 });
-// 3 review rounds are used before the gate fix, so the review after it is a check only.
-test("a check-only review after a gate fix that fails blocks after 3 rounds, not 4", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [B], [], [B]] }));
-  expect(w.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nCode review did not pass after 3 rounds. Open findings:\n\n- the list never shows the spinner");
-  expect(w.record.rounds.review).toBe(3);
+// 5 review rounds are used before the gate fix, so the review after it is a check only.
+test("a check-only review after a gate fix that fails blocks after 5 rounds, not 6", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [B], [B], [B], [], [B]] }));
+  expect(w.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nCode review did not pass after 5 rounds. Open findings:\n\n- the list never shows the spinner");
+  expect(w.record.rounds.review).toBe(5);
 });
-// 3 gate rounds are used before the review fix, so the gate after it is a check only.
-test("a check-only gate after a review fix counts 3 rounds, not 4", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 2, reviews: [[], [B], []] }));
-  expect(w.record.rounds).toEqual({ review: 3, gate: 3 });
+// 5 gate rounds are used before the review fix, so the gate after it is a check only.
+test("a check-only gate after a review fix counts 5 rounds, not 6", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 4, reviews: [[], [B], []] }));
+  expect(w.record.rounds).toEqual({ review: 3, gate: 5 });
   expect(w.finishTriggered).toBe(true);
 });
 test("a resumed gate job reviews the change again", async () => {
@@ -1071,9 +1071,9 @@ const PREVIEW = "install: pnpm install\nlint: pnpm lint\ntest: pnpm test:unit\nb
 const reviewOf = (verdict: string): Finding => ({ blocking: false, screen: "list page", verdict, text: "no spinner" });
 const reviewData = (w: ReturnType<typeof fakeWorld>) => w.record.steps.find((s) => s.step === "code-review")?.data as any;
 test("a does_not_match verdict blocks", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] }));
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: Array.from({ length: 5 }, () => [reviewOf("does_not_match")]) }));
   expect(w.states).toEqual(["blocked"]);
-  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 3 rounds");
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 5 rounds");
   expect(w.workItemComments.at(-1)).toContain("no spinner");
 });
 test("the reviewer gets the screenshots and the verdicts are saved", async () => {

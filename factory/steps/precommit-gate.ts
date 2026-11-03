@@ -1,5 +1,5 @@
 import { emit } from "../emit";
-import { precommitGate } from "../loops";
+import { MAX_AGENT_ROUNDS, precommitGate } from "../loops";
 import { readImages, readProof, proofSection } from "../proof";
 import { need } from "../record";
 import { findSecrets } from "../rules";
@@ -50,20 +50,20 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   let unreviewed = facts(ctx).resumeAt === "precommit-gate";
   let result;
   for (;;) {
-    // A resumed run goes on from its last round. A check after the last fix counts as round 3, never 4.
-    const start = Math.min(ctx.record.rounds.gate + 1, 3);
+    // A resumed run goes on from its last round. A check after the last fix counts as the last round, never one more.
+    const start = Math.min(ctx.record.rounds.gate + 1, MAX_AGENT_ROUNDS);
     result = await precommitGate({ review: async () => [], fix: (feedback) => fix(ctx, feedback), run: async (cmd) => {
       const r = await ctx.repo.run(cmd);
       // ponytail: the Repo seam gives ok, not the exit code; add it to Repo.run if the dashboard needs the real code.
       emit(ctx, "gate_check", { command: cmd, exitCode: r.ok ? 0 : 1, outputTail: r.output });
       return r;
-    } }, need(facts(ctx).commands, ".factory.yml commands"), 3, start);
+    } }, need(facts(ctx).commands, ".factory.yml commands"), MAX_AGENT_ROUNDS, start);
     ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
     if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
     if (result.kind === "stopped") return stopped(ctx, "precommit-gate", { session: result.sessionId, reason: stopReason(ctx) });
     if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.join("\n")}`);
     if (!unreviewed && result.rounds === start) break; // passed with no fix since the last review
-    // The rounds add up across passes, so this ends inside 3 review and 3 gate rounds.
+    // The rounds add up across passes, so this ends inside the review and gate round limits.
     await ctx.tracker.unmark(ref, "reviewed");
     const r = await review(ctx, "precommit-gate");
     if (typeof r === "string") return r;
