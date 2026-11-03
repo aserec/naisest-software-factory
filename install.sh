@@ -53,10 +53,12 @@ if [ ! -f "$env_file" ]; then
       "machine: the worker runs each step in a new container on this machine. hetzner: the worker makes a new Hetzner VM for each run and deletes it after. gitlab: GitLab CI runs each job on a new Hetzner VM, which needs seams.yml ci: gitlab and the GitLab setup in docs/setup.md sections 1, 2, 7 and 8." machine
     case $RUNS_ON in machine|hetzner) COMPOSE_PROFILES=worker; break ;; gitlab) COMPOSE_PROFILES=hetzner; break ;; *) echo "  Type machine, hetzner or gitlab." ;; esac
   done
-  GL_TOKEN="" TENSORX_API_KEY="" HETZNER_TOKEN=""
+  GL_TOKEN="" FACTORY_GITHUB_TOKEN="" TENSORX_API_KEY="" HETZNER_TOKEN=""
   if [ "$COMPOSE_PROFILES" = worker ]; then
     ask GL_TOKEN "Factory bot token" \
-      "Signed in as the factory bot (it reads tickets and pushes and merges in the target repo, docs/setup.md section 1): User settings > Access tokens, scope api."
+      "For GitLab targets. Signed in as the factory bot (it reads tickets and pushes and merges in the target repo, docs/setup.md section 1): User settings > Access tokens, scope api. Press Enter to skip if every target is on GitHub." "" optional
+    ask FACTORY_GITHUB_TOKEN "GitHub token" \
+      "For GitHub targets (tracker github or github-project, codeHost github). A fine-grained token on the target repos: Contents, Issues and Pull requests read and write, Commit statuses and Checks read; for a board also Projects read and write. Press Enter to skip if every target is on GitLab." "" optional
     ask TENSORX_API_KEY "TensorX API key" "Your TensorX account > API keys. The agents' models run there (router.yml)."
     if [ "$RUNS_ON" = hetzner ]; then
       ask HETZNER_TOKEN "Hetzner Cloud API token" "Hetzner Cloud console > your project > Security > API tokens > Generate, with Read & Write."
@@ -92,6 +94,7 @@ FACTORY_CI=$([ "$RUNS_ON" = gitlab ] && echo gitlab || echo local)
 HETZNER_TOKEN=$HETZNER_TOKEN
 $([ "$RUNS_ON" = hetzner ] && echo "FACTORY_DASHBOARD_URL=https://$DASHBOARD_HOST")
 GL_TOKEN=$GL_TOKEN
+FACTORY_GITHUB_TOKEN=$FACTORY_GITHUB_TOKEN
 TENSORX_API_KEY=$TENSORX_API_KEY
 EOF
   echo "== wrote $env_file"

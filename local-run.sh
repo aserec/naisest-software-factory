@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Local trial of the build pipeline on one react_frontend ticket. Needs GL_TOKEN, TENSORX_API_KEY and FACTORY_DASHBOARD_TOKEN
-# (the dashboard's value). FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
+# Local trial of the build pipeline on one ticket of FACTORY_TARGET (default react_frontend). Needs TENSORX_API_KEY,
+# FACTORY_DASHBOARD_TOKEN (the dashboard's value), and GL_TOKEN or FACTORY_GITHUB_TOKEN for the target's tracker and code host. FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
 # Usage: ./local-run.sh <ticket iid> [step to start from]
 # With a step, the run goes on from that step with the kept run/ dir (its record and clone) instead of starting over.
 set -euo pipefail
@@ -12,7 +12,9 @@ if [ -n "$from" ]; then
   case " ${steps[*]} " in *" $from "*) ;; *) echo "unknown step $from, use one of: ${steps[*]}"; exit 1 ;; esac
   [ -f run/record.json ] || { echo "no run/record.json to go on from"; exit 1; }
 fi
-: "${GL_TOKEN:?GL_TOKEN is not set}" "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
+target=${FACTORY_TARGET:-react_frontend}
+[ -n "${GL_TOKEN:-}${FACTORY_GITHUB_TOKEN:-}" ] || { echo "set GL_TOKEN or FACTORY_GITHUB_TOKEN"; exit 1; }
+: "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
 secrets="$PWD.tmp" # the only dir the CI adapter reads secret files from
 mkdir -p "$secrets"
 # A copy-on-write clone of your pnpm store, so sandboxed installs reuse it instead of downloading every package.
@@ -30,11 +32,14 @@ else
 fi
 for step in "${steps[@]}"; do
   echo "== $step"
-  printf %s "$GL_TOKEN" > "$secrets/gl" # the step reads the files and deletes them
+  # The step reads the files and deletes them. Only a token that is set gets a file and a variable.
+  tokens=()
+  [ -z "${GL_TOKEN:-}" ] || { printf %s "$GL_TOKEN" > "$secrets/gl"; tokens+=(FACTORY_GITLAB_TOKEN="$secrets/gl"); }
+  [ -z "${FACTORY_GITHUB_TOKEN:-}" ] || { printf %s "$FACTORY_GITHUB_TOKEN" > "$secrets/gh"; tokens+=(FACTORY_GITHUB_TOKEN="$secrets/gh"); }
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
   # Chromium for the screenshots, installed once with: (cd react_frontend/apps/web && pnpm exec playwright install chromium)
   env -i PATH="$PATH" HOME="$HOME" PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}" CI_SERVER_URL=https://gitlab.example.com \
-    CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID=1 FACTORY_PIPELINE=build FACTORY_TARGET=react_frontend \
-    FACTORY_WORK_ITEM_IID="$iid" FACTORY_GITLAB_TOKEN="$secrets/gl" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
+    CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID=1 FACTORY_PIPELINE=build FACTORY_TARGET="$target" \
+    FACTORY_WORK_ITEM_IID="$iid" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
     node --import tsx "factory/steps/$step.ts"
 done

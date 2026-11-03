@@ -54,6 +54,9 @@ const targetSchema = z.object({
   jobImage: z.string().min(1),
   githubRepo: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional(),
   githubProject: z.number().int().positive().optional(),
+  tracker: z.string().min(1).optional(),
+  codeHost: z.string().min(1).optional(),
+  sharedAccount: z.boolean().optional(),
   stuckMinutes: z.record(z.number().positive()).optional(),
 });
 

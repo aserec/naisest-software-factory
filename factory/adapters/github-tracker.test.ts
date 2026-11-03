@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { AI_LINE } from "../gitlab";
 import { GitHub } from "../github";
 import { makeGitHubTracker } from "./github-tracker";
 
@@ -54,6 +55,17 @@ describe("labels", () => {
     expect([await t().trusted("ann"), await t().trusted("bob"), await t().trusted("eve"), await t().trusted("factory-bot")]).toEqual([true, false, false, false]);
   });
 
+  test("with a shared account, the account's person is trusted and only its comments with the AI line are the factory's", async () => {
+    rest[`GET /repos/${REPO}/collaborators/factory-bot/permission`] = { permission: "admin" };
+    rest[`GET /repos/${REPO}/issues/8/comments?per_page=100`] = [
+      { user: { login: "factory-bot" }, body: `${AI_LINE}\n\nQuestion`, created_at: "1" },
+      { user: { login: "factory-bot" }, body: "My answer", created_at: "2" },
+    ];
+    const shared = makeGitHubTracker(gh, REPO, undefined, true);
+    expect(await shared.trusted("factory-bot")).toBe(true);
+    expect((await shared.comments("8")).map((c) => c.byFactory)).toEqual([false, true]);
+  });
+
   test("a comment with a secret is refused before any call", async () => {
     await expect(t().comment("8", "key glpat-abcdefghijklmnopqrst")).rejects.toThrow(/secret/);
     expect(calls).toEqual([]);
@@ -81,14 +93,22 @@ describe("board", () => {
     await expect(t().setState("8", "running")).rejects.toThrow(/no column for running/);
   });
 
-  test("list keeps open issues of this repo in the column, oldest first; startedBy is who set Ready", async () => {
-    const card = (status: string, o: object) => ({ fieldValueByName: { name: status, creator: { login: "ann" } }, content: gqlIssue(o) });
+  test("list keeps open issues of this repo in the column, oldest first", async () => {
+    const card = (status: string, o: object) => ({ fieldValueByName: { name: status }, content: gqlIssue(o) });
     graph = (q) => q.includes("projectV2(number") ? project : q.includes("items(first") ? { node: { items: { pageInfo: { hasNextPage: false }, nodes: [
       card("Ready", { number: 9, createdAt: "2026-01-03" }), card("Ready", { number: 8 }), card("Needs info", { number: 7 }),
       card("Ready", { number: 6, state: "CLOSED" }), card("Ready", { number: 5, repository: { nameWithOwner: "acme/other" } }), { fieldValueByName: { name: "Ready" }, content: {} },
-    ] } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready", creator: { login: "ann" } } }] } } } };
+    ] } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready" } }] } } } };
     expect((await t().list("ready")).map((x) => [x.ref, x.state])).toEqual([["8", "ready"], ["9", "ready"]]);
-    expect(await t().startedBy("8")).toBe("ann");
     expect((await t().ticket("8")).state).toBe("ready");
+  });
+
+  test("startedBy is who made the last Status change on this board, when it moved the card to Ready", async () => {
+    const change = (login: string, status: string, projectId = "P") => ({ actor: { login }, status, project: { id: projectId } });
+    let nodes = [change("github-project-automation", "Backlog"), change("ann", "Ready"), change("bob", "Ready", "OTHER")];
+    graph = (q) => q.includes("projectV2(number") ? project : { repository: { issue: { timelineItems: { nodes } } } };
+    expect(await t().startedBy("8")).toBe("ann");
+    nodes = [change("ann", "Ready"), change("github-project-automation", "In progress")];
+    expect(await t().startedBy("8")).toBeUndefined();
   });
 });

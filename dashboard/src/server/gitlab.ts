@@ -27,7 +27,8 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
   let cached: { at: number; rows: ReturnType<typeof fetchBoard> } | undefined;
   async function fetchBoard() {
     type Issue = { iid: number; title: string; web_url: string; updated_at: string };
-    const lists = readTargets().flatMap((t) =>
+    // ponytail: the board reads GitLab tickets only; a GitHub target's tickets are on its issues page.
+    const lists = readTargets().filter((t) => !t.githubIssues).flatMap((t) =>
       STATES.map(async (state) => {
         const issues = await getJson<Issue[]>(`/projects/${encodeURIComponent(t.projectPath)}/issues?labels=${state}&per_page=100`);
         return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at }));

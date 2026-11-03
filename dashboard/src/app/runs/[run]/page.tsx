@@ -21,8 +21,8 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         {target && (
           <>
             {" · "}
-            <a href={`${gitlab()}/${target.projectPath}/-/issues/${first.ticket}`} className="text-foreground hover:underline">
-              Open the ticket in GitLab
+            <a href={target.githubIssues ? `${target.githubIssues}/${first.ticket}` : `${gitlab()}/${target.projectPath}/-/issues/${first.ticket}`} className="text-foreground hover:underline">
+              Open the ticket in {target.githubIssues ? "GitHub" : "GitLab"}
             </a>
           </>
         )}

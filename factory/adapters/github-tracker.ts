@@ -41,7 +41,7 @@ function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
 }
 
 const ISSUE_FIELDS = "number title body state url createdAt labels(first: 50) { nodes { name } } assignees(first: 20) { nodes { login } } repository { nameWithOwner }";
-const STATUS = `fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name creator { login } } }`;
+const STATUS = `fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }`;
 const fromGraph = (c: any): Issue => ({
   number: c.number, title: c.title, body: c.body, open: c.state === "OPEN", url: c.url, createdAt: c.createdAt,
   labels: c.labels.nodes.map((l: any) => l.name), assignees: c.assignees.nodes.map((a: any) => a.login),
@@ -69,7 +69,7 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
     );
     const issue = d.repository.issue;
     const card = issue.projectItems.nodes.find((n: any) => n.project.id === id);
-    return { issue, card, status: card?.fieldValueByName as { name: string; creator?: { login: string } } | null | undefined };
+    return { issue, card, status: card?.fieldValueByName as { name: string } | null | undefined };
   };
   return {
     async ticket(ref: string) {
@@ -106,16 +106,23 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
       }
       return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((i) => toTicket(i, state));
     },
-    // ponytail: GitHub keeps no history of Status changes, so this is the person who set the current Status value.
-    // The trusted() check still runs on them; only people with write access to the board can move cards.
+    // Who made the issue's last Status change on this board, if it moved the card to Ready. The Status value's own
+    // creator is whoever first set the field (often the board's automation), not who moved the card last.
     async startedBy(ref: string) {
-      const { status } = await item(ref);
-      return status && columnState(status.name) === "ready" ? status.creator?.login : undefined;
+      const { id } = await project();
+      const d = await gh.graphql(
+        `query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) { issue(number: $n) { timelineItems(last: 50, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) { nodes { ... on ProjectV2ItemStatusChangedEvent { actor { login } status project { id } } } } } } }`,
+        { owner, name, n: Number(ref) },
+      );
+      const last = d.repository.issue.timelineItems.nodes.filter((n: any) => n.project?.id === id).at(-1);
+      return last && columnState(last.status) === "ready" ? (last.actor?.login as string | undefined) : undefined;
     },
   };
 }
 
-export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number): Tracker {
+// sharedAccount: the token's account is also a person's (a trial before the factory has its own account). That
+// person's Ready, merges by hand and comments then count; the factory's own comments are told apart by the AI line.
+export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number, sharedAccount = false): Tracker {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`GitHub repo must be owner/name, got ${repo}`);
   const base = `/repos/${repo}/issues`;
   let bot: Promise<string> | undefined;
@@ -151,7 +158,7 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
     },
     isFactory: async (actor) => actor === (await botName()),
     async trusted(actor) {
-      if (actor === (await botName())) return false;
+      if (actor === (await botName()) && !sharedAccount) return false;
       const p = await gh.json("GET", `/repos/${repo}/collaborators/${encodeURIComponent(actor)}/permission`).catch(() => undefined);
       return p?.permission === "admin" || p?.permission === "write"; // maintain shows as write
     },
@@ -167,7 +174,7 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       return all
         .filter((c) => !since || c.created_at > since)
         .reverse()
-        .map((c) => ({ author: c.user.login, byFactory: c.user.login === name, body: c.body ?? "", at: c.created_at }));
+        .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && (!sharedAccount || String(c.body ?? "").startsWith(AI_LINE)), body: c.body ?? "", at: c.created_at }));
     },
     // GitHub webhook payloads: a factory_ready label added, an `@factory stop|resume` comment, a merged factory PR.
     parseEvent(payload) {

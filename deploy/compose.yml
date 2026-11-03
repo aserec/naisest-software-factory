@@ -48,6 +48,7 @@ services:
       FACTORY_EXECUTOR: ${FACTORY_EXECUTOR:-machine}
       HETZNER_TOKEN: ${HETZNER_TOKEN:-}
       GL_TOKEN: ${GL_TOKEN:-}
+      FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
       TENSORX_API_KEY: ${TENSORX_API_KEY:-}
       FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
       # Containers on this machine reach Caddy on the factory network; VMs reach it at its public name.
