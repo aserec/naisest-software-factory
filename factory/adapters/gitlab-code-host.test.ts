@@ -152,8 +152,8 @@ describe("readFile", () => {
   });
   test("a missing file is undefined, any other failure throws", async () => {
     expect(await host().readFile("CODEOWNERS")).toBeUndefined();
-    // A 500 must not read as "no file".
-    const boom = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    // The project lookup works; only the file read fails, so the 500 must come from fileRaw.
+    const boom = (async (url: string) => (url.endsWith("/raw?ref=develop") ? new Response("", { status: 500 }) : fakeFetch(url, { method: "GET" }))) as unknown as typeof fetch;
     const h = makeGitLabCodeHost(new GitLab("https://gl.example", "tok", boom), PATH, "tok", {}, "develop");
     await expect(h.readFile("CODEOWNERS")).rejects.toThrow(/500/);
   });
