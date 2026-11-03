@@ -3,7 +3,7 @@ import { AI_LINE, noQuickActions } from "../gitlab";
 import type { GitHub } from "../github";
 import { gitRepo } from "../repo";
 import { findSecrets } from "../rules";
-import type { Checks, CodeHost } from "../seams";
+import { changeBranchPrefix, type Checks, type CodeHost } from "../seams";
 
 const ASSETS = "factory-assets"; // the branch that holds attached images, so they never enter a change
 
@@ -88,6 +88,12 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     // GitHub has no revert endpoint. verify reverts right after the merge, so sha is still the base tip:
     // the revert commit takes the tree of sha's parent.
     // ponytail: a base that moved past sha is left to a person; a git revert in a clone would handle it.
+    // ponytail: newest 100 pulls only, page further if a repo opens more between two polls
+    async changeOfTicket(ticket) {
+      const pulls: any[] = await gh.json("GET", `${r}/pulls?state=all&sort=created&direction=desc&per_page=100`);
+      const p = pulls.filter((x) => String(x.head?.ref).startsWith(changeBranchPrefix(ticket))).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      return p && { ref: String(p.number), open: p.state === "open", merged: !!p.merged_at, url: p.html_url as string };
+    },
     async revert(sha) {
       if ((await branchSha(baseBranch)) !== sha) throw new Error(`${baseBranch} moved past ${sha.slice(0, 8)}, so the factory cannot revert it. Revert it by hand`);
       const parent = (await gh.json("GET", `${r}/git/commits/${sha}`)).parents[0].sha;

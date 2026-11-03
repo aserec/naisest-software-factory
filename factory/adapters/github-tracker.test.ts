@@ -34,6 +34,12 @@ describe("labels", () => {
     expect(calls.at(-1)!.body).toEqual({ labels: ["factory_running"] });
   });
 
+  test("clearState removes every state label and keeps the marks and other labels", async () => {
+    rest[`GET /repos/${REPO}/issues/8`] = issue({ labels: [{ name: "factory_running" }, { name: "factory_implemented" }, { name: "bug" }] });
+    await t().clearState("8");
+    expect(calls.slice(1).map((c) => `${c.method} ${c.path}`)).toEqual([`DELETE /repos/${REPO}/issues/8/labels/factory_running`]);
+  });
+
   test("a ticket maps state, marks and tags; pull requests are not tickets", async () => {
     rest[`GET /repos/${REPO}/issues?labels=factory_ready&state=open&sort=created&direction=asc&per_page=100`] = [
       issue({ labels: [{ name: "factory_ready" }, { name: "factory_done" }, { name: "factory_watcher" }, { name: "bug" }], assignees: [{ login: "ann" }] }),
@@ -91,6 +97,18 @@ describe("board", () => {
     await t().setState("8", "needs_info");
     expect(calls.at(-1)!.body.variables).toEqual({ p: "P", i: "IT", f: "F", o: "o-info" });
     await expect(t().setState("8", "running")).rejects.toThrow(/no column for running/);
+  });
+
+  test("clearState clears the Status field of the issue's card, and does nothing when it has no card", async () => {
+    let nodes: object[] = [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready" } }];
+    graph = (q) => q.includes("projectV2(number") ? project : q.includes("clearProjectV2ItemFieldValue") ? {} : { repository: { issue: { ...gqlIssue(), projectItems: { nodes } } } };
+    await t().clearState("8");
+    expect(calls.at(-1)!.body.query).toContain("clearProjectV2ItemFieldValue");
+    expect(calls.at(-1)!.body.variables).toEqual({ p: "P", i: "IT", f: "F" });
+    nodes = [];
+    const n = calls.length;
+    await t().clearState("8");
+    expect(calls.slice(n).some((c) => String(c.body?.query).includes("clearProjectV2ItemFieldValue"))).toBe(false);
   });
 
   test("list keeps open issues of this repo in the column, oldest first", async () => {

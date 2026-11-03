@@ -70,6 +70,13 @@ describe("tickets", () => {
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8", body: { add_labels: "factory_running", remove_labels: expect.stringContaining("factory_ready") } });
     expect(last().body.remove_labels).not.toContain("factory_running");
   });
+  test("clearState removes every state label and adds none, so the marks stay", async () => {
+    await tracker().clearState("8");
+    expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8" });
+    expect(last().body.add_labels).toBeUndefined();
+    expect(last().body.remove_labels.split(",")).toEqual(["factory_ready", "factory_running", "factory_needs_info", "factory_needs_approval", "factory_waiting", "factory_stopped", "factory_blocked", "factory_done"]);
+    expect(last().body.remove_labels).not.toContain("factory_implemented");
+  });
   test("mark adds its label and removes no other label", async () => {
     const t = tracker();
     await t.mark("8", "implemented");

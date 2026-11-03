@@ -1,6 +1,6 @@
 import { AI_LINE, GitLab, GITLAB_URL } from "../gitlab";
 import { gitRepo } from "../repo";
-import type { Checks, CodeHost } from "../seams";
+import { changeBranchPrefix, type Checks, type CodeHost } from "../seams";
 
 export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
   let project: Promise<{ id: number }> | undefined;
@@ -71,6 +71,12 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       // A cut-off diff would read as fewer changed lines.
       if (c.compare_timeout || diffs.some((d) => d.too_large || d.collapsed)) throw new Error(`The diff of ${sha} is cut off, so the factory cannot compare it`);
       return Object.fromEntries(diffs.map((d) => [d.new_path, d.diff]));
+    },
+    // Every factory change says `Closes #<ticket>`, so the issue lists its changes.
+    async changeOfTicket(ticket) {
+      const mrs: any[] = await gitlab.getJson(`/projects/${await projectId()}/issues/${Number(ticket)}/related_merge_requests`);
+      const m = mrs.filter((x) => String(x.source_branch).startsWith(changeBranchPrefix(ticket))).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      return m && { ref: String(m.iid), open: m.state === "opened", merged: m.state === "merged", url: m.web_url as string };
     },
     async revert(sha) {
       return opened(await gitlab.revertMerge(await projectId(), sha, baseBranch));

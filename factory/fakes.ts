@@ -2,18 +2,19 @@ import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
 import { findSecrets } from "./rules";
 import { SWITCHES } from "./run-events";
-import { NotFactoryRunError } from "./seams";
+import { changeBranchPrefix, NotFactoryRunError } from "./seams";
 import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, Dispatch, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
 // An in-memory Tracker for tests. It keeps the rules of the real one: secrets are refused, the factory is not trusted.
-export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: Map<TicketRef, Ticket>; posted: { ref: TicketRef; text: string }[]; created: TicketDraft[]; say(ref: TicketRef, author: PersonRef, body: string, at?: string): void } {
+export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: Map<TicketRef, Ticket>; posted: { ref: TicketRef; text: string }[]; created: TicketDraft[]; cleared: TicketRef[]; say(ref: TicketRef, author: PersonRef, body: string, at?: string): void } {
   const tickets = new Map<TicketRef, Ticket>();
   const notes = new Map<TicketRef, Comment[]>();
   const fingerprints = new Map<TicketRef, string>();
   const posted: { ref: TicketRef; text: string }[] = [];
   const created: TicketDraft[] = [];
+  const cleared: TicketRef[] = [];
   const add = (t: Partial<Ticket>): Ticket => {
     const ref = t.ref ?? String(tickets.size + 1);
     const ticket: Ticket = { title: "", body: "", open: true, marks: [], tags: [], assignees: [], url: `https://tracker.example/${ref}`, ...t, ref };
@@ -28,11 +29,12 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
   };
 
   return {
-    tickets, posted, created,
+    tickets, posted, created, cleared,
     // A comment from a person, for inbox tests.
     say: (ref, author, body, at = new Date().toISOString()) => void notes.set(ref, [{ author, byFactory: false, body, at }, ...(notes.get(ref) ?? [])]),
     ticket: async (ref) => get(ref),
     setState: async (ref, state: FactoryState) => { get(ref).state = state; },
+    clearState: async (ref) => { get(ref).state = undefined; get(ref).ended = undefined; cleared.push(ref); },
     mark: async (ref, mark) => { const t = get(ref); if (!t.marks.includes(mark)) t.marks = [...t.marks, mark]; },
     unmark: async (ref, mark) => { const t = get(ref); t.marks = t.marks.filter((m) => m !== mark); },
     comment: async (ref, text) => {
@@ -106,6 +108,11 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     return c;
   };
   const host = {
+    changes, // every change by ref, the newest last
+    // A person closes the change on the host, without the factory.
+    close: (ref: ChangeRef) => void Object.assign(get(ref), { open: false, merged: false }),
+    // A person merges the change on the host, without the factory.
+    mergeByPerson: (ref: ChangeRef) => void Object.assign(get(ref), { open: false, merged: true }),
     mrComments: [] as string[],
     mrTitle: "",
     mrDescription: "",
@@ -159,6 +166,11 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     },
     readFile: async (path: string) => o.files?.[path],
     branchDiff: async (sha: string) => o.diffs?.[sha] ?? DIFF,
+    // The newest change whose branch starts with factory/<ticket>-, in any state.
+    changeOfTicket: async (ticket: TicketRef) => {
+      const c = [...changes.values()].filter((x) => x.branch.startsWith(changeBranchPrefix(ticket))).at(-1);
+      return c && { ref: c.ref, open: c.open, merged: c.merged, url: c.url };
+    },
     revert: async (sha: string) => {
       host.revertOpened = true;
       return { ref: `revert-${sha.slice(0, 8)}`, url: "https://host.example/changes/revert" };

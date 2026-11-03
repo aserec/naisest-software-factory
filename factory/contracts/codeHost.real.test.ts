@@ -21,7 +21,7 @@ describe.skipIf(!process.env.FACTORY_CONTRACT_REAL)("real GitLab code host", () 
     const repo = host.cloneAt(dir);
     await repo.clone(await host.baseBranch());
     writeFileSync(join(dir, `contract-${Date.now()}.txt`), "Made by the code host contract test.\n");
-    const branch = `factory/contract-${Date.now()}`;
+    const branch = `factory/${ticket}-contract-${Date.now()}`;
     await repo.commitAndPush(branch, "Contract test commit");
     return { host, branch, ticket };
   });

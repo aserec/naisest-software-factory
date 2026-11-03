@@ -122,6 +122,10 @@ export class GitLab {
     await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label, remove_labels: others });
   }
 
+  async clearState(projectId: number, iid: number): Promise<void> {
+    await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { remove_labels: STATE_LABELS.join(",") });
+  }
+
   async addLabel(projectId: number, iid: number, label: string): Promise<void> {
     await this.call("PUT", `/projects/${projectId}/issues/${iid}`, { add_labels: label });
   }

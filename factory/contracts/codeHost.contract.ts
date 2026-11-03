@@ -53,6 +53,15 @@ export function codeHostContract(make: () => Promise<{ host: CodeHost; branch: s
       expect(await host.readFile("no/such/file.md")).toBeUndefined();
     });
 
+    test("changeOfTicket finds the change of the ticket's branch, and its state follows a close", async () => {
+      const { host, branch, ticket } = await make();
+      expect(await host.changeOfTicket(`${ticket}0`)).toBeUndefined(); // ticket 80 is not ticket 8
+      const { ref, url } = await host.openChange(branch, "Contract change", "Text.", ticket);
+      expect(await host.changeOfTicket(ticket)).toEqual({ ref, url, open: true, merged: false });
+      await host.closeChange(ref);
+      expect(await host.changeOfTicket(ticket)).toMatchObject({ ref, open: false, merged: false });
+    });
+
     test("closeChange closes the change without merging it", async () => {
       const { host, branch, ticket } = await make();
       const { ref } = await host.openChange(branch, "Contract change", "Text.", ticket);

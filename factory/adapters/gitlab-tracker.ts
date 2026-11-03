@@ -47,6 +47,9 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     async setState(ref, state) {
       await gitlab.setState(await projectId(), iid(ref), labelOf(state));
     },
+    async clearState(ref) {
+      await gitlab.clearState(await projectId(), iid(ref));
+    },
     async mark(ref, mark) {
       await gitlab.addLabel(await projectId(), iid(ref), MARK_LABELS[mark]);
     },

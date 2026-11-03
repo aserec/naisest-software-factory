@@ -35,6 +35,17 @@ export function trackerContract(make: () => Promise<{ tracker: Tracker; ref: Tic
       expect(t.marks).not.toContain("reviewed");
     });
 
+    test("clearState removes the state and keeps the marks", async () => {
+      const { tracker, ref } = await make();
+      await tracker.setState(ref, "running");
+      await tracker.mark(ref, "implemented");
+      await tracker.clearState(ref);
+      const t = await tracker.ticket(ref);
+      expect(t.state).toBeUndefined();
+      expect(t.marks).toContain("implemented");
+      expect((await tracker.list("running")).map((x) => x.ref)).not.toContain(ref);
+    });
+
     test("a comment is listed first and marked as the factory's", async () => {
       const { tracker, ref } = await make();
       await tracker.comment(ref, "Triage done.");

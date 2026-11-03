@@ -87,6 +87,15 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
         { p: p.id, i: itemId, f: p.field, o: option.id },
       );
     },
+    async clearState(ref: string) {
+      const p = await project();
+      const { card } = await item(ref);
+      if (!card) return; // not on the board, so no state
+      await gh.graphql(
+        `mutation($p: ID!, $i: ID!, $f: ID!) { clearProjectV2ItemFieldValue(input: { projectId: $p, itemId: $i, fieldId: $f }) { projectV2Item { id } } }`,
+        { p: p.id, i: card.id, f: p.field },
+      );
+    },
     // ponytail: reads every card each call; filter with the items(query:) argument if boards grow past a few thousand cards.
     async list(state: FactoryState) {
       const { id } = await project();
@@ -144,6 +153,11 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       const has = fromRest(await gh.json("GET", `${base}/${Number(ref)}`)).labels;
       for (const l of has.filter((l) => STATE_LABELS.includes(l) && l !== labelOf(state))) await removeLabel(ref, l);
       await addLabels(ref, [labelOf(state)]); // GitHub creates a missing label
+    },
+    async clearState(ref) {
+      if (board) return board.clearState(ref);
+      const has = fromRest(await gh.json("GET", `${base}/${Number(ref)}`)).labels;
+      for (const l of has.filter((l) => STATE_LABELS.includes(l))) await removeLabel(ref, l);
     },
     mark: async (ref, mark) => void (await addLabels(ref, [markLabel(mark)])),
     unmark: (ref, mark) => removeLabel(ref, markLabel(mark)),

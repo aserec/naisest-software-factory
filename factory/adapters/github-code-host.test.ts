@@ -112,6 +112,25 @@ describe("readFile", () => {
   });
 });
 
+describe("changeOfTicket", () => {
+  const pulls = (...o: object[]) => (routes[`GET ${R}/pulls`] = o.map((x) => ({ number: 1, state: "open", merged_at: null, head: { ref: "factory/12-x" }, created_at: "2026-01-01T00:00:00Z", html_url: "u", ...x })));
+  test("lists pulls newest first and returns the newest of the ticket's branch, in any state", async () => {
+    pulls({ number: 3, state: "closed", created_at: "2026-01-01T00:00:00Z" }, { number: 6, state: "closed", merged_at: "2026-01-04T00:00:00Z", created_at: "2026-01-03T00:00:00Z", html_url: "u6" }, { number: 4, created_at: "2026-01-02T00:00:00Z" });
+    expect(await host().changeOfTicket("12")).toEqual({ ref: "6", open: false, merged: true, url: "u6" });
+    expect(calls[0]).toMatchObject({ method: "GET", path: `${R}/pulls?state=all&sort=created&direction=desc&per_page=100` });
+  });
+  test("a branch of ticket 123 or a person's branch is not a change of ticket 12", async () => {
+    pulls({ number: 9, head: { ref: "factory/123-x" } }, { number: 8, head: { ref: "feature/12-x" } });
+    expect(await host().changeOfTicket("12")).toBeUndefined();
+    pulls();
+    expect(await host().changeOfTicket("12")).toBeUndefined();
+  });
+  test("an open pull request is open and not merged", async () => {
+    pulls({ number: 4 });
+    expect(await host().changeOfTicket("12")).toMatchObject({ ref: "4", open: true, merged: false });
+  });
+});
+
 describe("branchDiff", () => {
   test("gives each file's patch against the base branch", async () => {
     routes[`${R}/compare/develop...s`] = { files: [{ filename: "a.ts", patch: "@@ -1 +1 @@\n-a\n+b", changes: 2 }, { filename: "i.png", changes: 0 }] };

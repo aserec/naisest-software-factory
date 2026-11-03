@@ -28,6 +28,7 @@ export interface TicketDraft { title: string; body: string; state?: FactoryState
 export interface Tracker {
   ticket(ref: TicketRef): Promise<Ticket>;
   setState(ref: TicketRef, state: FactoryState): Promise<void>;
+  clearState(ref: TicketRef): Promise<void>; // removes the state and keeps every mark
   mark(ref: TicketRef, mark: Mark): Promise<void>; // adds the mark and keeps every other one
   unmark(ref: TicketRef, mark: Mark): Promise<void>; // removes the mark and keeps every other one
   comment(ref: TicketRef, text: string): Promise<void>;
@@ -74,12 +75,16 @@ export interface CodeHost {
   rebase(ref: ChangeRef): Promise<{ ok: true; head: string } | { ok: false; error: string }>; // onto the base branch; returns when the rebase ends
   readFile(path: string): Promise<string | undefined>; // a file at the head of the base branch, through the host API; undefined when it does not exist
   branchDiff(sha: string): Promise<Record<string, string>>; // each file's diff of sha against the base branch, from their merge base; throws on a cut-off diff
+  changeOfTicket(ticket: TicketRef): Promise<{ ref: ChangeRef; open: boolean; merged: boolean; url: string } | undefined>; // the newest change, in any state, whose branch starts with changeBranchPrefix(ticket)
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
   closeChange(ref: ChangeRef): Promise<void>; // closes without merging
 }
+
+// The factory's change branches are named factory/<ticket>-<slug>. The dash keeps ticket 12 apart from ticket 123.
+export const changeBranchPrefix = (ticket: TicketRef) => `factory/${ticket}-`;
 
 // The run is not one the factory started. Never worth a retry.
 export class NotFactoryRunError extends Error {}
