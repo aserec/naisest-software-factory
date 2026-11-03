@@ -56,6 +56,8 @@ export interface Repo {
   // Commits the clone's files on top of the base and force-pushes the branch. Returns the new sha.
   commitAndPush(branch: string, message: string): Promise<string>;
   readFile(path: string): string | undefined;
+  // A file at the base commit the clone started from, never the work tree the agent edits. Undefined when the path is not there.
+  readBase(path: string): Promise<string | undefined>;
   // A small plain file inside the clone, as bytes. Undefined, never a throw, for a missing file, a link, a path that leaves the clone, or a file over maxBytes.
   readBytes(path: string, maxBytes: number): Buffer | undefined;
 }
@@ -70,6 +72,7 @@ export interface CodeHost {
   checks(at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks>;
   merge(ref: ChangeRef, sha: string, message: string): Promise<string>;
   rebase(ref: ChangeRef): Promise<{ ok: true; head: string } | { ok: false; error: string }>; // onto the base branch; returns when the rebase ends
+  readFile(path: string): Promise<string | undefined>; // a file at the head of the base branch, through the host API; undefined when it does not exist
   branchDiff(sha: string): Promise<Record<string, string>>; // each file's diff of sha against the base branch, from their merge base; throws on a cut-off diff
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;

@@ -191,3 +191,23 @@ test("readBytes returns plain small files and undefined for everything else", ()
   expect(repo.readBytes("run/proof/plain.png", 4)).toBeUndefined();
   expect(repo.readBytes("run/proof/missing.png", MAX)).toBeUndefined();
 });
+
+// Part D and E read the target's own files. The agent edits the work tree, so they must come from the base commit.
+test("readBase returns the committed file, not the edited work tree, and undefined for a missing path", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-base-"));
+  const seed = join(root, "seed");
+  git(root, "init", "-q", "-b", "master", seed);
+  mkdirSync(join(seed, ".factory"));
+  writeFileSync(join(seed, ".factory/author.md"), "committed\n");
+  git(seed, "add", ".");
+  git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+  const server = join(root, "server.git");
+  git(root, "clone", "-q", "--bare", seed, server);
+  const dir = join(root, "run/target");
+  const repo = gitRepo(dir, join(root, "run/target.git"), `file://${server}`, "tok", process.env);
+  await repo.clone("master");
+  writeFileSync(join(dir, ".factory/author.md"), "edited");
+  expect(await repo.readBase(".factory/author.md")).toBe("committed\n");
+  expect(await repo.readBase("missing.md")).toBeUndefined();
+  expect(await repo.readBase(".factory/missing.md")).toBeUndefined();
+});

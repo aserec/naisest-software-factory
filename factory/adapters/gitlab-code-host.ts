@@ -62,6 +62,9 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       }
       return { ok: false, error: "the rebase did not end within 5 minutes" };
     },
+    async readFile(path) {
+      return gitlab.fileRaw(await projectId(), path, baseBranch);
+    },
     async branchDiff(sha) {
       const c = await gitlab.getJson(`/projects/${await projectId()}/repository/compare?from=${encodeURIComponent(baseBranch)}&to=${sha}`);
       const diffs: { new_path: string; diff: string; too_large?: boolean; collapsed?: boolean }[] = c.diffs;

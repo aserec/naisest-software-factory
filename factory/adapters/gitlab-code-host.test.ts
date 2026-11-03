@@ -13,7 +13,7 @@ const fakeFetch = (async (url: string, init: RequestInit) => {
   calls.push(call);
   const hit = routes[`${call.method} ${path.split("?")[0]}`] ?? routes[path.split("?")[0]];
   const body = typeof hit === "function" ? hit(call) : hit;
-  return new Response(JSON.stringify(body ?? {}), { status: hit === undefined ? 404 : 200 });
+  return new Response(typeof body === "string" ? body : JSON.stringify(body ?? {}), { status: hit === undefined ? 404 : 200 });
 }) as unknown as typeof fetch;
 const last = () => calls[calls.length - 1];
 // The real 5 s sleep would stall every rebase test.
@@ -141,6 +141,21 @@ describe("branchDiff", () => {
       routes["/projects/7/repository/compare"] = cut;
       await expect(host().branchDiff("abc")).rejects.toThrow(/cut off/);
     }
+  });
+});
+
+describe("readFile", () => {
+  test("reads the raw file at the head of the base branch, with the path URL-encoded", async () => {
+    routes["/projects/7/repository/files/docs%2FCODEOWNERS/raw"] = "* @alice\n";
+    expect(await host().readFile("docs/CODEOWNERS")).toBe("* @alice\n");
+    expect(last()).toMatchObject({ method: "GET", url: "/projects/7/repository/files/docs%2FCODEOWNERS/raw?ref=develop" });
+  });
+  test("a missing file is undefined, any other failure throws", async () => {
+    expect(await host().readFile("CODEOWNERS")).toBeUndefined();
+    // A 500 must not read as "no file".
+    const boom = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    const h = makeGitLabCodeHost(new GitLab("https://gl.example", "tok", boom), PATH, "tok", {}, "develop");
+    await expect(h.readFile("CODEOWNERS")).rejects.toThrow(/500/);
   });
 });
 

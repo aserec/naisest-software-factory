@@ -78,6 +78,7 @@ export interface FakeCodeHostOptions {
   behind?: number; // how many times the base branch moves ahead of the change; a rebase uses up one
   rebaseFails?: boolean;
   diffs?: Record<string, Record<string, string>>; // branchDiff by sha; any other sha gets DIFF
+  files?: Record<string, string>; // files at the head of the base branch, for readFile; any other path is undefined
 }
 
 export const DIFF = { "src/List.tsx": "@@ -1,2 +1,3 @@\n const a = 1;\n+  if (loading) return <Spinner />;\n" };
@@ -156,6 +157,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       c.head = `${head}-r${++host.rebases}`;
       return { ok: true as const, head: c.head };
     },
+    readFile: async (path: string) => o.files?.[path],
     branchDiff: async (sha: string) => o.diffs?.[sha] ?? DIFF,
     revert: async (sha: string) => {
       host.revertOpened = true;

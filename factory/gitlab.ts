@@ -52,6 +52,16 @@ export class GitLab {
     return this.json("GET", endpoint);
   }
 
+  // The raw text of a file at a ref. Undefined on 404; any other failure throws.
+  async fileRaw(projectId: number, path: string, ref: string): Promise<string | undefined> {
+    try {
+      return await (await this.call("GET", `/projects/${projectId}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(ref)}`)).text();
+    } catch (e) {
+      if (String(e).includes("failed with status 404")) return undefined;
+      throw e;
+    }
+  }
+
   // How many work items with this label were created since the date, open or closed.
   async countCreatedSince(projectId: number, label: string, since: Date): Promise<number> {
     const res = await this.call("GET", `/projects/${projectId}/issues?labels=${label}&created_after=${encodeURIComponent(since.toISOString())}&per_page=1`);

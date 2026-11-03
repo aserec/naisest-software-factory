@@ -48,6 +48,11 @@ export function codeHostContract(make: () => Promise<{ host: CodeHost; branch: s
       expect(await host.attach("a.png", PNG)).not.toBe("");
     });
 
+    test("readFile of a path that is not on the base branch is undefined", async () => {
+      const { host } = await make();
+      expect(await host.readFile("no/such/file.md")).toBeUndefined();
+    });
+
     test("closeChange closes the change without merging it", async () => {
       const { host, branch, ticket } = await make();
       const { ref } = await host.openChange(branch, "Contract change", "Text.", ticket);

@@ -103,6 +103,15 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
       await git(["--git-dir", gitDir, "push", "--force", url, `${sha}:refs/heads/${branch}`], auth);
       return sha;
     },
+    // Reads from our git dir, so nothing the agent wrote in the work tree can change the answer.
+    async readBase(path) {
+      try {
+        return await git(["--git-dir", gitDir, "show", `HEAD:${path}`]);
+      } catch (e) {
+        if (/does not exist|exists on disk, but not in/.test(String(e))) return undefined;
+        throw e;
+      }
+    },
     // The agent writes the clone, so a link there could point at a secret file. Read only plain files inside it.
     readFile(path) {
       const full = join(dir, path);

@@ -67,6 +67,8 @@ export interface WorldOptions {
   behind?: number; // how many times develop moves ahead of the change
   rebaseFails?: boolean;
   diffs?: Record<string, Record<string, string>>; // the change's diff by sha; any other sha gets DIFF
+  baseFiles?: Record<string, string>; // files at the base commit, for repo.readBase
+  files?: Record<string, string>; // files at the head of the base branch, for codeHost.readFile
 }
 
 export const COMMIT: CommitMessage = {
@@ -102,6 +104,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     behind: o.behind,
     rebaseFails: o.rebaseFails,
     diffs: o.diffs,
+    files: o.files,
   });
   // Merging closes the ticket, as "Closes #8" does.
   const merge = host.merge;
@@ -147,6 +150,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     clone: async (ref) => void cloned.push(ref),
     diff: async () => ({ text: o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
     run: async (cmd) => (ran.push(cmd), { ok: o.gate !== "red" && !(cmd === "pnpm lint" && lintFails-- > 0), output: `ran ${cmd}` }),
+    readBase: async (path) => o.baseFiles?.[path],
     readBytes: (path) => (path.startsWith(PROOF_DIR) ? images[path.slice(PROOF_DIR.length)] : undefined),
     commitAndPush: async (_b, message) => ((commitMessage = message), "head5"),
     readFile: (path) =>
