@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-03T00:00:00Z",
+  "title": "Design System: Factory dashboard",
+  "extensions": {
+    "colorMeta": {
+      "signal-teal": { "role": "primary", "displayName": "Signal Teal", "canonical": "#1b6c80", "tonalRamp": ["#0b2c35", "#114554", "#1b6c80", "#3a8799", "#64a3b2", "#93c0cb", "#c4dde3", "#e9f3f5"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#131416", "tonalRamp": ["#131416", "#1d1f20", "#353736", "#5d5f60", "#8a8c8e", "#cdced1", "#ebedee", "#f6f8f9"] },
+      "muted-ink": { "role": "neutral", "displayName": "Muted Ink", "canonical": "#5d5f60" },
+      "frame-ground": { "role": "neutral", "displayName": "Frame Ground", "canonical": "#f6f8f9" },
+      "sheet": { "role": "neutral", "displayName": "Sheet", "canonical": "#ffffff" },
+      "positive": { "role": "state", "displayName": "Positive", "canonical": "#1e7b4f", "tonalRamp": ["#04250e", "#0f4a2c", "#1e7b4f", "#3f9a6c", "#74bb93", "#a9dabd", "#dcfae5", "#f1fdf4"] },
+      "destructive": { "role": "state", "displayName": "Destructive", "canonical": "#c4242a", "tonalRamp": ["#3d0b0d", "#831c1e", "#c4242a", "#d9534f", "#e8857f", "#f3b6b0", "#ffedea", "#fff7f6"] }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "Page title, once per screen." },
+      "stat": { "displayName": "Stat", "purpose": "Run page readouts." },
+      "title": { "displayName": "Title", "purpose": "Board columns and section headings." },
+      "body": { "displayName": "Body", "purpose": "Default text, tabular numbers." },
+      "label": { "displayName": "Label", "purpose": "Pills and small metadata." },
+      "mono": { "displayName": "Mono", "purpose": "Repo and ticket IDs, tool input, logs." }
+    },
+    "shadows": [
+      { "name": "card-xs", "value": "0 1px 2px 0 rgb(0 0 0 / 0.05)", "purpose": "Lifts board cards off the sheet. The only shadow in the system." }
+    ],
+    "motion": [
+      { "name": "ease-control", "value": "120ms cubic-bezier(0.2, 0, 0, 1)", "purpose": "Color, border, opacity and scale on every clickable thing." },
+      { "name": "press", "value": "scale(0.96)", "purpose": "Active state of buttons, switches and summaries, only without reduced motion." },
+      { "name": "page-enter", "value": "opacity 0 to 1, y 6px to 0", "purpose": "Sheet content on route change." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Ink fill, compact, for the one main action on a screen.",
+      "html": "<button class=\"ds-btn-primary\">Resume run</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: #1d1f20; color: #fff; font: 500 14px/20px 'IBM Plex Sans', system-ui, sans-serif; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2,0,0,1), scale 120ms cubic-bezier(0.2,0,0,1); } .ds-btn-primary:hover { background: rgb(29 31 32 / 0.85); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 1px #fff, 0 0 0 3px #1b6c80; } .ds-btn-primary:active { scale: 0.96; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary actions.",
+      "html": "<button class=\"ds-btn-outline\">Open in GitLab</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid #cdced1; border-radius: 6px; background: #fff; color: #131416; font: 500 14px/20px 'IBM Plex Sans', system-ui, sans-serif; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2,0,0,1), scale 120ms cubic-bezier(0.2,0,0,1); } .ds-btn-outline:hover { background: #f4f6f8; } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 1px #fff, 0 0 0 3px #1b6c80; } .ds-btn-outline:active { scale: 0.96; }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Stop a run or cancel a pipeline. Never a solid red fill.",
+      "html": "<button class=\"ds-btn-destructive\">Stop run</button>",
+      "css": ".ds-btn-destructive { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid rgb(196 36 42 / 0.4); border-radius: 6px; background: #fff; color: #c4242a; font: 500 14px/20px 'IBM Plex Sans', system-ui, sans-serif; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2,0,0,1), border-color 120ms cubic-bezier(0.2,0,0,1), scale 120ms cubic-bezier(0.2,0,0,1); } .ds-btn-destructive:hover { border-color: #c4242a; background: #ffedea; } .ds-btn-destructive:focus-visible { outline: none; box-shadow: 0 0 0 1px #fff, 0 0 0 3px #1b6c80; } .ds-btn-destructive:active { scale: 0.96; }"
+    },
+    {
+      "name": "State Pills",
+      "kind": "chip",
+      "refersTo": "pill-positive",
+      "description": "Pale fill, dark ink of the same hue.",
+      "html": "<span class=\"ds-pill ds-pill-pos\">Merged</span> <span class=\"ds-pill ds-pill-warn\">Waiting</span> <span class=\"ds-pill ds-pill-neg\">Stuck</span> <span class=\"ds-pill\">Skipped</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; background: #ebedee; color: #353736; font: 500 12px/16px 'IBM Plex Sans', system-ui, sans-serif; white-space: nowrap; } .ds-pill-pos { background: #dcfae5; color: #04250e; } .ds-pill-warn { background: #fffbeb; color: #92400e; } .ds-pill-neg { background: #ffedea; color: #831c1e; }"
+    },
+    {
+      "name": "Board Card",
+      "kind": "card",
+      "refersTo": "board-card",
+      "description": "One work item on the board; the whole card links to its run.",
+      "html": "<a class=\"ds-card\" href=\"#\"><span class=\"ds-card-main\"><span class=\"ds-card-title\">Add CSV export to reports</span><span class=\"ds-card-meta\"><span class=\"ds-mono\">web-app #482</span> · 3h ago</span></span><span class=\"ds-card-cost\">$1.84</span></a>",
+      "css": ".ds-card { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 12px; border: 1px solid #e8eaec; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); color: #131416; text-decoration: none; font: 400 14px/20px 'IBM Plex Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; transition: border-color 120ms cubic-bezier(0.2,0,0,1), background-color 120ms cubic-bezier(0.2,0,0,1); } .ds-card:hover { border-color: rgb(19 20 22 / 0.2); background: rgb(235 237 238 / 0.4); } .ds-card:focus-visible { outline: none; box-shadow: 0 0 0 2px #1b6c80; } .ds-card-main { display: flex; flex-direction: column; min-width: 0; } .ds-card-title { font-weight: 500; } .ds-card-meta { margin-top: 2px; font-size: 12px; line-height: 16px; color: #5d5f60; } .ds-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; } .ds-card-cost { width: 56px; text-align: right; }"
+    },
+    {
+      "name": "Sidebar Nav",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Sidebar on the frame ground; the active item takes the Active fill.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\" aria-current=\"page\" href=\"#\">Board</a><a class=\"ds-nav-item\" href=\"#\">Runner</a><a class=\"ds-nav-item\" href=\"#\">Switches</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; width: 204px; padding: 12px; background: #f6f8f9; font: 400 14px/20px 'IBM Plex Sans', system-ui, sans-serif; } .ds-nav-item { display: flex; align-items: center; height: 36px; padding: 0 10px; border-radius: 8px; color: rgb(19 20 22 / 0.8); text-decoration: none; transition: background-color 120ms cubic-bezier(0.2,0,0,1), color 120ms cubic-bezier(0.2,0,0,1); } .ds-nav-item:hover { background: rgb(235 237 238 / 0.6); color: #131416; } .ds-nav-item[aria-current=page] { background: #ebedee; color: #131416; } .ds-nav-item:focus-visible { outline: none; box-shadow: 0 0 0 2px #1b6c80; }"
+    },
+    {
+      "name": "Underline Tabs",
+      "kind": "nav",
+      "refersTo": "tabs",
+      "description": "Tabs on a 1px rule; the active one takes a 2px Signal Teal line.",
+      "html": "<div class=\"ds-tabs\" role=\"tablist\"><button class=\"ds-tab\" role=\"tab\" aria-selected=\"true\">Steps</button><button class=\"ds-tab\" role=\"tab\" aria-selected=\"false\">Proof</button><button class=\"ds-tab\" role=\"tab\" aria-selected=\"false\">Log</button></div>",
+      "css": ".ds-tabs { display: flex; gap: 20px; height: 36px; border-bottom: 1px solid #e8eaec; font: 500 14px/20px 'IBM Plex Sans', system-ui, sans-serif; } .ds-tab { margin-bottom: -1px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; background: none; color: #5d5f60; font: inherit; cursor: pointer; transition: color 120ms cubic-bezier(0.2,0,0,1), border-color 120ms cubic-bezier(0.2,0,0,1); } .ds-tab:hover { color: #131416; border-bottom-color: #cdced1; } .ds-tab[aria-selected=true] { color: #131416; border-bottom-color: #1b6c80; } .ds-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px #1b6c80; }"
+    },
+    {
+      "name": "Run Timeline Row",
+      "kind": "custom",
+      "refersTo": "run-timeline",
+      "description": "The production line: one step per row, the live bar in Signal Teal.",
+      "html": "<div class=\"ds-lane\"><span class=\"ds-lane-name\">code review</span><span class=\"ds-lane-track\"><span class=\"ds-lane-bar\" style=\"left:30%;width:45%\"></span></span><span class=\"ds-lane-num\">4m 12s</span><span class=\"ds-lane-num\">$0.31</span></div>",
+      "css": ".ds-lane { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #f0f1f2; font: 400 14px/20px 'IBM Plex Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #131416; } .ds-lane-name { width: 160px; font-weight: 500; } .ds-lane-track { position: relative; flex: 1; height: 8px; border-radius: 9999px; background: #f4f6f8; } .ds-lane-bar { position: absolute; top: 0; bottom: 0; border-radius: 9999px; background: #1b6c80; } .ds-lane-num { width: 64px; text-align: right; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Line Control Room",
+    "overview": "The dashboard is the control room over the factory's production line. A person comes in to answer one question: where is my change, and does it need me? The room is quiet. Everything is ink on a white sheet, and one hue, Signal Teal, marks what is live. Red appears only when something failed or is stuck.\n\nThe shell is a tinted blue-grey frame (sidebar and top bar on one ground, no rule between them) around a white working sheet, inset 8px on the right and bottom. The sheet holds the data. The frame holds the way around. The mark in the corner is the line itself: three stations on one rail, the last one lit.\n\nThe feel is tactile and calm. Surfaces are flat. Every clickable thing fades in 120ms and presses to 0.96 scale. Numbers are tabular so columns of cost and duration line up. Density is that of a working tool: 14px body, 32px buttons, cards that hold one line of title and one line of facts.",
+    "keyCharacteristics": [
+      "Tinted frame around a white sheet, light mode only.",
+      "Ink first; Signal Teal is the one hue and marks live data.",
+      "Flat surfaces; depth comes from the frame and the sheet, not from shadows.",
+      "IBM Plex Sans with Plex Mono for repo and ticket IDs, tabular numbers everywhere.",
+      "Small, fast, tactile feedback on every control."
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Signal Teal appears only on live data, the active tab, the mark and focus. If a teal element is not live or selected, it is wrong.", "section": "colors" },
+      { "name": "The Red Means Stop Rule", "body": "Destructive red marks a failed or stuck run, an error, or a destructive action. It never decorates.", "section": "colors" },
+      { "name": "The Tabular Numbers Rule", "body": "Every number uses tabular figures and sits right-aligned in a fixed-width slot, so cost and duration columns line up across rows.", "section": "typography" },
+      { "name": "The Two Planes Rule", "body": "Frame and sheet are the only planes. Do not add a third with cards on tinted panels or stacked shadows.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep Signal Teal for live data, the active tab, the mark and focus only.",
+      "Do open every screen with the page title row and a one-line finding in Muted Ink.",
+      "Do put numbers in fixed-width, right-aligned slots with tabular figures.",
+      "Do set repo names, ticket numbers and logs in Plex Mono.",
+      "Do give every control the 120ms fade and the 0.96 press, and respect reduced motion."
+    ],
+    "donts": [
+      "Don't add a dark theme or a second hue without updating this file; the system is light only.",
+      "Don't use solid red fills; red is text, a stroke, a bar or a pale pill.",
+      "Don't add shadows beyond shadow-xs on cards, or use shadow on hover.",
+      "Don't put cards on tinted panels inside the sheet; there are two planes."
+    ]
+  }
+}
