@@ -30,6 +30,8 @@ if [ -n "$from" ]; then
 else
   rm -rf ./run # each trial starts with a new run record
 fi
+# A resume skips the event step, so the ticket is moved back to running first.
+[ -z "$from" ] || steps=(resume "${steps[@]}")
 for step in "${steps[@]}"; do
   echo "== $step"
   # The step reads the files and deletes them. Only a token that is set gets a file and a variable.
@@ -41,5 +43,5 @@ for step in "${steps[@]}"; do
   env -i PATH="$PATH" HOME="$HOME" PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID=1 FACTORY_PIPELINE=build FACTORY_TARGET="$target" \
     FACTORY_WORK_ITEM_IID="$iid" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
-    node --import tsx "factory/steps/$step.ts"
+    node --import tsx "$([ "$step" = resume ] && echo factory/local-resume.ts || echo "factory/steps/$step.ts")"
 done
