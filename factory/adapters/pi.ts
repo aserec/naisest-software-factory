@@ -12,7 +12,7 @@ import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider, ToolCal
 export function piModels({ provider, model }: ModelChoice) {
   return {
     providers: {
-      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model, ...(provider.images?.includes(model) && { input: ["text", "image"] }) }] },
+      [provider.name]: { name: provider.name, baseUrl: provider.baseUrl, api: provider.api === "openai" ? "openai-completions" : "anthropic-messages", apiKey: `$${provider.keyEnv}`, models: [{ id: model, ...(provider.images?.includes(model) && { input: ["text", "image"] }), ...(provider.prices?.[model] && { cost: { cacheRead: 0, cacheWrite: 0, ...provider.prices[model] } }) }] },
     },
   };
 }

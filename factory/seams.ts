@@ -98,7 +98,8 @@ export type { JevClient as Judge, JevQuestion, JevAnswer } from "./jev";
 
 // An agent harness: the program that runs a model with tools. Steps give it a job and get a result.
 export type ApiStyle = "anthropic" | "openai";
-export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[] } // models: model id -> family; images: model ids that read images
+export interface Price { input: number; output: number; cacheRead?: number; cacheWrite?: number } // USD per million tokens
+export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[]; prices?: Record<string, Price> } // models: model id -> family; images: model ids that read images
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
 export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }

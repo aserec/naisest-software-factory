@@ -26,7 +26,7 @@ test("seams.yml picks the GitLab, local CI, model judge and console adapters and
   const s = loadSeams();
   expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "local", judge: "model-call", chat: "console", logSource: "files", dashboard: "http" });
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
-    provider: { name: "tensorx", api: "openai", baseUrl: "https://api.tensorx.ai/v1", keyEnv: "TENSORX_API_KEY", models: { "deepseek/deepseek-v4.1-flash-1017": "deepseek", "z-ai/glm-5.3-flash": "glm" } },
+    provider: { name: "tensorx", api: "openai", baseUrl: "https://api.tensorx.ai/v1", keyEnv: "TENSORX_API_KEY", models: { "deepseek/deepseek-v4.1-flash-1017": "deepseek", "z-ai/glm-5.3-flash": "glm" }, prices: { "deepseek/deepseek-v4.1-flash-1017": { input: 0.5, output: 1.5, cacheRead: 0.13 } } },
     model: "z-ai/glm-5.3-flash",
     effort: undefined,
   });
@@ -52,7 +52,8 @@ test("a seams.yml field of the wrong shape names the field", () => {
   expect(() => loadSeams(edited("seams.yml", "api: openai", "api: grpc"))).toThrow(/seams\.yml: providers\.tensorx\.api/);
 });
 test("an images entry must name a model of the provider", () => {
-  expect(() => loadSeams(edited("seams.yml", "z-ai/glm-5.3-flash: glm } }", "z-ai/glm-5.3-flash: glm }, images: [nope] }"))).toThrow("seams.yml providers.tensorx.images: model nope is not in models");
+  expect(() => loadSeams(edited("seams.yml", "z-ai/glm-5.3-flash: glm },", "z-ai/glm-5.3-flash: glm }, images: [nope],"))).toThrow("seams.yml providers.tensorx.images: model nope is not in models");
+  expect(() => loadSeams(edited("seams.yml", "prices: { deepseek/deepseek-v4.1-flash-1017:", "prices: { nope:"))).toThrow("seams.yml providers.tensorx.prices: model nope is not in models");
 });
 test("react_frontend target has the 300-line limit and the protected paths", () => {
   const t = loadTarget("react_frontend", { defaultApprover: "approver" });
