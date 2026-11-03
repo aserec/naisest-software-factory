@@ -51,6 +51,11 @@ test("the reviewer prompt holds a proof block only when there is proof text", ()
   expect(reviewerPrompt("T", "D", "P")).toContain("<proof>\nP\n</proof>");
   expect(reviewerPrompt("T", "D")).not.toContain("</proof>"); // the prompt text itself names `<proof>`
 });
+
+test("the reviewer prompt carries the security checklist", () => {
+  const p = reviewerPrompt("<ticket>t</ticket>", "diff");
+  for (const s of ["[SECURITY]", "input validation", "authorization", "secrets", "dependencies", "insecure defaults"]) expect(p).toContain(s);
+});
 test("a finding keeps its screen and verdict", () => {
   expect(parseFindings('[{"blocking":false,"screen":"a","verdict":"matches","text":"ok"}]')[0].verdict).toBe("matches");
 });
