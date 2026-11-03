@@ -4,6 +4,7 @@ import { LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Board", icon: LayoutList },
@@ -62,12 +63,17 @@ export function PageTitle({ title, children, actions }: { title: React.ReactNode
   return (
     <div className="mb-8 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
-        <h1 className="text-[22px] leading-7 font-semibold">{title}</h1>
+        <h1 className="text-[22px] leading-8 font-semibold">{title}</h1>
         {children && <p className="mt-1 text-muted-foreground">{children}</p>}
       </div>
       {actions}
     </div>
   );
+}
+
+// The one section heading: a title on a 1px rule, 8px above the rule and 12px below it. h2 on a page, h3 inside a panel.
+export function SectionHeading({ as: Tag = "h2", children, className = "" }: { as?: "h2" | "h3"; children: React.ReactNode; className?: string }) {
+  return <Tag className={cn("mb-3 flex items-baseline gap-2 border-b pb-2 font-semibold", Tag === "h2" ? "text-base" : "text-sm", className)}>{children}</Tag>;
 }
 
 // Tinted L-frame (sidebar and top bar on one ground, no rule between) around a white sheet inset 8px right and bottom.
@@ -88,8 +94,8 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
         </div>
       </aside>
 
-      <header className="flex h-12 items-center gap-3 px-4 md:px-6">
-        <details key={path} className="md:hidden">
+      <header className="flex h-12 items-center gap-3 px-4 md:pr-6 md:pl-[25px]">
+        <details key={path} className="md:hidden" onKeyDown={(e) => e.key === "Escape" && e.currentTarget.removeAttribute("open")}>
           <summary aria-label="Menu" className="flex size-11 cursor-pointer list-none items-center justify-center rounded-md hover:bg-active [&::-webkit-details-marker]:hidden">
             <Menu className="size-5" strokeWidth={1.5} />
           </summary>
@@ -122,7 +128,7 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
         </form>
       </header>
 
-      <div className="min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-5 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:rounded-xl md:border md:px-6 md:pt-6">
+      <div className="min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-4 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:rounded-xl md:border md:px-6 md:pt-6">
         <motion.div key={path} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
           {children}
         </motion.div>

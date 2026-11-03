@@ -1,11 +1,13 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
+import { Sheet } from "@/components/ui/sheet";
 import { duration, usd } from "@/lib/utils";
 import { StepDetail } from "./step-detail";
+import { SectionHeading } from "./shell";
 import { isStuck } from "./stuck";
 
 export type SeqEvent = RunEvent & { seq: number };
@@ -56,68 +58,69 @@ export function lanes(events: SeqEvent[]): Lane[] {
 
 const PILL: Record<string, "destructive" | "warning" | "secondary"> = { error: "destructive", stop: "warning", stopped: "warning", waiting: "warning" };
 
-function LaneRow({ lane, from, span, limits }: { lane: Lane; from: number; span: number; limits: Record<string, number> }) {
-  const [open, setOpen] = useState(false);
+function Pills({ lane, stuck }: { lane: Lane; stuck: boolean }) {
+  return (
+    <>
+      {stuck && <Badge variant="destructive">Stuck</Badge>}
+      <Badge variant={PILL[lane.outcome ?? ""] ?? "secondary"}>{lane.outcome ?? "running"}</Badge>
+    </>
+  );
+}
+
+// On a phone: name and pills on the first line, the bar, duration and cost on the second. From sm: one line.
+function LaneRow({ lane, from, span, stuck, selected, onSelect }: { lane: Lane; from: number; span: number; stuck: boolean; selected: boolean; onSelect: () => void }) {
   const start = Date.parse(lane.start.at);
   const end = lane.end ? Date.parse(lane.end.at) : from + span;
-  const stuck = !lane.end && isStuck({ step: lane.start.step ?? "", startedAt: lane.start.at, ended: false }, limits, new Date());
   // The production line: ended steps in ink, the live one in the data hue, a failed or stuck one in red.
   const bar = lane.outcome === "error" || stuck ? "bg-destructive" : lane.end ? "bg-foreground/70" : "bg-data";
   return (
     <li className="border-b border-rule last:border-0">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 py-3 text-left hover:bg-raised/60 active:scale-[0.995] sm:flex-nowrap">
-        <span className="min-w-0 flex-1 truncate font-medium sm:w-40 sm:flex-none">{lane.start.step}</span>
-        <span className="relative order-last h-2 w-full rounded-full bg-raised sm:order-none sm:w-auto sm:flex-1">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={selected}
+        onClick={onSelect}
+        className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] sm:flex"
+      >
+        <span className="col-span-2 truncate font-medium sm:order-1 sm:w-40 sm:flex-none">{lane.start.step}</span>
+        <span className="flex justify-end gap-1 sm:order-4 sm:w-32">
+          <Pills lane={lane} stuck={stuck} />
+        </span>
+        <span className="relative h-2 rounded-full bg-raised sm:order-2 sm:flex-1">
           <span className={`absolute inset-y-0 rounded-full ${bar}`} style={{ left: `${((start - from) / span) * 100}%`, width: `${Math.max(((end - start) / span) * 100, 1)}%` }} />
         </span>
-        <span className="w-16 text-right text-muted-foreground">{duration((end - start) / 1000)}</span>
-        <span className="flex w-36 justify-end gap-1">
-          {stuck && <Badge variant="destructive">Stuck</Badge>}
-          <Badge variant={PILL[lane.outcome ?? ""] ?? "secondary"}>{lane.outcome ?? "running"}</Badge>
-        </span>
-        <span className="w-14 text-right">{usd(lane.costUsd)}</span>
+        <span className="text-right text-muted-foreground sm:order-3 sm:w-16">{duration((end - start) / 1000)}</span>
+        <span className="text-right sm:order-5 sm:w-14">{usd(lane.costUsd)}</span>
       </button>
-      {open && (
-        <div className="flex flex-col gap-3 pb-4 sm:pl-44">
-          {lane.tools.length === 0 ? (
-            <p className="text-muted-foreground">No tool calls.</p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {lane.tools.map((t) => (
-                <li key={t.id}>
-                  <details>
-                    <summary className="w-fit hover:underline">
-                      {t.data.name as string}{" "}
-                      <span className="text-xs text-muted-foreground">
-                        {t.data.ms as number} ms{t.data.ok ? "" : ", failed"}
-                      </span>
-                    </summary>
-                    <pre className="mt-1 rounded-md bg-raised p-3 font-mono text-xs whitespace-pre-wrap">{t.data.input as string}</pre>
-                    <pre className="mt-1 rounded-md bg-raised p-3 font-mono text-xs whitespace-pre-wrap">{t.data.result as string}</pre>
-                  </details>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div>
-            <StepDetail start={lane.start} end={lane.end} events={lane.events} />
-          </div>
-        </div>
-      )}
     </li>
   );
 }
 
-const Figure = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="px-5 py-4 first:pl-0">
+const Figure = ({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) => (
+  <div className={`min-w-0 py-4 ${className}`}>
     <div className="text-muted-foreground">{label}</div>
-    <div className="mt-1 text-2xl leading-8">{children}</div>
+    <div className="mt-1 truncate text-2xl leading-8">{children}</div>
   </div>
 );
+
+// The open step lives in the URL (?step=<id>), so a link to a step's log can be shared.
+function useOpenStep() {
+  const [open, setOpen] = useState<string>();
+  useEffect(() => setOpen(new URLSearchParams(window.location.search).get("step") ?? undefined), []);
+  const set = (id?: string) => {
+    setOpen(id);
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("step", id);
+    else url.searchParams.delete("step");
+    window.history.replaceState(null, "", url);
+  };
+  return [open, set] as const;
+}
 
 // limits: minutes per step for the run's target, read on the server.
 export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record<string, number> }) {
   const { data, error } = useRunEvents(run);
+  const [openId, setOpenId] = useOpenStep();
   if (error)
     return (
       <p role="alert" className="text-destructive">
@@ -132,19 +135,41 @@ export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record
   const span = Math.max(Math.max(...times) - from, 1);
   const live = rows.find((l) => !l.end);
   const ended = data.find((e) => e.type === "run_end")?.data.outcome as string | undefined;
+  const now = new Date();
+  const stuck = (l: Lane) => !l.end && isStuck({ step: l.start.step ?? "", startedAt: l.start.at, ended: false }, limits, now);
+  const open = rows.find((l) => l.start.id === openId);
   return (
     <>
-      <div className="mb-10 grid grid-cols-3 divide-x border-y sm:w-fit sm:min-w-[32rem]">
-        <Figure label="Now">{live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}</Figure>
-        <Figure label="Time">{duration(span / 1000)}</Figure>
-        <Figure label="Cost">{usd(rows.reduce((sum, l) => sum + l.costUsd, 0))}</Figure>
+      <div className="mb-8 grid grid-cols-2 border-y sm:w-fit sm:min-w-[32rem] sm:grid-cols-3">
+        <Figure label="Now" className="col-span-2 border-b pr-4 sm:col-span-1 sm:border-b-0">
+          {live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}
+        </Figure>
+        <Figure label="Time" className="pr-4 sm:border-l sm:pl-4">
+          {duration(span / 1000)}
+        </Figure>
+        <Figure label="Cost" className="border-l pl-4">
+          {usd(rows.reduce((sum, l) => sum + l.costUsd, 0))}
+        </Figure>
       </div>
-      <h2 className="mb-1 text-base font-semibold">Steps</h2>
-      <ul className="border-t">
+      <SectionHeading className="mb-0">Steps</SectionHeading>
+      <ul>
         {rows.map((l) => (
-          <LaneRow key={l.start.id} lane={l} from={from} span={span} limits={limits} />
+          <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
         ))}
       </ul>
+      <Sheet
+        open={!!open}
+        onClose={() => setOpenId(undefined)}
+        title={
+          open && (
+            <span className="flex flex-wrap items-center gap-2">
+              {open.start.step} <Pills lane={open} stuck={stuck(open)} />
+            </span>
+          )
+        }
+      >
+        {open && <StepDetail key={open.start.id} start={open.start} end={open.end} tools={open.tools} events={open.events} />}
+      </Sheet>
     </>
   );
 }

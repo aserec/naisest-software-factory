@@ -1,19 +1,20 @@
 import { screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ago, duration } from "@/lib/utils";
-import { Board, finding, STATES, type BoardItem } from "./board";
+import { Board, emptyLine, finding, type BoardItem } from "./board";
 import { json, renderWithQuery } from "./test-utils";
 
 afterEach(() => vi.unstubAllGlobals());
 
 const item = (o: Partial<BoardItem>): BoardItem => ({ target: "demo", ticket: "7", title: "Fix login", state: "factory_running", url: "http://gl/7", updatedAt: "", stuck: false, ...o });
 
-test("renders a column per state label, each ticket in its column, and a Stuck badge", async () => {
+test("renders a section per label that has tickets, one line for the empty ones, and a Stuck badge", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", costUsd: 1.5, stuck: true }), item({ ticket: "8", title: "Add docs", state: "factory_done" })])));
   renderWithQuery(<Board />);
   expect(await screen.findByText("Fix login")).toBeTruthy();
-  expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(STATES.length);
-  expect(screen.getByRole("heading", { name: /needs info/i })).toBeTruthy();
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Waiting on you", "With the factory"]);
+  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Running 1", "Done 1"]); // only labels with tickets
+  expect(screen.getByText("Needs approval, Needs info, Stopped and Blocked are empty.")).toBeTruthy();
   expect(screen.getAllByText("Stuck")).toHaveLength(1);
   expect(screen.getByText("$1.50")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Fix login" }).getAttribute("href")).toBe("/runs/r1");
@@ -35,4 +36,19 @@ test("durations and ages read as people say them", () => {
   expect([duration(42), duration(540), duration(8400)]).toEqual(["42 s", "9 m", "2 h 20 m"]);
   const now = Date.parse("2026-11-01T12:00:00Z");
   expect([ago("2026-11-01T11:59:40Z", now), ago("2026-11-01T11:12:00Z", now), ago("2026-10-30T12:00:00Z", now), ago("", now)]).toEqual(["just now", "48 m ago", "2 d ago", undefined]);
+});
+
+test("the empty line names one or many labels, and nothing when none is empty", () => {
+  expect(emptyLine(["factory_done"])).toBe("Done is empty.");
+  expect(emptyLine(["factory_ready", "factory_done"])).toBe("Ready and Done are empty.");
+  expect(emptyLine([])).toBeUndefined();
+});
+
+test("Done shows its ten newest tickets and counts the rest", async () => {
+  const done = Array.from({ length: 12 }, (_, n) => item({ ticket: String(n), title: `T${n}`, state: "factory_done", updatedAt: `2026-11-01T10:${String(n).padStart(2, "0")}:00Z` }));
+  vi.stubGlobal("fetch", vi.fn(async () => json(done)));
+  renderWithQuery(<Board />);
+  expect(await screen.findByText("T11")).toBeTruthy();
+  expect(screen.queryByText("T1")).toBeNull();
+  expect(screen.getByText("And 2 older.")).toBeTruthy();
 });

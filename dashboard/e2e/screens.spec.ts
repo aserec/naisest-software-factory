@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { COOKIE, RUN, sessionToken } from "./seed";
 
-test("open the board, a run, the prepare-patch step and a tool call", async ({ page, context, baseURL }) => {
+test("open the board, a run, and the prepare-patch step in the side panel", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
 
   await page.goto("/");
@@ -12,14 +12,16 @@ test("open the board, a run, the prepare-patch step and a tool call", async ({ p
   await expect(page).toHaveURL(new RegExp(`/runs/${RUN}$`));
   const lane = page.getByRole("button", { name: /prepare-patch/ });
   await expect(lane).toBeVisible();
-  await expect(page.locator("summary", { hasText: "Edit" })).toBeHidden();
+  await expect(page.getByRole("dialog")).toBeHidden();
   await lane.click();
-  await expect(page.locator("summary", { hasText: "Edit" })).toBeVisible();
-
-  await page.getByRole("button", { name: "Details" }).click();
-  await expect(page.getByText("Fix the login bug")).toBeVisible();
-  await page.getByRole("tab", { name: "Job log" }).click();
-  await expect(page.getByText("log line from the stub")).toBeVisible();
+  const panel = page.getByRole("dialog");
+  await expect(panel).toBeVisible();
+  await expect(page).toHaveURL(/\?step=/);
+  await expect(panel.getByText("Fix the login bug")).toBeVisible();
+  await expect(panel.locator("summary", { hasText: "Edit" })).toBeVisible();
+  await expect(panel.getByText("log line from the stub")).toBeVisible();
+  await panel.getByRole("button", { name: "Close" }).click();
+  await expect(panel).toBeHidden();
 });
 
 test("a page without a session goes to sign-in, an API route answers 401", async ({ page, request }) => {

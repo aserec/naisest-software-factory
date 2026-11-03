@@ -1,9 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Confirm } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 
 type Action = "stop" | "resume" | "restart";
@@ -21,33 +20,20 @@ const ASK: Record<Action, string> = {
 };
 
 function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => void; busy: boolean }) {
-  const [open, setOpen] = useState(false);
   const name = action[0].toUpperCase() + action.slice(1);
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Confirm
+      trigger={
         <Button variant={action === "stop" ? "destructive" : "outline"} disabled={busy}>
           {name}
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{name} this run?</DialogTitle>
-          <DialogDescription>{ASK[action]}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            variant={action === "stop" ? "destructive" : "default"}
-            onClick={() => {
-              setOpen(false);
-              onConfirm();
-            }}
-          >
-            {name}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      }
+      title={`${name} this run?`}
+      description={ASK[action]}
+      action={name}
+      destructive={action !== "resume"}
+      onConfirm={onConfirm}
+    />
   );
 }
 

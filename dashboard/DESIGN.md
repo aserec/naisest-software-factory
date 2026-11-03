@@ -27,7 +27,7 @@ typography:
     fontFamily: "IBM Plex Sans, system-ui, sans-serif"
     fontSize: "22px"
     fontWeight: 600
-    lineHeight: "28px"
+    lineHeight: "32px"
   stat:
     fontFamily: "IBM Plex Sans, system-ui, sans-serif"
     fontSize: "24px"
@@ -183,9 +183,10 @@ A near-greyscale palette with one signal hue and three soft state pills.
 **Character:** Plex is an engineer's sans: plain, slightly mechanical, readable at 12px. The mono beside it marks values a person may copy.
 
 ### Hierarchy
-- **Headline** (600, 22px, 28px): the page title, once per screen, in the page title row.
+- **Headline** (600, 22px, 32px): the page title, once per screen, in the page title row. The 32px line matches the 32px buttons beside it.
 - **Stat** (400, 24px, 32px): the run page's three readouts.
-- **Title** (600, 16px, 24px): board column names and section headings, over a 1px rule.
+- **Title** (600, 16px, 24px): section headings on a page (h2), over a 1px rule. Inside a panel and for board labels the same heading drops to 14px (h3).
+- **Side heading** (600, 18px, 28px): the two board sides, "Waiting on you" and "With the factory".
 - **Body** (400, 14px, 20px): everything else. Set on `body` with tabular numbers.
 - **Label** (500, 12px, 16px): pills, small metadata, the side captions on the board.
 - **Mono** (400, 12px, 16px): `target #ticket`, tool input and results, logs.
@@ -201,14 +202,21 @@ Below `md` the frame folds into a 48px bar with a menu button (44px target) that
 
 Every screen opens with the page title row: the h1, one grey line that states the finding ("1 to approve, 2 need an answer."), and the screen's actions on the right. 32px separates it from the content.
 
-The board is two columns from `lg` (1024px), 48px apart: "Waiting on you" on the left, "With the factory" on the right. Columns stack sections 32px apart; cards inside stack 8px apart.
+The board is two columns from `lg` (1024px), 48px apart: "Waiting on you" on the left, "With the factory" on the right. Each side shows a section only for a label that has tickets, 24px apart, and one muted line names the empty labels ("Stopped and Blocked are empty."). Done shows its 10 newest tickets. Cards stack 8px apart.
+
+### Named Rules
+**The One Heading Rule.** Every section opens with the shared section heading: the title, 8px, a 1px rule, 12px, then the content. No page builds its own.
+
+**The 32px Rule.** Sections on a page sit 32px apart. 40px and 20px are off the scale.
 
 ## Elevation & Depth
 
 The system is flat. Depth comes from two planes: the tinted frame and the white sheet on top of it. Board cards carry the smallest shadow (`shadow-xs`) only to lift them off the sheet. Hover never adds shadow. It darkens the border and adds a Raised fill.
 
+Two layers float above the sheet and carry a soft shadow: the side panel (a left-cast shadow, `-12px 0 32px -12px` at 16% ink) and the confirm dialog. Nothing else does.
+
 ### Named Rules
-**The Two Planes Rule.** Frame and sheet are the only planes. Do not add a third with cards on tinted panels or stacked shadows.
+**The Two Planes Rule.** Frame and sheet are the only planes. Do not add a third with cards on tinted panels or stacked shadows. The side panel and the confirm dialog are the only floating layers.
 
 ## Shapes
 
@@ -244,8 +252,20 @@ Tactile and calm: flat, compact, and pressed to 0.96 scale on click.
 ### Switches
 - 32px by 18px, full radius. Checked fills Ink Button, unchecked fills Input Stroke, with a white thumb.
 
+### Side panel
+Detail lives in a panel that slides in from the right edge, never in a centred modal.
+- **Shape:** full height, up to 640px wide (full width on a phone), white with a 1px left border and the panel shadow.
+- **Header:** the title (16px, 600) with its pills, an optional muted line, and a 32px ghost close button at the top right, over a 1px rule. 24px side padding.
+- **Body:** one scrolling column, 24px padding, sections 32px apart, each with the shared heading at 14px.
+- **Behaviour:** non-modal. No overlay; the page behind stays live, and a click on another row swaps the content. Esc and the close button close it. It slides in over 300ms with the control ease and respects reduced motion. The open item is in the URL (`?step=<id>`).
+
+### Confirm dialog
+The only centred dialog, for a yes-or-no decision such as Stop, Resume or Restart.
+- 448px wide, 16px radius, 24px padding, over a 20% ink overlay.
+- Title (16px, 600), one muted sentence, then Cancel (outline) and the action on the right. Focus starts on Cancel.
+
 ### Run timeline (signature)
-The production line on the run page. One row per step: name in a 160px column, an 8px bar on a Raised track placed by start time and length, then duration, pills and cost in fixed right-aligned slots. A finished step's bar is ink at 70%, the live one is Signal Teal, a failed or stuck one is red. A row opens to show its tool calls and logs in Raised mono blocks.
+The production line on the run page. One row per step: name in a 160px column, an 8px bar on a Raised track placed by start time and length, then duration, pills and cost in fixed right-aligned slots. A finished step's bar is ink at 70%, the live one is Signal Teal, a failed or stuck one is red. A click on the row opens the step in the side panel; the open row keeps an Active fill. On a phone the row takes two lines: name and pills, then bar, duration and cost.
 
 ## Do's and Don'ts
 
@@ -261,3 +281,4 @@ The production line on the run page. One row per step: name in a 160px column, a
 - **Don't** use solid red fills; red is text, a stroke, a bar or a pale pill.
 - **Don't** add shadows beyond `shadow-xs` on cards, or use shadow on hover.
 - **Don't** put cards on tinted panels inside the sheet; there are two planes.
+- **Don't** open detail in a centred modal; use the side panel. Centred dialogs are only for yes-or-no confirms.

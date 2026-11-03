@@ -9,5 +9,5 @@ test("the home page shows the Factory heading and the board", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([])));
   renderWithQuery(<Home />);
   expect(screen.getByRole("heading", { name: "Board" })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: /ready/i })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "With the factory" })).toBeTruthy();
 });

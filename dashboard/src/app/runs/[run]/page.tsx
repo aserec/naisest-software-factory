@@ -17,11 +17,11 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         title={first ? `${first.target} #${first.ticket}` : `Run ${run}`}
         actions={<RunControls run={run} />}
       >
-        <span className="font-mono text-xs">{run}</span>
+        <span className="font-mono">{run}</span>
         {target && (
           <>
             {" · "}
-            <a href={target.githubIssues ? `${target.githubIssues}/${first.ticket}` : `${gitlab()}/${target.projectPath}/-/issues/${first.ticket}`} className="text-foreground hover:underline">
+            <a href={target.githubIssues ? `${target.githubIssues}/${first.ticket}` : `${gitlab()}/${target.projectPath}/-/issues/${first.ticket}`} className="underline decoration-input underline-offset-4 hover:text-foreground hover:decoration-current">
               Open the ticket in {target.githubIssues ? "GitHub" : "GitLab"}
             </a>
           </>

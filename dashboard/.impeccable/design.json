@@ -4,34 +4,155 @@
   "title": "Design System: Factory dashboard",
   "extensions": {
     "colorMeta": {
-      "signal-teal": { "role": "primary", "displayName": "Signal Teal", "canonical": "#1b6c80", "tonalRamp": ["#0b2c35", "#114554", "#1b6c80", "#3a8799", "#64a3b2", "#93c0cb", "#c4dde3", "#e9f3f5"] },
-      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#131416", "tonalRamp": ["#131416", "#1d1f20", "#353736", "#5d5f60", "#8a8c8e", "#cdced1", "#ebedee", "#f6f8f9"] },
-      "muted-ink": { "role": "neutral", "displayName": "Muted Ink", "canonical": "#5d5f60" },
-      "frame-ground": { "role": "neutral", "displayName": "Frame Ground", "canonical": "#f6f8f9" },
-      "sheet": { "role": "neutral", "displayName": "Sheet", "canonical": "#ffffff" },
-      "positive": { "role": "state", "displayName": "Positive", "canonical": "#1e7b4f", "tonalRamp": ["#04250e", "#0f4a2c", "#1e7b4f", "#3f9a6c", "#74bb93", "#a9dabd", "#dcfae5", "#f1fdf4"] },
-      "destructive": { "role": "state", "displayName": "Destructive", "canonical": "#c4242a", "tonalRamp": ["#3d0b0d", "#831c1e", "#c4242a", "#d9534f", "#e8857f", "#f3b6b0", "#ffedea", "#fff7f6"] }
+      "signal-teal": {
+        "role": "primary",
+        "displayName": "Signal Teal",
+        "canonical": "#1b6c80",
+        "tonalRamp": [
+          "#0b2c35",
+          "#114554",
+          "#1b6c80",
+          "#3a8799",
+          "#64a3b2",
+          "#93c0cb",
+          "#c4dde3",
+          "#e9f3f5"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#131416",
+        "tonalRamp": [
+          "#131416",
+          "#1d1f20",
+          "#353736",
+          "#5d5f60",
+          "#8a8c8e",
+          "#cdced1",
+          "#ebedee",
+          "#f6f8f9"
+        ]
+      },
+      "muted-ink": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "#5d5f60"
+      },
+      "frame-ground": {
+        "role": "neutral",
+        "displayName": "Frame Ground",
+        "canonical": "#f6f8f9"
+      },
+      "sheet": {
+        "role": "neutral",
+        "displayName": "Sheet",
+        "canonical": "#ffffff"
+      },
+      "positive": {
+        "role": "state",
+        "displayName": "Positive",
+        "canonical": "#1e7b4f",
+        "tonalRamp": [
+          "#04250e",
+          "#0f4a2c",
+          "#1e7b4f",
+          "#3f9a6c",
+          "#74bb93",
+          "#a9dabd",
+          "#dcfae5",
+          "#f1fdf4"
+        ]
+      },
+      "destructive": {
+        "role": "state",
+        "displayName": "Destructive",
+        "canonical": "#c4242a",
+        "tonalRamp": [
+          "#3d0b0d",
+          "#831c1e",
+          "#c4242a",
+          "#d9534f",
+          "#e8857f",
+          "#f3b6b0",
+          "#ffedea",
+          "#fff7f6"
+        ]
+      }
     },
     "typographyMeta": {
-      "headline": { "displayName": "Headline", "purpose": "Page title, once per screen." },
-      "stat": { "displayName": "Stat", "purpose": "Run page readouts." },
-      "title": { "displayName": "Title", "purpose": "Board columns and section headings." },
-      "body": { "displayName": "Body", "purpose": "Default text, tabular numbers." },
-      "label": { "displayName": "Label", "purpose": "Pills and small metadata." },
-      "mono": { "displayName": "Mono", "purpose": "Repo and ticket IDs, tool input, logs." }
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page title, once per screen."
+      },
+      "stat": {
+        "displayName": "Stat",
+        "purpose": "Run page readouts."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Board columns and section headings."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default text, tabular numbers."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Pills and small metadata."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Repo and ticket IDs, tool input, logs."
+      }
     },
     "shadows": [
-      { "name": "card-xs", "value": "0 1px 2px 0 rgb(0 0 0 / 0.05)", "purpose": "Lifts board cards off the sheet. The only shadow in the system." }
+      {
+        "name": "card-xs",
+        "value": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        "purpose": "Lifts board cards off the sheet. The only shadow in the system."
+      },
+      {
+        "name": "panel",
+        "value": "-12px 0 32px -12px rgb(19 20 22 / 0.16)",
+        "purpose": "The side panel, cast to the left over the sheet."
+      }
     ],
     "motion": [
-      { "name": "ease-control", "value": "120ms cubic-bezier(0.2, 0, 0, 1)", "purpose": "Color, border, opacity and scale on every clickable thing." },
-      { "name": "press", "value": "scale(0.96)", "purpose": "Active state of buttons, switches and summaries, only without reduced motion." },
-      { "name": "page-enter", "value": "opacity 0 to 1, y 6px to 0", "purpose": "Sheet content on route change." }
+      {
+        "name": "ease-control",
+        "value": "120ms cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Color, border, opacity and scale on every clickable thing."
+      },
+      {
+        "name": "press",
+        "value": "scale(0.96)",
+        "purpose": "Active state of buttons, switches and summaries, only without reduced motion."
+      },
+      {
+        "name": "page-enter",
+        "value": "opacity 0 to 1, y 6px to 0",
+        "purpose": "Sheet content on route change."
+      },
+      {
+        "name": "panel-slide",
+        "value": "300ms cubic-bezier(0.2, 0, 0, 1), slide from the right",
+        "purpose": "The side panel opening; 200ms to close."
+      }
     ],
     "breakpoints": [
-      { "name": "sm", "value": "640px" },
-      { "name": "md", "value": "768px" },
-      { "name": "lg", "value": "1024px" }
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
     ]
   },
   "components": [
@@ -111,10 +232,36 @@
       "Small, fast, tactile feedback on every control."
     ],
     "rules": [
-      { "name": "The One Signal Rule", "body": "Signal Teal appears only on live data, the active tab, the mark and focus. If a teal element is not live or selected, it is wrong.", "section": "colors" },
-      { "name": "The Red Means Stop Rule", "body": "Destructive red marks a failed or stuck run, an error, or a destructive action. It never decorates.", "section": "colors" },
-      { "name": "The Tabular Numbers Rule", "body": "Every number uses tabular figures and sits right-aligned in a fixed-width slot, so cost and duration columns line up across rows.", "section": "typography" },
-      { "name": "The Two Planes Rule", "body": "Frame and sheet are the only planes. Do not add a third with cards on tinted panels or stacked shadows.", "section": "elevation" }
+      {
+        "name": "The One Signal Rule",
+        "body": "Signal Teal appears only on live data, the active tab, the mark and focus. If a teal element is not live or selected, it is wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Means Stop Rule",
+        "body": "Destructive red marks a failed or stuck run, an error, or a destructive action. It never decorates.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Numbers Rule",
+        "body": "Every number uses tabular figures and sits right-aligned in a fixed-width slot, so cost and duration columns line up across rows.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Planes Rule",
+        "body": "Frame and sheet are the only planes. Do not add a third with cards on tinted panels or stacked shadows. The side panel and the confirm dialog are the only floating layers.",
+        "section": "elevation"
+      },
+      {
+        "name": "The One Heading Rule",
+        "body": "Every section opens with the shared section heading: the title, 8px, a 1px rule, 12px, then the content. No page builds its own.",
+        "section": "layout"
+      },
+      {
+        "name": "The 32px Rule",
+        "body": "Sections on a page sit 32px apart. 40px and 20px are off the scale.",
+        "section": "layout"
+      }
     ],
     "dos": [
       "Do keep Signal Teal for live data, the active tab, the mark and focus only.",
@@ -127,7 +274,8 @@
       "Don't add a dark theme or a second hue without updating this file; the system is light only.",
       "Don't use solid red fills; red is text, a stroke, a bar or a pale pill.",
       "Don't add shadows beyond shadow-xs on cards, or use shadow on hover.",
-      "Don't put cards on tinted panels inside the sheet; there are two planes."
+      "Don't put cards on tinted panels inside the sheet; there are two planes.",
+      "Don't open detail in a centred modal; use the side panel. Centred dialogs are only for yes-or-no confirms."
     ]
   }
 }

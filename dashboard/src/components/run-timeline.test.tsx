@@ -19,7 +19,7 @@ const events = [
   ev("step_start", "04", { step: "code-review" }),
 ];
 
-test("shows a lane per step and the tool calls only after a click", async () => {
+test("shows a lane per step, and a click opens that step in the side panel", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: [...events].reverse(), cursor: 9 })));
   renderWithQuery(<RunTimeline run="r1" />);
   const lane = await screen.findByRole("button", { name: /prepare-patch/ });
@@ -28,7 +28,15 @@ test("shows a lane per step and the tool calls only after a click", async () => 
   expect(lane.textContent).toContain("$0.25");
   expect(screen.queryByText("Edit")).toBeNull();
   fireEvent.click(lane);
-  expect(screen.getByText("Edit")).toBeTruthy();
+  const panel = await screen.findByRole("dialog");
+  expect(panel.textContent).toContain("prepare-patch");
+  expect(panel.textContent).toContain("Edit");
+  expect(window.location.search).toBe("?step=s1");
+  fireEvent.click(screen.getByRole("button", { name: /code-review/ })); // the panel stays open and swaps to the other step
+  expect((await screen.findByRole("dialog")).textContent).toContain("code-review");
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(window.location.search).toBe("");
 });
 
 test("the events hook asks after the cursor it got and appends the answer", async () => {

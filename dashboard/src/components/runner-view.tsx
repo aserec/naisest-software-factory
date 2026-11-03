@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { HostStat, LogLine, LogSource } from "@/server/grafana";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/utils";
+import { SectionHeading } from "./shell";
 
 type Part<T> = T | { error: string };
 interface Runner {
@@ -25,14 +26,12 @@ function Show<T>({ part, children }: { part: Part<T> | undefined; children: (v: 
   if (part === undefined) return null;
   if (part && typeof part === "object" && "error" in part)
     return (
-      <p role="alert" className="py-3 text-destructive">
+      <p role="alert" className="text-destructive">
         {part.error}
       </p>
     );
   return <>{children(part as T)}</>;
 }
-
-const Heading = ({ children }: { children: React.ReactNode }) => <h2 className="mb-2 text-base font-semibold">{children}</h2>;
 
 // A used share at its true ratio: the data hue, red from FULL.
 function Used({ label, value }: { label: string; value: number }) {
@@ -61,15 +60,15 @@ export function RunnerView() {
     },
   });
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-8">
       {error && (
         <p role="alert" className="text-destructive">
           {error.message}
         </p>
       )}
-      <div className="grid items-start gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <section>
-          <Heading>Running jobs</Heading>
+          <SectionHeading>Running jobs</SectionHeading>
           <Show part={data?.jobs}>
             {(jobs) =>
               jobs.length ? (
@@ -100,20 +99,20 @@ export function RunnerView() {
                   </TableBody>
                 </Table>
               ) : (
-                <p className="border-t py-3 text-muted-foreground">No job is running.</p>
+                <p className="text-muted-foreground">No job is running.</p>
               )
             }
           </Show>
         </section>
 
         <section>
-          <Heading>Hosts</Heading>
+          <SectionHeading>Hosts</SectionHeading>
           <Show part={data?.hosts}>
             {(hosts) =>
               hosts.length ? (
-                <ul className="border-t">
+                <ul>
                   {hosts.map((h) => (
-                    <li key={h.host} className="border-b border-rule py-3 last:border-0">
+                    <li key={h.host} className="border-b border-rule py-3 first:pt-0 last:border-0">
                       <button
                         type="button"
                         aria-pressed={h.host === host}
@@ -131,7 +130,7 @@ export function RunnerView() {
                   ))}
                 </ul>
               ) : (
-                <p className="border-t py-3 text-muted-foreground">No runner host reports.</p>
+                <p className="text-muted-foreground">No runner host reports.</p>
               )
             }
           </Show>
@@ -139,15 +138,15 @@ export function RunnerView() {
       </div>
 
       <section>
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <Heading>Logs of the last 15 minutes{host ? ` on ${host}` : ""}</Heading>
+        <SectionHeading className="mb-1 flex-wrap justify-between border-0 pb-0">
+          Logs of the last 15 minutes{host ? ` on ${host}` : ""}
           {host && (
-            <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => setHost("")}>
+            <button type="button" className="text-sm font-normal text-muted-foreground hover:text-foreground" onClick={() => setHost("")}>
               Show every host
             </button>
           )}
-        </div>
-        <Tabs value={source} onValueChange={(v) => setSource(v as LogSource)} className="mb-3">
+        </SectionHeading>
+        <Tabs value={source} onValueChange={(v) => setSource(v as LogSource)} className="mb-4">
           <TabsList>
             {SOURCES.map((s) => (
               <TabsTrigger key={s} value={s}>

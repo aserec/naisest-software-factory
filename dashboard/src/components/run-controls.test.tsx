@@ -27,6 +27,17 @@ test("Stop asks first, then posts the stop for the run", async () => {
   await waitFor(() => expect(f).toHaveBeenCalledWith("/api/runs/r%201/stop", { method: "POST" }));
 });
 
+test("Cancel closes the confirm, starts with focus, and posts nothing", async () => {
+  const f = server({ label: "factory_running" });
+  renderWithQuery(<RunControls run="r1" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+  const cancel = await screen.findByRole("button", { name: "Cancel" });
+  await waitFor(() => expect(document.activeElement).toBe(cancel));
+  fireEvent.click(cancel);
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(f.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+});
+
 test("a stopped run shows Resume and Restart, and no Stop", async () => {
   server({ label: "factory_stopped" });
   renderWithQuery(<RunControls run="r1" />);
