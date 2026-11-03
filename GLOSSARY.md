@@ -8,6 +8,9 @@ The factory turns a labeled work item into a reviewed, checked and merged change
 A GitLab issue that a person labels `factory_ready` to ask the factory for a change.
 _Avoid_: Ticket, issue, task
 
+**Repo-local instructions**:
+Optional files `.factory/author.md`, `.factory/review.md` and `.factory/writer.md` in a target repo. The factory appends each, cut to 8,000 characters, to the matching agent prompt. They cannot override the factory's rules.
+
 **Run**:
 One attempt by the factory to take a work item from `factory_ready` to a final state. A work item has at most one active run.
 _Avoid_: Job, execution, workflow

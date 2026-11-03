@@ -1,4 +1,5 @@
 import { parseFactoryFile } from "../config";
+import { localPath, localSection } from "../local-instructions";
 import type { FactoryCommands } from "../types";
 import { agent, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
@@ -24,7 +25,9 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
   const stop = await install(ctx, commands);
   if (stop) return stop;
-  const text = resumeSessionId ? CONTINUE : `${prompt("prepare")}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}`;
+  // A resumed session already has the repo's instructions.
+  const local = resumeSessionId ? "" : localSection(await ctx.repo.readBase(localPath("author")));
+  const text = resumeSessionId ? CONTINUE : `${prompt("prepare")}${local}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}`;
   const r = await agent(ctx, "author", modelRow(ctx).author, { tools: "code", prompt: text, maxTurns: 60, cwd: ctx.dir, resume: resumeSessionId, ...(commands.preview && { preview: true }) });
   if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands } });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });

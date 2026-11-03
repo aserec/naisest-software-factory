@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import type { Chat, ErrorGroup, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, Dispatch, TicketRef, Tracker } from "../seams";
+import { localSection } from "../local-instructions";
 import { prompt } from "../steps/context";
 import { INJECTION_LIMIT } from "../triage";
 import { escalating } from "./escalation";
@@ -16,7 +17,8 @@ const question = (id: string) => QUESTIONS.find((q) => q.id === id)!;
 const HOUR = 3_600_000;
 export const DAILY_READY = 5;
 
-export interface Tickets { tracker: Tracker; judge: Judge; chat: Chat; writer: (prompt: string) => Promise<HarnessResult>; now: Date }
+// writerLocal is the repo's writer.md text from the base branch, if it has one.
+export interface Tickets { tracker: Tracker; judge: Judge; chat: Chat; writer: (prompt: string) => Promise<HarnessResult>; writerLocal?: string; now: Date }
 export interface Watch extends Tickets { logs: LogSource }
 type Outcome = { opened: TicketRef[]; blocked: TicketRef[]; skipped: string[] };
 
@@ -61,7 +63,7 @@ async function openTicket(w: Tickets, f: Finding, out: Outcome): Promise<void> {
   }
   const a = await ask(w.judge, f.state, ["severity", "fixable"]);
   const severity = String(a.severity.value);
-  const r = await w.writer(`${prompt(f.writerPrompt)}\n\n${prompt("humanizer")}\n\n${f.data(severity)}`);
+  const r = await w.writer(`${prompt(f.writerPrompt)}${localSection(w.writerLocal)}\n\n${prompt("humanizer")}\n\n${f.data(severity)}`);
   if (!r.ok) throw new Error(`The writer failed: ${r.text.slice(0, 500)}`);
   const today = new Date(Date.UTC(w.now.getUTCFullYear(), w.now.getUTCMonth(), w.now.getUTCDate()));
   const why =

@@ -19,6 +19,7 @@ protectedPaths:
   - ".claude/**"
   - ".agents/**"
   - "**/.gitattributes"
+  - ".factory/**"
 dependencyFiles:
   - "**/package.json"
   - "**/pnpm-lock.yaml"

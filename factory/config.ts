@@ -49,7 +49,8 @@ const targetSchema = z.object({
   name: z.string().min(1),
   projectPath: real,
   baseBranch: z.string().min(1),
-  protectedPaths: z.array(z.string()),
+  // .factory/** is always protected: a change to a repo's own agent instructions goes to a person.
+  protectedPaths: z.array(z.string()).default([]).transform((p) => (p.includes(".factory/**") ? p : [...p, ".factory/**"])),
   dependencyFiles: z.array(z.string()),
   maxChangedLines: z.number().int().positive(),
   defaultApprover: real,
@@ -74,7 +75,7 @@ const commandsSchema = z.object({
 
 const readYaml = (path: string) => parse(readFileSync(path, "utf8"));
 
-function validate<T>(schema: z.ZodType<T>, raw: unknown, file: string): T {
+function validate<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, raw: unknown, file: string): T {
   const r = schema.safeParse(raw);
   if (!r.success) throw new Error(`${file}: ${r.error.issues.map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
   return r.data;

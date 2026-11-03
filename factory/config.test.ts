@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { checkHardRules } from "./rules";
 import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, parseFactoryFile } from "./config";
 
 const real = (name: string) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), "utf8");
@@ -59,6 +60,11 @@ test("react_frontend target has the 300-line limit and the protected paths", () 
   const t = loadTarget("react_frontend", { defaultApprover: "approver" });
   expect(t.maxChangedLines).toBe(300);
   expect(t.protectedPaths).toEqual(expect.arrayContaining([".gitlab-ci.yml", ".factory.yml", "CLAUDE.md", "AGENTS.md", ".claude/**", ".agents/**", "**/Dockerfile*", "**/.gitattributes"]));
+});
+test("every target protects .factory/**, even one that lists no protectedPaths", () => {
+  const t = loadTarget("react_frontend", { defaultApprover: "approver", protectedPaths: undefined });
+  expect(checkHardRules([{ oldPath: ".factory/author.md", newPath: ".factory/author.md", added: 1, removed: 0, binary: false }], "", t, true).find((r) => r.rule === "protected-path")!.passed).toBe(false);
+  expect(loadTarget("react_frontend", { defaultApprover: "approver", protectedPaths: ["a/**"] }).protectedPaths).toEqual(["a/**", ".factory/**"]);
 });
 test(".factory.yml without build is rejected", () => {
   expect(() => parseFactoryFile("lint: pnpm lint\ntest: pnpm test")).toThrow(/build/);

@@ -3,6 +3,7 @@ import { need } from "../record";
 import { pickModels } from "../router";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
+import { localPath, localSection } from "../local-instructions";
 import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, endRun, stopReason, stopped, waiting } from "./run";
 
@@ -49,7 +50,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   if (!(await switchOn(ctx, "questions"))) return stopped(ctx, "questions", { reason: "switch off questions" });
   const ref = ticketRef(ctx);
   await ctx.repo.clone(await ctx.codeHost.baseBranch());
-  const text = resumeSessionId ? CONTINUE : `${prompt("questions")}\n\n${ticketText(ctx)}`;
+  const text = resumeSessionId ? CONTINUE : `${prompt("questions")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}`;
   const r = await agent(ctx, "author", row.author, { tools: "code", prompt: text, maxTurns: 15, cwd: ctx.dir, resume: resumeSessionId });
   if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
   if (r.limitHit) return waiting(ctx, "questions", r.session);

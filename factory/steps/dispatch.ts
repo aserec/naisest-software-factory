@@ -3,6 +3,7 @@
 // It takes every waiting dispatch of the target, so a run started for one also picks up any left from before.
 import { makeContext } from "../compose";
 import { runDispatches } from "../watcher/run";
+import { localPath } from "../local-instructions";
 import { agent, isMain, switchOn } from "./context";
 
 export async function main(env: NodeJS.ProcessEnv = process.env) {
@@ -15,6 +16,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env) {
     judge: ctx.judge,
     chat: ctx.chat,
     now: new Date(),
+    writerLocal: await ctx.codeHost.readFile(localPath("writer")),
     writer: (prompt) => agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, prompt, cwd: ctx.dir }),
   }, await ctx.dashboard.dispatches(ctx.target.name), (id) => ctx.dashboard.dispatchDone(id));
   console.log(`Opened: ${r.opened.join(", ") || "none"}. Blocked: ${r.blocked.join(", ") || "none"}. Dispatches with an open ticket: ${r.skipped.length}.`);

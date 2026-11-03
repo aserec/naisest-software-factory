@@ -18,6 +18,7 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
   test: pnpm test
   build: pnpm build
   ```
+- [ ] Optional: add `.factory/author.md`, `.factory/review.md` and `.factory/writer.md` to tune the agents. The factory adds each file to the matching prompt: `author.md` for the author (also its commit message and merge request text), `review.md` for the reviewer, `writer.md` for the questions comment and the watcher and dispatch ticket writers. A missing or empty file changes nothing. Only the first 8,000 characters are read. The factory reads `author.md` and `review.md` from the commit it cloned, so the author cannot change its own instructions. It reads `writer.md` from the head of the base branch. The files cannot override the factory's rules. Add them in a merge request that a person reviews: `.factory/**` is a protected path, so a change to them always goes to a person.
 - [ ] Add the webhook (Settings > Webhooks) for issue, comment and merge request events. Each event starts a pipeline; a comment starts a run only when it has the line `@factory resume`. URL:
   ```text
   https://gitlab.example.com/api/v4/projects/<factory project id>/ref/main/trigger/pipeline?token=<trigger token>&variables[FACTORY_PIPELINE]=build&variables[FACTORY_TARGET]=<name>&variables[SAST_DISABLED]=true&variables[SECRET_DETECTION_DISABLED]=true
@@ -29,7 +30,7 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
 
 ## 2. In this repo
 
-- [ ] Add `targets/<name>.yml`. Copy `targets/react_frontend.yml`. Set `projectPath`, `baseBranch` (the branch the factory clones, targets and merges into, for example `develop`; required), `defaultApprover` (a real GitLab username), `jobImage` (must be the image in `.gitlab-ci.yml`), `maxChangedLines`, `protectedPaths` and `dependencyFiles`.
+- [ ] Add `targets/<name>.yml`. Copy `targets/react_frontend.yml`. Set `projectPath`, `baseBranch` (the branch the factory clones, targets and merges into, for example `develop`; required), `defaultApprover` (a real GitLab username), `jobImage` (must be the image in `.gitlab-ci.yml`), `maxChangedLines`, `protectedPaths` (`.factory/**` is always added) and `dependencyFiles`.
 - [ ] Open a merge request here. `<name>` must match the file name. Other names stop the job.
 
 ## 3. Schedules

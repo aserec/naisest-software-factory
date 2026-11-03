@@ -26,6 +26,7 @@ protectedPaths:
   - ".gemini/**"
   - ".mcp.json"
   - "**/.gitattributes"
+  - ".factory/**"
 dependencyFiles:
   - "**/package.json"
   - "**/package-lock.json"

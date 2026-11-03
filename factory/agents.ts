@@ -85,5 +85,6 @@ export function parseFindings(out: string): Finding[] {
 const reviewPrompt = readFileSync(fileURLToPath(new URL("../prompts/review.md", import.meta.url)), "utf8");
 
 // ticketText comes already wrapped (context.ticketText), so it is not wrapped again here.
-export const reviewerPrompt = (ticketText: string, diffText: string, proofText = "") =>
-  `${reviewPrompt}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>${proofText ? `\n\n<proof>\n${proofText}\n</proof>` : ""}`;
+// local is the repo's own review.md as localSection made it.
+export const reviewerPrompt = (ticketText: string, diffText: string, proofText = "", local = "") =>
+  `${reviewPrompt}${local}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>${proofText ? `\n\n<proof>\n${proofText}\n</proof>` : ""}`;

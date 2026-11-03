@@ -204,7 +204,7 @@ test("evidence is fenced so a sample cannot close the block", () => {
 // Dispatches from outside systems, through the same ticket flow.
 const dispatch = (o: Partial<Dispatch> = {}): Dispatch => ({ id: "s1", target: "react_frontend", source: "pip-audit", key: "requirements.txt", title: "2 vulnerable packages", details: "jinja2 3.1.2 GHSA-h5c8 fixed in 3.1.3", at: NOW.toISOString(), ...o });
 
-async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fakeTracker>; writerOk?: boolean } = {}) {
+async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fakeTracker>; writerOk?: boolean; writerLocal?: string } = {}) {
   const tracker = o.tracker ?? fakeTracker();
   const before = tracker.created.length;
   const judge = fakeJudge((q, state): JevAnswer => {
@@ -214,7 +214,7 @@ async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fak
   const prompts: string[] = [];
   const writer = async (prompt: string): Promise<HarnessResult> => (prompts.push(prompt), { session: "w", ok: o.writerOk ?? true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: HUMAN });
   const done: string[] = [];
-  const r = await runDispatches({ tracker, judge, chat: fakeChat(), writer, now: NOW }, list, async (id) => void done.push(id)).catch((e: Error) => e);
+  const r = await runDispatches({ tracker, judge, chat: fakeChat(), writer, writerLocal: o.writerLocal, now: NOW }, list, async (id) => void done.push(id)).catch((e: Error) => e);
   if (r instanceof Error && o.writerOk !== false) throw r;
   return { r: r as Exclude<typeof r, Error>, error: r instanceof Error ? r : undefined, tracker, prompts, done, made: tracker.created.slice(before) };
 }
@@ -242,4 +242,10 @@ test("a dispatch's customer data is scrubbed, and a failed writer leaves the dis
   const failed = await dispatches([s], { writerOk: false });
   expect(failed.error?.message).toContain("writer failed");
   expect(failed.done).toEqual([]);
+});
+
+test("the writer prompt holds the repo's writer.md after the factory prompt and before the data", async () => {
+  const p = (await dispatches([dispatch()], { writerLocal: "WRITER RULE" })).prompts[0];
+  expect(p.indexOf("WRITER RULE")).toBeGreaterThan(p.indexOf("an outside system reported"));
+  expect(p.indexOf("WRITER RULE")).toBeLessThan(p.indexOf("jinja2 3.1.2"));
 });

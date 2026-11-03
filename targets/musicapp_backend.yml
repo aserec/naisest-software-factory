@@ -24,6 +24,7 @@ protectedPaths:
   - ".agents/**"
   - ".cursor/**"
   - "**/.gitattributes"
+  - ".factory/**"
 dependencyFiles:
   - "pyproject.toml"
   - "uv.lock"

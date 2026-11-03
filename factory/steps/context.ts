@@ -7,6 +7,7 @@ import { wrapTicket } from "../agents";
 import { makeInbox } from "../inbox";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
+import { localPath, localSection } from "../local-instructions";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
@@ -133,12 +134,12 @@ export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, jo
 }
 
 // Resume the author session with feedback from the reviewer or the gate.
-export function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
+export async function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
   const f = facts(ctx);
   const resume = f.session;
   if (!resume) throw new Error("The run record has no author session to fix");
   const preview = !!f.commands?.preview;
-  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) });
+  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) });
 }
 
 // Polls a status for up to an hour. Still "running" after that counts as not done.

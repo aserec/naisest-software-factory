@@ -9,7 +9,9 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { runStep, save, ticketText } from "./context";
+import { prompt, runStep, save, ticketText } from "./context";
+import { previewLine } from "./prepare-patch";
+import { parseFactoryFile } from "../config";
 import { cancelNote, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
@@ -1559,4 +1561,38 @@ test("@factory resume after a cancel from the dashboard starts nothing", async (
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "cancelled" } });
   expect(w.restored).toEqual([]);
   expect(w.states).toEqual(["stopped"]);
+});
+
+// Part E: repo-local instructions. The author, the reviewer and the writers read them from the base commit or the base branch.
+test("the author's prepare and fix prompts hold the base commit's author.md, never the work tree's", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/author.md": "BASE RULE" }, reviews: [[{ ...reviewOf("matches"), blocking: true }], []] });
+  w.ctx.repo.readFile = ((read) => (path: string) => (path === ".factory/author.md" ? "AGENT EDIT" : read(path)))(w.ctx.repo.readFile);
+  await runBuildPipeline(w);
+  const author = w.harness.jobs.filter((j) => j.role === "author");
+  expect(author.length).toBeGreaterThanOrEqual(2);
+  for (const j of author) {
+    expect(j.prompt).toContain("BASE RULE");
+    expect(j.prompt).not.toContain("AGENT EDIT");
+  }
+});
+test("the reviewer prompt holds review.md from the base commit", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/review.md": "REVIEW RULE" } }));
+  expect(w.harness.jobs.find((j) => j.role === "reviewer")!.prompt).toContain("REVIEW RULE");
+});
+test("the questions writer holds writer.md from the base branch", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, files: { ".factory/writer.md": "WRITER RULE" } }));
+  expect(w.claudeRuns[0].prompt).toContain("WRITER RULE");
+});
+test("a resumed author session gets no section again", async () => {
+  const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit", baseFiles: { ".factory/author.md": "BASE RULE" } }));
+  const w = resumeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/author.md": "BASE RULE" } }, { record: first.record });
+  await runBuildJobs(w, tmp());
+  const resumed = w.harness.jobs.find((j) => j.role === "author" && j.resume)!;
+  expect(resumed.prompt).not.toContain("BASE RULE");
+});
+test("with no .factory files the prompts are the factory's own, with nothing added", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  const first = w.harness.jobs.find((j) => j.role === "author" && !j.resume)!;
+  expect(first.prompt).toBe(`${prompt("prepare")}\n\n${previewLine(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b"))}\n\n${ticketText(w.ctx)}`);
+  expect(reviewerPrompt("T", "D")).toBe(`${prompt("review")}\n\nT\n\n<diff>\nD\n</diff>`);
 });
