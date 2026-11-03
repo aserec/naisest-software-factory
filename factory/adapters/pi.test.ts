@@ -167,8 +167,8 @@ test("a resume continues the session kept in the pi home", async () => {
   const cwd = runDir();
   await pi.run(authorJob(cwd, { resume: "sess-1" }));
   const args = readFileSync(join(bin, "args"), "utf8").split("\n");
-  expect(args).toEqual(expect.arrayContaining(["--session", "--continue"]));
-  expect(args[args.indexOf("--session") + 1]).toBe(join(cwd, "..", "pi-home"));
+  expect(args).toContain("--continue");
+  expect(args).not.toContain("--session"); // Pi 1.4.0 reads --session as a file: a directory fails with EISDIR
 });
 
 test("a provider 429 in the output is a limit hit", async () => {

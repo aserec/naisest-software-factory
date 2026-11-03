@@ -102,8 +102,9 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     const args = [
       "--print", "--mode", "json", "--no-extensions", "--extension", EXTENSION, "--no-skills", "--no-prompt-templates",
       "--no-context-files", "--no-mcp", "--provider", job.model.provider.name, "--model", job.model.model,
-      // ponytail: --session <dir> --continue is from the plan. Confirm it on the runner's Pi (it may be --session-dir).
-      ...(job.resume ? ["--session", home, "--continue"] : []), "--", job.prompt,
+      // --continue picks the newest session of this cwd under PI_CODING_AGENT_DIR (home). Pi 1.4.0's --session takes a
+      // session file or id, so a directory there fails with EISDIR.
+      ...(job.resume ? ["--continue"] : []), "--", job.prompt,
     ];
     // The extension reads the inbox file from Pi's home (the one place inside the sandbox that Pi may read). A new run starts with a new inbox.
     const inboxFile = join(home, "inbox.jsonl");
