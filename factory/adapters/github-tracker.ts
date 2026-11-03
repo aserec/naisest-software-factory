@@ -1,0 +1,208 @@
+// Tickets are GitHub issues. Marks are always labels. The state is a factory_* label, or, with a board,
+// the issue's Status column on a GitHub Projects board (column "Needs info" is state needs_info).
+import { AI_LINE } from "../gitlab";
+import type { GitHub } from "../github";
+import { findSecrets } from "../rules";
+import type { FactoryEvent, FactoryState, Mark, Ticket, Tracker } from "../seams";
+
+const READY = "factory_ready";
+const MARKS: Mark[] = ["watcher", "triaged", "risk_trivial", "risk_low", "risk_medium", "risk_high", "implemented", "reviewed", "checked", "risk_checked", "merged", "reverted"];
+const markLabel = (m: Mark) => `factory_${m}`;
+const labelOf = (state: FactoryState) => `factory_${state}`;
+const ENDED = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
+// Same order as the GitLab tracker: an active run wins over ready, ready wins over an ended run.
+const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", ...ENDED] as const satisfies readonly FactoryState[];
+const STATE_LABELS = STATE_ORDER.map(labelOf);
+const fingerprintMarker = (fp: string) => `<!-- factory:fingerprint ${fp} -->`;
+const columnState = (name: string) => name.trim().toLowerCase().replace(/\s+/g, "_") as FactoryState;
+const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
+const checked = (text: string) => {
+  if (findSecrets(text).length > 0) throw new Error("Refused: the text contains a secret");
+  return text;
+};
+
+// An issue in plain fields, from REST or GraphQL.
+interface Issue { number: number; title: string; body: string | null; open: boolean; labels: string[]; assignees: string[]; url: string; createdAt: string }
+const fromRest = (i: any): Issue => ({
+  number: i.number, title: i.title, body: i.body, open: i.state === "open", url: i.html_url, createdAt: i.created_at,
+  labels: (i.labels ?? []).map((l: any) => (typeof l === "string" ? l : l.name)), assignees: (i.assignees ?? []).map((a: any) => a.login),
+});
+
+function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
+  const fromLabels = STATE_ORDER.find((s) => i.labels.includes(labelOf(s)));
+  const state = boardState === undefined ? fromLabels : boardState ?? undefined;
+  return {
+    ref: String(i.number), title: i.title, body: i.body ?? "", open: i.open, state,
+    ended: boardState === undefined && state === "ready" ? ENDED.find((s) => i.labels.includes(labelOf(s))) : undefined,
+    marks: MARKS.filter((m) => i.labels.includes(markLabel(m))),
+    tags: i.labels.filter((l) => !l.startsWith("factory_")),
+    assignees: i.assignees, url: i.url,
+  };
+}
+
+const ISSUE_FIELDS = "number title body state url createdAt labels(first: 50) { nodes { name } } assignees(first: 20) { nodes { login } } repository { nameWithOwner }";
+const STATUS = `fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name creator { login } } }`;
+const fromGraph = (c: any): Issue => ({
+  number: c.number, title: c.title, body: c.body, open: c.state === "OPEN", url: c.url, createdAt: c.createdAt,
+  labels: c.labels.nodes.map((l: any) => l.name), assignees: c.assignees.nodes.map((a: any) => a.login),
+});
+
+// The board: a GitHub Projects (v2) board with a single-select Status field whose columns are factory states.
+function makeBoard(gh: GitHub, repo: string, number: number) {
+  const [owner, name] = repo.split("/");
+  type Project = { id: string; field: string; options: { id: string; name: string }[] };
+  let found: Promise<Project> | undefined;
+  const project = (): Promise<Project> => (found ??= gh.graphql(
+    `query($owner: String!, $n: Int!) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { id field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } } } } } }`,
+    { owner, n: number },
+  ).then((d) => {
+    const p = d.repositoryOwner?.projectV2;
+    if (!p?.field?.id) throw new Error(`GitHub project ${owner}/${number} not found, or it has no Status field`);
+    return { id: p.id, field: p.field.id, options: p.field.options };
+  }));
+  // The issue, its node id, and its card on this board, if any.
+  const item = async (ref: string) => {
+    const { id } = await project();
+    const d = await gh.graphql(
+      `query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) { issue(number: $n) { id ${ISSUE_FIELDS} projectItems(first: 50) { nodes { id project { id } ${STATUS} } } } } }`,
+      { owner, name, n: Number(ref) },
+    );
+    const issue = d.repository.issue;
+    const card = issue.projectItems.nodes.find((n: any) => n.project.id === id);
+    return { issue, card, status: card?.fieldValueByName as { name: string; creator?: { login: string } } | null | undefined };
+  };
+  return {
+    async ticket(ref: string) {
+      const { issue, status } = await item(ref);
+      return toTicket(fromGraph(issue), status ? columnState(status.name) : null);
+    },
+    async setState(ref: string, state: FactoryState) {
+      const p = await project();
+      const option = p.options.find((o) => columnState(o.name) === state);
+      if (!option) throw new Error(`The GitHub project's Status field has no column for ${state}`);
+      const { issue, card } = await item(ref);
+      const itemId = card?.id ?? (await gh.graphql(`mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input: { projectId: $p, contentId: $c }) { item { id } } }`, { p: p.id, c: issue.id })).addProjectV2ItemById.item.id;
+      await gh.graphql(
+        `mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) { updateProjectV2ItemFieldValue(input: { projectId: $p, itemId: $i, fieldId: $f, value: { singleSelectOptionId: $o } }) { projectV2Item { id } } }`,
+        { p: p.id, i: itemId, f: p.field, o: option.id },
+      );
+    },
+    // ponytail: reads every card each call; filter with the items(query:) argument if boards grow past a few thousand cards.
+    async list(state: FactoryState) {
+      const { id } = await project();
+      const out: Issue[] = [];
+      for (let after: string | null = null; ;) {
+        const d = await gh.graphql(
+          `query($id: ID!, $after: String) { node(id: $id) { ... on ProjectV2 { items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ${STATUS} content { ... on Issue { ${ISSUE_FIELDS} } } } } } } }`,
+          { id, after },
+        );
+        const items = d.node.items;
+        for (const n of items.nodes) {
+          const c = n.content;
+          if (c?.repository?.nameWithOwner === repo && c.state === "OPEN" && n.fieldValueByName && columnState(n.fieldValueByName.name) === state) out.push(fromGraph(c));
+        }
+        if (!items.pageInfo.hasNextPage) break;
+        after = items.pageInfo.endCursor;
+      }
+      return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((i) => toTicket(i, state));
+    },
+    // ponytail: GitHub keeps no history of Status changes, so this is the person who set the current Status value.
+    // The trusted() check still runs on them; only people with write access to the board can move cards.
+    async startedBy(ref: string) {
+      const { status } = await item(ref);
+      return status && columnState(status.name) === "ready" ? status.creator?.login : undefined;
+    },
+  };
+}
+
+export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number): Tracker {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`GitHub repo must be owner/name, got ${repo}`);
+  const base = `/repos/${repo}/issues`;
+  let bot: Promise<string> | undefined;
+  const botName = () => (bot ??= gh.json("GET", "/user").then((u) => u.login));
+  // The issues endpoint also lists pull requests.
+  const issues = async (query: string) => (await gh.all(`${base}?${query}&per_page=100`)).filter((i) => !i.pull_request).map(fromRest);
+  const board = projectNumber === undefined ? undefined : makeBoard(gh, repo, projectNumber);
+  const addLabels = (ref: string, labels: string[]) => gh.call("POST", `${base}/${Number(ref)}/labels`, { labels });
+  const removeLabel = async (ref: string, label: string) => {
+    await gh.call("DELETE", `${base}/${Number(ref)}/labels/${encodeURIComponent(label)}`).catch((e) => {
+      if (!String(e).includes("status 404")) throw e; // the label was not there
+    });
+  };
+
+  return {
+    ticket: async (ref) => board ? board.ticket(ref) : toTicket(fromRest(await gh.json("GET", `${base}/${Number(ref)}`))),
+    async setState(ref, state) {
+      if (board) return board.setState(ref, state);
+      const has = fromRest(await gh.json("GET", `${base}/${Number(ref)}`)).labels;
+      for (const l of has.filter((l) => STATE_LABELS.includes(l) && l !== labelOf(state))) await removeLabel(ref, l);
+      await addLabels(ref, [labelOf(state)]); // GitHub creates a missing label
+    },
+    mark: async (ref, mark) => void (await addLabels(ref, [markLabel(mark)])),
+    unmark: (ref, mark) => removeLabel(ref, markLabel(mark)),
+    comment: async (ref, text) => void (await gh.call("POST", `${base}/${Number(ref)}/comments`, { body: checked(`${AI_LINE}\n\n${text}`) })),
+    assign: async (ref, person) => void (await gh.call("PATCH", `${base}/${Number(ref)}`, { assignees: [person] })),
+    close: async (ref) => void (await gh.call("PATCH", `${base}/${Number(ref)}`, { state: "closed" })),
+    reopen: async (ref) => void (await gh.call("PATCH", `${base}/${Number(ref)}`, { state: "open" })),
+    list: (state) => board ? board.list(state) : issues(`labels=${labelOf(state)}&state=open&sort=created&direction=asc`).then((l) => l.map((i) => toTicket(i))),
+    async listClosed(count) {
+      const page = await gh.json("GET", `${base}?state=closed&sort=updated&direction=desc&per_page=${Math.min(count, 100)}`);
+      return page.filter((i: any) => !i.pull_request).map((i: any) => toTicket(fromRest(i))).slice(0, count);
+    },
+    isFactory: async (actor) => actor === (await botName()),
+    async trusted(actor) {
+      if (actor === (await botName())) return false;
+      const p = await gh.json("GET", `/repos/${repo}/collaborators/${encodeURIComponent(actor)}/permission`).catch(() => undefined);
+      return p?.permission === "admin" || p?.permission === "write"; // maintain shows as write
+    },
+    async startedBy(ref) {
+      if (board) return board.startedBy(ref);
+      const events = await gh.all(`${base}/${Number(ref)}/events?per_page=100`);
+      return events.filter((e) => e.event === "labeled" && e.label?.name === READY).at(-1)?.actor?.login;
+    },
+    async comments(ref, since) {
+      const name = await botName();
+      // GitHub's since filters on the edit time; keep only comments created after it, newest first.
+      const all = await gh.all(`${base}/${Number(ref)}/comments?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`);
+      return all
+        .filter((c) => !since || c.created_at > since)
+        .reverse()
+        .map((c) => ({ author: c.user.login, byFactory: c.user.login === name, body: c.body ?? "", at: c.created_at }));
+    },
+    // GitHub webhook payloads: a factory_ready label added, an `@factory stop|resume` comment, a merged factory PR.
+    parseEvent(payload) {
+      const p = payload as any;
+      const path = p?.repository?.full_name;
+      if (typeof path === "string" && path !== repo) return ignored("other-project");
+      const actor = p?.sender?.login;
+      if (typeof path !== "string" || typeof actor !== "string") return ignored("not-added");
+      if (p.issue && !p.issue.pull_request && typeof p.issue.number === "number") {
+        if (p.action === "labeled" && p.label?.name === READY && !board) return { kind: "ready", ticket: String(p.issue.number), actor };
+        if (p.action === "created" && p.comment) {
+          const command = String(p.comment.body ?? "").split("\n").map((l) => l.trim().toLowerCase()).find((l) => l === "@factory stop" || l === "@factory resume");
+          if (command) return { kind: "command", ticket: String(p.issue.number), actor, command: command === "@factory stop" ? "stop" : "resume" };
+        }
+      }
+      if (p.pull_request && p.action === "closed" && p.pull_request.merged) {
+        const m = /^factory\/(\d+)-/.exec(String(p.pull_request.head?.ref ?? ""));
+        if (m) return { kind: "merged", ticket: m[1], change: String(p.pull_request.number), actor };
+      }
+      return ignored("not-added");
+    },
+    async create(draft) {
+      const labels = [...draft.marks.map(markLabel), ...(draft.state && !board ? [labelOf(draft.state)] : [])];
+      const i = await gh.json("POST", base, { title: checked(draft.title), body: checked(`${draft.body}\n\n${fingerprintMarker(draft.fingerprint)}`), labels });
+      if (draft.state && board) await board.setState(String(i.number), draft.state);
+      return { ref: String(i.number), url: i.html_url };
+    },
+    async findOpen(fingerprint) {
+      const found = await issues(`labels=${markLabel("watcher")}&state=open`);
+      return found.find((i) => (i.body ?? "").includes(fingerprintMarker(fingerprint)))?.number.toString();
+    },
+    // `since` on the issues list is the update time: an issue created after the date was also updated after it.
+    async createdSince(mark, since) {
+      const found = await issues(`labels=${markLabel(mark)}&state=all&since=${encodeURIComponent(since.toISOString())}`);
+      return found.filter((i) => Date.parse(i.createdAt) >= since.getTime()).length;
+    },
+  };
+}

@@ -1,0 +1,94 @@
+import { beforeEach, describe, expect, test } from "vitest";
+import { GitHub } from "../github";
+import { makeGitHubTracker } from "./github-tracker";
+
+const REPO = "acme/web";
+let calls: { method: string; path: string; body?: any }[] = [];
+let rest: Record<string, unknown> = {};
+let graph: (query: string, vars: any) => unknown = () => ({});
+const fakeFetch = (async (url: string, init: RequestInit) => {
+  const path = url.replace("https://api.github.com", "");
+  const body = init.body ? JSON.parse(init.body as string) : undefined;
+  calls.push({ method: init.method!, path, body });
+  if (path === "/graphql") return Response.json({ data: graph(body.query, body.variables) });
+  const key = `${init.method} ${path.replace(/[?&]page=1$/, "").replace(/&page=\d+$/, "")}`;
+  if (!(key in rest)) return new Response("{}", { status: init.method === "GET" ? 404 : 200 });
+  return Response.json(rest[key]);
+}) as unknown as typeof fetch;
+const gh = new GitHub("tok", fakeFetch, async () => {});
+const issue = (o: object = {}) => ({ number: 8, title: "T", body: "D", state: "open", labels: [], assignees: [], html_url: "u8", created_at: "2026-01-01", ...o });
+
+beforeEach(() => {
+  calls = [];
+  rest = { "GET /user": { login: "factory-bot" } };
+});
+
+describe("labels", () => {
+  const t = () => makeGitHubTracker(gh, REPO);
+
+  test("setState removes the other state labels and adds the new one, leaving the rest", async () => {
+    rest[`GET /repos/${REPO}/issues/8`] = issue({ labels: [{ name: "factory_ready" }, { name: "factory_triaged" }, { name: "bug" }] });
+    await t().setState("8", "running");
+    expect(calls.slice(1).map((c) => `${c.method} ${c.path}`)).toEqual([`DELETE /repos/${REPO}/issues/8/labels/factory_ready`, `POST /repos/${REPO}/issues/8/labels`]);
+    expect(calls.at(-1)!.body).toEqual({ labels: ["factory_running"] });
+  });
+
+  test("a ticket maps state, marks and tags; pull requests are not tickets", async () => {
+    rest[`GET /repos/${REPO}/issues?labels=factory_ready&state=open&sort=created&direction=asc&per_page=100`] = [
+      issue({ labels: [{ name: "factory_ready" }, { name: "factory_done" }, { name: "factory_watcher" }, { name: "bug" }], assignees: [{ login: "ann" }] }),
+      issue({ number: 9, pull_request: {} }),
+    ];
+    expect(await t().list("ready")).toEqual([{ ref: "8", title: "T", body: "D", open: true, state: "ready", ended: "done", marks: ["watcher"], tags: ["bug"], assignees: ["ann"], url: "u8" }]);
+  });
+
+  test("startedBy is whoever last added factory_ready; only write access is trusted, never the bot", async () => {
+    rest[`GET /repos/${REPO}/issues/8/events?per_page=100`] = [
+      { event: "labeled", label: { name: "factory_ready" }, actor: { login: "old" } },
+      { event: "labeled", label: { name: "bug" }, actor: { login: "x" } },
+      { event: "labeled", label: { name: "factory_ready" }, actor: { login: "ann" } },
+    ];
+    expect(await t().startedBy("8")).toBe("ann");
+    rest[`GET /repos/${REPO}/collaborators/ann/permission`] = { permission: "write" };
+    rest[`GET /repos/${REPO}/collaborators/bob/permission`] = { permission: "read" };
+    rest[`GET /repos/${REPO}/collaborators/factory-bot/permission`] = { permission: "admin" };
+    expect([await t().trusted("ann"), await t().trusted("bob"), await t().trusted("eve"), await t().trusted("factory-bot")]).toEqual([true, false, false, false]);
+  });
+
+  test("a comment with a secret is refused before any call", async () => {
+    await expect(t().comment("8", "key glpat-abcdefghijklmnopqrst")).rejects.toThrow(/secret/);
+    expect(calls).toEqual([]);
+  });
+
+  test("parseEvent reads ready labels, commands and merged factory PRs from this repo only", () => {
+    const base = { repository: { full_name: REPO }, sender: { login: "ann" } };
+    expect(t().parseEvent({ ...base, action: "labeled", label: { name: "factory_ready" }, issue: { number: 8 } })).toEqual({ kind: "ready", ticket: "8", actor: "ann" });
+    expect(t().parseEvent({ ...base, action: "created", issue: { number: 8 }, comment: { body: "hi\n @Factory Stop " } })).toEqual({ kind: "command", ticket: "8", actor: "ann", command: "stop" });
+    expect(t().parseEvent({ ...base, action: "closed", pull_request: { number: 3, merged: true, head: { ref: "factory/8-fix" } } })).toEqual({ kind: "merged", ticket: "8", change: "3", actor: "ann" });
+    expect(t().parseEvent({ ...base, repository: { full_name: "evil/web" }, action: "labeled", label: { name: "factory_ready" }, issue: { number: 8 } })).toEqual({ kind: "ignored", reason: "other-project" });
+    expect(t().parseEvent({ ...base, action: "labeled", label: { name: "bug" }, issue: { number: 8 } })).toEqual({ kind: "ignored", reason: "not-added" });
+  });
+});
+
+describe("board", () => {
+  const t = () => makeGitHubTracker(gh, REPO, 5);
+  const project = { repositoryOwner: { projectV2: { id: "P", field: { id: "F", options: [{ id: "o-ready", name: "Ready" }, { id: "o-info", name: "Needs info" }] } } } };
+  const gqlIssue = (o: object = {}) => ({ id: "I8", number: 8, title: "T", body: "D", state: "OPEN", url: "u8", createdAt: "2026-01-02", labels: { nodes: [] }, assignees: { nodes: [] }, repository: { nameWithOwner: REPO }, ...o });
+
+  test("setState puts an issue on the board and moves it to the column named after the state", async () => {
+    graph = (q) => q.includes("projectV2(number") ? project : q.includes("addProjectV2ItemById") ? { addProjectV2ItemById: { item: { id: "IT" } } } : q.includes("issue(number") ? { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [] } } } } : {};
+    await t().setState("8", "needs_info");
+    expect(calls.at(-1)!.body.variables).toEqual({ p: "P", i: "IT", f: "F", o: "o-info" });
+    await expect(t().setState("8", "running")).rejects.toThrow(/no column for running/);
+  });
+
+  test("list keeps open issues of this repo in the column, oldest first; startedBy is who set Ready", async () => {
+    const card = (status: string, o: object) => ({ fieldValueByName: { name: status, creator: { login: "ann" } }, content: gqlIssue(o) });
+    graph = (q) => q.includes("projectV2(number") ? project : q.includes("items(first") ? { node: { items: { pageInfo: { hasNextPage: false }, nodes: [
+      card("Ready", { number: 9, createdAt: "2026-01-03" }), card("Ready", { number: 8 }), card("Needs info", { number: 7 }),
+      card("Ready", { number: 6, state: "CLOSED" }), card("Ready", { number: 5, repository: { nameWithOwner: "acme/other" } }), { fieldValueByName: { name: "Ready" }, content: {} },
+    ] } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready", creator: { login: "ann" } } }] } } } };
+    expect((await t().list("ready")).map((x) => [x.ref, x.state])).toEqual([["8", "ready"], ["9", "ready"]]);
+    expect(await t().startedBy("8")).toBe("ann");
+    expect((await t().ticket("8")).state).toBe("ready");
+  });
+});

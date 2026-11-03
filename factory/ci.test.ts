@@ -94,7 +94,7 @@ test("the watcher runs only from a pipeline started by hand", async () => {
   // With logSource files, main refuses any other pipeline before it reads a secret.
   await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "schedule" })).rejects.toThrow(/started by hand/);
   // From a web pipeline it goes on to build the context.
-  await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "web" })).rejects.toThrow(/CI_SERVER_URL/);
+  await expect(watcher({ FACTORY_SCHEDULE: "watch", CI_PIPELINE_SOURCE: "web" })).rejects.toThrow(/is not set/);
 });
 
 test("the dashboard deploys only on a push to main that changes what its image holds", () => {
@@ -107,3 +107,4 @@ test("the dashboard deploys only on a push to main that changes what its image h
   expect(job.environment).toEqual({ name: "dashboard" });
   expect(job.script.at(-1)).toContain("ssh -i \"$DASHBOARD_DEPLOY_KEY\" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$DASHBOARD_KNOWN_HOSTS\" ");
 });
+

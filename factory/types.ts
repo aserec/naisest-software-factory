@@ -20,6 +20,8 @@ export interface Target {
   maxChangedLines: number;
   defaultApprover: string;
   jobImage: string;
+  githubRepo?: string; // owner/name, for the github and github-project trackers
+  githubProject?: number; // the Projects board number, for the github-project tracker
   stuckMinutes?: Record<string, number>; // the dashboard reads it; the factory only accepts it
 }
 export interface FactoryCommands { install: string; lint: string; test: string; build: string; smoke?: string; preview?: string; previewUrl?: string }

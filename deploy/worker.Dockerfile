@@ -1,11 +1,17 @@
-# The factory worker: the CI job image (runner/Dockerfile, the `runner` context in compose.yml) plus this repo.
-# It runs local-factory.sh in the foreground: every minute it polls GitLab and runs each ready ticket.
+# The factory worker (factory/worker.ts): the CI job image (runner/Dockerfile, the `runner` context in compose.yml) plus
+# this repo. The same image runs each step in its own container, so the code a step runs is the image's, never a step's.
 FROM runner
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# The Docker CLI starts the step containers (over ssh for a Hetzner VM); ssh-keygen makes each VM's keys.
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client && rm -rf /var/lib/apt/lists/* \
+ && docker --version && ssh -V
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY dashboard/package.json dashboard/
 RUN pnpm install --frozen-lockfile --filter software-factory
 COPY . .
-CMD ["./local-factory.sh", "run"]
+# The secret, queue and runs dirs next to the checkout (factory/adapters/local-ci.ts).
+RUN mkdir -p /app.tmp /app.queue /app.runs && chmod 700 /app.tmp
+CMD ["node", "--import", "tsx", "factory/worker.ts"]

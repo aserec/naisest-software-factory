@@ -5,7 +5,7 @@ import type { makeGitLab } from "./gitlab";
 type GitLab = ReturnType<typeof makeGitLab>;
 export interface LoopDeps {
   db: Db;
-  gitlab: Pick<GitLab, "cancelPipeline" | "importEvents" | "startDispatch">;
+  gitlab: Pick<GitLab, "cancelPipeline" | "importEvents" | "startDispatch">; // GitLab CI, or the worker (getCi)
   now: Date;
 }
 // What the loop remembers between ticks. It lives in memory, so a restart imports once and may back up again the same day.

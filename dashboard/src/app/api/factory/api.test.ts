@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The dispatch route starts a run through GitLab: the test keeps the targets it was asked to start.
 const started = vi.hoisted(() => [] as string[]);
-vi.mock("@/server/gitlab-instance", () => ({ getGitLab: () => ({ startDispatch: async (target: string) => void started.push(target) }) }));
+vi.mock("@/server/gitlab-instance", () => ({ getCi: () => ({ startDispatch: async (target: string) => void started.push(target) }) }));
 
 process.env.DASHBOARD_DB = ":memory:";
 process.env.FACTORY_DASHBOARD_TOKEN = "secret-token";

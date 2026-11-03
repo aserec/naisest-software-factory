@@ -22,9 +22,9 @@ test("router.yml gives the spec's models and bump", () => {
   expect(r.writer).toMatchObject({ harness: "pi", provider: "tensorx" });
   expect(r.effortBump).toBe(8);
 });
-test("seams.yml picks the GitLab, model judge and console adapters and gives the providers to the harness", () => {
+test("seams.yml picks the GitLab, local CI, model judge and console adapters and gives the providers to the harness", () => {
   const s = loadSeams();
-  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "gitlab", judge: "model-call", chat: "console", logSource: "files", dashboard: "http" });
+  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "local", judge: "model-call", chat: "console", logSource: "files", dashboard: "http" });
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
     provider: { name: "tensorx", api: "openai", baseUrl: "https://api.tensorx.ai/v1", keyEnv: "TENSORX_API_KEY", models: { "deepseek/deepseek-v4.1-flash-1017": "deepseek", "z-ai/glm-5.3-flash": "glm" } },
     model: "z-ai/glm-5.3-flash",

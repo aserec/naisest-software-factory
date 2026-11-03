@@ -52,6 +52,8 @@ const targetSchema = z.object({
   maxChangedLines: z.number().int().positive(),
   defaultApprover: real,
   jobImage: z.string().min(1),
+  githubRepo: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional(),
+  githubProject: z.number().int().positive().optional(),
   stuckMinutes: z.record(z.number().positive()).optional(),
 });
 

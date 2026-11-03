@@ -1,6 +1,10 @@
+# The tracker is gitlab, github (issues, state as factory_* labels) or github-project (state as the Status column of a
+# GitHub Projects board). The github ones need FACTORY_GITHUB_TOKEN and githubRepo (+ githubProject) in the target file.
 tracker: gitlab
 codeHost: gitlab
-ci: gitlab
+# The CI is local (factory/worker.ts: each step in a new container, on this machine or a Hetzner VM per run)
+# or gitlab (.gitlab-ci.yml).
+ci: local
 judge: model-call
 chat: console
 logSource: files

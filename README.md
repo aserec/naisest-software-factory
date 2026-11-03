@@ -11,7 +11,7 @@
    cd software-factory && ./install.sh
    ```
 
-The installer asks for each value, with where to get it, and writes `deploy/.env` (never in git). It then starts the dashboard behind HTTPS and the factory worker, which runs tickets on this machine. Answer `hetzner` instead, and a GitLab Runner starts one Hetzner VM per CI job in place of the worker. Run `./install.sh` again after `git pull` to update. To change a value, edit `deploy/.env` and run it again.
+The installer asks for each value, with where to get it, and writes `deploy/.env` (never in git). It then starts the dashboard behind HTTPS and the factory worker (`factory/worker.ts`, seams.yml `ci: local`), which runs each step of a run in a new container. Where those containers run is the answer to "Where tickets run": `machine` (the default) on this machine, `hetzner` on a new Hetzner VM per run that the worker deletes after the run, or `gitlab`, where a GitLab Runner starts one Hetzner VM per CI job in place of the worker (set `ci: gitlab` in seams.yml). Run `./install.sh` again after `git pull` to update. To change a value, edit `deploy/.env` and run it again.
 
 **Always needed**
 
