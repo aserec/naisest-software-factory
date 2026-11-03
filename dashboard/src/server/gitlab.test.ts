@@ -36,6 +36,12 @@ function fakeFetch(routes: Record<string, () => Response>) {
 }
 
 describe("board", () => {
+  it("leaves out the GitLab targets when there is no GitLab read token", async () => {
+    vi.stubEnv("GITLAB_READ_TOKEN", "");
+    const { fn, calls } = fakeFetch({});
+    expect(await makeGitLab(fn).board()).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
   it("makes one call per state label per target and caches for 15 s", async () => {
     const { fn, calls } = fakeFetch({
       "labels=factory_ready": () => Response.json([{ iid: 5, title: "Fix it", web_url: "https://gitlab.test/g/t1/-/issues/5", updated_at: "2026-10-29T10:00:00Z" }]),

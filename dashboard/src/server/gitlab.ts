@@ -17,7 +17,10 @@ const id = (v: string) => {
 
 export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
   const github = makeGitHub(fetchFn);
-  const factory = () => id(process.env.FACTORY_PROJECT_ID ?? "");
+  const factory = () => {
+    if (!process.env.FACTORY_PROJECT_ID) throw new Error("FACTORY_PROJECT_ID is not set, so there are no GitLab CI jobs to show");
+    return id(process.env.FACTORY_PROJECT_ID);
+  };
   // ponytail: one page of 100 per call, add paging if a state ever holds more than 100 issues.
   const get = (path: string) => fetchFn(`${gitlab()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" } });
   const getJson = async <T>(path: string) => {
@@ -30,8 +33,9 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
   async function fetchBoard() {
     type Issue = { iid: number; title: string; web_url: string; updated_at: string };
     // Each target's tickets come from its own tracker: GitLab issues, or GitHub issues and boards.
+    // Without a GitLab read token, as in a GitHub-only setup, the GitLab targets are left out.
     const targets = readTargets();
-    const lists = targets.filter((t) => !t.github).flatMap((t) =>
+    const lists = targets.filter((t) => !t.github && process.env.GITLAB_READ_TOKEN).flatMap((t) =>
       STATES.map(async (state) => {
         const issues = await getJson<Issue[]>(`/projects/${encodeURIComponent(t.projectPath)}/issues?labels=${state}&per_page=100`);
         return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at }));
