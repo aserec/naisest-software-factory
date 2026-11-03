@@ -42,16 +42,16 @@ const SIDES: [string, string[]][] = [
 function Row({ item: i }: { item: BoardItem }) {
   const when = ago(i.updatedAt);
   const title = i.run ? (
-    <Link href={`/runs/${encodeURIComponent(i.run)}`} className="font-medium hover:underline">
+    <Link href={`/runs/${encodeURIComponent(i.run)}`} className="font-medium after:absolute after:inset-0 after:rounded-lg">
       {i.title}
     </Link>
   ) : (
-    <a href={i.url} className="font-medium hover:underline">
+    <a href={i.url} className="font-medium after:absolute after:inset-0 after:rounded-lg">
       {i.title}
     </a>
   );
   return (
-    <li className="flex items-start justify-between gap-4 border-b border-rule py-3 last:border-0">
+    <li className="relative flex items-start justify-between gap-4 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40">
       <div className="min-w-0">
         {title}
         <div className="mt-0.5 text-xs text-muted-foreground">
@@ -76,7 +76,7 @@ function Column({ state, items }: { state: string; items?: BoardItem[] }) {
       <h2 className="flex items-baseline gap-2 border-b pb-2 text-base font-semibold">
         {name} <span className="font-normal text-muted-foreground">{items ? items.length : "—"}</span>
       </h2>
-      {items && (items.length ? <ul>{items.map((i) => <Row key={`${i.target}/${i.ticket}`} item={i} />)}</ul> : <p className="py-3 text-muted-foreground">{empty}</p>)}
+      {items && (items.length ? <ul className="flex flex-col gap-2 pt-3">{items.map((i) => <Row key={`${i.target}/${i.ticket}`} item={i} />)}</ul> : <p className="py-3 text-muted-foreground">{empty}</p>)}
     </section>
   );
 }
