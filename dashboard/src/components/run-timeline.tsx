@@ -100,7 +100,7 @@ function LaneRow({ lane, from, span, limits }: { lane: Lane; from: number; span:
             </ul>
           )}
           <div>
-            <StepDetail start={lane.start} events={lane.events} />
+            <StepDetail start={lane.start} end={lane.end} events={lane.events} />
           </div>
         </div>
       )}

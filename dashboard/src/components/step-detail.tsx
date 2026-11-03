@@ -10,10 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const ofType = (events: RunEvent[], type: RunEvent["type"]) => events.filter((e) => e.type === type).map((e) => e.data as Record<string, any>);
 
-function JobLog({ job, log: { data, error, isLoading } }: { job?: string; log: { data?: string; error: Error | null; isLoading: boolean } }) {
-  if (!job) return <p>This step has no CI job.</p>;
-  if (error) return <p role="alert">{error.message}</p>;
-  if (isLoading) return <p>Loading the job log...</p>;
+// A step that ran without CI (local-run.sh, the worker) sends its output with its step_end event instead.
+function JobLog({ job, end, log: { data, error, isLoading } }: { job?: string; end?: RunEvent; log: { data?: string; error: Error | null; isLoading: boolean } }) {
+  if (!job) {
+    if (!end) return <p>The log shows when the step ends.</p>;
+    if (typeof end.data.log !== "string") return <p>This step has no CI job and sent no log.</p>;
+    data = end.data.log;
+  } else if (error) return <p role="alert">{error.message}</p>;
+  else if (isLoading) return <p>Loading the job log...</p>;
   return (
     <ScrollArea className="h-80 rounded-lg bg-raised">
       <pre className="p-4 font-mono text-xs leading-5">{data}</pre>
@@ -28,7 +32,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
   </section>
 );
 
-function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
+function Panel({ start, end, events }: { start: RunEvent; end?: RunEvent; events: RunEvent[] }) {
   const findings = ofType(events, "review_finding");
   const gates = ofType(events, "gate_check");
   const rules = ofType(events, "rule_check");
@@ -97,14 +101,14 @@ function Panel({ start, events }: { start: RunEvent; events: RunEvent[] }) {
         </ScrollArea>
       </TabsContent>
       <TabsContent value="log">
-        <JobLog job={start.job} log={log} />
+        <JobLog job={start.job} end={end} log={log} />
       </TabsContent>
     </Tabs>
   );
 }
 
 // `events` are the step's own events (not its tool calls). The panel, and its log request, exist only while it is open.
-export function StepDetail({ start, events }: { start: RunEvent; events: RunEvent[] }) {
+export function StepDetail({ start, end, events }: { start: RunEvent; end?: RunEvent; events: RunEvent[] }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -114,8 +118,8 @@ export function StepDetail({ start, events }: { start: RunEvent; events: RunEven
       </DialogTrigger>
       <DialogContent className="sm:max-w-3xl">
         <DialogTitle>{start.step}</DialogTitle>
-        <DialogDescription>Prompt, findings, checks and cost of this step, and its CI job log.</DialogDescription>
-        <Panel start={start} events={events} />
+        <DialogDescription>Prompt, findings, checks and cost of this step, and its log.</DialogDescription>
+        <Panel start={start} end={end} events={events} />
       </DialogContent>
     </Dialog>
   );

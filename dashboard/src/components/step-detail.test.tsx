@@ -26,3 +26,15 @@ test("does not ask for the job log until the panel opens, then shows everything 
   expect(fetchFn).toHaveBeenCalledWith("/api/jobs/42/log");
   expect(fetchFn).toHaveBeenCalledTimes(1);
 });
+
+test("a step without a CI job shows the log its step_end event sent, and asks nothing", async () => {
+  const fetchFn = vi.fn();
+  vi.stubGlobal("fetch", fetchFn);
+  const local = ev("step_start", "00", { step: "triage", data: {} });
+  const end = ev("step_end", "03", { step: "triage", data: { outcome: "next", log: "installed 12 packages" } });
+  renderWithQuery(<StepDetail start={local} end={end} events={[]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Details" }));
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Job log" }));
+  expect(await screen.findByText("installed 12 packages")).toBeTruthy();
+  expect(fetchFn).not.toHaveBeenCalled();
+});

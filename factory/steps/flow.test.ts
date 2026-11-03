@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, vi } from "vitest";
 // targets/react_frontend.yml keeps its placeholder approver until go-live, and loadTarget refuses it.
@@ -16,6 +16,7 @@ import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type Mark } from "../seams";
+import { newRecord, saveRecord } from "../record";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
 import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
@@ -338,6 +339,18 @@ test("runStep saves the record and writes the stop file on a stop", async () => 
   await runStep("event", (await import("./event")).run, { dir, make: () => w.ctx });
   expect(readFileSync(join(dir, "stop"), "utf8")).toBe("event");
   expect(JSON.parse(readFileSync(join(dir, "record.json"), "utf8")).steps[0].step).toBe("event");
+});
+test("runStep sends the step's output with step_end when no CI job holds a log", async () => {
+  const dir = tmp();
+  const w = fakeWorld();
+  w.ci.vars = { ...w.ci.vars, ticket: "8", job: undefined };
+  saveRecord({ ...newRecord(), runId: "r1" }, dir);
+  await runStep("triage", async () => (process.stdout.write("installed 12 packages\n"), "next"), { dir, make: () => w.ctx });
+  const end = readFileSync(join(dirname(w.ctx.dir), "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "step_end");
+  expect(end.data.log).toContain("installed 12 packages");
+  w.ci.vars.job = "7";
+  await runStep("triage", async () => (process.stdout.write("in the CI log\n"), "next"), { dir, make: () => w.ctx });
+  expect(readFileSync(join(dirname(w.ctx.dir), "events.jsonl"), "utf8")).not.toContain("in the CI log");
 });
 test("runStep blocks the work item on an unexpected error and still fails the job", async () => {
   const dir = tmp();
