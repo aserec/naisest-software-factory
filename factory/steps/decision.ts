@@ -2,9 +2,10 @@ import { emit } from "../emit";
 import { need } from "../record";
 import { proofReasons } from "../proof";
 import { decideMerge, type MergeDecision } from "../decision";
-import type { Ticket } from "../seams";
+import type { PersonRef, Ticket } from "../seams";
+import { CODEOWNERS_PATHS, parseCodeowners, topOwners } from "../codeowners";
 import { changeText } from "./precommit-gate";
-import { facts, inbox, isMain, modelRow, notify, person, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
+import { facts, inbox, isMain, modelRow, notify, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped } from "./run";
 
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
@@ -63,6 +64,26 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   return askPerson(ctx, d.reasons);
 }
 
+// Who reviews: the ticket assignee, else the top code owner of the changed files who may command the factory, else the default approver.
+// Nothing here may stop the run, so any read that fails falls back to the default approver.
+export async function reviewer(ctx: StepContext, ticket: Ticket): Promise<PersonRef> {
+  if (ticket.assignees[0]) return ticket.assignees[0];
+  try {
+    const sha = facts(ctx).gateHead;
+    let text: string | undefined;
+    for (const path of CODEOWNERS_PATHS) if ((text = await ctx.codeHost.readFile(path)) !== undefined) break;
+    if (!text || !sha) return ctx.target.defaultApprover;
+    for (const owner of topOwners(parseCodeowners(text), Object.keys(await ctx.codeHost.branchDiff(sha)))) {
+      // A name the host does not know makes trusted throw: skip it like an untrusted one.
+      const ok = await ctx.tracker.trusted(owner).then(async (t) => t && !(await ctx.tracker.isFactory(owner)), () => false);
+      if (ok) return owner;
+    }
+  } catch (e) {
+    console.log(`Could not pick a code owner, using the default approver: ${e instanceof Error ? e.message : e}`);
+  }
+  return ctx.target.defaultApprover;
+}
+
 // Send the change to a person to review and merge: state, a comment with the reasons on the change, the assignee and a card.
 export async function askPerson(ctx: StepContext, reasons: string[]): Promise<StepResult> {
   const ref = ticketRef(ctx);
@@ -71,7 +92,7 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
   const ticket = await ctx.tracker.ticket(ref);
   await ctx.tracker.setState(ref, "needs_approval");
   await ctx.codeHost.commentChange(change, `This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`);
-  await ctx.codeHost.assignChange(change, person(ctx, ticket));
+  await ctx.codeHost.assignChange(change, await reviewer(ctx, ticket));
   await notify(ctx, "needs_approval", reasons, changeUrl ?? "");
   return "stop";
 }

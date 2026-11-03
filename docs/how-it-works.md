@@ -83,7 +83,13 @@ A change merges without a person only when all four are true:
 3. Every hard rule passes.
 4. Jev 2 passed its thresholds: `diff_risk` at 4 or below with confidence 0.9 or more, `scope` yes at 0.9 or more, `sensitive` no at 0.9 or more.
 
-Otherwise the script labels `factory_needs_approval`, assigns the merge request to a person (the work item's assignee, or the target's default approver), posts the reasons on the merge request, and sends one Teams card. Medium and high risk tickets are always built, and always end here.
+Otherwise the script labels `factory_needs_approval`, assigns the merge request to a person, posts the reasons on the merge request, and sends one Teams card. Medium and high risk tickets are always built, and always end here.
+
+The person is the first of these:
+
+1. The work item's assignee.
+2. The code owner of the changed files. The factory reads the first of `CODEOWNERS`, `.gitlab/CODEOWNERS`, `.github/CODEOWNERS` and `docs/CODEOWNERS` from the base branch. For each changed file the last matching rule wins. The owner of the most changed files wins; ties go to the first in file order. Only a single user counts: groups, teams and emails are skipped, and so is the factory bot or anyone the host does not know or does not trust (Developer or higher on GitLab, write access or higher on GitHub).
+3. The target's `defaultApprover`. This is also the answer when there is no CODEOWNERS file or the factory cannot read it.
 
 ## Human merges
 

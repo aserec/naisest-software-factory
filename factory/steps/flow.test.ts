@@ -1596,3 +1596,54 @@ test("with no .factory files the prompts are the factory's own, with nothing add
   expect(first.prompt).toBe(`${prompt("prepare")}\n\n${previewLine(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b"))}\n\n${ticketText(w.ctx)}`);
   expect(reviewerPrompt("T", "D")).toBe(`${prompt("review")}\n\nT\n\n<diff>\nD\n</diff>`);
 });
+
+// Part D: a change that goes to a person goes to the ticket assignee, else the top trusted code owner of its files, else the default approver.
+const medium = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass", ...o });
+const assignedTo = (w: ReturnType<typeof fakeWorld>) => w.host.assigned.map((a) => a.person);
+test("a change goes to the code owner of its files", async () => {
+  const w = await runBuildPipeline(medium({ files: { CODEOWNERS: "src/ @owner" } }));
+  expect(assignedTo(w)).toEqual(["owner"]);
+});
+test("the code owner is read from the first CODEOWNERS path that exists", async () => {
+  const w = await runBuildPipeline(medium({ files: { ".github/CODEOWNERS": "src/ @owner", "docs/CODEOWNERS": "src/ @other" } }));
+  expect(assignedTo(w)).toEqual(["owner"]);
+});
+test("an untrusted code owner is skipped for the next owner, then for the default approver", async () => {
+  const w = medium({ files: { CODEOWNERS: "src/ @owner @second" } });
+  w.tracker.trusted = async (a) => a !== "owner";
+  expect(assignedTo(await runBuildPipeline(w))).toEqual(["second"]);
+  const w2 = medium({ files: { CODEOWNERS: "src/ @owner" } });
+  w2.tracker.trusted = async (a) => a !== "owner";
+  expect(assignedTo(await runBuildPipeline(w2))).toEqual(["approver"]);
+});
+test("a code owner who is the factory bot is never assigned", async () => {
+  const w = medium({ files: { CODEOWNERS: `src/ @${BOT}` } });
+  w.tracker.trusted = async () => true;
+  expect(assignedTo(await runBuildPipeline(w))).toEqual(["approver"]);
+});
+test("a code owner the host does not know is skipped", async () => {
+  const w = medium({ files: { CODEOWNERS: "src/ @ghost @owner" } });
+  w.tracker.trusted = async (a) => { if (a === "ghost") throw new Error("404 User Not Found"); return true; };
+  expect(assignedTo(await runBuildPipeline(w))).toEqual(["owner"]);
+});
+test("no CODEOWNERS, only groups, or no rule for the changed files goes to the default approver", async () => {
+  for (const files of [undefined, { CODEOWNERS: "src/ @org/team a@b.c" }, { CODEOWNERS: "docs/ @owner" }]) {
+    expect(assignedTo(await runBuildPipeline(medium({ files })))).toEqual(["approver"]);
+  }
+});
+test("a ticket assignee wins over the code owner", async () => {
+  const w = medium({ files: { CODEOWNERS: "src/ @owner" } });
+  w.tracker.tickets.get("8")!.assignees = ["alice"];
+  await runBuildPipeline(w);
+  expect(assignedTo(w)).toEqual(["alice"]);
+});
+test("a failed CODEOWNERS read or diff read goes to the default approver and does not stop the run", async () => {
+  const a = medium({ files: { CODEOWNERS: "src/ @owner" } });
+  a.host.readFile = async () => { throw new Error("HTTP 500"); };
+  expect(assignedTo(await runBuildPipeline(a))).toEqual(["approver"]);
+  expect(a.states).toEqual(["needs_approval"]);
+  const b = medium({ files: { CODEOWNERS: "src/ @owner" } });
+  b.host.branchDiff = async () => { throw new Error("diff too large"); };
+  expect(assignedTo(await runBuildPipeline(b))).toEqual(["approver"]);
+  expect(b.states).toEqual(["needs_approval"]);
+});
