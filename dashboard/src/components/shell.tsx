@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutList, Menu, Server, ToggleRight } from "lucide-react";
+import { LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -72,7 +72,8 @@ export function PageTitle({ title, children, actions }: { title: React.ReactNode
 
 // Tinted L-frame (sidebar and top bar on one ground, no rule between) around a white sheet inset 8px right and bottom.
 // On a phone the frame folds into a 48px bar with a menu.
-export function Shell({ children }: { children: React.ReactNode }) {
+// signOut is a server action; layout.tsx passes it so this file does not load next-auth.
+export function Shell({ children, signOut }: { children: React.ReactNode; signOut: () => Promise<void> }) {
   const path = usePathname() ?? "/";
   if (path === "/sign-in") return <>{children}</>;
   const trail = crumbs(path);
@@ -113,6 +114,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </li>
           ))}
         </ol>
+        <form action={signOut} className="ml-auto">
+          <button type="submit" className="flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm text-muted-foreground hover:bg-active hover:text-foreground">
+            <LogOut className="size-4" strokeWidth={1.5} aria-hidden="true" />
+            Sign out
+          </button>
+        </form>
       </header>
 
       <div className="min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-5 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:rounded-xl md:border md:px-6 md:pt-6">
