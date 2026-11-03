@@ -19,7 +19,8 @@ export function parseCodeowners(text: string): OwnerRule[] {
 }
 
 const matchers = new Map<string, (path: string) => boolean>();
-// gitignore style: a leading or inner slash anchors, a trailing slash means a directory, a match covers everything below it.
+// gitignore style: a leading or inner slash anchors, a trailing slash means a directory.
+// A name with no glob characters also covers everything below it; a glob matches only at its own level.
 function matcher(pattern: string) {
   let m = matchers.get(pattern);
   if (!m) {
@@ -27,7 +28,7 @@ function matcher(pattern: string) {
     const p = (dir ? pattern.slice(0, -1) : pattern).replace(/^\//, "");
     const anchored = pattern.startsWith("/") || p.includes("/");
     const base = anchored ? p : `**/${p}`;
-    m = picomatch(dir ? [`${base}/**`] : [base, `${base}/**`], { dot: true });
+    m = picomatch(dir ? [`${base}/**`] : /[*?[]/.test(p) ? [base] : [base, `${base}/**`], { dot: true });
     matchers.set(pattern, m);
   }
   return m;

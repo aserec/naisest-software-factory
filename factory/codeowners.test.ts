@@ -30,3 +30,11 @@ test("topOwners ranks by owned paths, ties in file order", () => {
   expect(topOwners(rules, ["b.ts", "a.ts"])).toEqual(["ana", "ben"]);
   expect(topOwners(rules, ["x.ts"])).toEqual([]);
 });
+test("a glob pattern matches only at its own level, a plain name also matches below it", () => {
+  const rules = parseCodeowners("docs/* @a\n*.ts @t\ndocs2/** @g\n");
+  expect(ownersOf(rules, "docs/a.md")).toEqual(["a"]);
+  expect(ownersOf(rules, "docs/a/b.md")).toEqual([]);
+  expect(ownersOf(rules, "docs2/a/b.md")).toEqual(["g"]);
+  expect(ownersOf(rules, "x/a.ts")).toEqual(["t"]);
+  expect(ownersOf(rules, "a.ts/b.md")).toEqual([]);
+});
