@@ -3,6 +3,8 @@ import { main } from "./poll";
 import { cursorLine } from "../requests";
 import { fakeWorld, BOT } from "./test-helpers";
 import { pollRequests } from "./requests";
+import { askPerson } from "./decision";
+import { addStep } from "../record";
 import type { FactoryState } from "../seams";
 
 const T0 = "2026-10-01T10:00:00Z";
@@ -152,4 +154,28 @@ test("the poller starts the round for a request", async () => {
     vi.unstubAllEnvs();
     log.mockRestore();
   }
+});
+
+// A round that ended: the cursor line it left decides which requests are new.
+async function endedRound(heardUntil: string) {
+  const w = world({ state: "running" });
+  let r = addStep(addStep(w.ctx.record, "event", { start: true, ticket: "8", round: 1 }), "precommit-gate", { passed: true, rounds: 1, branch: "b", sha: "h", change: "5", changeUrl: "u" });
+  r = { ...r, heardUntil, rounds: { review: 1, gate: 1 }, requestRounds: [{ cursor: T1, requests: [{ author: "dev", body: ASK, at: T1, on: "change" }], costAtStart: 0, tokensAtStart: { input: 0, output: 0 } }] };
+  w.ctx.record = r;
+  await askPerson(w.ctx, ["a person asked for changes"]);
+  return w;
+}
+test("after a round, a request the agent read during it starts no round, and one written after the last author run does", async () => {
+  const w = await endedRound(T2);
+  w.host.sayOnChange("5", "dev", ASK, T2);
+  expect(await pollRequests(w.ctx)).toEqual([]);
+  w.host.sayOnChange("5", "dev", ASK, "2026-10-01T13:00:00Z");
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
+});
+test("a first run with no round writes the cursor, so a request written during its risk check starts a round", async () => {
+  const w = world({ state: "running", cursor: false });
+  w.ctx.record = addStep(addStep(w.ctx.record, "event", { start: true, ticket: "8" }), "precommit-gate", { passed: true, rounds: 1, branch: "b", sha: "h", change: "5", changeUrl: "u" });
+  w.host.sayOnChange("5", "dev", ASK, new Date(Date.now() + 1000).toISOString()); // after the run started, before the decision
+  await askPerson(w.ctx, ["risk"]);
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
 });

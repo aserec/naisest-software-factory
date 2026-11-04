@@ -84,6 +84,35 @@ A person can also end a run by closing its work item or its merge request. The f
 - A merge request counts only when it is this run's. Every run of a work item uses the same branch, so until the gate pushes, the newest merge request on it belongs to an older run, for example one a restart closed.
 - A run with no step running would keep its run slot for good. Every minute the poller checks the work items in `factory_needs_approval`, `factory_waiting` and `factory_stopped`, open or closed, and applies the same two outcomes. It has no run record, so it counts a closed merge request only for a work item past the push: `factory_needs_approval`, or `factory_stopped` with a stop note at decision or apply. A run the poller ends sends no `run_end`, because the poller does not know its run ID.
 
+## Requests on a merge request
+
+A person asks for more work on a factory merge request by writing a comment with `@factory` on the merge request or on its work item.
+
+- **Who may ask.** Only people who may command the factory (Developer and above on GitLab, write access and above on GitHub). The factory's own comments never count, even when they quote `@factory`.
+- **What counts.** A comment with `@factory` as a whole word: `@factory-bot` and `a@factory.dev` do not count. A comment with the line `@factory stop` or `@factory resume` is a command, never a request, even with more text around it. A request on a merge request that is closed or merged, or on the merge request of another work item, does nothing.
+- **The cursor.** The factory only reads comments newer than its cursor. The cursor is the line `Requests read up to: <time>` at the end of a factory comment: the one that starts a round, the one that sends a change to a person, and the replies and refusals below. With no such line yet, the cursor is the time of the factory's newest comment on the merge request; with neither, nothing is read. Times are compared as times, not as text.
+- **`factory_needs_approval`.** The request starts a round.
+- **`factory_running`.** Nothing starts. The author agent hears the comment through its inbox while it works, like any comment from a person, and the run notes how far the agent read.
+- **`factory_stopped` and `factory_waiting`.** One reply on the work item, with the cursor line, that says what to do (comment `@factory resume`, or wait for the usage limit to end). The next poll does not answer the same request again.
+- **Other states** (`blocked`, `needs_info`, `ready`, `done`, or none). The reply says that the factory takes requests only while the change waits for a person. Only the GitLab webhook sends it for now.
+- **The injection check.** Before a round starts, the judge reads every new request with the triage injection question. If one of them is a likely injection (P(yes) 0.3 or more, or no number), the whole round is refused: the factory comments on the work item that a person must read it, moves the cursor, and the change keeps waiting for a person. If the judge fails, nothing is refused and the cursor does not move, so the next poll tries again.
+
+### How a round runs
+
+A round is one more pass of work on the same run and the same merge request.
+
+1. The event step starts the round: it loads the run's record, takes the work item to `factory_running`, comments `The factory started another round for the requests of @<authors>.`, and clears the marks `implemented`, `reviewed`, `checked` and `risk_checked`. The review and gate counters start at zero. The run keeps its run ID, so the dashboard shows the round's steps under the same run.
+2. Prepare-patch resumes the author's saved session with the requests, each in its own `<request author="...">` wrapper. If the saved session cannot be loaded, the author starts again with a new session, the prepare prompt, the ticket and the requests. The author ends with one line per request. A usage limit pauses a round like any run (`factory_waiting`) and the retry continues it.
+3. Code review, the precommit gate and the risk check run again, and set the four marks again as each passes.
+4. The decision is always `factory_needs_approval`, with `a person asked for changes` as the first reason, even for a ticket that could merge alone, and also when the same run resumes later. The factory comments `The factory finished the round for the requests of @<authors>.` on the merge request with the author's answer (cut to 4,000 characters), then the usual needs-a-person comment ending with the cursor line. The round keeps its own review rounds, gate rounds, cost and tokens in the record.
+5. The merge request goes back to the author of the newest request of the round, before the work item's assignee and the code owners.
+
+The cursor of that last comment is the newest of the round's cursor and the newest comment the author's inbox read during the round. A request the author already heard starts no second round. A request written after the author's last run, for example during the risk check, does.
+
+### How the factory hears a request
+
+The deployed factory runs with `ci: local`, where no webhook starts a pipeline, so the poller is the main path. Every minute it reads the new comments of each `factory_needs_approval` work item and its merge request, and starts a round for the oldest item with a request (at most one round per minute). It also sends the replies above for `factory_stopped` and `factory_waiting`. A round does not check the `new_runs` switch; the `prepare_patch` switch stops it like any prepare-patch. With `ci: gitlab`, a GitLab comment webhook (a note on the work item, or on a merge request from the same project) starts the same round at once, and the poller stays the fallback.
+
 ## The merge rule
 
 A change merges without a person only when all four are true:
@@ -95,7 +124,7 @@ A change merges without a person only when all four are true:
 
 Otherwise the script labels `factory_needs_approval`, assigns the merge request to a person, posts the reasons on the merge request, and sends one Teams card. Medium and high risk tickets are always built, and always end here.
 
-The person is the first of these:
+The person is the first of these. After a round, it is the author of the newest request of that round (see Requests on a merge request).
 
 1. The work item's assignee.
 2. The code owner of the changed files. The factory reads the first of `CODEOWNERS`, `.gitlab/CODEOWNERS`, `.github/CODEOWNERS` and `docs/CODEOWNERS` from the base branch. For each changed file the last matching rule wins. The owner of the most changed files wins; ties go to the first in file order. Only a single user counts: groups, teams and emails are skipped, and so is the factory bot or anyone the host does not know or does not trust (Developer or higher on GitLab, write access or higher on GitHub).
@@ -113,7 +142,7 @@ The person is the first of these:
 
 Two scheduled pipelines run for each target (see `docs/add-a-repo.md`).
 
-- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume).
+- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and answers requests on stopped and waiting items (see Requests on a merge request).
 - **Retry**, every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
 
 At most 2 runs at once per target, and one run per work item.

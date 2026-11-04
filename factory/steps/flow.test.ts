@@ -33,6 +33,9 @@ import { pumpInbox } from "../inbox";
 import { readNew } from "../inbox-file";
 import { DIFF } from "../fakes";
 import * as decision from "./decision";
+import * as codeReviewStep from "./code-review";
+import * as precommitGateStep from "./precommit-gate";
+import * as riskCheckStep from "./risk-check";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
@@ -1904,9 +1907,9 @@ test("a round resumed after @factory stop and @factory resume does not stop agai
 const T0 = "2026-10-01T10:00:00Z";
 const T1 = "2026-10-01T11:00:00Z";
 const T2 = "2026-10-01T12:00:00Z";
-async function requestWorld(o: WorldOptions = {}) {
-  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "medium" } }), tmp());
-  expect(first.states).toEqual(["needs_approval"]);
+async function requestWorld(o: WorldOptions = {}, risk: "medium" | "trivial" = "medium") {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk } }), tmp());
+  expect(first.states).toEqual([risk === "medium" ? "needs_approval" : "running"]);
   const w = fakeWorld({ state: "needs_approval", ...o });
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "41" };
   w.ci.buildRecord = async () => first.record;
@@ -2087,4 +2090,70 @@ test("a request round whose open change is not the record's change replies, keep
   expect(w.restored).toEqual([]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "change-mismatch" } });
   expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+});
+
+// The end of a round (Task 8): a ticket that would merge alone still goes back to the person who asked.
+const T3 = "2026-10-01T13:00:00Z";
+const ROUND_JOBS = [["prepare-patch", preparePatchStep], ["code-review", codeReviewStep], ["precommit-gate", precommitGateStep], ["risk-check", riskCheckStep], ["decision", decision]] as const;
+async function finishedRound(answer = "- @dev: added the screenshot") {
+  const { first, w } = await requestWorld({}, "trivial");
+  w.tracker.say("8", "lead", "@factory one more thing", T3); // the newest request
+  w.tracker.tickets.get("8")!.assignees = ["owner"];
+  const dir = tmp();
+  await eventJob(w, dir);
+  const run = w.harness.run;
+  w.harness.run = async (job) => ({ ...(await run(job)), ...(job.role === "author" && { text: answer }) });
+  const marks: string[][] = [];
+  for (const [name, step] of ROUND_JOBS) {
+    await runStep(name, step.run, { dir, make: () => w.ctx });
+    marks.push([...w.tracker.tickets.get("8")!.marks]);
+  }
+  return { first, w, dir, marks };
+}
+test("a round on a ticket that would merge alone goes to a person, not to a finish run, and sets the four marks again", async () => {
+  const { first, w, marks } = await finishedRound();
+  expect(runFacts(first.record).decisionKind).toBe("auto");
+  expect(w.record.steps.filter((s) => s.step === "decision").at(-1)!.data).toEqual({ kind: "needs_approval", reasons: [decision.ASKED] });
+  expect(decision.ASKED).toBe("a person asked for changes");
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.cards.map((c) => [c.kind, c.lines])).toEqual([["needs_approval", [decision.ASKED]]]);
+  expect(marks.map((m) => m.filter((x) => x !== "triaged"))).toEqual([["implemented"], ["implemented", "reviewed"], ["implemented", "reviewed", "checked"], ["implemented", "reviewed", "checked", "risk_checked"], ["implemented", "reviewed", "checked", "risk_checked"]]);
+});
+test("the round comment comes before the needs-a-person comment, which ends with the cursor line; the change goes to the newest request's author", async () => {
+  const { w } = await finishedRound("x".repeat(5000));
+  const [round, ask] = w.mrComments.slice(-2);
+  expect(round).toBe(`The factory finished the round for the requests of @dev @lead.\n\n${"x".repeat(4000)}`);
+  expect(ask).toBe(`This change needs a person to review and merge it:\n\n- ${decision.ASKED}\n\n${cursorLine(T3)}`);
+  expect(w.host.assigned.at(-1)).toEqual({ ref: "5", person: "lead" }); // not the work item's assignee "owner"
+});
+test("the round closes with its own review rounds, gate rounds, cost and tokens", async () => {
+  const { first, w } = await finishedRound();
+  const round = w.record.requestRounds!.at(-1)!;
+  expect(round.endedAt).toEqual(expect.any(String));
+  expect([round.review, round.gate]).toEqual([1, 1]);
+  expect(round.costUsd).toBeCloseTo(w.record.costUsd - first.record.costUsd, 6);
+  expect(round.costUsd!).toBeGreaterThan(0);
+  expect(round.tokens).toEqual({ input: w.record.tokens!.input - first.record.tokens!.input, output: w.record.tokens!.output - first.record.tokens!.output });
+  expect(runFacts(w.record).openRound).toBeUndefined();
+});
+test("the cursor line is the time the agent read up to, when that is later than the round's cursor", async () => {
+  const { w } = await finishedRound();
+  const at = "2026-10-01T14:00:00Z";
+  w.ctx.record = { ...w.record, heardUntil: at, requestRounds: w.record.requestRounds!.map((r) => ({ ...r, endedAt: undefined })) }; // the round is open again
+  await decision.askPerson(w.ctx, ["x"]);
+  expect(w.mrComments.at(-1)).toBe(`This change needs a person to review and merge it:\n\n- x\n\n${cursorLine(at)}`);
+});
+test("a later resume of the requested run still goes to a person", async () => {
+  const { w } = await finishedRound();
+  w.ctx.record = addStep(w.record, "event", { start: true, ticket: "8", resume: true, resumeAt: "decision" });
+  w.tracker.tickets.get("8")!.state = "running";
+  await decision.run(w.ctx);
+  expect(w.record.steps.filter((s) => s.step === "decision").at(-1)!.data).toEqual({ kind: "needs_approval", reasons: [decision.ASKED] });
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+});
+test("a first run with no round writes the cursor line too", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" } }));
+  expect(w.mrComments.at(-1)).toMatch(/\n\nRequests read up to: \S+$/);
 });

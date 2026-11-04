@@ -1,5 +1,6 @@
 import { emit } from "../emit";
 import { need } from "../record";
+import { cursorLine, later } from "../requests";
 import { proofReasons } from "../proof";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { PersonRef, Ticket } from "../seams";
@@ -8,13 +9,16 @@ import { changeText } from "./precommit-gate";
 import { facts, inbox, isMain, modelRow, notify, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
 import { block, endIfClosed, stopReason, stopped } from "./run";
 
+export const ASKED = "a person asked for changes";
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
 
 // A fix for an error that does not exist must never reach the default branch alone.
+// A run with a person's request never merges without a person, also when it resumes later.
 function decide(ctx: StepContext, ticket: Ticket): MergeDecision {
-  const d = decideByChecks(ctx);
-  if (!ticket.marks.includes("watcher") || ctx.seams.logSource !== "files") return d;
-  return { kind: "needs_approval", reasons: [...(d.kind === "needs_approval" ? d.reasons : []), FAKE_ERRORS] };
+  let d = decideByChecks(ctx);
+  const reasons = () => (d.kind === "needs_approval" ? d.reasons : []);
+  if (ticket.marks.includes("watcher") && ctx.seams.logSource === "files") d = { kind: "needs_approval", reasons: [...reasons(), FAKE_ERRORS] };
+  return facts(ctx).requested ? { kind: "needs_approval", reasons: [ASKED, ...reasons()] } : d;
 }
 
 function decideByChecks(ctx: StepContext): MergeDecision {
@@ -67,9 +71,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   return askPerson(ctx, d.reasons);
 }
 
-// Who reviews: the ticket assignee, else the top code owner of the changed files who may command the factory, else the default approver.
+// Who reviews: the newest request's author of the last round, else the ticket assignee, else the top code owner of the changed files who may command the factory, else the default approver.
 // Nothing here may stop the run, so any read that fails falls back to the default approver.
 export async function reviewer(ctx: StepContext, ticket: Ticket): Promise<PersonRef> {
+  const asker = ctx.record.requestRounds?.at(-1)?.requests.at(-1)?.author;
+  if (asker) return asker;
   if (ticket.assignees[0]) return ticket.assignees[0];
   try {
     const sha = facts(ctx).gateHead;
@@ -87,14 +93,27 @@ export async function reviewer(ctx: StepContext, ticket: Ticket): Promise<Person
   return ctx.target.defaultApprover;
 }
 
-// Send the change to a person to review and merge: state, a comment with the reasons on the change, the assignee and a card.
+// Send the change to a person to review and merge: state, the round's answer, a comment with the reasons on the change, the assignee and a card.
+// The comment ends with the cursor line: the requests the run has read, so the poller starts a round only for newer ones.
 export async function askPerson(ctx: StepContext, reasons: string[]): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const { change, changeUrl } = facts(ctx);
   if (!change) throw new Error("The run record has no change");
   const ticket = await ctx.tracker.ticket(ref);
   await ctx.tracker.setState(ref, "needs_approval");
-  await ctx.codeHost.commentChange(change, `This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`);
+  const f = facts(ctx);
+  const round = f.openRound;
+  if (round) {
+    const authors = [...new Set(round.requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
+    await ctx.codeHost.commentChange(change, `The factory finished the round for the requests of ${authors}.${round.answer ? `\n\n${round.answer.slice(0, 4000)}` : ""}`);
+  }
+  const read = later(ctx.record.heardUntil, round?.cursor) ?? f.eventAt;
+  await ctx.codeHost.commentChange(change, [`This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`, ...(read ? [cursorLine(read)] : [])].join("\n\n"));
+  if (round) {
+    const t = ctx.record.tokens ?? { input: 0, output: 0 };
+    const closed = { ...round, endedAt: new Date().toISOString(), ...ctx.record.rounds, costUsd: ctx.record.costUsd - round.costAtStart, tokens: { input: t.input - round.tokensAtStart.input, output: t.output - round.tokensAtStart.output } };
+    ctx.record = { ...ctx.record, requestRounds: ctx.record.requestRounds!.map((x) => (x === round ? closed : x)) };
+  }
   await ctx.codeHost.assignChange(change, await reviewer(ctx, ticket));
   await notify(ctx, "needs_approval", reasons, changeUrl ?? "");
   return "stop";
