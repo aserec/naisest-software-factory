@@ -129,8 +129,14 @@ test("one ticket that fails does not stop the next", async () => {
   await w.tracker.comment("9", cursorLine(T0));
   w.tracker.say("9", "dev", ASK, T1);
   w.ci.start = async () => { throw new Error("status 503"); };
-  await pollRequests(w.ctx);
-  expect(w.workItemComments).toHaveLength(2); // the cursor line and the reply; ticket 9 stopped: answered although 8 threw
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await pollRequests(w.ctx);
+    expect(w.workItemComments).toHaveLength(2); // the cursor line and the reply; ticket 9 stopped: answered although 8 threw
+    expect(log).toHaveBeenCalledWith("Request of ticket 8 failed: Error: status 503");
+  } finally {
+    log.mockRestore();
+  }
 });
 
 test("the poller starts the round for a request", async () => {
