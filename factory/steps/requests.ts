@@ -2,8 +2,10 @@
 import { cursorLine, isRequest, later, readCursor, stateReply } from "../requests";
 import type { Request } from "../record";
 import type { ChangeRef, Comment, FactoryState, Ticket, TicketRef } from "../seams";
-import type { StepContext } from "./context";
+import { INJECTION_LIMIT, buildTriageState, injectionQuestion } from "../triage";
+import { facts, save, type StepContext, type StepResult } from "./context";
 import { buildRunOf } from "./merge";
+import { block, continueAt } from "./run";
 
 // The requests after the cursor, oldest first, from the work item and from its open change.
 export async function newRequests(ctx: StepContext, ref: TicketRef): Promise<{ requests: Request[]; change?: { ref: ChangeRef; url: string } }> {
@@ -35,7 +37,7 @@ export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"star
   if (t.state === "needs_approval") {
     const buildRun = change && buildRunOf((await ctx.codeHost.change(change.ref)).body);
     if (!buildRun) throw new Error(`Ticket ${t.ref} waits for a person, but its change has no build run`);
-    // ponytail: a slow queue can start the same round twice; the event step (Task 5) stops the second quietly.
+    // ponytail: a slow queue can start the same round twice; requestRound stops the second quietly.
     await ctx.ci.start({ kind: "build", ticket: t.ref, buildRun });
     return "started";
   }
@@ -60,4 +62,43 @@ export async function pollRequests(ctx: StepContext, skip: TicketRef[] = []): Pr
     }
   }
   return started;
+}
+
+// Starting a round means a `@factory` request on a change that waits for a person; the event step runs this for the poller's build.
+// ponytail: the poller starts the same round build every minute until this step sets factory_running or writes a cursor line, and
+// the event job runs one at a time per target: the second build finds no needs_approval and stops quietly. Add a start marker if that is too noisy.
+export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: string): Promise<StepResult> {
+  const quiet = (reason: string, error?: string) => (save(ctx, "event", { start: false, reason, ticket: ref, ...(error ? { error } : {}) }), "stop" as const);
+  const t = await ctx.tracker.ticket(ref);
+  if (t.state !== "needs_approval") return quiet("not-waiting");
+  const why = facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
+  if (why) return block(ctx, `The factory could not start a round: ${why}. Add factory_ready to start again.`);
+  // Requests wait for a change that is open. A quiet stop writes nothing: there is nothing to answer.
+  const { requests, change } = await newRequests(ctx, ref);
+  if (!change || requests.length === 0) return quiet("no-request");
+  if (change.ref !== facts(ctx).change) return block(ctx, `The factory could not start a round: the open change ${change.ref} is not the change of pipeline ${buildRun}. Add factory_ready to start again.`);
+  const newest = requests.at(-1)!.at;
+  const authors = [...new Set(requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
+  // From here the ticket either starts running or gets a cursor line, so the poller does not start the same round again.
+  // A judge that fails refuses nothing and writes no cursor: the next poll tries again.
+  try {
+    for (const r of requests) {
+      const [a] = await ctx.judge.ask(buildTriageState(`Request by ${r.author}`, r.body, []), [injectionQuestion]);
+      if (!a) throw new Error(`The judge gave no answer for "${injectionQuestion.id}"`);
+      // Fails closed, like triage: NaN counts as an injection, and one request refuses the whole round.
+      if (!(a.probability < INJECTION_LIMIT)) {
+        await ctx.tracker.comment(ref, `${authors} The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.\n\n${cursorLine(newest)}`);
+        return quiet("injection");
+      }
+    }
+  } catch (e) {
+    console.log(`Judge failed for the requests of ticket ${ref}: ${String(e).slice(0, 300)}`);
+    return quiet("judge-error", String(e).slice(0, 500));
+  }
+  await ctx.ci.restoreRun(buildRun);
+  await ctx.tracker.comment(ref, `The factory started another round for the requests of ${authors}.\n\n${cursorLine(newest)}`);
+  for (const m of ["implemented", "reviewed", "checked", "risk_checked"] as const) if (t.marks.includes(m)) await ctx.tracker.unmark(ref, m);
+  const rounds = [...(ctx.record.requestRounds ?? []), { cursor: newest, requests, costAtStart: ctx.record.costUsd, tokensAtStart: ctx.record.tokens ?? { input: 0, output: 0 } }];
+  ctx.record = { ...ctx.record, rounds: { review: 0, gate: 0 }, requestRounds: rounds };
+  return continueAt(ctx, ref, "prepare-patch", { fromPipeline: buildRun, sessionId: facts(ctx).session, round: rounds.length });
 }

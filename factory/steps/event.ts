@@ -1,5 +1,6 @@
 import type { FactoryEvent } from "../seams";
 import { buildRunOf } from "./merge";
+import { requestRound } from "./requests";
 import { isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
 // The start rules sit in run.ts: run.ts cannot import this file, whose isMain line runs at load.
 import { activeRuns, continueBlocked, decideStart, mayStart, readyActor, resume, resumeOnCommand, startRun } from "./run";
@@ -37,7 +38,8 @@ async function commandEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const { payload, ticket, buildRun } = ctx.ci.vars;
-  if (payload === undefined && ticket && buildRun) return resume(ctx, ticket, buildRun);
+  // A change that waits for a person: the poller found a request on it. Any other state: a paused run to continue.
+  if (payload === undefined && ticket && buildRun) return (await ctx.tracker.ticket(ticket)).state === "needs_approval" ? requestRound(ctx, ticket, buildRun) : resume(ctx, ticket, buildRun);
   // The poller starts with no payload. Build the event from who set the ticket ready,
   // so decideStart checks exactly what it checks for a webhook.
   let e: FactoryEvent = payload === undefined && ticket ? { kind: "ready", ticket, actor: (await ctx.tracker.startedBy(ticket)) ?? "" } : ctx.tracker.parseEvent(payload);

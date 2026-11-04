@@ -11,6 +11,9 @@ vi.mock("../config", async (importOriginal) => {
 });
 import { inbox, prompt, runStep, save, ticketText } from "./context";
 import { previewLine } from "./prepare-patch";
+import * as preparePatchStep from "./prepare-patch";
+import { cursorLine } from "../requests";
+import { newRequests } from "./requests";
 import { parseFactoryFile } from "../config";
 import { cancelNote, endIfClosed, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
 import { makeContext } from "../compose";
@@ -1894,4 +1897,98 @@ test("a round resumed after @factory stop and @factory resume does not stop agai
   expect((await inbox(w.ctx).poll()).stop).toBe(true);
   w.ctx.record = addStep(w.record, "event", { start: true, ticket: "8", resume: true }); // the resume's event has no `round`: it starts after the old stop
   expect((await inbox(w.ctx).poll()).stop).toBe(false);
+});
+
+// Part G: a person's @factory request on a change that waits for a person starts a round on the same run.
+const T0 = "2026-10-01T10:00:00Z";
+const T1 = "2026-10-01T11:00:00Z";
+const T2 = "2026-10-01T12:00:00Z";
+async function requestWorld(o: WorldOptions = {}) {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "medium" } }), tmp());
+  expect(first.states).toEqual(["needs_approval"]);
+  const w = fakeWorld({ state: "needs_approval", ...o });
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "41" };
+  w.ci.buildRecord = async () => first.record;
+  w.openChange();
+  w.tracker.tickets.get("8")!.marks = ["triaged", "implemented", "reviewed", "checked", "risk_checked"];
+  w.host.sayOnChange("5", BOT, cursorLine(T0), T0, true);
+  w.host.sayOnChange("5", "dev", "@factory add a screenshot", T1);
+  w.tracker.say("8", "dev", "@factory and rename the prop", T2);
+  return { first, w };
+}
+const eventJob = (w: ReturnType<typeof fakeWorld>, dir = tmp()) => runStep("event", event.run, { dir, make: () => w.ctx });
+test("a request round restores the run, tells the work item, clears the marks and continues at prepare-patch with the saved session", async () => {
+  const { first, w } = await requestWorld();
+  const dir = tmp();
+  await eventJob(w, dir);
+  expect(w.restored).toEqual(["41"]);
+  expect(w.workItemComments).toEqual([`The factory started another round for the requests of @dev.\n\n${cursorLine(T2)}`]);
+  expect(w.tracker.tickets.get("8")!.marks).toEqual(["triaged"]);
+  expect(w.states).toEqual(["running"]);
+  expect(w.record.rounds).toEqual({ review: 0, gate: 0 });
+  expect(w.record.requestRounds).toEqual([{
+    cursor: T2,
+    requests: [{ author: "dev", body: "@factory add a screenshot", at: T1, on: "change" }, { author: "dev", body: "@factory and rename the prop", at: T2, on: "work item" }],
+    costAtStart: first.record.costUsd,
+    tokensAtStart: first.record.tokens,
+  }]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: true, resume: true, ticket: "8", resumeAt: "prepare-patch", fromPipeline: "41", sessionId: runFacts(first.record).session, round: 1 } });
+  expect(runFacts(w.record).roundStart).toBe(true);
+  // The dashboard keeps the run ID: no run_start, a step_start that says which round.
+  expect(w.record.runId).toBe(first.record.runId);
+  expect(dash(w).events.some((e) => e.type === "run_start")).toBe(false);
+  expect(dash(w).events.find((e) => e.type === "step_start")?.data).toEqual({ round: 1 });
+  // The next job picks the saved session up.
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  expect(w.claudeRuns[0]).toMatchObject({ resume: runFacts(first.record).session });
+});
+test("a request round stops quietly when the ticket no longer waits, there is no new request, or the change is closed", async () => {
+  const cases: [string, (w: ReturnType<typeof fakeWorld>) => void][] = [
+    ["state", (w) => void (w.tracker.tickets.get("8")!.state = "running")],
+    ["request", (w) => w.host.sayOnChange("5", BOT, cursorLine(T2), "2026-10-01T13:00:00Z", true)],
+    ["change", (w) => w.host.close("5")],
+  ];
+  for (const [, change] of cases) {
+    const { w } = await requestWorld();
+    change(w);
+    const before = [...w.tracker.tickets.get("8")!.marks];
+    await eventJob(w);
+    expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false } });
+    expect([w.restored, w.workItemComments, w.tracker.tickets.get("8")!.marks]).toEqual([[], [], before]);
+    expect(w.record.requestRounds).toBeUndefined();
+  }
+});
+test.each([["a judge that suspects injection", { injectionYes: 0.9 }], ["a judge that answers NaN", { injectionYes: NaN }]])("%s refuses the whole round and moves the cursor", async (_n, jev1) => {
+  const { w } = await requestWorld({ jev1 });
+  await eventJob(w);
+  expect(w.workItemComments).toEqual([`@dev The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.restored).toEqual([]);
+  expect(w.tracker.tickets.get("8")!.marks).toContain("implemented");
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "injection" } });
+  expect(w.record.requestRounds).toBeUndefined();
+  // Nothing is left to answer: the poller starts no round again.
+  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+});
+test("a judge that throws refuses nothing, writes no cursor and leaves the ticket waiting for the next poll", async () => {
+  const { w } = await requestWorld({ jev1: "throw" });
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await eventJob(w);
+  } finally {
+    log.mockRestore();
+  }
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "judge-error" } });
+  expect(w.workItemComments).toEqual([]);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.restored).toEqual([]);
+  expect((await newRequests(w.ctx, "8")).requests).toHaveLength(2);
+});
+test("a request round of another ticket's record blocks instead of starting", async () => {
+  const { w } = await requestWorld();
+  const record = await w.ci.buildRecord("41");
+  w.ci.buildRecord = async () => ({ ...record, workItem: "other/project#9" });
+  await eventJob(w).catch(() => {});
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.restored).toEqual([]);
 });

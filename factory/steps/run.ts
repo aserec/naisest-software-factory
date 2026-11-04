@@ -293,9 +293,10 @@ function continuePoint(ctx: StepContext, ref: TicketRef, buildRun: string, kind:
 }
 
 // Continue the loaded run: the build jobs before resumeAt skip.
-async function continueAt(ctx: StepContext, ref: TicketRef, resumeAt: string, d: { actor?: string; fromPipeline: string; sessionId?: string }): Promise<StepResult> {
+// `round`: a request round starts here; the dashboard hears which one.
+export async function continueAt(ctx: StepContext, ref: TicketRef, resumeAt: string, d: { actor?: string; fromPipeline: string; sessionId?: string; round?: number }): Promise<StepResult> {
   save(ctx, "event", { start: true, resume: true, ticket: ref, resumeAt, ...d });
-  ctx.stepEvent = emit(ctx, "step_start", {});
+  ctx.stepEvent = emit(ctx, "step_start", d.round ? { round: d.round } : {});
   await ctx.tracker.setState(ref, "running");
   return "next";
 }
