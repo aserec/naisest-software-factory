@@ -7,7 +7,7 @@ import { describe, expect, test } from "vitest";
 import { claudeCode } from "../adapters/claude-code";
 import { loadRouter, loadSeams, modelChoice } from "../config";
 import { pi, piSandboxSettings } from "../adapters/pi";
-import { piHome } from "../sandbox";
+import { harnessHome } from "../sandbox";
 import type { Provider } from "../seams";
 import { harnessContract } from "./harness.contract";
 
@@ -46,11 +46,11 @@ describe.skipIf(!process.env.FACTORY_CONTRACT_REAL)("pi author sandbox", () => {
     const base = realpathSync(mkdtempSync(join(tmpdir(), "pi-sandbox-")));
     const cwd = join(base, "target");
     mkdirSync(cwd);
-    mkdirSync(piHome(cwd));
-    writeFileSync(join(piHome(cwd), "marker"), "session");
+    mkdirSync(harnessHome(pi, cwd));
+    writeFileSync(join(harnessHome(pi, cwd), "marker"), "session");
     const settings = join(base, "srt-settings.json");
-    writeFileSync(settings, JSON.stringify(piSandboxSettings(cwd, piHome(cwd), tensorx)));
-    return spawnSync(srt, ["--settings", settings, "-c", cmd.replaceAll("<pi-home>", piHome(cwd))], { cwd, env: { PATH: process.env.PATH, HOME: piHome(cwd) } }).status;
+    writeFileSync(settings, JSON.stringify(piSandboxSettings(cwd, harnessHome(pi, cwd), tensorx)));
+    return spawnSync(srt, ["--settings", settings, "-c", cmd.replaceAll("<pi-home>", harnessHome(pi, cwd))], { cwd, env: { PATH: process.env.PATH, HOME: harnessHome(pi, cwd) } }).status;
   };
   test("sandbox: the factory checkout's .git is not readable", () => expect(run(`cat ${root}/.git/config`)).not.toBe(0));
   test("sandbox: a host that is not allowed cannot be reached", () => expect(run(`node -e "fetch('https://example.com').then(()=>process.exit(0),()=>process.exit(1))"`)).not.toBe(0));

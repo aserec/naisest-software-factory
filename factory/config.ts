@@ -2,19 +2,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { z } from "zod";
-import { claudeCode } from "./adapters/claude-code";
-import { pi } from "./adapters/pi";
+import { HARNESSES, HARNESS_NAMES } from "./harnesses";
 import type { ModelChoice } from "./seams";
 import type { FactoryCommands, RoleChoice, Router, SeamsConfig, Target } from "./types";
 
 // Repo root, found from this file, so tests and CI agree whatever the cwd is.
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-const HARNESS_APIS = { "claude-code": claudeCode.apis, pi: pi.apis };
 const TEAM_PLAN_KEY = "CLAUDE_CODE_OAUTH_TOKEN";
 
 const role = z.object({
-  harness: z.enum(["claude-code", "pi"]),
+  harness: z.enum(HARNESS_NAMES),
   provider: z.string().min(1),
   model: z.string().min(1),
   effort: z.enum(["medium", "high"]).optional(),
@@ -118,7 +116,7 @@ export function loadRouter(path = `${root}router.yml`, seams = loadSeams()): Rou
   const check = (c: RoleChoice, field: string) => {
     const f = family(seams, c, field);
     const p = seams.providers[c.provider];
-    if (!HARNESS_APIS[c.harness].includes(p.api)) throw new Error(`${field}: harness ${c.harness} cannot use the ${p.api} api of provider ${c.provider}`);
+    if (!HARNESSES[c.harness].apis.includes(p.api)) throw new Error(`${field}: harness ${c.harness} cannot use the ${p.api} api of provider ${c.provider}`);
     if (p.keyEnv === TEAM_PLAN_KEY && c.harness !== "claude-code") throw new Error(`${field}: harness ${c.harness} with provider ${c.provider}: the Team plan works only with claude-code`);
     return f;
   };

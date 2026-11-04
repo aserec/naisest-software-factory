@@ -2,14 +2,13 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { claudeCode } from "./adapters/claude-code";
 import { makeGitLabCi } from "./adapters/gitlab-ci";
 import { makeHttpDashboard } from "./adapters/http-dashboard";
 import { makeGitLabCodeHost } from "./adapters/gitlab-code-host";
 import { makeGitLabTracker } from "./adapters/gitlab-tracker";
 import { makeFileLogs } from "./adapters/file-logs";
 import { makeModelJudge } from "./adapters/model-judge";
-import { pi } from "./adapters/pi";
+import { HARNESSES } from "./harnesses";
 import { makeTeamsChat } from "./adapters/teams-chat";
 import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, providerKeys } from "./config";
 import { makeLocalCi } from "./adapters/local-ci";
@@ -113,7 +112,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     judge: make.judge(env, seams),
     chat: make.chat(secrets[ADAPTER_SECRETS.chat[seams.chat]] ?? ""),
     dashboard: make.dashboard(dashboardUrl, dashboardToken),
-    harnesses: { "claude-code": claudeCode, pi },
+    harnesses: HARNESSES,
     seams,
     record: newRecord(),
     target,

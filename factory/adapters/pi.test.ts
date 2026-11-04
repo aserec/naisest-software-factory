@@ -10,7 +10,7 @@ import piExtension, { guardCheck } from "./pi-extension";
 
 // The harness runs srt by absolute path, so the fake srt replaces that path here.
 const fake = vi.hoisted(() => ({ srt: "" }));
-vi.mock("../sandbox", async (orig) => {
+vi.mock("../srt", async (orig) => {
   const real: any = await orig();
   return { ...real, get SRT() { return fake.srt || real.SRT; } };
 });

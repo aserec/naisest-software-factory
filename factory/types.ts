@@ -1,7 +1,8 @@
+import type { HarnessName } from "./harnesses";
 import type { Provider } from "./seams";
 export type Risk = "trivial" | "low" | "medium" | "high";
 export interface Answer<T> { value: T; confidence: number }
-export interface RoleChoice { harness: "claude-code" | "pi"; provider: string; model: string; effort?: "medium" | "high" }
+export interface RoleChoice { harness: HarnessName; provider: string; model: string; effort?: "medium" | "high" }
 export interface RouterRow { author: RoleChoice; reviewer: RoleChoice; mayAutoMerge: boolean }
 export interface Router { low: RouterRow; high: RouterRow; writer: RoleChoice; effortBump: number }
 // seams.yml: the adapter per seam and the providers. Names are checked against the adapter map in makeContext.

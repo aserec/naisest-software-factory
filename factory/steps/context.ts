@@ -13,6 +13,7 @@ import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
 import { MAX_FIELD, type ControlRequest } from "../run-events";
+import type { HarnessName } from "../harnesses";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 import { block, closedByPerson, doneBeforeResume } from "./run";
 
@@ -23,7 +24,7 @@ export interface StepContext {
   judge: Judge;
   chat: Chat;
   dashboard: Dashboard;
-  harnesses: Record<RoleChoice["harness"], Harness>;
+  harnesses: Record<HarnessName, Harness>;
   seams: SeamsConfig;
   record: RunRecord;
   target: Target;

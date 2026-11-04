@@ -7,7 +7,8 @@ import { PROOF_DIR, PROOF_FILE } from "../proof";
 import { loadRouter, loadSeams, loadTarget } from "../config";
 import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeDashboard, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
 import { addStep, newRecord, type StepData, type StepName } from "../record";
-import type { Checks, FactoryEvent, FactoryState, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
+import type { Checks, FactoryEvent, FactoryState, Harness, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
+import { HARNESS_NAMES, type HarnessName } from "../harnesses";
 import type { Risk } from "../types";
 import { runStep, type StepContext } from "./context";
 import { BUILD_STEPS, FINISH_STEPS, waitingNote } from "./run";
@@ -176,9 +177,11 @@ export function fakeWorld(o: WorldOptions = {}) {
   // The router's reviewer reads images in these tests, whatever seams.yml lists.
   const router = loadRouter(undefined, seams);
   seams.providers.tensorx.images = [router.low.reviewer.model];
+  const harnesses = {} as Record<HarnessName, Harness>;
+  for (const n of HARNESS_NAMES) harnesses[n] = harness;
   const ctx: StepContext = {
     tracker, codeHost: host, ci, judge, chat, dashboard: fakeDashboard(),
-    harnesses: { "claude-code": harness, pi: harness },
+    harnesses,
     seams,
     record: newRecord(),
     target: loadTarget("react_frontend", { defaultApprover: "approver" }),

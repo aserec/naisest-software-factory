@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
-import { SRT, piHome } from "../sandbox";
+import { SRT } from "../srt";
 import { sandboxSettings } from "../repo";
-import type { Harness, HarnessJob, HarnessResult, ModelChoice, Provider, ToolCall } from "../seams";
+import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type ModelChoice, type Provider, type ToolCall } from "../seams";
 
 // Pi config for one job: the job's provider is the only provider. Tools are turned off by flags in piArgs.
 export function piModels({ provider, model }: ModelChoice) {
@@ -91,7 +91,7 @@ export function parsePiOutput(out: string) {
 
 // Pi with tools, inside srt. The guard extension blocks dangerous bash calls; srt limits files and network.
 async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
-  const home = piHome(job.cwd);
+  const home = join(dirname(job.cwd), pi.home); // as harnessHome(pi, cwd) in sandbox.ts
   const tmp = mkdtempSync(join(tmpdir(), "pi-srt-"));
   let pump: ReturnType<typeof pumpInbox> | undefined;
   try {
@@ -126,6 +126,7 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
 
 export const pi: Harness = {
   apis: ["anthropic", "openai"],
+  home: HARNESS_HOMES.pi,
   images: true,
   async run(job: HarnessJob): Promise<HarnessResult> {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard

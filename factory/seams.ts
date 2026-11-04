@@ -1,4 +1,5 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
+import type { HarnessName } from "./harnesses";
 import type { RunRecord } from "./record";
 import type { ControlState, EventType, RunEvent, Dispatch } from "./run-events";
 
@@ -126,7 +127,12 @@ export interface ToolCall { name: string; input: string; result: string; ms: num
 export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean; onToolCall?: (c: ToolCall) => void } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost; onToolCall is called as each tool finishes, while the agent runs
 // `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
 export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; text: string } // contextTokens: input plus cache tokens of the last model turn
-export interface Harness { readonly apis: ApiStyle[]; readonly images: boolean; run(job: HarnessJob): Promise<HarnessResult> }
+// The home folder of each harness, by name. Here and not on the adapters, so that sandbox.ts can list them without importing the
+// adapters (they import sandbox.ts through agents.ts and repo.ts). The Record keeps it complete: a new harness name fails to compile
+// until it has a home. Each adapter reads its own entry; harnesses.test.ts checks that they agree.
+export const HARNESS_HOMES: Record<HarnessName, string> = { "claude-code": "claude-home", pi: "pi-home" };
+// home: the folder name, next to the clone, that holds the harness's sessions and config. The sandbox denies reads of it.
+export interface Harness { readonly apis: ApiStyle[]; readonly home: string; readonly images: boolean; run(job: HarnessJob): Promise<HarnessResult> }
 
 // Error logs. One group is one kind of error; hourly[0] is the last hour, 24 entries.
 export interface ErrorGroup { fingerprint: string; message: string; component?: string; hourly: number[]; firstSeen: string; lastSeen: string; samples: string[]; stack?: string; link: string }

@@ -6,7 +6,8 @@ import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTINGS_PATH, SRT, sandboxDenyRead } from "./sandbox";
+import { SETTINGS_PATH, sandboxDenyRead } from "./sandbox";
+import { SRT } from "./srt";
 import type { Repo } from "./seams";
 
 // Paths come from this file's place, not from env, which a trigger caller can set.

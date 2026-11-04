@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, runCommand, type ClaudeResult, type ClaudeRun } from "../agents";
 import { pumpInbox } from "../inbox";
-import type { Harness, HarnessJob, HarnessResult, Provider, ToolCall } from "../seams";
+import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
 
 export function buildClaudeArgs(r: ClaudeRun & { tools?: "code" | "none" }, settingsPath = SETTINGS_PATH): string[] {
   return [
@@ -88,6 +88,7 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
 
 export const claudeCode: Harness = {
   apis: ["anthropic"],
+  home: HARNESS_HOMES["claude-code"],
   images: false, // ponytail: Claude Code can take images through --input-format stream-json; add it when a claude-code reviewer is configured
   async run(job: HarnessJob): Promise<HarnessResult> {
     guardReady(HOOKS_DIR); // fail closed: never start without the command guard
