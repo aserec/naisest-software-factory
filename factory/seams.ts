@@ -112,7 +112,9 @@ export interface Price { input: number; output: number; cacheRead?: number; cach
 export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[]; prices?: Record<string, Price> } // models: model id -> family; images: model ids that read images
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
-export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
+// `until` is how far a poll read (the time of its newest comment), when it read any. `heard` is told how far the agent got:
+// the pump calls it when the agent has consumed a poll's news.
+export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean; until?: string }>; heard?(until: string): void }
 // One tool the agent used. input and result are text (JSON for input); ms is how long the tool ran.
 export interface ToolCall { name: string; input: string; result: string; ms: number; ok: boolean }
 export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean; onToolCall?: (c: ToolCall) => void } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost; onToolCall is called as each tool finishes, while the agent runs

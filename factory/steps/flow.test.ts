@@ -25,6 +25,8 @@ import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run
 import * as apply from "./apply";
 import * as verify from "./verify";
 import { findSecrets } from "../rules";
+import { pumpInbox } from "../inbox";
+import { readNew } from "../inbox-file";
 import { DIFF } from "../fakes";
 import * as decision from "./decision";
 import * as event from "./event";
@@ -1865,21 +1867,25 @@ async function roundWorld() {
   w.ctx.record = { ...addStep(w.record, "event", { start: true, ticket: "8", round: 1 }), requestRounds: [{ cursor: CURSOR, requests: [], costAtStart: 0, tokensAtStart: { input: 0, output: 0 } }] };
   return { w, change };
 }
-test("a comment on the change reaches the author's inbox from the round's cursor, and the record remembers how far it read", async () => {
+test("a comment on the change reaches the author's inbox from the round's cursor, and the record remembers how far the agent read", async () => {
   const { w, change } = await roundWorld();
   const at = new Date(Date.now() + 1000).toISOString(); // after the factory's own comments on the change
   w.host.sayOnChange(change, "dev", "@factory also fix the 409", at);
-  const r = await inbox(w.ctx).poll();
-  expect(r.comments).toEqual([expect.stringContaining("@factory also fix the 409")]);
+  // What an author run does: the pump polls the inbox into the file, the agent's hook consumes the line, the run ends.
+  const file = join(tmp(), "inbox.jsonl");
+  const pump = pumpInbox(inbox(w.ctx), file, 5);
+  await vi.waitFor(() => expect(existsSync(file)).toBe(true));
+  expect(w.record.heardUntil).toBeUndefined(); // the line is written, the agent has not read it
+  expect(readNew(file).comments).toEqual([expect.stringContaining("@factory also fix the 409")]);
+  await pump.end();
   expect(w.record.heardUntil).toBe(at);
 });
 test("a run with no change on the record reads no change comments", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   w.ci.vars = { ...w.ci.vars, ticket: "8" };
   const { ref } = await w.host.openChange("b", "t", "body", "8"); // a change exists on the host, but the run has not pushed
-  w.host.sayOnChange(ref, "dev", "@factory stop");
+  w.host.sayOnChange(ref, "dev", "@factory stop", new Date(Date.now() + 60_000).toISOString()); // after the inbox's start time
   expect(await inbox(w.ctx).poll()).toEqual({ comments: [], stop: false });
-  expect(w.record.heardUntil).toBeUndefined();
 });
 // Review Focus 4.
 test("a round resumed after @factory stop and @factory resume does not stop again on the old stop line", async () => {

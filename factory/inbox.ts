@@ -1,5 +1,6 @@
 // The inbox: comments from trusted people reach the running agent, and `@factory stop` or a stop from the dashboard stops it.
 import { appendFileSync } from "node:fs";
+import { readUntil } from "./inbox-file";
 import { later } from "./requests";
 import type { Comment, Inbox, TicketRef, Tracker } from "./seams";
 
@@ -13,11 +14,12 @@ const wrap = (author: string, body: string) =>
 // `since` is an ISO time. Each poll returns the comments newer than the last one it saw.
 // `stopCheck` (the dashboard's stop) is asked on every poll, the tracker at most once a minute. A check that throws does not stop.
 // `closedCheck` (a person closed the work item or the run's change) is asked with the tracker.
-// `more.changeComments` adds the comments on the run's change to the same read; `more.onRead` gets the new `since` after a read that saw a comment.
+// `more.changeComments` adds the comments on the run's change to the same read; `more.onRead` is told (through `heard`) how far the agent got, not how far the inbox read.
 const TRACKER_EVERY_MS = 60_000;
 export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, stopCheck?: () => Promise<boolean>, closedCheck?: () => Promise<boolean>, more?: { changeComments?: (since: string) => Promise<Comment[]>; onRead?: (until: string) => void }): Inbox {
   let lastRead = -Infinity;
   return {
+    heard: more?.onRead,
     async poll() {
       const dashboardStop = (await stopCheck?.().catch(() => false)) ?? false;
       if (Date.now() - lastRead < TRACKER_EVERY_MS) return { comments: [], stop: dashboardStop };
@@ -29,17 +31,15 @@ export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, st
       // Only people the factory trusts. The factory's own comments never count, even when they quote the command.
       for (const c of all) if (!c.byFactory && (await (trust.get(c.author) ?? trust.set(c.author, tracker.trusted(c.author)).get(c.author)!))) kept.push(c);
       // Only after every trust check: if one throws, the next poll reads the same comments again and no stop is lost.
-      if (all.length > 0) {
-        since = all.reduce((latest, c) => later(latest, c.at)!, since);
-        more?.onRead?.(since);
-      }
-      return { comments: kept.map((c) => wrap(c.author, c.body)), stop: dashboardStop || closed || kept.some((c) => hasLine(c.body, STOP)) };
+      if (all.length > 0) since = all.reduce((latest, c) => later(latest, c.at)!, since);
+      return { ...(all.length > 0 ? { until: since } : {}), comments: kept.map((c) => wrap(c.author, c.body)), stop: dashboardStop || closed || kept.some((c) => hasLine(c.body, STOP)) };
     },
   };
 }
 
 // Polls the inbox while an agent runs (at once, then at most every `everyMs`) and appends each poll with news to `file`
-// as one JSON line. The agent's tool hook reads the file. end() stops the polling and says whether a stop came.
+// as one JSON line (with the poll's `until`). The agent's tool hook reads the file. end() stops the polling, tells the inbox
+// how far the agent read (`heard`: only lines it consumed count) and says whether a stop came.
 export function pumpInbox(inbox: Inbox, file: string, everyMs = 10_000) {
   let stopped = false;
   let done = false;
@@ -63,6 +63,8 @@ export function pumpInbox(inbox: Inbox, file: string, everyMs = 10_000) {
       done = true;
       wake();
       await loop;
+      const until = readUntil(file);
+      if (until) inbox.heard?.(until);
       return stopped;
     },
   };
