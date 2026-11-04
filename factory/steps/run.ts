@@ -186,14 +186,14 @@ export async function stopped(ctx: StepContext, step: PausableStep, o: { session
 }
 // Part C (GLOSSARY.md: Closed run). What a person closed, read live when the caller acts: a webhook may have seen the
 // work item closed and then opened again. The factory closes the ticket itself (the change's closing line at its merge,
-// then result-saved), so only a ticket in one of `states` counts, and never one whose change merged.
+// then result-saved), so only a ticket in one of `states` counts, and never one whose own change merged.
 // ours: the change belongs to this run. An older run's change stays the newest on the branch until this run pushes.
 type Closed = { ticket: true; change?: { ref: ChangeRef; open: boolean } } | { ticket: false; url: string };
 async function closedNow(ctx: StepContext, ref: TicketRef, states: FactoryState[], ours: (t: Ticket, c: ChangeRef) => boolean | Promise<boolean>): Promise<Closed | undefined> {
   const t = await ctx.tracker.ticket(ref);
   if (!t.state || !states.includes(t.state)) return undefined;
   const c = await ctx.codeHost.changeOfTicket(ref);
-  if (c?.merged) return undefined;
+  if (c?.merged && (await ours(t, c.ref))) return undefined; // an older run's merged change does not shield this run
   if (!t.open) return { ticket: true, change: c };
   if (c && !c.open && (await ours(t, c.ref))) return { ticket: false, url: c.url };
   return undefined;

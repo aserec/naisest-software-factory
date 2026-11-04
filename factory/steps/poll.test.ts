@@ -350,6 +350,12 @@ test("a waiting or stopped ticket that paused before the push is not blocked for
   expect(await endClosedRuns(atApply.ctx)).toEqual(["8"]);
   expect(atApply.t.state).toBe("blocked");
 });
+test("a closed stopped ticket paused before the push ends even when an older run's change merged", async () => {
+  const { ctx, w, t } = closedWorld("stopped", { open: false, note: personStop });
+  w.host.mergeByPerson("5");
+  expect(await endClosedRuns(ctx)).toEqual(["8"]);
+  expect(t.state).toBeUndefined();
+});
 test("a closed waiting ticket ends, and one failed ticket does not stop the others", async () => {
   const { ctx, w, t } = closedWorld("waiting", { open: false });
   w.tracker.tickets.set("10", { ...t, ref: "10", state: "stopped" });

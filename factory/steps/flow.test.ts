@@ -1733,6 +1733,18 @@ test("a new run after a dashboard restart closed the old change is not blocked",
   expect(w.states).not.toContain("blocked");
   expect(w.finishTriggered).toBe(true);
 });
+// An older run's merged change stays the newest on the branch until this run pushes.
+test("a work item closed before the push ends the run even when an older run's change merged", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.openChange();
+  w.host.mergeByPerson("5");
+  pollingAuthor(w, () => void (w.tracker.tickets.get("8")!.open = false));
+  w.ctx.dashboard = fakeDashboard();
+  await runBuildPipeline(w);
+  expect(ends(w)).toEqual(["closed"]);
+  expect(w.tracker.cleared).toEqual(["8"]);
+  expect(w.commitMessage).toBe(""); // nothing pushed
+});
 test("a ticket whose old change a person closed runs again and is not blocked before its push", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   w.openChange();
