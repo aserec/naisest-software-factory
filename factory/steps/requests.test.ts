@@ -220,6 +220,27 @@ test("a run resumed after a pause writes the cursor of its first event, so a req
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
 });
 
+// The agent's inbox of a resumed run reads from the resume, so a request written during the pause is never shown to it.
+// If it then reads a newer comment, heardUntil passes that request: the cursor must not follow.
+test("a request written while the run was stopped still starts a round when the resumed agent read a newer comment", async () => {
+  const w = world({ state: "running", cursor: false });
+  const gate = { passed: true, rounds: 1, branch: "b", sha: "h", change: "5", changeUrl: "u" };
+  w.ctx.record = { ...w.ctx.record, heardUntil: "2026-10-01T14:00:00Z", steps: [{ step: "event", at: T1, data: { start: true, ticket: "8" } }, { step: "precommit-gate", at: T1, data: gate }, { step: "event", at: "2026-10-01T13:00:00Z", data: { start: true, ticket: "8", resume: true } }] };
+  w.host.sayOnChange("5", "dev", ASK, T2); // written while the run was stopped
+  await askPerson(w.ctx, ["risk"]);
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
+});
+test("the same in a round: a request written while the round was stopped starts the next round", async () => {
+  const w = world({ state: "running", cursor: false });
+  const gate = { passed: true, rounds: 1, branch: "b", sha: "h", change: "5", changeUrl: "u" };
+  const round = { cursor: T1, requests: [{ author: "dev", body: ASK, at: T1, on: "change" as const }], costAtStart: 0, tokensAtStart: { input: 0, output: 0 } };
+  const steps = [{ step: "event" as const, at: T0, data: { start: true, ticket: "8" } }, { step: "precommit-gate" as const, at: T0, data: gate }, { step: "event" as const, at: T1, data: { start: true, ticket: "8", resume: true, round: 1 } }, { step: "event" as const, at: "2026-10-01T13:00:00Z", data: { start: true, ticket: "8", resume: true } }];
+  w.ctx.record = { ...w.ctx.record, heardUntil: "2026-10-01T14:00:00Z", rounds: { review: 1, gate: 1 }, requestRounds: [round], steps };
+  w.host.sayOnChange("5", "dev", ASK, T2); // written while the round was stopped
+  await askPerson(w.ctx, ["a person asked for changes"]);
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
+});
+
 // Replies on the change of a work item in any other state. The clock stands two minutes after the request.
 const NOW = "2026-10-01T11:02:00Z";
 const T3 = "2026-10-01T11:03:00Z";

@@ -99,6 +99,7 @@ export function runFacts(r: RunRecord) {
   return {
     ticket: event?.ticket, // the event step's ticket
     eventAt: newestFirst(r).find((s) => s.step === "event")?.at, // when this run (or its resume) started
+    resumed: !!event?.resume && event.round === undefined, // the newest event is a resume after a pause, not a round start
     roundStart: newest?.step === "event" && (newest.data as StepData["event"]).round !== undefined, // the newest event started a round
     openRound: r.requestRounds?.at(-1)?.endedAt === undefined ? r.requestRounds?.at(-1) : undefined, // the last round, if it has not ended
     requested: !!r.requestRounds?.length,

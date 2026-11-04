@@ -108,7 +108,9 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
     await ctx.codeHost.commentChange(change, `The factory finished the round for the requests of ${authors}.${round.answer ? `\n\n${round.answer.slice(0, 4000)}` : ""}`);
   }
   // With nothing read yet: the run's first event, so a request written while the run was paused still counts as new.
-  const read = later(ctx.record.heardUntil, round?.cursor) ?? ctx.record.steps.find((s) => s.step === "event")?.at;
+  // After a resume the agent never saw what was written during the pause, so the cursor stays where this run or its round started reading.
+  const first = ctx.record.steps.find((s) => s.step === "event")?.at;
+  const read = f.resumed ? (ctx.record.requestRounds?.at(-1)?.cursor ?? first) : (later(ctx.record.heardUntil, round?.cursor) ?? first);
   await ctx.codeHost.commentChange(change, [`This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`, ...(read ? [cursorLine(read)] : [])].join("\n\n"));
   if (round) {
     const t = ctx.record.tokens ?? { input: 0, output: 0 };
