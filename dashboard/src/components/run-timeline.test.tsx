@@ -111,7 +111,10 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
   const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect(await fact("Review")).toBe("Round 2, 0 of 1 finding blocking");
   expect(await fact("Checks")).toBe("1 of 2 passed");
-  expect(await fact("Decision")).toBe("Waits for a person, because merge risk 6 is above the limit of 4.");
+  // Waiting for a merge, a missing proof is a warning with what to do instead.
+  expect(await fact("Rules")).toBe("The run sent no rule results. Look at the changed files before you merge.");
+  expect(screen.getByText(/^Waits for you because/).textContent).toBe("Waits for you because merge risk 6 is above the limit of 4.");
+  expect(screen.queryByText("Decision", { selector: "dt" })).toBeNull(); // said once, under the title
   expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("Waits for you7 of 10");
   // The factory ends the decision step with "stop"; the pill names what the run waits for.
   expect(screen.getByRole("button", { name: /Decision/ }).textContent).toContain("needs approval");
@@ -123,6 +126,7 @@ test("Proof names the review, checks and rules the run did not send, so a missin
   renderWithQuery(<RunTimeline run="r1" />);
   const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect([await fact("Review"), await fact("Checks"), await fact("Rules")]).toEqual(["None sent", "None sent", "None sent"]);
+  expect(await fact("Decision")).toBe("Waits for a person, because merge risk 6 is above the limit of 4.");
 });
 
 test("a failed poll keeps the steps on screen under the error", async () => {

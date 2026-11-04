@@ -116,7 +116,8 @@ const Figure = ({ label, children, className = "" }: { label: string; children: 
 const latest = (events: SeqEvent[], key: string) => [...new Map(events.map((e) => [e.data[key], e])).values()];
 
 // What the change carries for the person who merges it: the review, the checks, and why the factory merges or waits.
-function Proof({ events }: { events: SeqEvent[] }) {
+// approving: the run waits for a person to merge, so a missing proof is a warning, not a quiet "None sent".
+function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }) {
   const of = (type: SeqEvent["type"]) => events.filter((e) => e.type === type);
   const findings = of("review_finding");
   const round = Math.max(0, ...findings.map((f) => f.data.round as number));
@@ -127,18 +128,20 @@ function Proof({ events }: { events: SeqEvent[] }) {
   if (!findings.length && !gates.length && !rules.length && !decision) return null;
   const passed = (ok: number, all: number) => <span className={ok < all ? "text-destructive" : ""}>{ok} of {all} passed</span>;
   const reasons = (decision?.data.reasons as string[] | undefined) ?? [];
-  const none = <span className="text-muted-foreground">None sent</span>;
+  const none = (what: string, todo: string) =>
+    approving ? <span className="text-pill-warning-ink">The run sent no {what}. {todo} before you merge.</span> : <span className="text-muted-foreground">None sent</span>;
   return (
     <section className="mb-8">
       <SectionHeading>Proof</SectionHeading>
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
         {/* Every row shows, so a missing proof reads as missing and not as hidden. */}
         <Fact label="Review">
-          {last.length ? `Round ${round}, ${last.filter((f) => f.data.blocking).length} of ${last.length} ${last.length === 1 ? "finding" : "findings"} blocking` : none}
+          {last.length ? `Round ${round}, ${last.filter((f) => f.data.blocking).length} of ${last.length} ${last.length === 1 ? "finding" : "findings"} blocking` : none("review findings", "Read the diff yourself")}
         </Fact>
-        <Fact label="Checks">{gates.length ? passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length) : none}</Fact>
-        <Fact label="Rules">{rules.length ? passed(rules.filter((r) => r.data.passed).length, rules.length) : none}</Fact>
-        {decision && (
+        <Fact label="Checks">{gates.length ? passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length) : none("check results", "Look at the pipeline")}</Fact>
+        <Fact label="Rules">{rules.length ? passed(rules.filter((r) => r.data.passed).length, rules.length) : none("rule results", "Look at the changed files")}</Fact>
+        {/* On an approval run the line under the title already says why it waits. */}
+        {decision && !approving && (
           <Fact label="Decision">
             {decision.data.auto ? "Merges without a person" : "Waits for a person"}
             {reasons.length ? `, because ${reasons.join(", and ")}` : ""}.
@@ -226,9 +229,13 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
     ["Cost", cost],
     ["Risk", pills || "—"],
   ];
+  const approving = state === "factory_needs_approval";
+  // Why the run waits, said once at the top, so the person reads it before the merge button's consequences.
+  const why = approving ? ((data.filter((e) => e.type === "decision").at(-1)?.data.reasons as string[] | undefined) ?? []) : [];
   return (
     <>
       {failed}
+      {why.length > 0 && <p className="-mt-6 mb-6 text-pretty">Waits for you because {why.join(", and ")}.</p>}
       {/* The page pads itself for the open panel (main in runs/[run]/page.tsx), so the title row moves too. */}
       <div className="@container" data-panel={open ? "open" : undefined}>
         {open ? (
@@ -258,7 +265,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
             </Figure>
           </div>
         )}
-        <Proof events={data} />
+        <Proof events={data} approving={approving} />
         <SectionHeading className="mb-0">Steps</SectionHeading>
         <ul>
           {rows.map((l) => (
