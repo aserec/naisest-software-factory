@@ -22,7 +22,7 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
 - [ ] Optional: add `.factory/thresholds.yml` to change the numbers the factory decides with. A key that is missing keeps its default. A bad value or an unknown key sends the change to a person, and the reason names the key. The factory reads it from the commit it cloned, and triage reads it from the base branch. Add it in a merge request that a person reviews, like the other `.factory` files.
   ```yaml
   diffRiskMax: 4              # whole number, 2 to 10. A diff_risk above it needs a person.
-  autoMergeConfidenceMin: 0.9 # 0.5 to 1. Jev 2 must be at least this sure.
+  autoMergeConfidenceMin: 0.8 # 0.5 to 1. Jev 2 must be at least this sure.
   clarityMin: 6               # whole number, 2 to 10. A ticket below it gets questions.
   maxAgentRounds: 5           # whole number, 1 to 10. Review and gate rounds.
   ```
@@ -37,7 +37,7 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
 
 ## 2. In this repo
 
-- [ ] Add `targets/<name>.yml`. Copy `targets/react_frontend.yml`. Set `projectPath`, `baseBranch` (the branch the factory clones, targets and merges into, for example `develop`; required), `defaultApprover` (a real GitLab username), `jobImage` (must be the image in `.gitlab-ci.yml`), `maxChangedLines`, `protectedPaths` (`.factory/**` is always added) and `dependencyFiles`.
+- [ ] Add `targets/<name>.yml`. Copy `targets/react_frontend.yml`. Set `projectPath`, `baseBranch` (the branch the factory clones, targets and merges into, for example `develop`; required), `defaultApprover` (a real GitLab username), `jobImage` (must be the image in `.gitlab-ci.yml`), `maxChangedLines` (optional; leave it out for no line limit), `protectedPaths` (`.factory/**` is always added) and `dependencyFiles`.
 - [ ] Open a merge request here. `<name>` must match the file name. Other names stop the job.
 
 ## 3. Schedules

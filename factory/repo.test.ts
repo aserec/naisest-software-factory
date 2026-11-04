@@ -166,7 +166,7 @@ test("only the root run/ dir is left out of the change; src/run/ is code", async
   const dir = join(root, "run/target");
   const repo = gitRepo(dir, join(root, "run/target.git"), `file://${server}`, "tok", process.env);
   await repo.clone("master");
-  mkdirSync(join(dir, "run"));
+  expect(existsSync(join(dir, "run/proof"))).toBe(true); // the clone gives the agent run/proof/ for its notes and proof
   mkdirSync(join(dir, "src/run"), { recursive: true });
   writeFileSync(join(dir, "run/test-changes.md"), "why\n");
   writeFileSync(join(dir, "src/run/job.ts"), "export {};\n");

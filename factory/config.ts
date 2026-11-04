@@ -49,7 +49,7 @@ const targetSchema = z.object({
   // .factory/** is always protected: a change to a repo's own agent instructions goes to a person.
   protectedPaths: z.array(z.string()).default([]).transform((p) => (p.includes(".factory/**") ? p : [...p, ".factory/**"])),
   dependencyFiles: z.array(z.string()),
-  maxChangedLines: z.number().int().positive(),
+  maxChangedLines: z.number().int().positive().optional(), // no key: no line limit
   defaultApprover: real,
   jobImage: z.string().min(1),
   githubRepo: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional(),

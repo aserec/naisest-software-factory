@@ -21,10 +21,15 @@ test("binary files count as changed without breaking the line count", () => {
   expect(files[0]).toMatchObject({ binary: true, added: 0, removed: 0 });
   expect(checkHardRules(files, "", t, true).every(x => x.passed)).toBe(true);
 });
-test("301 changed lines fail the size rule, 300 pass", () => {
+test("with maxChangedLines 300, 301 changed lines fail the size rule and 300 pass", () => {
   const f = (n: number) => [{ oldPath: "a.ts", newPath: "a.ts", added: n, removed: 0, binary: false }];
-  expect(checkHardRules(f(301), "", t, true).find(x => x.rule === "size")!.passed).toBe(false);
-  expect(checkHardRules(f(300), "", t, true).find(x => x.rule === "size")!.passed).toBe(true);
+  const limited = { ...t, maxChangedLines: 300 };
+  expect(checkHardRules(f(301), "", limited, true).find(x => x.rule === "size")!.passed).toBe(false);
+  expect(checkHardRules(f(300), "", limited, true).find(x => x.rule === "size")!.passed).toBe(true);
+});
+test("a target without maxChangedLines passes any size and still reports the line count", () => {
+  const f = [{ oldPath: "a.ts", newPath: "a.ts", added: 1500, removed: 38, binary: false }];
+  expect(checkHardRules(f, "", t, true).find(x => x.rule === "size")).toEqual({ rule: "size", passed: true, detail: "1538 lines changed, no limit" });
 });
 test("a lock file change fails the dependency rule", () => {
   expect(checkHardRules([{ oldPath: "pnpm-lock.yaml", newPath: "pnpm-lock.yaml", added: 1, removed: 1, binary: false }], "", t, true).find(x => x.rule === "dependency-file")!.passed).toBe(false);

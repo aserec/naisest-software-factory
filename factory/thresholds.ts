@@ -4,7 +4,7 @@ import { DIFF_RISK_MAX } from "./run-events";
 export const THRESHOLDS_PATH = ".factory/thresholds.yml";
 
 export interface Thresholds { diffRiskMax: number; autoMergeConfidenceMin: number; clarityMin: number; maxAgentRounds: number }
-export const DEFAULT_THRESHOLDS: Thresholds = { diffRiskMax: DIFF_RISK_MAX, autoMergeConfidenceMin: 0.9, clarityMin: 6, maxAgentRounds: 5 };
+export const DEFAULT_THRESHOLDS: Thresholds = { diffRiskMax: DIFF_RISK_MAX, autoMergeConfidenceMin: 0.8, clarityMin: 6, maxAgentRounds: 5 };
 
 const whole = (lo: number, hi: number) => ({ rule: `a whole number from ${lo} to ${hi}`, ok: (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi });
 const RULES: Record<keyof Thresholds, { rule: string; ok: (v: unknown) => boolean }> = {

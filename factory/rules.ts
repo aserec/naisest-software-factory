@@ -70,7 +70,9 @@ export function checkHardRules(files: ChangedFile[], diffText: string, target: T
   return [
     pathRule("protected-path", files, target.protectedPaths, "protected files"),
     pathRule("dependency-file", files, target.dependencyFiles, "dependency files"),
-    { rule: "size", passed: lines <= target.maxChangedLines, detail: `${lines} lines changed, the limit is ${target.maxChangedLines}` },
+    target.maxChangedLines === undefined
+      ? { rule: "size", passed: true, detail: `${lines} lines changed, no limit` }
+      : { rule: "size", passed: lines <= target.maxChangedLines, detail: `${lines} lines changed, the limit is ${target.maxChangedLines}` },
     { rule: "secret", passed: secrets.length === 0, detail: secrets.length ? `Found ${secrets.length} secret-looking value(s) in the diff` : "No secrets found in the diff" },
     { rule: "pipeline", passed: pipelineGreen, detail: pipelineGreen ? "Pipeline is green" : "Pipeline is not green" },
   ];

@@ -18,7 +18,7 @@ export interface Target {
   baseBranch: string;
   protectedPaths: string[];
   dependencyFiles: string[];
-  maxChangedLines: number;
+  maxChangedLines?: number; // undefined: no line limit
   defaultApprover: string;
   jobImage: string;
   githubRepo?: string; // owner/name, for the github and github-project trackers

@@ -10,7 +10,6 @@ defaultApprover: aserec
 # The token is aserec's own until the factory gets its own GitHub account: aserec's Ready counts. Remove it then.
 sharedAccount: true
 jobImage: node:22
-maxChangedLines: 300
 protectedPaths:
   - ".github/**"
   - "**/.env*"

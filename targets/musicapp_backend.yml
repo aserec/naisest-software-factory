@@ -11,7 +11,6 @@ defaultApprover: aserec
 sharedAccount: true
 # The runner image (runner/Dockerfile) has uv and Python 3.15. A local run needs python3.15 on PATH: uv python install 3.15.
 jobImage: node:22
-maxChangedLines: 300
 protectedPaths:
   - ".github/**"
   - "**/.env*"

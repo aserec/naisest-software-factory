@@ -2,7 +2,7 @@
 // The factory never runs git with the clone's own .git: a hostile .git/config there could leak the token
 // (insteadOf, extraHeader) or run code (fsmonitor, diff.external, textconv, filters, hooks).
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,6 +84,8 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
       // A bare clone has no index. Start it from the base commit, so `add -A` keeps tracked files under ignored paths and submodules.
       await git([...ours, "read-tree", "HEAD"]);
       appendFileSync(join(gitDir, "info/exclude"), "\n/run/\n"); // run/test-changes.md is a note, not part of the change. Root only: src/run/ is code
+      // The agent writes its notes and proof here. A missing run/ made an agent take run/ for the factory's own folder.
+      mkdirSync(join(dir, "run/proof"), { recursive: true });
     },
     async diff() {
       await git([...ours, "add", "-A"]);

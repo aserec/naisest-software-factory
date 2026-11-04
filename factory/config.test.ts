@@ -60,9 +60,9 @@ test("an images entry must name a model of the provider", () => {
   expect(() => loadSeams(edited("seams.yml", "z-ai/glm-5.3-flash: glm },", "z-ai/glm-5.3-flash: glm }, images: [nope],"))).toThrow("seams.yml providers.tensorx.images: model nope is not in models");
   expect(() => loadSeams(edited("seams.yml", "prices: { deepseek/deepseek-v4.1-flash-1017:", "prices: { nope:"))).toThrow("seams.yml providers.tensorx.prices: model nope is not in models");
 });
-test("react_frontend target has the 300-line limit and the protected paths", () => {
+test("react_frontend target has no line limit and has the protected paths", () => {
   const t = loadTarget("react_frontend", { defaultApprover: "approver" });
-  expect(t.maxChangedLines).toBe(300);
+  expect(t.maxChangedLines).toBeUndefined();
   expect(t.protectedPaths).toEqual(expect.arrayContaining([".gitlab-ci.yml", ".factory.yml", "CLAUDE.md", "AGENTS.md", ".claude/**", ".agents/**", "**/Dockerfile*", "**/.gitattributes"]));
 });
 test("every target protects .factory/**, even one that lists no protectedPaths", () => {

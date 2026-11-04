@@ -8,8 +8,14 @@ const ok = { triageRisk: "low" as Risk, reviewPassed: true, gateGreen: true, rul
 test("all four conditions met merges alone", () => expect(decideMerge(ok)).toEqual({ kind: "auto" }));
 test("medium triage risk always waits", () => expect(decideMerge({ ...ok, triageRisk: "medium" }).kind).toBe("needs_approval"));
 test("diff risk 5 waits and says why", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 5, confidence: 0.95 } } })).toEqual({ kind: "needs_approval", reasons: ["merge risk 5 is above the limit of 4"] }));
-test("diff risk 4 at confidence 0.89 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 4, confidence: 0.89 } } }).kind).toBe("needs_approval"));
-test("sensitive at P(no) 0.89 waits and says why in percent", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, sensitiveYes: 0.11 } })).toEqual({ kind: "needs_approval", reasons: ["Jev 2 gives 11% that the diff touches user data, security or money, above 10%"] }));
+test("diff risk 4 at confidence 0.79 waits, 0.8 merges", () => {
+  expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 4, confidence: 0.79 } } }).kind).toBe("needs_approval");
+  expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 4, confidence: 0.8 } } }).kind).toBe("auto");
+});
+test("sensitive at P(yes) 0.21 waits and says why in percent, 0.2 merges", () => {
+  expect(decideMerge({ ...ok, risk: { ...ok.risk, sensitiveYes: 0.21 } })).toEqual({ kind: "needs_approval", reasons: ["Jev 2 gives 21% that the diff touches user data, security or money, above 20%"] });
+  expect(decideMerge({ ...ok, risk: { ...ok.risk, sensitiveYes: 0.2 } })).toEqual({ kind: "auto" });
+});
 test("a failed hard rule is named in the reasons", () => expect(decideMerge({ ...ok, rules: [...ok.rules.filter((r) => r.rule !== "size"), { rule: "size", passed: false, detail: "412 lines" }] })).toMatchObject({ reasons: [expect.stringContaining("size")] }));
 test("every failed condition is listed", () => {
   const d = decideMerge({ ...ok, reviewPassed: false, gateGreen: false, risk: { ...ok.risk, scopeYes: 0.5 } });
@@ -21,12 +27,15 @@ test("diff risk 11 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk,
 test("no rules waits", () => expect(decideMerge({ ...ok, rules: [] })).toMatchObject({ kind: "needs_approval", reasons: expect.arrayContaining([expect.stringContaining("missing")]) }));
 test("an unknown rule name waits", () => expect(decideMerge({ ...ok, rules: [...ok.rules, { rule: "other" as never, passed: true, detail: "" }] })).toMatchObject({ kind: "needs_approval", reasons: [expect.stringContaining("unknown")] }));
 test("sensitive -0.5 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, sensitiveYes: -0.5 } }).kind).toBe("needs_approval"));
-test("scope 0.89 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, scopeYes: 0.89 } }).kind).toBe("needs_approval"));
+test("scope 0.79 waits, 0.8 merges", () => {
+  expect(decideMerge({ ...ok, risk: { ...ok.risk, scopeYes: 0.79 } }).kind).toBe("needs_approval");
+  expect(decideMerge({ ...ok, risk: { ...ok.risk, scopeYes: 0.8 } }).kind).toBe("auto");
+});
 test("unknown triage risk waits", () => expect(decideMerge({ ...ok, triageRisk: "unknown" as Risk }).kind).toBe("needs_approval"));
 
 test("the thresholds move the diff risk and confidence limits", () => {
-  const t = { ...DEFAULT_THRESHOLDS, diffRiskMax: 6, autoMergeConfidenceMin: 0.8 };
-  const risk = { diffRisk: { value: 5, confidence: 0.85 }, scopeYes: 0.85, sensitiveYes: 0.15 };
+  const t = { ...DEFAULT_THRESHOLDS, diffRiskMax: 6, autoMergeConfidenceMin: 0.7 };
+  const risk = { diffRisk: { value: 5, confidence: 0.75 }, scopeYes: 0.75, sensitiveYes: 0.25 };
   expect(riskReasons(risk, t)).toEqual([]);
   expect(riskReasons(risk)).toHaveLength(4);
   expect(decideMerge({ ...ok, risk, thresholds: t })).toEqual({ kind: "auto" });
