@@ -71,6 +71,7 @@ export interface WorldOptions {
   files?: Record<string, string>; // files at the head of the base branch, for codeHost.readFile
   dedupe?: { verdict?: "same" | "adds" | "different"; confidence?: number; closest?: string; injectionYes?: number } | "throw"; // the duplicate check's answers; default different
   writerText?: string; // the writer agent's reply
+  writerThrows?: boolean; // the writer agent's call throws
 }
 
 export const COMMIT: CommitMessage = {
@@ -88,7 +89,9 @@ export function fakeWorld(o: WorldOptions = {}) {
   const reviews = [...(o.reviews ?? [[]])];
   const tracker = fakeTracker([
     { ref: "8", title: o.title ?? "Add a loading state", body: "Show a spinner while the list loads.", state: o.state === null ? undefined : (o.state ?? "ready") },
+    { ref: "7", title: "An older ticket" },
     { ref: "9", title: "Another ticket" },
+    { ref: "10", title: "A newer ticket" },
     ...Array.from({ length: o.otherRuns ?? 0 }, (_, i) => ({ ref: String(20 + i), state: "running" as const })),
   ]);
   tracker.startedBy = async () => "dev";
@@ -143,6 +146,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const stop: Partial<HarnessResult> = { session: "sess-stop", ok: false, stopped: true, text: "" };
   const harness = fakeHarness((job) => {
     if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []), toolCalls: [{ name: "Read", input: "{}", result: "x", ms: 1, ok: true }] };
+    if (job.role === "writer" && o.writerThrows) throw new Error("writer harness crashed");
     if (job.role === "writer") return { text: o.writerText ?? "Does this belong in #9, or is it a separate change? This one also asks for a spinner." };
     if (o.prepare === "limit" && !job.resume) return limit;
     if (o.fixLimit && job.resume) return limit;

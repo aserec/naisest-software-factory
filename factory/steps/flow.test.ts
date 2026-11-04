@@ -944,11 +944,11 @@ test("a watcher ticket set ready by the factory starts a run; another ticket set
 });
 
 // Part F: dedupe for work items written by people.
-test("a sure duplicate is closed with a link and never built", async () => {
-  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.95 } }));
+test("a sure duplicate of an older work item is closed with a link and never built", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.95, closest: "7" } }));
   expect(w.closed).toBe(true);
   expect(w.tracker.cleared).toContain("8");
-  expect(w.workItemComments.at(-1)).toMatch(/same change as #9 .*https:\/\/tracker\.example\/9/s);
+  expect(w.workItemComments.at(-1)).toMatch(/same change as #7 .*https:\/\/tracker\.example\/7/s);
   expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
   expect(w.cloned).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).not.toContain("triaged");
@@ -965,7 +965,7 @@ test("a work item that adds something gets the writer's question and needs_info,
   expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
   const writer = w.claudeRuns.find((j) => j.role === "writer")!;
   expect(writer.tools).toBe("none");
-  expect(writer.prompt).toContain("<ticket>");
+  expect(writer.prompt).toContain("<ticket>\n#9 Another ticket");
   expect(w.claudeRuns.some((j) => j.role === "author")).toBe(false);
 });
 test("an injection in the candidates skips the writer and asks the fixed question", async () => {
@@ -976,6 +976,25 @@ test("an injection in the candidates skips the writer and asks the fixed questio
 test("a writer text that does not name the original falls back to the fixed question", async () => {
   const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "adds" }, writerText: "Is this new?" }));
   expect(w.workItemComments.at(-1)).toContain("Does it belong in #9");
+});
+test("the writer sees only the candidate text the judge checked", async () => {
+  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  world.tracker.tickets.get("9")!.body = `${"x".repeat(300)}LATE-MARKER`;
+  const w = await runBuildPipeline(world);
+  const writer = w.claudeRuns.find((j) => j.role === "writer")!;
+  expect(writer.prompt).toContain("#9 Another ticket");
+  expect(writer.prompt).not.toContain("LATE-MARKER");
+});
+test("a same verdict about a newer work item asks instead of closing", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.99, closest: "10" } }));
+  expect(w.closed).toBe(false);
+  expect(w.states).toEqual(["needs_info"]);
+  expect(w.workItemComments.at(-1)).toContain("#10");
+});
+test("a writer that throws falls back to the fixed question", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "adds" }, writerThrows: true }));
+  expect(w.states).toEqual(["needs_info"]);
+  expect(w.workItemComments.at(-1)).toContain("Does it belong in #9, or is it a separate change?");
 });
 test("a person who answered a dedupe comment is not asked again", async () => {
   const world = fakeWorld({ dedupe: { verdict: "adds" } });
@@ -996,7 +1015,7 @@ test("watcher work items, blocked injections and lone work items skip the check"
   expect((await runBuildPipeline(watcher)).dedupeAsked).toBe(0);
   expect((await runBuildPipeline(fakeWorld({ jev1: { injectionYes: 0.4 }, dedupe: { verdict: "same" } }))).dedupeAsked).toBe(0);
   const alone = fakeWorld({ dedupe: { verdict: "same" } });
-  alone.tracker.tickets.get("9")!.open = false;
+  for (const r of ["7", "9", "10"]) alone.tracker.tickets.get(r)!.open = false;
   const w = await runBuildPipeline(alone);
   expect(w.dedupeAsked).toBe(0);
   expect(w.closed).toBe(false);

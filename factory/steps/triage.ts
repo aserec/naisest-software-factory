@@ -1,5 +1,5 @@
 import { wrapTicket } from "../agents";
-import { DEDUPE_MARKER, MAX_CANDIDATES, askDedupe, decideDedupe } from "../dedupe";
+import { CANDIDATE_BODY, DEDUPE_MARKER, MAX_CANDIDATES, askDedupe, decideDedupe } from "../dedupe";
 import { emit } from "../emit";
 import { need } from "../record";
 import { pickModels } from "../router";
@@ -71,7 +71,8 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
   const o = open.find((t) => t.ref === answers.closest);
   // Without the original the factory can neither link nor quote it, so it goes on.
   if (verdict === "different" || !o) return undefined;
-  if (verdict === "same") {
+  // Close only when the original is older. A newer one, or refs that are not numbers, get the question.
+  if (verdict === "same" && Number(o.ref) < Number(ref)) {
     await ctx.tracker.comment(ref, `This work item asks for the same change as #${o.ref} (${o.url}), so the factory closed it as a duplicate. If it is a separate change, reopen it, say what is different, and add factory_ready again.\n\n${DEDUPE_MARKER}`);
     await ctx.tracker.clearState(ref);
     await ctx.tracker.close(ref);
@@ -90,9 +91,13 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
 async function dedupeQuestion(ctx: StepContext, o: Ticket, injectionYes: number): Promise<string> {
   const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds, then add factory_ready again.`;
   if (!(injectionYes < INJECTION_LIMIT)) return fixed;
-  const text = `${prompt("dedupe-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, 8000)}`)}`;
-  const r = await agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, cwd: ctx.dir, prompt: text });
-  return r.ok && r.text.includes(`#${o.ref}`) ? r.text.trim() : fixed;
+  const text = `${prompt("dedupe-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
+  try {
+    const r = await agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, cwd: ctx.dir, prompt: text });
+    return r.ok && r.text.includes(`#${o.ref}`) ? r.text.trim() : fixed;
+  } catch {
+    return fixed;
+  }
 }
 
 // needs_info: an agent drafts questions from the ticket and the code. This step posts them.

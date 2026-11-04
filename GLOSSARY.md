@@ -9,7 +9,7 @@ A GitLab issue that a person labels `factory_ready` to ask the factory for a cha
 _Avoid_: Ticket, issue, task
 
 **Duplicate check**:
-The triage check that compares a work item a person wrote with the open work items. It closes a sure duplicate and asks on a near one. It runs once per work item.
+The triage check that compares a work item a person wrote with the open work items. It closes a sure duplicate and asks on a near one. It runs on each new run until it closes the work item or asks once.
 _Avoid_: Dedup, similarity check
 
 **Repo-local instructions**:

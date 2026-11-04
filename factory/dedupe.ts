@@ -3,7 +3,8 @@ import type { Judge, JevQuestion, Ticket, TicketRef } from "./seams";
 export const DEDUPE_MARKER = "<!-- factory:dedupe -->";
 export const MAX_CANDIDATES = 200;
 export const SAME_CONFIDENCE_MIN = 0.9;
-const CANDIDATE_BODY = 300;
+// The judge's injection question sees this much of each candidate, and so does the writer.
+export const CANDIDATE_BODY = 300;
 
 export interface DedupeAnswers { verdict: string; confidence: number; closest: TicketRef; injectionYes: number }
 

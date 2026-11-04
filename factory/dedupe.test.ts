@@ -21,6 +21,8 @@ test("askDedupe sends the newest 200 others, cut to 300 characters, and no judge
   judge.ask = ((ask) => async (s: unknown, qs: JevQuestion[]) => { questions = qs; return ask(s, qs); })(judge.ask);
   await askDedupe(judge, { ref: "8", title: "T", description: "D" }, open);
   expect(state.candidates).toHaveLength(200);
+  expect(state.candidates[0].ref).toBe("300");
+  expect(state.candidates.at(-1).ref).toBe("101"); // refs 300 down to 96 are 205, so the newest 200 end at 101
   expect(state.candidates.map((c: any) => c.ref)).not.toContain("8");
   expect(state.candidates[0].body).toHaveLength(300);
   expect(questions.find((q) => q.id === "dedupe")).toMatchObject({ options: ["different", "adds", "same"] });
