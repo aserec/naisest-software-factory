@@ -1206,6 +1206,21 @@ test("a check-only review after a gate fix that fails blocks after 5 rounds, not
   expect(w.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nCode review did not pass after 5 rounds. Open findings:\n\n- the list never shows the spinner");
   expect(w.record.rounds.review).toBe(5);
 });
+test("maxAgentRounds from the thresholds file limits the code review rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 2" }, reviews: [[B], [B], [B]] }));
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 2 rounds");
+  expect(w.harness.jobs.filter((j) => j.role === "author" && j.resume)).toHaveLength(1);
+});
+test("maxAgentRounds from the thresholds file limits the precommit gate rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 2" }, lintFails: 5 }));
+  expect(w.workItemComments.at(-1)).toContain("not green after 2 rounds");
+});
+test("a bad maxAgentRounds keeps the default of 5 rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 0" }, reviews: [[B], [B], [B], [B], [B]], lintFails: 0 }));
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 5 rounds");
+  const g = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 0" }, lintFails: 5 }));
+  expect(g.workItemComments.at(-1)).toContain("not green after 5 rounds");
+});
 // 5 gate rounds are used before the review fix, so the gate after it is a check only.
 test("a check-only gate after a review fix counts 5 rounds, not 6", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 4, reviews: [[], [B], []] }));

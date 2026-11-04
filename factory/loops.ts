@@ -1,9 +1,9 @@
 import type { Finding } from "./agents.js";
 import type { HarnessResult } from "./seams.js";
+import { DEFAULT_THRESHOLDS } from "./thresholds.js";
 import type { FactoryCommands } from "./types.js";
 
-// Agent loops get at most this many rounds. The rebase limit in steps/merge.ts is separate.
-export const MAX_AGENT_ROUNDS = 5;
+// The agent loops default to DEFAULT_THRESHOLDS.maxAgentRounds; the steps pass the target's value. The rebase limit in steps/merge.ts is separate.
 
 export interface LoopDeps {
   review(): Promise<Finding[]>;
@@ -26,7 +26,7 @@ async function fixOrStop(deps: LoopDeps, open: string[], rounds: number): Promis
 }
 
 // start > 1 continues a resumed loop, so maxRounds counts every round of the run.
-export async function codeReviewLoop(deps: LoopDeps, maxRounds = MAX_AGENT_ROUNDS, start = 1): Promise<LoopResult> {
+export async function codeReviewLoop(deps: LoopDeps, maxRounds = DEFAULT_THRESHOLDS.maxAgentRounds, start = 1): Promise<LoopResult> {
   for (let round = start; ; round++) {
     const blocking = (await deps.review()).filter((f) => f.blocking);
     if (blocking.length === 0) return { kind: "passed", rounds: round };
@@ -37,7 +37,7 @@ export async function codeReviewLoop(deps: LoopDeps, maxRounds = MAX_AGENT_ROUND
   }
 }
 
-export async function precommitGate(deps: LoopDeps, cmds: FactoryCommands, maxRounds = MAX_AGENT_ROUNDS, start = 1): Promise<LoopResult> {
+export async function precommitGate(deps: LoopDeps, cmds: FactoryCommands, maxRounds = DEFAULT_THRESHOLDS.maxAgentRounds, start = 1): Promise<LoopResult> {
   for (let round = start; ; round++) {
     let failed: { cmd: string; tail: string } | undefined;
     for (const cmd of [cmds.lint, cmds.test, cmds.build]) {
