@@ -16,9 +16,9 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const resumeSessionId = facts(ctx).resumeSession("prepare-patch");
   const requests = facts(ctx).roundStart ? facts(ctx).openRound?.requests.map((q) => wrapRequest(q.author, q.body)).join("\n\n") : undefined;
   // Read the commands before the agent runs, so the agent cannot change what the gate runs.
-  // A resumed clone holds the agent's edits, so it uses the commands saved at the limit.
+  // A resumed clone or a round's restored clone holds the agent's edits, so it uses the saved commands.
   let commands: FactoryCommands | undefined;
-  if (resumeSessionId) {
+  if (resumeSessionId || facts(ctx).roundStart) {
     commands = facts(ctx).commands;
     if (!commands) return block(ctx, "The factory could not resume this run: the record has no saved .factory.yml commands.");
   } else {

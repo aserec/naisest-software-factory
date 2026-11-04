@@ -17,12 +17,16 @@ export function readCursor(comments: Comment[]): string | undefined {
   return withLine.filter((c) => c.cursor).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]?.cursor;
 }
 
+// The time of the factory's newest comment in the list, if it has one.
+export const newestByFactory = (comments: Comment[]): string | undefined => comments.filter((c) => c.byFactory).reduce<string | undefined>((t, c) => later(t, c.at), undefined);
+
 export const later = (a: string | undefined, b: string | undefined): string | undefined =>
   a === undefined || b === undefined ? (a ?? b) : Date.parse(b) > Date.parse(a) ? b : a;
 
 const WHAT: Partial<Record<FactoryState, string>> = {
-  stopped: "Comment `@factory resume` to continue the run. A request then reaches the agent while it works.",
-  waiting: "The run waits for the author agent's usage limit. The factory continues it within the hour.",
+  stopped: "Comment `@factory resume` to continue the run. The factory takes up this request once its change waits for a person.",
+  waiting: "The run waits for the author agent's usage limit. The factory continues it within the hour and takes up this request once its change waits for a person.",
+  ready: "The run starts soon. Write the request again once the change waits for a person.",
   blocked: "Add factory_ready to continue the run.",
   needs_info: "Answer the factory's questions, then add factory_ready.",
   done: "This work is done. Open a new work item for more.",

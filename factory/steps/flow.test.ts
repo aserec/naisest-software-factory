@@ -1911,7 +1911,7 @@ async function requestWorld(o: WorldOptions = {}, risk: "medium" | "trivial" = "
   const first = await runBuildJobs(fakeWorld({ jev1: { risk } }), tmp());
   expect(first.states).toEqual([risk === "medium" ? "needs_approval" : "running"]);
   const w = fakeWorld({ state: "needs_approval", ...o });
-  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "41" };
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "41", change: "5" };
   w.ci.buildRecord = async () => first.record;
   w.openChange();
   w.tracker.tickets.get("8")!.marks = ["triaged", "implemented", "reviewed", "checked", "risk_checked"];
@@ -1969,6 +1969,17 @@ test("a round resumes the saved session with the request prompt, the wrapped req
   expect(w.ran).not.toContain("changed");
   expect(w.record.requestRounds!.at(-1)!.answer).toBe("1. Which list?");
 });
+test("a round with no saved session still uses the saved commands, not the work tree's", async () => {
+  const { first, w } = await requestWorld({ factoryFile: "install: changed\nlint: x\ntest: x\nbuild: x\n" });
+  const steps = first.record.steps.map((s) => (s.data && typeof s.data === "object" && "sessionId" in s.data ? { ...s, data: { ...s.data, sessionId: undefined } } : s));
+  w.ci.buildRecord = async () => ({ ...first.record, steps } as typeof first.record);
+  const dir = tmp();
+  await eventJob(w, dir);
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  expect(w.claudeRuns.at(-1)!.resume).toBeUndefined();
+  expect(w.ran).toContain("pnpm install --frozen-lockfile");
+  expect(w.ran).not.toContain("changed");
+});
 test("a round whose saved session cannot be loaded runs the author again with a new session, the prepare prompt, the ticket and the requests", async () => {
   const { w, runs } = await roundPrepare({}, (job) => (job.resume ? { ok: false, text: "No conversation found" } : undefined));
   expect(runs).toHaveLength(2);
@@ -2006,7 +2017,7 @@ const hearRequest = async (state: FactoryState, event: ReturnType<typeof request
 test("a request event on a change that waits for a person starts the round build", async () => {
   for (const event of [requestEvent(), requestEvent("dev", "5")]) {
     const w = await hearRequest("needs_approval", event);
-    expect(w.ci.started).toEqual([{ kind: "build", ticket: "8", buildRun: "41" }]);
+    expect(w.ci.started).toEqual([{ kind: "build", ticket: "8", buildRun: "41", change: "5" }]);
     expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "started", ticket: "8" } });
     expect(w.workItemComments).toEqual([]);
   }
@@ -2045,6 +2056,21 @@ test("a request round stops quietly when the ticket no longer waits, there is no
     expect([w.restored, w.workItemComments, w.tracker.tickets.get("8")!.marks]).toEqual([[], [], before]);
     expect(w.record.requestRounds).toBeUndefined();
   }
+});
+// A late duplicate of a round build: the first one already paused the run. It must not resume (and block) that run.
+test.each(["waiting", "stopped"] as const)("a round build for a ticket in factory_%s stops quietly: no block, nothing posted", async (state) => {
+  const { w } = await requestWorld();
+  w.tracker.tickets.get("8")!.state = state;
+  await eventJob(w);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "not-waiting" } });
+  expect([w.states, w.restored, w.workItemComments, w.mrComments]).toEqual([[state], [], [], []]);
+});
+test("a round build whose build run is no longer the change's stops quietly as stale-build", async () => {
+  const { w } = await requestWorld();
+  w.ci.vars = { ...w.ci.vars, buildRun: "40" };
+  await eventJob(w);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "stale-build" } });
+  expect([w.states, w.restored, w.workItemComments, w.mrComments]).toEqual([["needs_approval"], [], [], []]);
 });
 test.each([["a judge that suspects injection", { injectionYes: 0.9 }], ["a judge that answers NaN", { injectionYes: NaN }]])("%s refuses the whole round and moves the cursor", async (_n, jev1) => {
   const { w } = await requestWorld({ jev1 });

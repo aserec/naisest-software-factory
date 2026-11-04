@@ -1,5 +1,5 @@
 // Part G: a `@factory` request from a trusted person starts a round on a ticket that waits for a person, or gets a reply.
-import { cursorLine, isRequest, later, readCursor, stateReply } from "../requests";
+import { cursorLine, isRequest, later, newestByFactory, readCursor, stateReply } from "../requests";
 import type { Request } from "../record";
 import type { ChangeRef, Comment, FactoryState, Ticket, TicketRef } from "../seams";
 import { INJECTION_LIMIT, buildTriageState, injectionQuestion } from "../triage";
@@ -14,12 +14,13 @@ const trustCache = (ctx: StepContext) => {
 };
 
 // The requests after the cursor, oldest first, from the work item and from its open change.
-export async function newRequests(ctx: StepContext, ref: TicketRef): Promise<{ requests: Request[]; change?: { ref: ChangeRef; url: string } }> {
+// `forReply`: the requests only get a reply, so with no cursor at all the factory's newest comment on the work item counts too.
+export async function newRequests(ctx: StepContext, ref: TicketRef, forReply = false): Promise<{ requests: Request[]; change?: { ref: ChangeRef; url: string } }> {
   const c = await ctx.codeHost.changeOfTicket(ref);
   const onItem = await ctx.tracker.comments(ref);
   const onChange = c ? await ctx.codeHost.changeComments(c.ref) : [];
   // No cursor line: the factory's newest comment on the change. With neither, nothing is read.
-  const cursor = readCursor([...onItem, ...onChange]) ?? onChange.filter((x) => x.byFactory).reduce<string | undefined>((t, x) => later(t, x.at), undefined);
+  const cursor = readCursor([...onItem, ...onChange]) ?? newestByFactory(onChange) ?? (forReply ? newestByFactory(onItem) : undefined);
   if (cursor === undefined) return { requests: [] };
   const open = c?.open ? { ref: c.ref, url: c.url } : undefined;
   const trusted = trustCache(ctx);
@@ -38,13 +39,14 @@ export async function newRequests(ctx: StepContext, ref: TicketRef): Promise<{ r
 // needs_approval: start a round. running: nothing, the inbox has it. Any other state: one reply on the work item.
 export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"started" | "replied" | "none"> {
   if (t.state === "running") return "none";
-  const { requests, change } = await newRequests(ctx, t.ref);
+  const { requests, change } = await newRequests(ctx, t.ref, t.state !== "needs_approval");
   if (requests.length === 0) return "none";
   if (t.state === "needs_approval") {
     const buildRun = change && buildRunOf((await ctx.codeHost.change(change.ref)).body);
     if (!buildRun) throw new Error(`Ticket ${t.ref} waits for a person, but its change has no build run`);
     // ponytail: a slow queue can start the same round twice; requestRound stops the second quietly.
-    await ctx.ci.start({ kind: "build", ticket: t.ref, buildRun });
+    // The change marks this build as a round build: event.ts sends it to requestRound, never to resume.
+    await ctx.ci.start({ kind: "build", ticket: t.ref, buildRun, change: change.ref });
     return "started";
   }
   const authors = [...new Set(requests.map((r) => r.author))];
@@ -73,10 +75,12 @@ export async function pollRequests(ctx: StepContext, skip: TicketRef[] = []): Pr
 // Starting a round means a `@factory` request on a change that waits for a person; the event step runs this for the poller's build.
 // ponytail: the poller starts the same round build every minute until this step sets factory_running or writes a cursor line, and
 // the event job runs one at a time per target: the second build finds no needs_approval and stops quietly. Add a start marker if that is too noisy.
-export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: string): Promise<StepResult> {
+export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: string, changeRef: ChangeRef): Promise<StepResult> {
   const quiet = (reason: string, error?: string) => (save(ctx, "event", { start: false, reason, ticket: ref, ...(error ? { error } : {}) }), "stop" as const);
   const t = await ctx.tracker.ticket(ref);
   if (t.state !== "needs_approval") return quiet("not-waiting");
+  // A late duplicate: a round already ran and its change names a newer build run.
+  if (buildRunOf((await ctx.codeHost.change(changeRef)).body) !== buildRun) return quiet("stale-build");
   const why = facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
   if (why) return block(ctx, `The factory could not start a round: ${why}. Add factory_ready to start again.`);
   // Requests wait for a change that is open. A quiet stop writes nothing: there is nothing to answer.
@@ -131,7 +135,9 @@ export async function replyOnChanges(ctx: StepContext): Promise<TicketRef[]> {
       const t = await ctx.tracker.ticket(ticket);
       if (t.state && ["needs_approval", "running", "stopped", "waiting"].includes(t.state)) continue;
       // The webhook answers on the work item, with its own cursor line: that counts for the change too.
-      const seen = later(cursor, readCursor(await ctx.tracker.comments(ticket)));
+      // No cursor line: the factory's newest comment on the change, else on the work item. With none, every request in the window.
+      const onItem = await ctx.tracker.comments(ticket);
+      const seen = later(cursor, readCursor(onItem)) ?? newestByFactory(comments) ?? newestByFactory(onItem);
       requests = requests.filter((x) => seen === undefined || Date.parse(x.at) > Date.parse(seen));
       if (requests.length === 0) continue;
       const newest = requests.reduce<string | undefined>((a, x) => later(a, x.at), undefined)!;

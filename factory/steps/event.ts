@@ -47,9 +47,9 @@ async function requestEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "
 }
 
 export async function run(ctx: StepContext): Promise<StepResult> {
-  const { payload, ticket, buildRun } = ctx.ci.vars;
-  // A change that waits for a person: the poller found a request on it. Any other state: a paused run to continue.
-  if (payload === undefined && ticket && buildRun) return (await ctx.tracker.ticket(ticket)).state === "needs_approval" ? requestRound(ctx, ticket, buildRun) : resume(ctx, ticket, buildRun);
+  const { payload, ticket, buildRun, change } = ctx.ci.vars;
+  // With a change: the poller's round build for a request (requestRound stops quietly unless the change still waits). Without: a paused run to continue.
+  if (payload === undefined && ticket && buildRun) return change ? requestRound(ctx, ticket, buildRun, change) : resume(ctx, ticket, buildRun);
   // The poller starts with no payload. Build the event from who set the ticket ready,
   // so decideStart checks exactly what it checks for a webhook.
   let e: FactoryEvent = payload === undefined && ticket ? { kind: "ready", ticket, actor: (await ctx.tracker.startedBy(ticket)) ?? "" } : ctx.tracker.parseEvent(payload);

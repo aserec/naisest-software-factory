@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { INBOX_HOOK, factorySettings, HOOKS_DIR, TSX_IMPORT } from "./agents";
+import { INBOX_HOOK, factorySettings, HOOKS_DIR, TSX_IMPORT, wrapRequest } from "./agents";
 import { fakeCodeHost, fakeTracker } from "./fakes";
 import { readNew } from "./inbox-file";
 import { makeInbox, pumpInbox } from "./inbox";
@@ -21,6 +21,13 @@ test("a trusted comment comes back wrapped as data, oldest first", async () => {
   t.say("8", "dev", "first", "2026-02-01T00:00:00.000Z");
   t.say("8", "dev", "second", "2026-02-02T00:00:00.000Z");
   expect(await makeInbox(t, "8", SINCE).poll()).toEqual({ comments: [WRAP("dev", "first"), WRAP("dev", "second")], stop: false, until: "2026-02-02T00:00:00.000Z" });
+});
+test("a trusted @factory request reaches the agent as a request, not as data; a command and a plain comment stay data", async () => {
+  const t = world();
+  t.say("8", "dev", "@factory also fix the 409", "2026-02-01T00:00:00.000Z");
+  t.say("8", "dev", "@factory resume", "2026-02-02T00:00:00.000Z");
+  t.say("8", "dev", "looks good", "2026-02-03T00:00:00.000Z");
+  expect((await makeInbox(t, "8", SINCE).poll()).comments).toEqual([wrapRequest("dev", "@factory also fix the 409"), WRAP("dev", "@factory resume"), WRAP("dev", "looks good")]);
 });
 test("a comment cannot close the wrapper early", async () => {
   const t = world();
@@ -188,7 +195,7 @@ test("a trusted comment on the change reaches the agent wrapped, merged with the
   t.say("8", "dev", "on the ticket", "2026-02-02T00:00:00.000Z");
   host.sayOnChange(ref, "dev", "@factory also fix the 409", "2026-02-01T00:00:00.000Z");
   host.sayOnChange(ref, "dev", "later on the change", "2026-02-03T00:00:00.000Z");
-  expect(await poll().poll()).toEqual({ comments: [WRAP("dev", "@factory also fix the 409"), WRAP("dev", "on the ticket"), WRAP("dev", "later on the change")], stop: false, until: "2026-02-03T00:00:00.000Z" });
+  expect(await poll().poll()).toEqual({ comments: [wrapRequest("dev", "@factory also fix the 409"), WRAP("dev", "on the ticket"), WRAP("dev", "later on the change")], stop: false, until: "2026-02-03T00:00:00.000Z" });
 });
 test("an untrusted comment and a factory comment on the change do not reach the agent", async () => {
   const { host, ref, poll } = await withChange();

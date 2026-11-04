@@ -107,7 +107,8 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
     const authors = [...new Set(round.requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
     await ctx.codeHost.commentChange(change, `The factory finished the round for the requests of ${authors}.${round.answer ? `\n\n${round.answer.slice(0, 4000)}` : ""}`);
   }
-  const read = later(ctx.record.heardUntil, round?.cursor) ?? f.eventAt;
+  // With nothing read yet: the run's first event, so a request written while the run was paused still counts as new.
+  const read = later(ctx.record.heardUntil, round?.cursor) ?? ctx.record.steps.find((s) => s.step === "event")?.at;
   await ctx.codeHost.commentChange(change, [`This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`, ...(read ? [cursorLine(read)] : [])].join("\n\n"));
   if (round) {
     const t = ctx.record.tokens ?? { input: 0, output: 0 };

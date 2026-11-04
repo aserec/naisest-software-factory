@@ -1,7 +1,8 @@
 // The inbox: comments from trusted people reach the running agent, and `@factory stop` or a stop from the dashboard stops it.
 import { appendFileSync } from "node:fs";
 import { readUntil } from "./inbox-file";
-import { later } from "./requests";
+import { wrapRequest } from "./agents";
+import { isRequest, later } from "./requests";
 import type { Comment, Inbox, TicketRef, Tracker } from "./seams";
 
 const STOP = "@factory stop";
@@ -32,7 +33,7 @@ export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, st
       for (const c of all) if (!c.byFactory && (await (trust.get(c.author) ?? trust.set(c.author, tracker.trusted(c.author)).get(c.author)!))) kept.push(c);
       // Only after every trust check: if one throws, the next poll reads the same comments again and no stop is lost.
       if (all.length > 0) since = all.reduce((latest, c) => later(latest, c.at)!, since);
-      return { ...(all.length > 0 ? { until: since } : {}), comments: kept.map((c) => wrap(c.author, c.body)), stop: dashboardStop || closed || kept.some((c) => hasLine(c.body, STOP)) };
+      return { ...(all.length > 0 ? { until: since } : {}), comments: kept.map((c) => (isRequest(c.body) ? wrapRequest(c.author, c.body) : wrap(c.author, c.body))), stop: dashboardStop || closed || kept.some((c) => hasLine(c.body, STOP)) };
     },
   };
 }
