@@ -8,7 +8,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const all = { watcher: true, dispatches: true, new_runs: true, retry: true, questions: true, prepare_patch: true, auto_merge: true, apply: true };
+const all = { watcher: true, dispatches: true, new_runs: true, retry: true, questions: true, prepare_patch: true, auto_merge: true, apply: true, improve: true };
 
 const put = (f: ReturnType<typeof vi.fn>) => f.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT");
 

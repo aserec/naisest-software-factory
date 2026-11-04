@@ -182,6 +182,7 @@ Each switch is on or off for one target or for all targets (`*`). A switch with 
 | `apply` | A run stops before it merges. |
 | `retry` | The retry schedule resumes no `factory_waiting` run. |
 | `watcher` | The watcher opens no tickets. |
+| `improve` | The weekly improve job opens no change to the repo's `.factory/` files. |
 
 A run that a switch stopped gets `factory_stopped`. The poller continues it once the switch is on again.
 
