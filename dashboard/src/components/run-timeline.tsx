@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import type { RunEvent } from "software-factory/run-events";
+import { STEPS, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd } from "@/lib/utils";
@@ -59,11 +59,14 @@ export function lanes(events: SeqEvent[]): Lane[] {
 
 const PILL: Record<string, "destructive" | "warning" | "secondary"> = { error: "destructive", stop: "warning", stopped: "warning", waiting: "warning" };
 
+// The step_end outcome in the words docs/how-it-works.md uses.
+const OUTCOME: Record<string, string> = { next: "passed" };
+
 function Pills({ lane, stuck }: { lane: Lane; stuck: boolean }) {
   return (
     <>
       {stuck && <Badge variant="destructive">Stuck</Badge>}
-      <Badge variant={PILL[lane.outcome ?? ""] ?? "secondary"}>{lane.outcome ?? "running"}</Badge>
+      <Badge variant={PILL[lane.outcome ?? ""] ?? "secondary"}>{lane.outcome ? (OUTCOME[lane.outcome] ?? lane.outcome) : "running"}</Badge>
     </>
   );
 }
@@ -103,6 +106,22 @@ const Figure = ({ label, children, className = "" }: { label: string; children: 
     <div className="mt-1 truncate text-2xl leading-8">{children}</div>
   </div>
 );
+
+// A step the run has not reached: its name and an empty track, so the whole line of ten steps shows.
+function AheadRow({ step }: { step: string }) {
+  return (
+    <li className="border-b border-rule text-muted-foreground last:border-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3 @xl:flex">
+        <span className="truncate @xl:w-40 @xl:flex-none">
+          {step}
+          <span className="sr-only"> not reached</span>
+        </span>
+        <span className="hidden h-2 rounded-full bg-raised @xl:block @xl:flex-1" />
+        <span className="hidden @xl:block @xl:w-[17.5rem]" />
+      </div>
+    </li>
+  );
+}
 
 // The open step lives in the URL (?step=<id>), so a link to a step's log can be shared.
 function useOpenStep() {
@@ -153,12 +172,16 @@ export function RunTimeline({ run, limits = {}, risk = {} }: { run: string; limi
   const now = new Date(nowMs);
   const stuck = (l: Lane) => !l.end && isStuck({ step: l.start.step ?? "", startedAt: l.start.at, ended: false }, limits, now);
   const open = rows.find((l) => l.start.id === openId);
+  // The furthest step reached; the steps after it show as not reached.
+  const reached = Math.max(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")));
+  const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
   return (
     <>
       <div className={`@container transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${open ? "xl:pr-[624px]" : ""}`}>
         <div className="mb-8 grid grid-cols-2 border-y @lg:w-fit @lg:min-w-[40rem] @lg:grid-cols-4">
           <Figure label="Now" className="col-span-2 border-b pr-4 @lg:col-span-1 @lg:border-b-0">
             {live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}
+            {at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>}
           </Figure>
           <Figure label="Time" className="pr-4 @lg:border-l @lg:pl-4">
             {duration(span / 1000)}
@@ -180,6 +203,9 @@ export function RunTimeline({ run, limits = {}, risk = {} }: { run: string; limi
         <ul>
           {rows.map((l) => (
             <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
+          ))}
+          {STEPS.slice(reached + 1).map((s) => (
+            <AheadRow key={s} step={s} />
           ))}
         </ul>
       </div>

@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { emit, emitFor, runIds, type RunIds } from "../emit";
 import type { PausableStep } from "../record";
-import { SWITCHES, type ControlRequest } from "../run-events";
+import { STEPS, SWITCHES, type ControlRequest } from "../run-events";
 import type { ChangeRef, FactoryEvent, FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import type { FactoryCommands } from "../types";
 import { controls, facts, person, save, ticketRef, type StepContext, type StepResult } from "./context";
@@ -74,9 +74,8 @@ export function endRun(ctx: StepContext, outcome: "done" | "blocked" | "needs_in
   emitFor(ids, ctx, "run_end", { outcome });
 }
 
-// The steps of a run in order: the build pipeline, then the finish pipeline from apply on.
-// The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
-export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+// The build pipeline, then the finish pipeline from apply on.
+export { STEPS };
 export const BUILD_STEPS = STEPS.slice(0, STEPS.indexOf("apply"));
 export const FINISH_STEPS = STEPS.slice(STEPS.indexOf("apply"));
 // A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.

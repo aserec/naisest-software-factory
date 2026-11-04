@@ -24,7 +24,7 @@ test("shows a lane per step, and a click opens that step in the side panel", asy
   renderWithQuery(<RunTimeline run="r1" />);
   const lane = await screen.findByRole("button", { name: /prepare-patch/ });
   expect(screen.getByRole("button", { name: /code-review/ }).textContent).toContain("running");
-  expect(lane.textContent).toContain("next");
+  expect(lane.textContent).toContain("passed");
   expect(lane.textContent).toContain("$0.25");
   expect(screen.queryByText("Edit")).toBeNull();
   fireEvent.click(lane);
@@ -80,4 +80,13 @@ test("the Risk figure shows the triage and merge risk, and a dash before triage"
   renderWithQuery(<RunTimeline run="r1" />);
   const figure = (await screen.findByText("Risk")).parentElement!;
   expect(figure.textContent).toBe("Risk—");
+});
+
+test("the line shows all ten steps: the ones not reached are listed after the live one, and Now says how far the run is", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /code-review/ });
+  const ahead = screen.getAllByText(/not reached/).map((e) => e.parentElement!.textContent);
+  expect(ahead).toEqual(["precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"].map((s) => `${s} not reached`));
+  expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("code-review4 of 10");
 });

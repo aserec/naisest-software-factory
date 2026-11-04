@@ -6,6 +6,9 @@ export type EventType = (typeof EVENT_TYPES)[number];
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
 export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "switch_change"]);
 
+// The steps of a run in order. The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
+export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+
 export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply"] as const;
 export type SwitchName = (typeof SWITCHES)[number];
 
