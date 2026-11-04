@@ -53,19 +53,28 @@ function scriptsOf(dir: string): object | undefined {
   }
 }
 
+// A path uses only these characters, and has a "/" or an extension. A plain word (not, review, Never) is not one.
+const PATH_CHARS = /^[\w./-]+$/;
+const looksLikePath = (p: string) => PATH_CHARS.test(p) && (p.includes("/") || /\.[A-Za-z0-9]+$/.test(p));
+
 // "bad": not a path inside the clone. A path that cannot be looked at counts as existing.
 function pathState(p: string, dir: string): "bad" | "exists" | "gone" {
-  if (p === "" || /\s/.test(p) || isAbsolute(p) || p.split(/[\\/]/).includes("..")) return "bad";
+  if (!looksLikePath(p) || isAbsolute(p) || p.split("/").includes("..")) return "bad";
   const full = resolve(dir, p);
   const inside = (a: string, b: string) => !relative(a, b).startsWith("..") && !isAbsolute(relative(a, b));
   if (!inside(dir, full)) return "bad";
   try {
-    // A link in the parents must not lead out of the clone.
-    if (!inside(realpathSync(dir), realpathSync(dirname(full)))) return "bad";
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "ENOENT") return "exists";
-  }
-  try {
+    // The nearest parent that exists must not lead out of the clone, even through a link.
+    let parent = dirname(full);
+    for (;;) {
+      try {
+        if (!inside(realpathSync(dir), realpathSync(parent))) return "bad";
+        break;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT" || parent === dir) throw e;
+        parent = dirname(parent);
+      }
+    }
     lstatSync(full);
     return "exists";
   } catch (e) {
@@ -89,29 +98,38 @@ export function confirmGone(gone: string, dir: string): boolean {
   return exists(gone, dir) === false;
 }
 
-const count = (lines: string[]) => lines.reduce((m, l) => m.set(l, (m.get(l) ?? 0) + 1), new Map<string, number>());
-const minus = (a: string[], b: string[]) => {
-  const left = count(b);
-  return a.filter((l) => !left.get(l) || (left.set(l, left.get(l)! - 1), false));
-};
+const TOKEN_CHAR = /[\w./:-]/;
+// Every place `gone` stands in the line is a whole token, not a piece of a longer word or path. At least one place.
+function wholeToken(line: string, gone: string): boolean {
+  let found = false;
+  for (let at = line.indexOf(gone); at >= 0; at = line.indexOf(gone, at + gone.length)) {
+    const after = line.slice(at + gone.length);
+    if ((at > 0 && TOKEN_CHAR.test(line[at - 1])) || /^[\w/-]/.test(after) || /^[.:][\w/-]/.test(after)) return false;
+    found = true;
+  }
+  return found;
+}
 
-// True when the new text differs from the old one only by `gone` removed, or replaced by a path or command that exists.
+// True when the new text is the old text in the same order, where each line is kept, deleted, or has `gone` removed
+// or replaced by a path or command that exists. `gone` must be a whole token in a line that changes.
 export function onlyRenames(oldText: string, newText: string, gone: string, dir: string): boolean {
-  if (gone === "") return false;
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
-  const removed = minus(oldLines, newLines);
-  const added = minus(newLines, oldLines);
-  if (added.length > removed.length || !removed.every((r) => r.includes(gone))) return false;
-  return added.every((a) =>
-    removed.some((r) => {
-      const at = r.indexOf(gone);
-      const [p, s] = [r.slice(0, at), r.slice(at + gone.length)];
-      if (a.length < p.length + s.length || !a.startsWith(p) || !a.endsWith(s)) return false;
-      const t = a.slice(p.length, a.length - s.length);
-      return r.replaceAll(gone, () => t) === a && (t === "" || exists(t, dir) === true);
-    }),
-  );
+  if (!COMMAND.test(gone) && !looksLikePath(gone)) return false;
+  const next = newText.split("\n");
+  let j = 0;
+  for (const r of oldText.split("\n")) {
+    if (next[j] === r) {
+      j++;
+      continue;
+    }
+    if (!wholeToken(r, gone)) return false;
+    const a = next[j];
+    const at = r.indexOf(gone);
+    const [p, s] = [r.slice(0, at), r.slice(at + gone.length)];
+    if (a === undefined || a.length < p.length + s.length || !a.startsWith(p) || !a.endsWith(s)) continue; // deleted
+    const t = a.slice(p.length, a.length - s.length);
+    if (r.replaceAll(gone, () => t) === a && (t === "" || exists(t, dir) === true)) j++; // renamed
+  }
+  return j === next.length;
 }
 
 export function checkEdits(edits: Edit[], o: { links: Set<string>; current: Partial<Record<ImprovePath, string>>; dir: string }): { fixes: Edit[]; changes: Edit[]; dropped: string[] } {

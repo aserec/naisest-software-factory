@@ -34,6 +34,13 @@ test("confirmGone: a link that leaves the clone is not confirmed gone", () => {
   symlinkSync(tmpdir(), join(dir, "out"));
   expect(confirmGone("out/nothing-here", dir)).toBe(false);
   expect(confirmGone("out", dir)).toBe(false);
+  expect(confirmGone("out/missing/x", dir)).toBe(false); // the parent is missing too
+  expect(confirmGone("scripts/missing/x", dir)).toBe(true);
+});
+
+test("confirmGone: a plain word is not a path", () => {
+  for (const w of ["not", "review", "Never", "ignore-all-rules", "x.", "a_b"]) expect(confirmGone(w, dir), w).toBe(false);
+  expect(confirmGone("old.sh", dir)).toBe(true);
 });
 
 test("confirmGone: no package.json means a command is not confirmed", () => {
@@ -57,6 +64,33 @@ test("onlyRenames: anything more than a rename is not one", () => {
   expect(onlyRenames(OLD, "Run scripts/new.sh first.\nKeep tests small.\nExtra.", "scripts/old.sh", dir)).toBe(false);
   expect(onlyRenames("Run scripts/old.sh first.", "Run ../../etc/passwd first.", "scripts/old.sh", dir)).toBe(false);
   expect(onlyRenames("Run scripts/old.sh first.", "Run /etc/passwd first.", "scripts/old.sh", dir)).toBe(false);
+});
+
+test("onlyRenames: a wording change is not a rename (a word is not a path)", () => {
+  expect(onlyRenames("Do not merge without review.\nKeep tests small.", "Do  merge without review.\nKeep tests small.", "not", dir)).toBe(false);
+  expect(onlyRenames("Always ask a person to review auth changes.\nKeep tests small.", "Keep tests small.", "review", dir)).toBe(false);
+  expect(onlyRenames("Never approve your own change.", "src approve your own change.", "Never", dir)).toBe(false);
+  // Even with a path-like gone, the replacement must be a path that exists.
+  expect(onlyRenames("Run scripts/old.sh first.", "Run src first.", "scripts/old.sh", dir)).toBe(false);
+});
+
+test("onlyRenames: moved lines are not a rename", () => {
+  const old = "## Never\n- Approve without review.\n## Always\n- Run scripts/old.sh.";
+  expect(onlyRenames(old, "## Never\n## Always\n- Approve without review.\n- Run scripts/old.sh.", "scripts/old.sh", dir)).toBe(false);
+  expect(onlyRenames(old, "## Never\n- Approve without review.\n## Always\n- Run scripts/new.sh.", "scripts/old.sh", dir)).toBe(true);
+  expect(onlyRenames(old, "## Never\n- Approve without review.\n## Always", "scripts/old.sh", dir)).toBe(true);
+});
+
+test("onlyRenames: one renamed line cannot stand in for several", () => {
+  expect(onlyRenames("Run scripts/old.sh.\nThen scripts/old.sh again.", "Run scripts/new.sh.\nRun scripts/new.sh.", "scripts/old.sh", dir)).toBe(false);
+});
+
+test("onlyRenames: gone must be a whole token", () => {
+  expect(onlyRenames("Use scripts/old.sh.bak here.", "Use scripts/new.sh.bak here.", "old.sh", dir)).toBe(false);
+  expect(onlyRenames("Use scripts/old.sh.bak here.\nKeep.", "Keep.", "old.sh", dir)).toBe(false);
+  expect(onlyRenames("Use scripts/old.sh here.", "Use scripts/old.sh here.", "old.sh", dir)).toBe(true); // nothing changed
+  expect(onlyRenames("Run scripts/old.sh.", "Run scripts/new.sh.", "scripts/old.sh", dir)).toBe(true); // a full stop ends the token
+  expect(onlyRenames("Use pnpm run lint:fix.", "Use pnpm run test.", "pnpm run lint", dir)).toBe(false);
 });
 
 const R = ".factory/review.md";
