@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import type { QueuedRun } from "./adapters/local-ci";
 import { FACTORY_ROOT } from "./repo";
 import { BUILD_STEPS } from "./steps/run";
-import { handler, machineHost, nextId, runOne, stepEnv, takeQueue, targetLock, type Exec, type Live } from "./worker";
+import { handler, improveDue, machineHost, nextId, runImprove, runOne, stepEnv, takeQueue, targetLock, type Exec, type Live } from "./worker";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "worker-"));
 const base = { GL_TOKEN: "glpat-x", FACTORY_DASHBOARD_TOKEN: "dash", TENSORX_API_KEY: "tx" };
@@ -115,4 +115,46 @@ test("the dashboard's calls need its token, and only cancel and dispatch are ser
 test("the watcher gets the person's source only when one is given", () => {
   expect(stepEnv(base, { schedule: "watch", target: "react_frontend", source: "web" }).CI_PIPELINE_SOURCE).toBe("web");
   expect(stepEnv(base, { schedule: "poll", target: "react_frontend" }).CI_PIPELINE_SOURCE).toBeUndefined();
+});
+
+test("improveDue is true once a week per target and writes the time first", () => {
+  const dir = tmp(), day = 86_400_000, t0 = new Date("2026-11-02T06:00:00Z");
+  expect(improveDue("t", t0, dir)).toBe(true);
+  expect(improveDue("t", new Date(t0.getTime() + 6 * day), dir)).toBe(false);
+  expect(improveDue("t", new Date(t0.getTime() + 7 * day), dir)).toBe(true);
+  expect(improveDue("t", new Date(t0.getTime() + 8 * day), dir)).toBe(false); // the time moved to day 7
+  expect(improveDue("other", t0, dir)).toBe(true); // a second target has its own file
+  expect(improveDue("t", new Date(t0.getTime() + 14 * day), dir)).toBe(true);
+});
+
+test("an improve step gets FACTORY_SCHEDULE=improve", () => {
+  expect(stepEnv(base, { schedule: "improve", target: "react_frontend" })).toMatchObject({ FACTORY_SCHEDULE: "improve", FACTORY_PIPELINE: "" });
+});
+
+// The improve step clones into <cwd>/run/target, so each job needs a folder of its own: one shared folder would hand a
+// later job (or another target) the first clone, and two targets would race on it.
+test("each improve job runs in a new working folder that is gone afterwards", async () => {
+  const secrets = `${FACTORY_ROOT}.tmp`, made = !existsSync(secrets);
+  mkdirSync(secrets, { recursive: true });
+  const seen: { target: string; cwd: string; script: string; existed: boolean; schedule: string }[] = [];
+  const exec: Exec = async (_cmd, args, env, cwd) => {
+    mkdirSync(join(cwd!, "run", "target"), { recursive: true }); // what the clone does
+    seen.push({ target: env!.FACTORY_TARGET, cwd: cwd!, script: args.at(-1)!, existed: existsSync(cwd!), schedule: env!.FACTORY_SCHEDULE });
+    if (seen.length === 3) throw new Error("exec failed");
+    return { code: 0, out: "" };
+  };
+  try {
+    await runImprove(exec, base, "a");
+    await runImprove(exec, base, "a");
+    await expect(runImprove(exec, base, "b")).rejects.toThrow("exec failed");
+    expect(new Set(seen.map((s) => s.cwd)).size).toBe(3);
+    for (const s of seen) {
+      expect(s.existed).toBe(true);
+      expect(existsSync(s.cwd)).toBe(false); // removed, also when the step threw
+      expect(s.script).toBe(join(FACTORY_ROOT, "factory/steps/improve.ts")); // absolute, since cwd is not the factory root
+      expect(s.schedule).toBe("improve");
+    }
+  } finally {
+    if (made) rmSync(secrets, { recursive: true, force: true });
+  }
 });

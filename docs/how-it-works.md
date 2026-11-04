@@ -142,10 +142,12 @@ The person is the first of these. After a round, it is the author of the newest 
 
 ## The poller and retry
 
-Two scheduled pipelines run for each target (see `docs/add-a-repo.md`).
+Three scheduled jobs run for each target (see `docs/add-a-repo.md`). With `ci: local` the worker runs them by itself.
 
 - **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and answers requests on stopped and waiting items and on the merge requests of items in any other state (see Requests on a merge request).
 - **Retry**, every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
+
+- **Self-improvement job**, every week. It reads a week of corrections and proposes edits to the repo's factory instructions (see Weekly self-improvement). With `ci: local` the worker keeps the time of the last run in its runs folder, so a restart does not run the job again. It writes that time before the job runs, so a failing job runs again a week later and not every hour. For the same reason, a week in which the `improve` switch is off is skipped, and turning the switch on waits for the next week.
 
 At most 2 runs at once per target, and one run per work item.
 
@@ -182,7 +184,7 @@ Each switch is on or off for one target or for all targets (`*`). A switch with 
 | `apply` | A run stops before it merges. |
 | `retry` | The retry schedule resumes no `factory_waiting` run. |
 | `watcher` | The watcher opens no tickets. |
-| `improve` | The weekly improve job opens no change to the repo's `.factory/` files. |
+| `improve` | The weekly self-improvement job opens no merge request. |
 
 A run that a switch stopped gets `factory_stopped`. The poller continues it once the switch is on again.
 
@@ -229,3 +231,25 @@ pip-audit:
       exit 1
     fi
 ```
+
+## Weekly self-improvement
+
+Once a week, for each target, the factory reads how people corrected it and proposes edits to the repo's factory instructions. It does not change anything alone, except one kind of fix (below).
+
+- **Evidence.** The job collects facts from the last 7 days, each with a link:
+  - `change_comment`: a person's comment on a factory merge request.
+  - `change_edit`: a person's edit to the title or text of a factory merge request.
+  - `ticket_reply`: a person's reply on a work item after the factory first wrote there.
+  - `agent_rounds`: a run that needed 2 or more review rounds with blocking findings, or 2 or more failed checks.
+  - `repeat_finding`: a blocking finding that came back in the next review round.
+  - `too_strict`: a change sent to a person that a person then merged with no change and no request.
+  - `too_loose`: a change that merged alone and was then reverted.
+  - `reopened_duplicate`: a work item the factory closed as a duplicate that a person reopened.
+  - `@factory` requests are found with the same rule as in Requests on a merge request.
+- **Data, not orders.** Each text is scrubbed of customer data, cut to 2,000 characters and checked for prompt injection. The job drops a text the check does not clear. At most 300 items go on. The writer gets them as data and has no tools.
+- **What the writer may propose.** An edit needs 3 cases: at least 3 pieces of evidence, with their links. The job drops an edit that cites fewer, or a link that is not in the evidence. A fix (below) needs no cases. The writer may change only `.factory/author.md`, `.factory/review.md`, `.factory/writer.md` and `.factory/thresholds.yml`. The `.md` files stay under 8,000 characters. The thresholds file keeps its four keys (see Thresholds file) with whole numbers or fractions in these ranges: `diffRiskMax` 2 to 10, `autoMergeConfidenceMin` 0.5 to 1, `clarityMin` 2 to 10 and `maxAgentRounds` 1 to 10. The job checks the edits in code, and again with the diff before it pushes. A change to any other file, or a secret in the diff, stops the job before the push.
+- **One merge request for a person.** The edits go in one merge request on the branch `factory-improve/change-<date>`, assigned to the target's `defaultApprover`. It lists the evidence for each file. A person reads it and merges it, or does not. The factory never merges it, because `.factory/**` is a protected path.
+- **A fix is its own merge request.** A fix may only replace a path or `<pm> run <script>` command written in backticks in a `.factory/` file with the existing path or command that replaced it, a file with a file and a folder with a folder. It never removes text and never adds, deletes or moves a line. The factory confirms in code that the old path or script is gone and the new one exists. A fix goes in its own merge request on `factory-improve/fix-<date>`, which the factory merges after a green pipeline, when the merge request is still open and its head is the pushed commit. Any other edit, including removing a dead path, goes into the merge request for a person. If a fix cannot merge, the factory comments why, assigns it to the `defaultApprover` and leaves it open.
+- **No evidence, no merge request.** A week with no evidence, or with no edit that passes the checks, opens nothing.
+- **When it fails.** If the dashboard is down, the job fails before it writes anything and runs again next week.
+

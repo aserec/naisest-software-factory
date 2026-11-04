@@ -90,12 +90,14 @@ But the job shell itself still runs with every variable, before `env -i` starts.
 
 ## 8. Schedules
 
-Two scheduled pipelines in the factory project (Build > Pipeline schedules). Create them signed in as the bot, so the bot owns them and the build pipelines they start are the bot's. Target branch: `main`.
+Three scheduled pipelines in the factory project (Build > Pipeline schedules). Create them signed in as the bot, so the bot owns them and the build pipelines they start are the bot's. Target branch: `main`.
 
 - [ ] **Poller**, every minute (`* * * * *`). Variables: `FACTORY_SCHEDULE=poll`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It is the fallback when the label webhook does not fire: it starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. The build's event step checks the live labels and who added `factory_ready`, as it does for a webhook.
 - [ ] **Retry**, every hour (`0 * * * *`). Variables: `FACTORY_SCHEDULE=retry`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It resumes runs labeled `factory_waiting` (Claude's usage limit). The new build pipeline loads the record of the pipeline that hit the limit, puts back its clone and Claude session, and continues at the step that stopped. If that record or session is not usable, the work item gets `factory_blocked` with a comment.
 
-Make one pair of schedules for each target. `FACTORY_SCHEDULE` accepts only `poll` or `retry`. The `SAST_DISABLED` and `SECRET_DETECTION_DISABLED` variables keep the security scans from running every minute.
+- [ ] **Self-improvement job**, every Monday at 6 (`0 6 * * 1`). Variables: `FACTORY_SCHEDULE=improve`, `FACTORY_TARGET=<target name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It reads a week of corrections in the target and opens a merge request with edits to the target's `.factory/` files for a person to merge (see docs/how-it-works.md). With `ci: local` the worker runs it by itself and needs no schedule.
+
+Make one set of schedules for each target. `FACTORY_SCHEDULE` accepts only `poll`, `retry`, `improve` or `watch`. `watch` is for a watcher pipeline that a person starts by hand, not for a schedule (see docs/how-it-works.md, The watcher). The `SAST_DISABLED` and `SECRET_DETECTION_DISABLED` variables keep the security scans from running every minute.
 
 ## 9. Contract tests against real tools
 

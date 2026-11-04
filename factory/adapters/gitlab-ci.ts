@@ -11,7 +11,7 @@ import { sh } from "../repo";
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
   FACTORY_PIPELINE: /^(build|finish|dispatch)?$/, // empty only in a scheduled pipeline
-  FACTORY_SCHEDULE: /^(poll|retry|watch)?$/,
+  FACTORY_SCHEDULE: /^(poll|retry|watch|improve)?$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
   FACTORY_MR_IID: /^([0-9]+)?$/,
   FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,

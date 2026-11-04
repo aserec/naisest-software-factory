@@ -42,10 +42,11 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
 
 ## 3. Schedules
 
-Create two schedules for the target (Build > Pipeline schedules). Sign in as the bot, so the bot owns them. Target branch `main`.
+Create three schedules for the target (Build > Pipeline schedules). Sign in as the bot, so the bot owns them. Target branch `main`.
 
 - [ ] **Poll**: `* * * * *`. Variables: `FACTORY_SCHEDULE=poll`, `FACTORY_TARGET=<name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`.
 - [ ] **Retry**: `0 * * * *`. Variables: `FACTORY_SCHEDULE=retry`, `FACTORY_TARGET=<name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`.
+- [ ] **Self-improvement job**: `0 6 * * 1`. Variables: `FACTORY_SCHEDULE=improve`, `FACTORY_TARGET=<name>`, `SAST_DISABLED=true`, `SECRET_DETECTION_DISABLED=true`. It reads a week of corrections and proposes edits to the target's `.factory/` files (see docs/how-it-works.md). With `ci: local` the worker runs it by itself and needs no schedule.
 
 ## 4. Check
 

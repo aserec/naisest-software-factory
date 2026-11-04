@@ -1,5 +1,5 @@
 // The factory worker (seams.yml ci: local). It replaces GitLab CI: every minute it runs poll for each target (retry and,
-// with a real log source, the watcher once an hour), runs dispatch when the dashboard asks, takes the runs those steps queued, and runs each run with every step in a new container.
+// with a real log source, the watcher once an hour, and the improve job once a week), runs dispatch when the dashboard asks, takes the runs those steps queued, and runs each run with every step in a new container.
 // FACTORY_EXECUTOR picks the Docker host of a run's containers:
 // - machine (default): this machine's Docker, through the socket compose mounts into the worker container.
 // - hetzner: a new Hetzner VM per run, deleted after it (HETZNER_TOKEN; FACTORY_HETZNER_TYPE and _LOCATION).
@@ -9,8 +9,10 @@ import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { checkVars } from "./adapters/gitlab-ci";
 import { QUEUE_DIR, RUNS_DIR, type QueuedRun } from "./adapters/local-ci";
 import { Hetzner, type Vm } from "./hetzner";
@@ -18,16 +20,16 @@ import { loadSeams } from "./config";
 import { FACTORY_ROOT } from "./repo";
 import { BUILD_STEPS, FINISH_STEPS } from "./steps/run";
 
-export type Exec = (cmd: string, args: string[], env?: Record<string, string>) => Promise<{ code: number; out: string }>;
+export type Exec = (cmd: string, args: string[], env?: Record<string, string>, cwd?: string) => Promise<{ code: number; out: string }>;
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 // File secrets: a step reads each file and deletes it before any agent runs. Values never go on a command line.
 const FILE_SECRETS = { FACTORY_GITLAB_TOKEN: "GL_TOKEN", FACTORY_GITHUB_TOKEN: "FACTORY_GITHUB_TOKEN", TEAMS_WEBHOOK_URL: "TEAMS_WEBHOOK_URL", FACTORY_DASHBOARD_TOKEN: "FACTORY_DASHBOARD_TOKEN" };
 const ENV_SECRETS = ["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"];
 const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
-export const realExec: Exec = (cmd, args, env = {}) =>
+export const realExec: Exec = (cmd, args, env = {}, cwd) =>
   new Promise((resolve) => {
-    const p = spawn(cmd, args, { env: { PATH, HOME: homedir(), ...env }, stdio: ["ignore", "pipe", "pipe"] });
+    const p = spawn(cmd, args, { cwd, env: { PATH, HOME: homedir(), ...env }, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     const keep = (d: Buffer) => { process.stdout.write(d); out = (out + d).slice(-20_000); };
     p.stdout.on("data", keep);
@@ -62,18 +64,42 @@ function secretFiles(base: NodeJS.ProcessEnv, dir: string, seen: string): Record
   return paths;
 }
 
-// poll, retry-waiting, dispatch and watcher: short steps with no code tools, run in the worker container itself.
-const SHORT = { poll: { schedule: "poll" }, "retry-waiting": { schedule: "retry" }, dispatch: { pipeline: "dispatch" }, watcher: { schedule: "watch" } } as const;
+// poll, retry-waiting, dispatch, watcher and improve: short steps with no code tools, run in the worker container itself.
+const SHORT = { poll: { schedule: "poll" }, "retry-waiting": { schedule: "retry" }, dispatch: { pipeline: "dispatch" }, watcher: { schedule: "watch" }, improve: { schedule: "improve" } } as const;
 export type ShortStep = keyof typeof SHORT;
-export async function runShort(exec: Exec, base: NodeJS.ProcessEnv, step: ShortStep, target: string, source?: string) {
+// cwd: a folder for the step to work in. Then the step and tsx are named by absolute path, as a bare `tsx` or a relative path would not be found.
+export async function runShort(exec: Exec, base: NodeJS.ProcessEnv, step: ShortStep, target: string, source?: string, cwd?: string) {
   const env = stepEnv(base, { ...SHORT[step], target, source });
   const dir = mkdtempSync(join(SECRET_DIR, "s-"));
   try {
-    const r = await exec("node", ["--import", "tsx", `factory/steps/${step}.ts`], { ...env, HOME: homedir(), ...secretFiles(base, dir, dir) });
+    const script = cwd ? ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, join(FACTORY_ROOT, "factory/steps", `${step}.ts`)] : ["--import", "tsx", `factory/steps/${step}.ts`];
+    const r = await exec("node", script, { ...env, HOME: homedir(), ...secretFiles(base, dir, dir) }, cwd);
     if (r.code !== 0) console.log(`${step} for ${target} ended with code ${r.code}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// The improve step clones the target into run/target of its working folder, and an existing clone is reused. So each job
+// gets a folder of its own, removed afterwards: no later job, and no other target, ever finds an old clone or shares one.
+export async function runImprove(exec: Exec, base: NodeJS.ProcessEnv, target: string) {
+  const work = mkdtempSync(join(tmpdir(), `improve-${target}-`));
+  try {
+    await runShort(exec, base, "improve", target, undefined, work);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+// The weekly improve job: true when <runsDir>/improve-<target> is missing or holds a time 7 or more days before now.
+// The time is written first, so a failing job runs again in a week, and a restart does not run it again.
+export function improveDue(target: string, now: Date, runsDir = RUNS_DIR): boolean {
+  const f = join(runsDir, `improve-${target}`);
+  const last = existsSync(f) ? Date.parse(readFileSync(f, "utf8")) : NaN;
+  if (last > now.getTime() - 7 * 86_400_000) return false;
+  mkdirSync(runsDir, { recursive: true });
+  writeFileSync(f, now.toISOString());
+  return true;
 }
 
 // Where a run's containers start: this machine, or a VM made for the run.
@@ -262,6 +288,8 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
   const runs = new Map<string, Live>();
   // Two dispatch runs at once could both find no open ticket for the same dispatch and open two.
   const dispatch = (t: string) => lock(`dispatch:${t}`, () => runShort(exec, base, "dispatch", t).then(() => true));
+  // The improve job can wait up to an hour for a fix pipeline, so it runs beside the poller, one at a time per target.
+  const improve = (t: string) => void lock(`improve:${t}`, () => runImprove(exec, base, t).then(() => true)).catch((e) => console.log(`improve for ${t} failed: ${String(e).slice(0, 500)}`));
   createServer(handler(base.FACTORY_DASHBOARD_TOKEN, {
     cancel: async (run) => {
       const l = runs.get(run);
@@ -280,6 +308,7 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
       await runShort(exec, base, "poll", t);
       if (tick % 60 === 0) await runShort(exec, base, "retry-waiting", t);
       if (watch && tick % 60 === 0) await runShort(exec, base, "watcher", t);
+      if (tick % 60 === 0 && improveDue(t, new Date())) improve(t);
     }
     for (const q of takeQueue()) {
       const id = nextId();
