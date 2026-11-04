@@ -1,11 +1,38 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HOOKS_DIR, SETTINGS_PATH, factorySettings, guardReady, runCommand, type ClaudeResult, type ClaudeRun } from "../agents";
+import { fileURLToPath } from "node:url";
+import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
+import { SANDBOX_RULES_PATH, sandboxDenyRead } from "../sandbox";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
 
-export function buildClaudeArgs(r: ClaudeRun & { tools?: "code" | "none" }, settingsPath = SETTINGS_PATH): string[] {
+export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string }
+export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; resultText: string }
+
+// The Claude-only part of the settings: permissions and the sandbox flags. The network and read rules every harness shares live in sandbox-rules.json.
+export const CLAUDE_SETTINGS_PATH = fileURLToPath(new URL("../../.claude/factory-settings.json", import.meta.url));
+// The inbox hook script. The hook's cwd is the target clone, so the path is absolute.
+export const INBOX_HOOK = fileURLToPath(new URL("./claude-inbox-hook.ts", import.meta.url));
+
+// The settings the agent runs with: the factory file, a hook from a fixed absolute dir, Read denies for the config dir,
+// and the same sandbox rules as install and gate commands. cwd is the target clone.
+// With an inbox file, a second hook hands new ticket comments to the agent after every tool call (see claude-inbox-hook.ts).
+export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false): any {
+  const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf8"));
+  const rules = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
+  const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
+  settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: quote(`${hooksDir}/deny-dangerous.sh`) }] }] };
+  if (inboxFile) settings.hooks.PostToolUse = [{ hooks: [{ type: "command", command: `node --import ${quote(TSX_IMPORT)} ${quote(INBOX_HOOK)} ${quote(inboxFile)}` }] }];
+  if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
+  if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
+  settings.sandbox.network.allowedDomains = rules.network.allowedDomains;
+  settings.sandbox.filesystem = { denyRead: sandboxDenyRead(cwd) };
+  if (preview) settings.sandbox.network.allowLocalBinding = true; // the author starts the target's dev server
+  return settings;
+}
+
+export function buildClaudeArgs(r: ClaudeRun & { tools?: "code" | "none" }, settingsPath = CLAUDE_SETTINGS_PATH): string[] {
   return [
     "-p", `/effort ${r.effort}\n${r.prompt}`,
     "--output-format", "stream-json", "--verbose",

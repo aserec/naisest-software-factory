@@ -1,17 +1,19 @@
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, expect, test, vi } from "vitest";
-import { SETTINGS_PATH } from "../agents";
+import { HOOKS_DIR, TSX_IMPORT } from "../agents";
+import { sandboxSettings } from "../repo";
 import type { HarnessJob, Provider } from "../seams";
-import { agentEnv, buildClaudeArgs, claudeCode, parseStream, toolCalls } from "./claude-code";
+import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, factorySettings, parseStream, toolCalls } from "./claude-code";
 
 const load = (f: string) => readFileSync(new URL(`../fixtures/${f}`, import.meta.url), "utf8");
 const teamPlan: Provider = { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { "claude-sonnet-5-5": "claude" } };
 
 test("every run carries the fixed flags and never --bare", () => {
   const a = buildClaudeArgs({ prompt: "p", model: "claude-sonnet-5-5", effort: "medium", maxTurns: 60, cwd: "/w" });
-  expect(a).toEqual(expect.arrayContaining(["-p", "--output-format", "stream-json", "--verbose", "--settings", SETTINGS_PATH, "--setting-sources", "user", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--max-turns", "60", "--model", "claude-sonnet-5-5"]));
+  expect(a).toEqual(expect.arrayContaining(["-p", "--output-format", "stream-json", "--verbose", "--settings", CLAUDE_SETTINGS_PATH, "--setting-sources", "user", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--max-turns", "60", "--model", "claude-sonnet-5-5"]));
   expect(a).not.toContain("--bare");
   expect(a).not.toContain("--tools");
 });
@@ -170,4 +172,47 @@ test("a job with onToolCall gets each tool call while claude runs; a job without
   expect(seen).toEqual(["Read:true", "Bash:false"]);
   expect(r).toMatchObject({ ok: true, tokens: { cacheRead: 450, cacheWrite: 70 }, contextTokens: 234 });
   expect(await claudeCode.run(job())).toMatchObject({ ok: true });
+});
+
+// The fixture was written from the code before the Claude settings moved here. <ROOT> is the factory checkout.
+const pinned = () => JSON.parse(load("claude-settings.json").replaceAll("<INBOX_HOOK>", INBOX_HOOK).replaceAll("<TSX_IMPORT>", TSX_IMPORT).replaceAll("<ROOT>", fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "")));
+test("the Claude settings stay exactly as before the split", () => {
+  expect(factorySettings({ CLAUDE_CONFIG_DIR: "/cfg", HOME: "/home/a" }, "/opt/hooks", "/w/run/target", "/w/run/inbox.jsonl", true)).toEqual(pinned());
+});
+test("repo sandbox settings keep the same allowed domains", () => {
+  expect(sandboxSettings("/w/run/target", "/h").network.allowedDomains).toEqual(pinned().sandbox.network.allowedDomains);
+});
+
+test("settings path is absolute and exists, so the agent cwd cannot replace it", () => {
+  expect(isAbsolute(CLAUDE_SETTINGS_PATH)).toBe(true);
+  expect(JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf8")).sandbox.autoAllowBashIfSandboxed).toBe(false);
+});
+test("settings pin the hook to the given absolute dir and deny the config dir", () => {
+  const s = factorySettings({ CLAUDE_CONFIG_DIR: "/cfg", HOME: "/home/a" }, "/opt/hooks", "/w/run/target");
+  expect(s.hooks.PreToolUse[0].hooks[0].command).toBe("'/opt/hooks/deny-dangerous.sh'");
+  expect(s.permissions.deny).toEqual(expect.arrayContaining(["Edit(./.git/**)", "Write(./.git/**)"]));
+  expect(s.permissions.blockReadsOutsideWorkingDirectories).toBe(true);
+  const odd = factorySettings({}, `/a b/it's "x"\\y`, "/w/run/target");
+  expect(odd.hooks.PreToolUse[0].hooks[0].command).toBe(`'/a b/it'\\''s "x"\\y/deny-dangerous.sh'`);
+  expect(s.permissions.deny).toEqual(expect.arrayContaining(["Read(//cfg/**)", "Read(//proc/**)", "Edit(./.claude/**)", "Bash(git -C*)"]));
+  expect(s.permissions.allow).toEqual(expect.arrayContaining(["Read(./**)"]));
+  expect(s.permissions.allow).not.toContain("Read");
+});
+test("settings allow local binding only for a preview", () => {
+  expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true).sandbox.network.allowLocalBinding).toBe(true);
+  expect(factorySettings({}, "/opt/hooks", "/w/run/target").sandbox.network.allowLocalBinding).toBeFalsy();
+});
+test("the agent sandbox denies the same reads as the gate sandbox", () => {
+  const root = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+  const s = factorySettings({}, "/opt/hooks", "/w/run/target");
+  expect(s.sandbox.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home", "/w/run/pi-home"]);
+  expect(s.sandbox.filesystem.denyRead).toEqual(sandboxSettings("/w/run/target", "/tmp/h").filesystem.denyRead);
+});
+
+test("author settings run the hook after every tool, and settings without an inbox have none", () => {
+  const withInbox = factorySettings({}, HOOKS_DIR, "/w/run/target", "/tmp/i box/inbox.jsonl");
+  const cmd = withInbox.hooks.PostToolUse[0].hooks[0].command;
+  expect(cmd).toContain(`'${INBOX_HOOK}' '/tmp/i box/inbox.jsonl'`);
+  expect(withInbox.hooks.PreToolUse).toBeDefined();
+  expect(factorySettings({}, HOOKS_DIR, "/w/run/target").hooks.PostToolUse).toBeUndefined();
 });

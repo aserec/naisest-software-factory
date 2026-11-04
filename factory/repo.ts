@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, lstatSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTINGS_PATH, sandboxDenyRead } from "./sandbox";
+import { SANDBOX_RULES_PATH, sandboxDenyRead } from "./sandbox";
 import { SRT } from "./srt";
 import type { Repo } from "./seams";
 
@@ -26,15 +26,15 @@ export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.Process
   });
 }
 
-// Sandbox settings for install and gate commands: the agent's network allowlist, no /proc,
+// Sandbox settings for install and gate commands: the shared network allowlist, no /proc,
 // writes only to the clone, a throwaway HOME and /tmp.
 // A local run (store set) also gets the pnpm store, /private/tmp (the real /tmp on macOS, which srt does not follow)
 // and local port binding (Next's Turbopack starts its PostCSS workers on a local port).
 // ponytail: local binding also lets sandboxed code reach services on the developer's localhost. Local runs only.
 export function sandboxSettings(dir: string, home: string, store?: string) {
-  const agent = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
+  const rules = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
   return {
-    network: { allowedDomains: agent.sandbox.network.allowedDomains, deniedDomains: [], ...(store && { allowLocalBinding: true }) },
+    network: { allowedDomains: rules.network.allowedDomains, deniedDomains: [], ...(store && { allowLocalBinding: true }) },
     filesystem: { denyRead: sandboxDenyRead(dir), allowWrite: [dir, home, "/tmp", ...(store ? [store, "/private/tmp"] : [])], denyWrite: [] },
   };
 }

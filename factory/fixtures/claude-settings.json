@@ -1,0 +1,89 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Edit(./**)",
+      "Write(./**)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm build*)"
+    ],
+    "deny": [
+      "Bash(git push*)",
+      "Bash(git -c*)",
+      "Bash(git -C*)",
+      "Bash(glab*)",
+      "Bash(curl*)",
+      "Bash(wget*)",
+      "WebFetch",
+      "WebSearch",
+      "Read(//proc/**)",
+      "Read(~/.claude/**)",
+      "Read(~/.claude.json)",
+      "Read(~/.config/**)",
+      "Read(~/.ssh/**)",
+      "Edit(./.claude/**)",
+      "Write(./.claude/**)",
+      "Edit(./.agents/**)",
+      "Write(./.agents/**)",
+      "Edit(./.git/**)",
+      "Write(./.git/**)",
+      "Read(//cfg/**)",
+      "Read(//home/a/.*/**)"
+    ],
+    "blockReadsOutsideWorkingDirectories": true
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "filesystem": {
+      "denyRead": [
+        "/proc",
+        "<ROOT>/.git",
+        "<ROOT>.tmp",
+        "/w/run/claude-home",
+        "/w/run/pi-home"
+      ]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": [
+        "gitlab.example.com",
+        "registry.npmjs.org",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "registry-1.docker.io"
+      ],
+      "allowLocalBinding": true
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/opt/hooks/deny-dangerous.sh'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --import '<TSX_IMPORT>' '<INBOX_HOOK>' '/w/run/inbox.jsonl'"
+          }
+        ]
+      }
+    ]
+  }
+}

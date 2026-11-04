@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { INBOX_HOOK, factorySettings, HOOKS_DIR, TSX_IMPORT, wrapRequest } from "./agents";
+import { TSX_IMPORT, wrapRequest } from "./agents";
+import { INBOX_HOOK } from "./adapters/claude-code";
 import { fakeCodeHost, fakeTracker } from "./fakes";
 import { readNew } from "./inbox-file";
 import { makeInbox, pumpInbox } from "./inbox";
@@ -129,13 +130,6 @@ test("the hook stops the agent on a stop line", () => {
 });
 test("the hook prints nothing when there is no inbox file", () => expect(hook(join(tmpdir(), "no-such-inbox.jsonl"))).toBeUndefined());
 
-test("author settings run the hook after every tool, and settings without an inbox have none", () => {
-  const withInbox = factorySettings({}, HOOKS_DIR, "/w/run/target", "/tmp/i box/inbox.jsonl");
-  const cmd = withInbox.hooks.PostToolUse[0].hooks[0].command;
-  expect(cmd).toContain(`'${INBOX_HOOK}' '/tmp/i box/inbox.jsonl'`);
-  expect(withInbox.hooks.PreToolUse).toBeDefined();
-  expect(factorySettings({}, HOOKS_DIR, "/w/run/target").hooks.PostToolUse).toBeUndefined();
-});
 
 // Task B5: a stop from the dashboard. The dashboard is asked on every poll, the tracker at most once a minute.
 test("a stop from the dashboard stops, and two polls 1 s apart read the tracker once", async () => {

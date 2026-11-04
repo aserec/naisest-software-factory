@@ -1,0 +1,16 @@
+{
+  "network": {
+    "allowedDomains": [
+      "gitlab.example.com",
+      "registry.npmjs.org",
+      "pypi.org",
+      "files.pythonhosted.org",
+      "registry-1.docker.io"
+    ]
+  },
+  "filesystem": {
+    "denyRead": [
+      "/proc"
+    ]
+  }
+}

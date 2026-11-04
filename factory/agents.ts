@@ -4,18 +4,12 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { PersonRef } from "./seams";
-import { SETTINGS_PATH, sandboxDenyRead } from "./sandbox";
 
-export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string }
-export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; resultText: string }
 export interface Finding { blocking: boolean; file?: string; text: string; screen?: string; verdict?: string } // screen and verdict: the reviewer's answer for one screen of the proof
 
-export { SETTINGS_PATH, sandboxDenyRead };
 // Never from an env variable: trigger callers can set any variable.
 export const HOOKS_DIR = fileURLToPath(new URL("../.agents/hooks", import.meta.url));
-// The inbox hook script and the tsx loader that runs it. The hook's cwd is the target clone, so both are absolute.
-export const INBOX_HOOK = fileURLToPath(new URL("./adapters/claude-inbox-hook.ts", import.meta.url));
-// The worker names it too, for a short step run in another folder.
+// The tsx loader that runs a hook script. The hook's cwd is the target clone, so it is absolute. The worker names it too, for a short step run in another folder.
 export const TSX_IMPORT = pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href;
 
 export function wrapTicket(text: string): string {
@@ -52,21 +46,6 @@ export function runCommand(cmd: string, args: string[], env: NodeJS.ProcessEnv, 
     });
     if (stdin !== undefined) p.stdin!.end(stdin);
   });
-}
-
-// The settings the agent runs with: the factory file, a hook from a fixed absolute dir, Read denies for the config dir,
-// and the same sandbox read denies as install and gate commands. cwd is the target clone.
-// With an inbox file, a second hook hands new ticket comments to the agent after every tool call (see adapters/claude-inbox-hook.ts).
-export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false): any {
-  const settings = JSON.parse(readFileSync(SETTINGS_PATH, "utf8"));
-  const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
-  settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: quote(`${hooksDir}/deny-dangerous.sh`) }] }] };
-  if (inboxFile) settings.hooks.PostToolUse = [{ hooks: [{ type: "command", command: `node --import ${quote(TSX_IMPORT)} ${quote(INBOX_HOOK)} ${quote(inboxFile)}` }] }];
-  if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
-  if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
-  settings.sandbox.filesystem.denyRead = sandboxDenyRead(cwd);
-  if (preview) settings.sandbox.network.allowLocalBinding = true; // the author starts the target's dev server
-  return settings;
 }
 
 // Fail closed: no agent starts unless the command guard is in place and can run.
