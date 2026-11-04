@@ -20,7 +20,8 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   return (
     <main>
       <PageTitle
-        title={first ? `${first.target} #${first.ticket}` : `Run ${run}`}
+        // The work item's title, as on its board card; without GitLab, its number.
+        title={item?.title ?? (first ? `${first.target} #${first.ticket}` : `Run ${run}`)}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {mrUrl && (
@@ -32,12 +33,13 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
           </div>
         }
       >
+        {first && <span className="font-mono">{first.target} #{first.ticket} · </span>}
         <span className="font-mono">{run}</span>
         {target && (
           <>
             {" · "}
             <a href={target.githubIssues ? `${target.githubIssues}/${first.ticket}` : `${gitlab()}/${target.projectPath}/-/issues/${first.ticket}`} className="underline decoration-input underline-offset-4 hover:text-foreground hover:decoration-current">
-              Open the ticket in {target.githubIssues ? "GitHub" : "GitLab"}
+              Open the work item in {target.githubIssues ? "GitHub" : "GitLab"}
             </a>
           </>
         )}

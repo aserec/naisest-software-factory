@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Confirm } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
+import { STATE } from "./board";
 
 type Action = "stop" | "resume" | "restart";
 interface RunState {
@@ -82,7 +83,7 @@ export function RunControls({ run, state }: { run: string; state?: string }) {
         <p className="text-muted-foreground">
           {label ? (
             <>
-              The state label is <code className="font-mono text-xs">{label}</code>, so there is nothing to stop or resume.
+              The work item is {STATE[label] ?? <code className="font-mono text-xs">{label}</code>}, so there is nothing to stop or resume.
             </>
           ) : (
             "The work item has no state label, so there is nothing to stop or resume."

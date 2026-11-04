@@ -32,7 +32,7 @@ test("a run that needs approval links its merge request and shows both risks; a 
   await expect(page.getByText("Merge risk 6/10")).toBeVisible();
   await expect(page.getByText("Waits for a person, because diff_risk 6 is above 4.")).toBeVisible();
   await page.goto(`/runs/${RUN}`);
-  await expect(page.getByRole("heading", { name: "demo #7" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Fix login" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Review and merge in GitLab" })).toHaveCount(0);
 });
 

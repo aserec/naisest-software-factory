@@ -44,7 +44,7 @@ export function RiskPills({ risk, mergeRisk }: { risk?: string; mergeRisk?: numb
 }
 
 // The board's name for each label.
-const STATE: Record<string, string> = {
+export const STATE: Record<string, string> = {
   factory_needs_approval: "Needs approval",
   factory_needs_info: "Needs info",
   factory_stopped: "Stopped",

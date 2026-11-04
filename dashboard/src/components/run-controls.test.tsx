@@ -89,7 +89,7 @@ test("shows the reason when the server refuses", async () => {
 test("says why there are no buttons, and that the state could not be read", async () => {
   server({ label: "factory_done" });
   renderWithQuery(<RunControls run="r1" />);
-  expect((await screen.findByText(/factory_done/)).closest("p")?.textContent).toBe("The state label is factory_done, so there is nothing to stop or resume.");
+  expect((await screen.findByText(/nothing to stop/)).textContent).toBe("The work item is Done, so there is nothing to stop or resume.");
   cleanup();
   vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
   renderWithQuery(<RunControls run="r1" />);
