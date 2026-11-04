@@ -48,6 +48,7 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
     reopen: async (ref) => { get(ref).open = true; },
     list: async (state) => [...tickets.values()].filter((t) => t.open && t.state === state),
     listClosed: async (count) => [...tickets.values()].filter((t) => !t.open).reverse().slice(0, count),
+    listOpen: async (limit) => [...tickets.values()].filter((t) => t.open).reverse().slice(0, limit),
     trusted: async (actor) => actor !== FAKE_FACTORY,
     isFactory: async (actor) => actor === FAKE_FACTORY,
     startedBy: async () => undefined,

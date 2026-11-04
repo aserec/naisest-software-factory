@@ -70,6 +70,15 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     },
     list: (state) => issues(`labels=${labelOf(state)}&state=opened&order_by=created_at&sort=asc&per_page=100`),
     listClosed: (count) => issues(`state=closed&order_by=updated_at&sort=desc&per_page=${Math.min(count, 100)}`).then((l) => l.slice(0, count)),
+    async listOpen(limit) {
+      const out: Ticket[] = [];
+      for (let page = 1; out.length < limit; page++) {
+        const got = await issues(`state=opened&order_by=created_at&sort=desc&per_page=100&page=${page}`);
+        out.push(...got);
+        if (got.length < 100) break;
+      }
+      return out.slice(0, limit);
+    },
     isFactory: async (actor) => actor === (await botName()),
     async trusted(actor) {
       if (actor === (await botName())) return false;

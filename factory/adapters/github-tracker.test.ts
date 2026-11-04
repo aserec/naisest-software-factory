@@ -130,3 +130,28 @@ describe("board", () => {
     expect(await t().startedBy("8")).toBeUndefined();
   });
 });
+
+// The same request with and without a board: the state of an open work item is not read from a board here.
+describe.each([["labels", undefined], ["board", 5]])("listOpen in %s mode", (_, projectNumber) => {
+  const t = () => makeGitHubTracker(gh, REPO, projectNumber);
+  const url = `GET /repos/${REPO}/issues?state=open&sort=created&direction=desc&per_page=100`;
+  const page = (n: number, pulls = 0) => Array.from({ length: n }, (_, i) => (i < pulls ? issue({ number: 500 - i, pull_request: {} }) : issue({ number: 300 - i })));
+
+  test("reads page by page, drops pull requests and returns at most the limit", async () => {
+    rest[url] = page(100, 10);
+    const l = await t().listOpen(150);
+    expect(l).toHaveLength(150);
+    expect(l.some((x) => Number(x.ref) > 400)).toBe(false);
+    expect(calls.filter((c) => c.method === "GET" && c.path.startsWith(`/repos/${REPO}/issues`)).map((c) => c.path)).toEqual([
+      `/repos/${REPO}/issues?state=open&sort=created&direction=desc&per_page=100&page=1`,
+      `/repos/${REPO}/issues?state=open&sort=created&direction=desc&per_page=100&page=2`,
+    ]);
+    expect(calls.some((c) => c.method !== "GET" || c.path === "/graphql")).toBe(false);
+  });
+
+  test("stops after a page with fewer than 100 items", async () => {
+    rest[url] = page(40);
+    expect(await t().listOpen(150)).toHaveLength(40);
+    expect(calls.filter((c) => c.path.includes("/issues?"))).toHaveLength(1);
+  });
+});

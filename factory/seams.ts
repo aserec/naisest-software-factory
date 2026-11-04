@@ -37,6 +37,7 @@ export interface Tracker {
   reopen(ref: TicketRef): Promise<void>;
   list(state: FactoryState): Promise<Ticket[]>; // open tickets, oldest first
   listClosed(count: number): Promise<Ticket[]>;
+  listOpen(limit: number): Promise<Ticket[]>; // every open work item, newest first; the state is not read on a board
   trusted(actor: PersonRef): Promise<boolean>; // may command the factory; false for the factory itself
   isFactory(actor: PersonRef): Promise<boolean>;
   startedBy(ref: TicketRef): Promise<PersonRef | undefined>;
