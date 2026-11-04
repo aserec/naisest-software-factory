@@ -3,7 +3,7 @@ import { findSecrets, HELD_SECRET } from "../rules";
 
 const GONE = "[removed]";
 const MAX = 20_000; // the longest text we keep, so one huge log line cannot fill a ticket
-const SECRET_KEY = /name|email|user|customer|phone|token|password|secret|address|ip/i;
+const SECRET_KEY = /name|email|user|customer|phone|token|password|secret|address|ip|key/i;
 
 // Removes the value after every private-looking key. A key that is not private is skipped
 // but its value is still scanned, so "next=/cb?token=abc" is caught. Each key regex starts only at

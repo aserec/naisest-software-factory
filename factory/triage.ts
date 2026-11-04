@@ -14,6 +14,12 @@ export type TriageOutcome = { kind: "blocked"; reason: string } | { kind: "needs
 
 const MAX_DESCRIPTION = 8000;
 export const INJECTION_LIMIT = 0.3;
+
+// The probability that the state tries to instruct an agent. NaN when the judge gives no answer, which callers treat as an injection.
+export async function injectionYes(judge: JevClient, state: object): Promise<number> {
+  const [a] = await judge.ask(state, [injectionQuestion]);
+  return a ? a.probability : NaN;
+}
 const RISK_CONFIDENCE_MIN = 0.7;
 const RISKS: Risk[] = ["trivial", "low", "medium", "high"];
 
