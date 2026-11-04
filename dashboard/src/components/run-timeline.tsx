@@ -215,32 +215,49 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")));
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
+  const nowText = live ? words(live.start.step ?? "") : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
+  const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
+  const time = duration(span / 1000);
+  const cost = usd(rows.reduce((sum, l) => sum + l.costUsd, 0));
+  const pills = (risk.risk || risk.mergeRisk !== undefined) && <RiskPills {...risk} />;
+  const figures: [string, React.ReactNode][] = [
+    ["Now", <span>{nowText}{at >= 0 && <span className="ml-2 text-muted-foreground">{at + 1} of {STEPS.length}</span>}</span>],
+    ["Time", time],
+    ["Cost", cost],
+    ["Risk", pills || "—"],
+  ];
   return (
     <>
       {failed}
       {/* The page pads itself for the open panel (main in runs/[run]/page.tsx), so the title row moves too. */}
       <div className="@container" data-panel={open ? "open" : undefined}>
-        <div className="mb-8 grid grid-cols-2 border-y @3xl:grid-cols-4">
-          <Figure label="Now" className="col-span-2 border-b pr-4 @3xl:col-span-1 @3xl:border-b-0">
-            {live ? words(live.start.step ?? "") : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—")}
-            {at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>}
-          </Figure>
-          <Figure label="Time" className="pr-4 @3xl:border-l @3xl:pl-4">
-            {duration(span / 1000)}
-          </Figure>
-          <Figure label="Cost" className="border-l pl-4 @3xl:pr-4">
-            {usd(rows.reduce((sum, l) => sum + l.costUsd, 0))}
-          </Figure>
-          <Figure label="Risk" className="col-span-2 border-t @3xl:col-span-1 @3xl:border-t-0 @3xl:border-l @3xl:pl-4">
-            {risk.risk || risk.mergeRisk !== undefined ? (
-              <span className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
-                <RiskPills {...risk} />
-              </span>
-            ) : (
-              "—"
-            )}
-          </Figure>
-        </div>
+        {open ? (
+          // Beside the open panel the column is narrow, so the four figures share one wrapping line instead of three rows.
+          <dl className="mb-8 flex flex-wrap items-center gap-x-6 gap-y-2 border-y py-3">
+            {figures.map(([label, value]) => (
+              <div key={label} className="flex min-w-0 items-center gap-2">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="flex flex-wrap items-center gap-2">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <div className="mb-8 grid grid-cols-2 border-y @3xl:grid-cols-4">
+            <Figure label="Now" className="col-span-2 border-b pr-4 @3xl:col-span-1 @3xl:border-b-0">
+              {nowText}
+              {step}
+            </Figure>
+            <Figure label="Time" className="pr-4 @3xl:border-l @3xl:pl-4">
+              {time}
+            </Figure>
+            <Figure label="Cost" className="border-l pl-4 @3xl:pr-4">
+              {cost}
+            </Figure>
+            <Figure label="Risk" className="col-span-2 border-t @3xl:col-span-1 @3xl:border-t-0 @3xl:border-l @3xl:pl-4">
+              {pills ? <span className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">{pills}</span> : "—"}
+            </Figure>
+          </div>
+        )}
         <Proof events={data} />
         <SectionHeading className="mb-0">Steps</SectionHeading>
         <ul>

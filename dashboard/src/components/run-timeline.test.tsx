@@ -135,6 +135,16 @@ test("a failed poll keeps the steps on screen under the error", async () => {
   expect(screen.getByRole("button", { name: /Prepare patch/ })).toBeTruthy();
 });
 
+test("with a step open, the figures sit in one line of label and value pairs", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  renderWithQuery(<RunTimeline run="r1" />);
+  const fig = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
+  expect(screen.queryByText("Time", { selector: "dt" })).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: /Prepare patch/ }));
+  expect([await fig("Now"), await fig("Risk")]).toEqual(["Code review4 of 10", "—"]);
+  window.history.replaceState(null, "", "/"); // the open step lives in the URL
+});
+
 test("a run with no proof events shows no Proof section", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: [ev("step_start", "00", { step: "triage" })], cursor: 1 })));
   renderWithQuery(<RunTimeline run="r1" />);
