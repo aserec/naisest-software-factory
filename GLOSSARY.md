@@ -5,7 +5,7 @@ The factory turns a labeled work item into a reviewed, checked and merged change
 ## Work
 
 **Work item**:
-A GitLab issue that a person labels `factory_ready` to ask the factory for a change.
+An issue in the target's tracker that a person sets ready to ask the factory for a change.
 _Avoid_: Ticket, issue, task
 
 **Duplicate check**:
