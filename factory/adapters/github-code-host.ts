@@ -117,7 +117,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       // GitHub's since filters on the edit time; keep only comments created after it, newest first.
       const all = await gh.all(`${r}/issues/${Number(ref)}/comments?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`);
       return all
-        .filter((c) => !since || c.created_at > since)
+        .filter((c) => !since || Date.parse(c.created_at) > Date.parse(since))
         .reverse()
         .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && String(c.body ?? "").startsWith(AI_LINE), body: c.body ?? "", at: c.created_at }));
     },

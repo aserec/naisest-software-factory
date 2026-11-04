@@ -267,6 +267,13 @@ describe("merge, revert, comment, assign", () => {
     ]);
     expect(last().url).toBe("/projects/7/merge_requests/5/notes?sort=desc&order_by=created_at&per_page=100");
   });
+  test("changeComments compares times as times: a note at the same second plus .500Z is after a since without milliseconds", async () => {
+    routes["/projects/7/merge_requests/5/notes"] = [
+      { system: false, author: { username: "ann" }, body: "later", created_at: "2026-11-04T10:00:00.500Z" },
+      { system: false, author: { username: "bob" }, body: "same", created_at: "2026-11-04T10:00:00.000Z" },
+    ];
+    expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => c.body)).toEqual(["later"]);
+  });
   test("assign looks up the user and puts the id on the change", async () => {
     routes["/users"] = [{ id: 12 }];
     routes["PUT /projects/7/merge_requests/5"] = {};

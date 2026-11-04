@@ -187,6 +187,15 @@ test("changeComments lists the comments created after since, newest first, and f
   expect(calls.find((c) => c.path.startsWith(`${R}/issues/5/comments`))!.path).toBe(`${R}/issues/5/comments?per_page=100&since=${encodeURIComponent("2026-11-04T10:00:00Z")}&page=1`);
 });
 
+test("changeComments compares times as times: a comment at the same second plus .500Z is after a since without milliseconds", async () => {
+  routes["/user"] = { login: "bot" };
+  routes[`${R}/issues/5/comments`] = [
+    { user: { login: "bob" }, body: "same", created_at: "2026-11-04T10:00:00Z" },
+    { user: { login: "ann" }, body: "later", created_at: "2026-11-04T10:00:00.500Z" },
+  ];
+  expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => c.body)).toEqual(["later"]);
+});
+
 test("attach puts the image on its own branch, made from the base the first time", async () => {
   routes[`${R}/git/ref/heads/develop`] = { object: { sha: "b" } };
   routes[`POST ${R}/git/refs`] = {};

@@ -188,7 +188,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       get(ref);
       changeNotes.set(ref, [{ author, byFactory, body, at }, ...(changeNotes.get(ref) ?? [])]);
     },
-    changeComments: async (ref: ChangeRef, since?: string): Promise<Comment[]> => (get(ref), (changeNotes.get(ref) ?? []).filter((c) => !since || c.at > since)),
+    changeComments: async (ref: ChangeRef, since?: string): Promise<Comment[]> => (get(ref), (changeNotes.get(ref) ?? []).filter((c) => !since || Date.parse(c.at) > Date.parse(since))),
     assignChange: async (ref: ChangeRef, person: PersonRef) => void host.assigned.push({ ref, person }),
     attach: async (name: string, data: Buffer) => {
       if (++attachCalls <= (o.attachFails ?? 0)) throw new Error("GitLab POST /projects/1/uploads failed with status 500");

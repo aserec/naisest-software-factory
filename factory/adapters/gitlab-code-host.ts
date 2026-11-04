@@ -93,7 +93,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       const name = await botName();
       const notes = await gitlab.getJson(`${await mrUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
       return notes
-        .filter((n: any) => !n.system && (!since || n.created_at > since))
+        .filter((n: any) => !n.system && (!since || Date.parse(n.created_at) > Date.parse(since)))
         .map((n: any) => ({ author: n.author.username, byFactory: n.author.username === name, body: n.body, at: n.created_at }));
     },
     async assignChange(ref, person) {
