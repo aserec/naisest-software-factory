@@ -15,7 +15,7 @@ export function factoryAuthorized(req: Request, tokenEnv: "FACTORY_DASHBOARD_TOK
   return given !== undefined && timingSafeEqual(digest(given), digest(token));
 }
 
-// ---- User sign-in (the sign-ins compose turns on, through Auth.js) ----
+// ---- User sign-in (the sign-ins that sign-ins.ts turns on, through Auth.js) ----
 
 export const SESSION_HOURS = 8;
 const HOUR = 3_600_000;
