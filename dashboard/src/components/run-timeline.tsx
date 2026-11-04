@@ -130,7 +130,7 @@ function Proof({ events }: { events: SeqEvent[] }) {
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
         {last.length > 0 && (
           <Fact label="Review">
-            Round {round}, {last.filter((f) => f.data.blocking).length} of {last.length} findings blocking
+            Round {round}, {last.filter((f) => f.data.blocking).length} of {last.length} {last.length === 1 ? "finding" : "findings"} blocking
           </Fact>
         )}
         {gates.length > 0 && <Fact label="Checks">{passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length)}</Fact>}

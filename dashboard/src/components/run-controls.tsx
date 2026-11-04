@@ -74,6 +74,8 @@ export function RunControls({ run, state }: { run: string; state?: string }) {
   const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : label === "factory_running" ? ["stop"] : label === "factory_stopped" ? ["resume", "restart"] : [];
   // A run that waits for approval says so on the page; the person's action is the merge, not a control.
   const quiet = label === "factory_needs_approval";
+  // Nothing to show: no wrapper either, or the title row's gap leaves a hole after the merge button.
+  if (quiet && !buttons.length && !data.pending.length && !send.error) return null;
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {buttons.map((a) => (

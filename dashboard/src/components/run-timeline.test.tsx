@@ -109,7 +109,7 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: proof, cursor: 9 })));
   renderWithQuery(<RunTimeline run="r1" state="factory_needs_approval" />);
   const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
-  expect(await fact("Review")).toBe("Round 2, 0 of 1 findings blocking");
+  expect(await fact("Review")).toBe("Round 2, 0 of 1 finding blocking");
   expect(await fact("Checks")).toBe("1 of 2 passed");
   expect(await fact("Decision")).toBe("Waits for a person, because diff_risk 6 is above 4.");
   expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("Waits for you7 of 10");

@@ -101,8 +101,9 @@ test("without a label_change the GitLab state picks the buttons, and a run waiti
   renderWithQuery(<RunControls run="r1" state="factory_running" />);
   expect(await screen.findByRole("button", { name: "Stop" })).toBeTruthy();
   cleanup();
-  server({});
+  const f = server({});
   const { container } = renderWithQuery(<RunControls run="r1" state="factory_needs_approval" />);
-  await waitFor(() => expect(container.querySelector("div")).not.toBeNull());
-  expect(container.textContent).toBe("");
+  await waitFor(() => expect(f).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 50)); // let the state answer render
+  expect(container.innerHTML).toBe("");
 });
