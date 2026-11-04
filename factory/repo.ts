@@ -106,7 +106,8 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
     // Reads from our git dir, so nothing the agent wrote in the work tree can change the answer.
     async readBase(path) {
       try {
-        return await git(["--git-dir", gitDir, "show", `HEAD:${path}`]);
+        // LC_ALL=C: the check below reads git's English message, whatever LANG the runner has.
+        return await git(["--git-dir", gitDir, "show", `HEAD:${path}`], { LC_ALL: "C" });
       } catch (e) {
         if (/does not exist|exists on disk, but not in/.test(String(e))) return undefined;
         throw e;

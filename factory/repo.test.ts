@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -210,4 +210,13 @@ test("readBase returns the committed file, not the edited work tree, and undefin
   expect(await repo.readBase(".factory/author.md")).toBe("committed\n");
   expect(await repo.readBase("missing.md")).toBeUndefined();
   expect(await repo.readBase(".factory/missing.md")).toBeUndefined();
+});
+
+// A translated git says "Pfad ... existiert nicht". A stand-in git speaks German unless it is asked for the C locale.
+test("readBase says undefined for a missing file whatever the language of git", async () => {
+  const bin = mkdtempSync(join(tmpdir(), "repo-lang-"));
+  writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$LC_ALL" = C ]; then echo "fatal: path 'x' does not exist in 'HEAD'"; else echo "fatal: Pfad 'x' existiert nicht in 'HEAD'"; fi\nexit 128\n`);
+  chmodSync(join(bin, "git"), 0o755);
+  const repo = gitRepo(bin, join(bin, "t.git"), "file:///none", "tok", { PATH: `${bin}:${process.env.PATH}`, LANG: "de_DE.UTF-8" });
+  expect(await repo.readBase("x")).toBeUndefined();
 });
