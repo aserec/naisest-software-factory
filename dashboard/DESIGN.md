@@ -261,7 +261,7 @@ Detail lives in a panel that slides in from the right edge, never in a centred m
 - **Shape:** full height, up to 640px wide (full width on a phone), white with a 1px left border and the panel shadow. From 1024px the whole run page, title row included, moves left by the panel's width, and the panel narrows (`min(640px, 100vw - 608px)`) so the step list keeps about 340px.
 - **Header:** the title (16px, 600) with its pills, an optional muted line, and a ghost close button at the top right (44px on a phone, 32px from 640px), over a 1px rule. 24px side padding.
 - **Body:** one scrolling column, 24px padding, sections 32px apart, each with the shared heading at 14px.
-- **Behaviour:** non-modal. No overlay; the page behind stays live, and a click on another row swaps the content. Esc and the close button close it. It slides in over 300ms with the control ease and respects reduced motion. The open item is in the URL (`?step=<id>`).
+- **Behaviour:** non-modal. No overlay; the page behind stays live, and a click on another row swaps the content. Opening moves focus to the panel title; Esc and the close button close it and return focus to the row. It slides in over 300ms with the control ease and respects reduced motion. The open item is in the URL (`?step=<id>`).
 
 ### Confirm dialog
 The only centred dialog, for a yes-or-no decision such as Stop, Resume or Restart.

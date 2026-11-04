@@ -17,6 +17,7 @@ test("open the board, a run, and the prepare-patch step in the side panel", asyn
   const panel = page.getByRole("dialog");
   await expect(panel).toBeVisible();
   await expect(page).toHaveURL(/\?step=/);
+  await expect(panel.getByRole("heading", { level: 2 })).toBeFocused();
   await expect(panel.getByText("Fix the login bug")).toBeVisible();
   await expect(panel.locator("summary", { hasText: "Edit" })).toBeVisible();
   await expect(panel.getByText("log line from the stub")).toBeVisible();
@@ -27,6 +28,7 @@ test("open the board, a run, and the prepare-patch step in the side panel", asyn
     expect(await box.evaluate((e) => e.getBoundingClientRect().right)).toBeLessThanOrEqual(edge);
   await panel.getByRole("button", { name: "Close" }).click();
   await expect(panel).toBeHidden();
+  await expect(lane).toBeFocused();
 });
 
 test("a run that needs approval links its merge request and shows both risks; a running one has no link", async ({ page, context, baseURL }) => {

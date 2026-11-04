@@ -121,3 +121,16 @@ test("a run with no proof events shows no Proof section", async () => {
   await screen.findByRole("button", { name: /triage/ });
   expect(screen.queryByRole("heading", { name: "Proof" })).toBeNull();
 });
+
+test("opening a step moves focus to the panel title, and Esc brings it back to that step's row", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  renderWithQuery(<RunTimeline run="r1" />);
+  const lane = await screen.findByRole("button", { name: /prepare-patch/ });
+  lane.focus();
+  fireEvent.click(lane);
+  const panel = await screen.findByRole("dialog");
+  await waitFor(() => expect(document.activeElement).toBe(panel.querySelector("h2")));
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(lane);
+});

@@ -83,6 +83,7 @@ function LaneRow({ lane, from, span, stuck, selected, onSelect }: { lane: Lane; 
         type="button"
         aria-haspopup="dialog"
         aria-expanded={selected}
+        data-lane={lane.start.id}
         onClick={onSelect}
         className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] @xl:flex"
       >
@@ -253,7 +254,12 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
       </div>
       <Sheet
         open={!!open}
-        onClose={() => setOpenId(undefined)}
+        onClose={() => {
+          // Back to the row the panel showed, so a keyboard user carries on from there.
+          const row = document.querySelector<HTMLElement>(`[data-lane="${CSS.escape(openId ?? "")}"]`);
+          setOpenId(undefined);
+          row?.focus();
+        }}
         title={
           open && (
             <span className="flex flex-wrap items-center gap-2">
