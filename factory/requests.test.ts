@@ -13,6 +13,13 @@ test("the cursor is read only from the factory's own comments", () => {
   expect(readCursor([c(false, cursorLine("2026-11-04T12:00:00Z"), "3"), c(true, `Done.\n\n${cursorLine("2026-11-04T10:00:00Z")}`, "2"), c(true, cursorLine("2026-11-04T09:00:00Z"), "1")])).toBe("2026-11-04T10:00:00Z");
   expect(readCursor([c(true, "no line", "1")])).toBeUndefined();
 });
+test("the cursor comes from the newest factory comment by time, wherever it is listed", () => {
+  const c = (body: string, at: string) => ({ author: "x", byFactory: true, body, at });
+  // 12:00:00.500Z is later than 13:59:59+02:00 (11:59:59Z) although it sorts earlier as text.
+  expect(readCursor([c(cursorLine("old"), "2026-11-04T13:59:59+02:00"), c(cursorLine("new"), "2026-11-04T12:00:00.500Z")])).toBe("new");
+  // The newest factory comment without a line does not hide an older one with a line.
+  expect(readCursor([c(cursorLine("old"), "2026-11-04T10:00:00Z"), c("no line", "2026-11-04T11:00:00Z")])).toBe("old");
+});
 test("later compares times, not text", () => {
   expect(later("2026-11-04T10:00:00Z", "2026-11-04T10:00:00.500Z")).toBe("2026-11-04T10:00:00.500Z");
   expect(later(undefined, "2026-11-04T10:00:00Z")).toBe("2026-11-04T10:00:00Z");
