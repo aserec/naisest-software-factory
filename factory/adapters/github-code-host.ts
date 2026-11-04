@@ -116,10 +116,12 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     async changeComments(ref, since) {
       const name = await botName();
       // GitHub's since filters on the edit time; keep only comments created after it, newest first.
-      const all = await gh.all(`${r}/issues/${Number(ref)}/comments?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`);
+      // Issue comments and inline review comments are two lists, so merge them by time.
+      const q = `?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`;
+      const all = [...(await gh.all(`${r}/issues/${Number(ref)}/comments${q}`)), ...(await gh.all(`${pr(ref)}/comments${q}`))];
       return all
         .filter((c) => !since || Date.parse(c.created_at) > Date.parse(since))
-        .reverse()
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
         .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && String(c.body ?? "").startsWith(AI_LINE), body: c.body ?? "", at: c.created_at }));
     },
     // Body edits come from the pull request's edit history, renames from its timeline; both newest first.

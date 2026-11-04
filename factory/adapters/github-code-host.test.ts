@@ -188,6 +188,7 @@ test("a comment with a secret is refused", async () => {
 
 test("changeComments lists the comments created after since, newest first, and flags only the bot's own AI-line ones", async () => {
   routes["/user"] = { login: "bot" };
+  routes[`${R}/pulls/5/comments`] = [];
   routes[`${R}/issues/5/comments`] = [
     { user: { login: "bob" }, body: "edited old", created_at: "2026-11-04T09:00:00Z" },
     { user: { login: "bot" }, body: `${AI_LINE}\n\ndone`, created_at: "2026-11-04T11:00:00Z" },
@@ -204,6 +205,7 @@ test("changeComments lists the comments created after since, newest first, and f
 
 test("changeComments compares times as times: a comment at the same second plus .500Z is after a since without milliseconds", async () => {
   routes["/user"] = { login: "bot" };
+  routes[`${R}/pulls/5/comments`] = [];
   routes[`${R}/issues/5/comments`] = [
     { user: { login: "bob" }, body: "same", created_at: "2026-11-04T10:00:00Z" },
     { user: { login: "ann" }, body: "later", created_at: "2026-11-04T10:00:00.500Z" },
@@ -238,6 +240,24 @@ test("baseCommits reads the base branch's commits since a time; the title is the
   routes[`${R}/commits`] = [{ sha: "c1", commit: { message: "Revert x\n\nbody", committer: { date: "2026-11-02T10:00:00Z" } } }];
   expect(await host().baseCommits("2026-11-01T00:00:00Z")).toEqual([{ sha: "c1", title: "Revert x", message: "Revert x\n\nbody", at: "2026-11-02T10:00:00Z" }]);
   expect(calls[0].path).toBe(`${R}/commits?sha=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100`);
+});
+
+test("changeComments merges the inline review comments with the others by time, newest first, with the same since and byFactory rules", async () => {
+  routes["/user"] = { login: "bot" };
+  routes[`${R}/issues/5/comments`] = [
+    { user: { login: "ann" }, body: "issue early", created_at: "2026-11-04T11:00:00Z" },
+    { user: { login: "ann" }, body: "issue late", created_at: "2026-11-04T13:00:00Z" },
+  ];
+  routes[`${R}/pulls/5/comments`] = [
+    { user: { login: "bob" }, body: "inline old", created_at: "2026-11-04T09:00:00Z" },
+    { user: { login: "bot" }, body: `${AI_LINE}\n\ninline factory`, created_at: "2026-11-04T12:00:00Z" },
+    { user: { login: "bot" }, body: "inline person", created_at: "2026-11-04T12:30:00Z" },
+  ];
+  expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => [c.body.split("\n").pop(), c.byFactory])).toEqual([
+    ["issue late", false], ["inline person", false], ["inline factory", true], ["issue early", false],
+  ]);
+  const since = encodeURIComponent("2026-11-04T10:00:00Z");
+  expect(calls.map((c) => c.path)).toContain(`${R}/pulls/5/comments?per_page=100&since=${since}&page=1`);
 });
 
 test("recentChanges makes one call and keeps the changes updated after since, from the factory's branches of this repo", async () => {
