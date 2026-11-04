@@ -50,3 +50,10 @@ it("refuses read, no answer, an error, and a profile without a login, with the e
   expect(await makeGitHubSignIn(f).check({}, { id: 9 })).toEqual({ refused: "role" });
   expect(f).not.toHaveBeenCalled();
 });
+
+it("checks write access on the host in GITHUB_API_URL", async () => {
+  vi.stubEnv("GITHUB_API_URL", "https://ghe.test/api/");
+  const f = vi.fn(async () => Response.json({ permission: "write" })) as unknown as typeof fetch;
+  expect(await makeGitHubSignIn(f).check({}, profile)).toEqual({ user });
+  expect(vi.mocked(f).mock.calls[0][0]).toBe("https://ghe.test/api/repos/o/a/collaborators/ann/permission");
+});

@@ -157,7 +157,7 @@ describe("requests", () => {
     db.addEvents([ev("run_start"), ev("step_start", {}, { step: "triage" })]);
     const r = db.request(stopReq) as { id: string };
     db.finish(r.id, "cancelled");
-    expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "the pipeline was cancelled, use Restart" });
+    expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "the run was cancelled, use Restart" });
     expect(db.request({ ...stopReq, kind: "restart" })).toMatchObject({ kind: "restart" });
   });
 

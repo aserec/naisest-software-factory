@@ -213,7 +213,7 @@ export function openDb(path: string): Db {
           if (newer) return { refused: "run is not the ticket's newest run" };
           // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted (spec 6.1, Ruling R18).
           const cancelled = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'stop' AND outcome = 'cancelled'").get(r.run);
-          if (cancelled && r.kind === "resume") return { refused: "the pipeline was cancelled, use Restart" };
+          if (cancelled && r.kind === "resume") return { refused: "the run was cancelled, use Restart" };
           const last = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'step_end' ORDER BY seq DESC LIMIT 1").get(r.run) as Row | undefined;
           if (!cancelled && (!last || JSON.parse(last.data as string).outcome !== "stopped")) return { refused: "run is not stopped" };
         }

@@ -2,9 +2,9 @@
 import { NotSetUp } from "../not-set-up";
 import { STATES, type BoardRow, type FactoryState, type Tracker } from "../seams";
 import { triageRisk } from "./gitlab-tracker";
+import { githubApi } from "./github-url";
 
 const web = () => (process.env.GITHUB_URL || "https://github.com").replace(/\/+$/, "");
-const api = () => (process.env.GITHUB_API_URL || "https://api.github.com").replace(/\/+$/, "");
 // "Needs approval" -> needs_approval; undefined for a column that is no factory state.
 const columnState = (name: string) => STATES.find((s) => s === name.trim().toLowerCase().replace(/\s+/g, "_"));
 
@@ -13,12 +13,12 @@ type Card = { state: FactoryState; repo: string; number: number; title: string; 
 export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
   const headers = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" });
   const rest = async (token: string, path: string) => {
-    const r = await fetchFn(`${api()}${path}`, { headers: headers(token) });
+    const r = await fetchFn(`${githubApi()}${path}`, { headers: headers(token) });
     if (!r.ok) throw new Error(`GitHub ${r.status} for ${path.split("?")[0]}`);
     return r.json();
   };
   const graphql = async (token: string, query: string, variables: object) => {
-    const r = await fetchFn(`${api()}/graphql`, { method: "POST", headers: headers(token), body: JSON.stringify({ query, variables }) });
+    const r = await fetchFn(`${githubApi()}/graphql`, { method: "POST", headers: headers(token), body: JSON.stringify({ query, variables }) });
     const j = r.ok ? await r.json() : undefined;
     if (!j || j.errors?.length) throw new Error(`GitHub GraphQL failed with status ${r.status}`);
     return j.data;

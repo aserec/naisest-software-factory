@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 
 // MR and factory_ are case sensitive: a class like "-mr-3" or a setting like FACTORY_DISPATCH_TOKEN is no vendor word.
 const VENDOR = /gitlab|github|grafana|loki|\bpipeline|mrUrl|\/-\/issues|merge request/i;
-const VENDOR_EXACT = /\bMR\b|\bfactory_/;
+const VENDOR_EXACT = /\bMR\b|factory_/;
 
 const files = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
