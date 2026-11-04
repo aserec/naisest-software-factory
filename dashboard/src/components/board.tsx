@@ -5,7 +5,7 @@ import { DIFF_RISK_MAX } from "software-factory/run-events";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import { ago, usd } from "@/lib/utils";
+import { ago, usd, words } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
 
 // One column per state label. Keep in step with STATES in server/gitlab.ts.
@@ -83,7 +83,7 @@ function Row({ item: i }: { item: BoardItem }) {
           <span className="font-mono">
             {i.target} #{i.ticket}
           </span>
-          {i.step && ` · ${i.step}`}
+          {i.step && ` · ${words(i.step)}`}
           {i.round !== undefined && ` · round ${i.round}`}
           {when && ` · ${when}`}
         </div>

@@ -8,17 +8,20 @@ import { Confirm } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
+import { words } from "@/lib/utils";
 
 type Rows = Record<string, Record<SwitchName, boolean>>;
 
-const label = (n: string) => n[0].toUpperCase() + n.slice(1).replace(/_/g, " ");
+// The glossary's words: "retry" resumes waiting runs, and the glossary avoids "retry" for that.
+const NAMES: Partial<Record<SwitchName, string>> = { retry: "Auto-resume", auto_merge: "Auto-merge" };
+const label = (n: SwitchName) => NAMES[n] ?? words(n);
 
 // What stops while a switch is off, from docs/how-it-works.md.
 const OFF: Record<SwitchName, string> = {
   watcher: "The watcher opens no work items.",
   dispatches: "Dispatches wait and open no work items.",
   new_runs: "No new run starts. Ready work items wait.",
-  retry: "No waiting run is resumed on the retry schedule.",
+  retry: "A run waiting at the usage limit does not resume on its own.",
   questions: "A run that would ask questions on the work item stops instead.",
   prepare_patch: "A run stops before the author writes the change.",
   auto_merge: "Every change waits for a person to approve it.",

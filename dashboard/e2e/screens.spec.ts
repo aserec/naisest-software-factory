@@ -10,7 +10,7 @@ test("open the board, a run, and the prepare-patch step in the side panel", asyn
   await page.getByRole("link", { name: "Fix login" }).click();
 
   await expect(page).toHaveURL(new RegExp(`/runs/${RUN}$`));
-  const lane = page.getByRole("button", { name: /prepare-patch/ });
+  const lane = page.getByRole("button", { name: /Prepare patch/ });
   await expect(lane).toBeVisible();
   await expect(page.getByRole("dialog")).toBeHidden();
   await lane.click();
@@ -24,7 +24,7 @@ test("open the board, a run, and the prepare-patch step in the side panel", asyn
   // From 1024px the page moves aside: the title row, the figures and the steps all end left of the panel.
   await page.waitForTimeout(400); // the 300ms slide and padding transition
   const edge = (await panel.boundingBox())!.x;
-  for (const box of [page.getByRole("heading", { level: 1 }), page.getByText("Risk", { exact: true }), page.getByRole("button", { name: /prepare-patch/ }), page.locator("main p").first(), page.getByRole("button", { name: "Stop" })])
+  for (const box of [page.getByRole("heading", { level: 1 }), page.getByText("Risk", { exact: true }), page.getByRole("button", { name: /Prepare patch/ }), page.locator("main p").first(), page.getByRole("button", { name: "Stop" })])
     expect(await box.evaluate((e) => e.getBoundingClientRect().right)).toBeLessThanOrEqual(edge);
   await panel.getByRole("button", { name: "Close" }).click();
   await expect(panel).toBeHidden();

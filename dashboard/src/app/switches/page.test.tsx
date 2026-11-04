@@ -16,7 +16,7 @@ test("shows a switch per scope and sends the new value when one is flipped", asy
   const f = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response(null, { status: 204 }) : json({ "*": all, demo: { ...all, retry: false } })));
   vi.stubGlobal("fetch", f);
   renderWithQuery(<SwitchesPage />);
-  const retry = await screen.findByRole("switch", { name: "Retry for demo" });
+  const retry = await screen.findByRole("switch", { name: "Auto-resume for demo" });
   expect(retry.getAttribute("aria-checked")).toBe("false");
   expect(screen.getByText("All targets")).toBeTruthy();
   fireEvent.click(retry);
@@ -49,14 +49,14 @@ test("a target whose switch the all-targets row turns off says so instead of sho
   vi.stubGlobal("fetch", vi.fn(async () => json({ "*": { ...all, auto_merge: false }, demo: { ...all, auto_merge: false } })));
   renderWithQuery(<SwitchesPage />);
   expect(await screen.findByText("Off (all targets)")).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Auto merge for demo" })).toBeNull();
-  expect(screen.getByRole("switch", { name: "Auto merge for all targets" })).toBeTruthy();
+  expect(screen.queryByRole("switch", { name: "Auto-merge for demo" })).toBeNull();
+  expect(screen.getByRole("switch", { name: "Auto-merge for all targets" })).toBeTruthy();
 });
 
 test("while a change is sent, only that switch is disabled", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Promise<Response>(() => {}) : json({ "*": all }))));
   renderWithQuery(<SwitchesPage />);
-  const retry = await screen.findByRole("switch", { name: "Retry for all targets" });
+  const retry = await screen.findByRole("switch", { name: "Auto-resume for all targets" });
   fireEvent.click(retry);
   await waitFor(() => expect(retry.hasAttribute("disabled")).toBe(true));
   expect(screen.getByRole("switch", { name: "Watcher for all targets" }).hasAttribute("disabled")).toBe(false);
@@ -65,6 +65,6 @@ test("while a change is sent, only that switch is disabled", async () => {
 test("a refused change names the switch and the missing role", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response("You need the Developer role on the factory project.", { status: 403 }) : json({ "*": all }))));
   renderWithQuery(<SwitchesPage />);
-  fireEvent.click(await screen.findByRole("switch", { name: "Retry for all targets" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("Could not turn Retry off for all targets. You need the Developer role on the factory project.");
+  fireEvent.click(await screen.findByRole("switch", { name: "Auto-resume for all targets" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not turn Auto-resume off for all targets. You need the Developer role on the factory project.");
 });

@@ -20,4 +20,7 @@ export function ago(iso: string, now = Date.now()) {
   return m < 60 ? `${m} m ago` : m < 1440 ? `${Math.floor(m / 60)} h ago` : `${Math.floor(m / 1440)} d ago`;
 }
 
+// A factory id as people read it: "prepare-patch" and "prepare_patch" are both "Prepare patch".
+export const words = (id: string) => id[0].toUpperCase() + id.slice(1).replace(/[-_]/g, " ");
+
 export const usd = (n: number) => `$${n.toFixed(2)}`;

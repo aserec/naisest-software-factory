@@ -25,7 +25,7 @@ test("renders a section per label that has tickets, one line for the empty ones,
 test("a card shows the live step, the round and both risks", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", step: "code-review", round: 2, risk: "low", mergeRisk: 3 })])));
   renderWithQuery(<Board />);
-  expect(await screen.findByText(/code-review · round 2/)).toBeTruthy();
+  expect(await screen.findByText(/Code review · round 2/)).toBeTruthy();
   expect(screen.getByText("Triage risk low")).toBeTruthy();
   expect(screen.getByText("Merge risk 3/10, limit 4")).toBeTruthy();
 });

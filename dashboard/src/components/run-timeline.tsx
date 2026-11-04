@@ -5,9 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { STEPS, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
-import { duration, usd } from "@/lib/utils";
+import { duration, usd, words } from "@/lib/utils";
 import { Fact, StepDetail } from "./step-detail";
-import { RiskPills } from "./board";
+import { RiskPills, STATE } from "./board";
 import { LoadError, SectionHeading } from "./shell";
 import { isStuck } from "./stuck";
 
@@ -62,17 +62,20 @@ const PILL: Record<string, "destructive" | "warning" | "secondary"> = { error: "
 // The step_end outcome in the words docs/how-it-works.md uses.
 const OUTCOME: Record<string, string> = { next: "passed" };
 
-function Pills({ lane, stuck }: { lane: Lane; stuck: boolean }) {
+// state: the work item's label, passed for the last step only. A run that ended there with "stop" waits for whatever
+// that label says (approval, an answer, a fix), so the pill uses the board's name for it.
+function Pills({ lane, stuck, state }: { lane: Lane; stuck: boolean; state?: string }) {
+  const said = lane.outcome === "stop" && state && STATE[state] ? STATE[state].toLowerCase() : lane.outcome && (OUTCOME[lane.outcome] ?? lane.outcome);
   return (
     <>
       {stuck && <Badge variant="destructive">Stuck</Badge>}
-      <Badge variant={PILL[lane.outcome ?? ""] ?? "secondary"}>{lane.outcome ? (OUTCOME[lane.outcome] ?? lane.outcome) : "running"}</Badge>
+      <Badge variant={PILL[lane.outcome ?? ""] ?? "secondary"}>{said || "running"}</Badge>
     </>
   );
 }
 
 // In a narrow column (a phone, or beside the open panel): name and pills on the first line, the bar, duration and cost on the second. From a 36rem column: one line.
-function LaneRow({ lane, from, span, stuck, selected, onSelect }: { lane: Lane; from: number; span: number; stuck: boolean; selected: boolean; onSelect: () => void }) {
+function LaneRow({ lane, from, span, stuck, state, selected, onSelect }: { lane: Lane; from: number; span: number; stuck: boolean; state?: string; selected: boolean; onSelect: () => void }) {
   const start = Date.parse(lane.start.at);
   const end = lane.end ? Date.parse(lane.end.at) : from + span;
   // The production line: ended steps in ink, the live one in the data hue, a failed or stuck one in red.
@@ -87,9 +90,9 @@ function LaneRow({ lane, from, span, stuck, selected, onSelect }: { lane: Lane; 
         onClick={onSelect}
         className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] @xl:flex"
       >
-        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{lane.start.step}</span>
+        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{words(lane.start.step ?? "")}</span>
         <span className="flex justify-end gap-1 @xl:order-4 @xl:w-32">
-          <Pills lane={lane} stuck={stuck} />
+          <Pills lane={lane} stuck={stuck} state={state} />
         </span>
         <span className="relative h-2 rounded-full bg-raised @xl:order-2 @xl:flex-1">
           <span className={`absolute inset-y-0 rounded-full ${bar}`} style={{ left: `${((start - from) / span) * 100}%`, width: `${Math.max(((end - start) / span) * 100, 1)}%` }} />
@@ -152,7 +155,7 @@ function AheadRow({ step }: { step: string }) {
     <li className="border-b border-rule text-muted-foreground last:border-0">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3 @xl:flex">
         <span className="truncate @xl:w-40 @xl:flex-none">
-          {step}
+          {words(step)}
           <span className="sr-only"> not reached</span>
         </span>
         <span className="hidden h-2 rounded-full bg-raised @xl:block @xl:flex-1" />
@@ -219,7 +222,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
       <div className="@container" data-panel={open ? "open" : undefined}>
         <div className="mb-8 grid grid-cols-2 border-y @3xl:grid-cols-4">
           <Figure label="Now" className="col-span-2 border-b pr-4 @3xl:col-span-1 @3xl:border-b-0">
-            {live ? live.start.step : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—")}
+            {live ? words(live.start.step ?? "") : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—")}
             {at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>}
           </Figure>
           <Figure label="Time" className="pr-4 @3xl:border-l @3xl:pl-4">
@@ -242,7 +245,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
         <SectionHeading className="mb-0">Steps</SectionHeading>
         <ul>
           {rows.map((l) => (
-            <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
+            <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} state={l === rows.at(-1) ? state : undefined} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
           ))}
           {STEPS.slice(reached + 1).map((s) => (
             <AheadRow key={s} step={s} />
@@ -260,7 +263,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
         title={
           open && (
             <span className="flex flex-wrap items-center gap-2">
-              {open.start.step} <Pills lane={open} stuck={stuck(open)} />
+              {words(open.start.step ?? "")} <Pills lane={open} stuck={stuck(open)} state={open === rows.at(-1) ? state : undefined} />
             </span>
           )
         }
