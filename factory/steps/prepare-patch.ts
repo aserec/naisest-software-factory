@@ -40,8 +40,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands } });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });
   if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 2000)}`);
-  // The round's comment shows the author's whole answer; the post cuts it.
-  if (requests) ctx.record = { ...ctx.record, requestRounds: ctx.record.requestRounds?.map((x, i, all) => (i === all.length - 1 ? { ...x, answer: r.text } : x)) };
+  // The round's comment shows the author's whole answer; the post cuts it. A round finished after a pause (CONTINUE) keeps its answer too.
+  if (facts(ctx).openRound) ctx.record = { ...ctx.record, requestRounds: ctx.record.requestRounds?.map((x, i, all) => (i === all.length - 1 ? { ...x, answer: r.text } : x)) };
   save(ctx, "prepare-patch", { sessionId: r.session, commands });
   await ctx.tracker.mark(ticketRef(ctx), "implemented");
   return "next";

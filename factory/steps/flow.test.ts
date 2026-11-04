@@ -1982,11 +1982,14 @@ test("a round that hits the usage limit is resumed with CONTINUE, not the reques
   expect(w.states).toEqual(["waiting"]);
   expect(w.record.requestRounds!.at(-1)!.answer).toBeUndefined();
   const retry = fakeWorld({ state: "waiting" });
+  const run = retry.harness.run;
+  retry.harness.run = async (job) => ({ ...(await run(job)), ...(job.role === "author" && { text: "- @dev: added the screenshot" }) });
   retry.ci.vars = { ...retry.ci.vars, payload: undefined, ticket: "8", buildRun: "42" };
   retry.ci.buildRecord = async () => w.record;
   await runBuildJobs(retry, tmp());
   expect(retry.claudeRuns[0]).toMatchObject({ resume: "sess-limit", prompt: CONTINUE });
   expect(runFacts(first.record).roundStart).toBe(false);
+  expect(retry.record.requestRounds!.at(-1)!.answer).toBe("- @dev: added the screenshot"); // the CONTINUE run's answer is the round's answer
 });
 // The GitLab webhook hears a request at once: the same answer the poller gives.
 const requestEvent = (actor = "dev", change?: string) => ({ kind: "request", ticket: "8", actor, ...(change ? { change } : {}) }) as const;
