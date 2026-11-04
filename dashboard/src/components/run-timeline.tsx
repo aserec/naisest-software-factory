@@ -94,7 +94,8 @@ function LaneRow({ lane, from, span, stuck, selected, onSelect }: { lane: Lane; 
           <span className={`absolute inset-y-0 rounded-full ${bar}`} style={{ left: `${((start - from) / span) * 100}%`, width: `${Math.max(((end - start) / span) * 100, 1)}%` }} />
         </span>
         <span className="text-right text-muted-foreground @xl:order-3 @xl:w-16">{duration((end - start) / 1000)}</span>
-        <span className="text-right @xl:order-5 @xl:w-14">{usd(lane.costUsd)}</span>
+        {/* A live step reports its usage at the end, so until then its cost is unknown, not $0.00. */}
+        {!lane.end && lane.costUsd === 0 ? <span className="text-right text-muted-foreground @xl:order-5 @xl:w-14">—</span> : <span className="text-right @xl:order-5 @xl:w-14">{usd(lane.costUsd)}</span>}
       </button>
     </li>
   );
@@ -117,7 +118,8 @@ function AheadRow({ step }: { step: string }) {
           <span className="sr-only"> not reached</span>
         </span>
         <span className="hidden h-2 rounded-full bg-raised @xl:block @xl:flex-1" />
-        <span className="hidden @xl:block @xl:w-[17.5rem]" />
+        {/* As tall as a pill, so this row matches a reached row's height. */}
+        <span className="hidden h-5.5 @xl:block @xl:w-[17.5rem]" />
       </div>
     </li>
   );
@@ -177,7 +179,7 @@ export function RunTimeline({ run, limits = {}, risk = {} }: { run: string; limi
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
   return (
     <>
-      <div className={`@container transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${open ? "xl:pr-[624px]" : ""}`}>
+      <div className={`@container transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${open ? "lg:pr-[min(624px,calc(100vw-624px))]" : ""}`}>
         <div className="mb-8 grid grid-cols-2 border-y @lg:w-fit @lg:min-w-[40rem] @lg:grid-cols-4">
           <Figure label="Now" className="col-span-2 border-b pr-4 @lg:col-span-1 @lg:border-b-0">
             {live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}

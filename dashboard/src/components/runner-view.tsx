@@ -21,14 +21,17 @@ const FULL = 85; // used percent from which a disk or memory bar turns red
 const pct = (n: number) => (Number.isFinite(n) ? `${Math.round(n)}%` : "—");
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
+// Settings a person types, such as GRAFANA_URL, set in mono.
+const withEnvNames = (s: string) => s.split(/\b([A-Z][A-Z0-9]*_[A-Z0-9_]+)\b/).map((t, i) => (i % 2 ? <code key={i} className="font-mono text-xs">{t}</code> : t));
+
 // A part that failed shows its error; the other parts still show.
 function Show<T>({ part, children }: { part: Part<T> | undefined; children: (v: T) => React.ReactNode }) {
   if (part === undefined) return null;
-  if (part && typeof part === "object" && "unset" in part) return <p className="text-muted-foreground">{part.unset}</p>;
+  if (part && typeof part === "object" && "unset" in part) return <p className="text-muted-foreground">{withEnvNames(part.unset)}</p>;
   if (part && typeof part === "object" && "error" in part)
     return (
       <p role="alert" className="text-destructive">
-        {part.error}
+        {withEnvNames(part.error)}
       </p>
     );
   return <>{children(part as T)}</>;
@@ -60,6 +63,8 @@ export function RunnerView() {
       return (await r.json()) as Runner;
     },
   });
+  // No log source to switch between when Grafana is not set up.
+  const unset = !!data && "unset" in data.logs;
   return (
     <div className="flex flex-col gap-8">
       {error && (
@@ -139,23 +144,26 @@ export function RunnerView() {
       </div>
 
       <section>
-        <SectionHeading className="mb-1 flex-wrap justify-between border-0 pb-0">
-          Logs of the last 15 minutes{host ? ` on ${host}` : ""}
+        {/* The tabs' full-width rule stands in for the heading's rule; without tabs the heading keeps its own. */}
+        <div className={`flex flex-wrap items-baseline justify-between gap-x-4 ${unset ? "" : "mb-1"}`}>
+          <SectionHeading className={unset ? "flex-1" : "mb-0 border-0 pb-0"}>Logs of the last 15 minutes{host ? ` on ${host}` : ""}</SectionHeading>
           {host && (
-            <button type="button" className="text-sm font-normal text-muted-foreground hover:text-foreground" onClick={() => setHost("")}>
+            <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setHost("")}>
               Show every host
             </button>
           )}
-        </SectionHeading>
-        <Tabs value={source} onValueChange={(v) => setSource(v as LogSource)} className="mb-4">
-          <TabsList>
-            {SOURCES.map((s) => (
-              <TabsTrigger key={s} value={s}>
-                {s}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        </div>
+        {!unset && (
+          <Tabs value={source} onValueChange={(v) => setSource(v as LogSource)} className="mb-4">
+            <TabsList>
+              {SOURCES.map((s) => (
+                <TabsTrigger key={s} value={s}>
+                  {s}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        )}
         <Show part={data?.logs}>
           {(logs) => (
             <pre className="max-h-[60vh] overflow-auto rounded-lg bg-raised p-4 font-mono text-xs leading-5">

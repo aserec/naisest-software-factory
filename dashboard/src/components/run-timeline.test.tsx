@@ -23,7 +23,10 @@ test("shows a lane per step, and a click opens that step in the side panel", asy
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: [...events].reverse(), cursor: 9 })));
   renderWithQuery(<RunTimeline run="r1" />);
   const lane = await screen.findByRole("button", { name: /prepare-patch/ });
-  expect(screen.getByRole("button", { name: /code-review/ }).textContent).toContain("running");
+  const live = screen.getByRole("button", { name: /code-review/ });
+  expect(live.textContent).toContain("running");
+  expect(live.textContent).toContain("—"); // no usage yet, so no cost yet
+  expect(live.textContent).not.toContain("$0.00");
   expect(lane.textContent).toContain("passed");
   expect(lane.textContent).toContain("$0.25");
   expect(screen.queryByText("Edit")).toBeNull();

@@ -25,7 +25,8 @@ export function Mark() {
 }
 
 function crumbs(path: string): { label: string; href?: string }[] {
-  if (path.startsWith("/runs/")) return [{ label: "Board", href: "/" }, { label: `Run ${decodeURIComponent(path.slice(6))}` }];
+  // The run id is already under the page title in mono; repeating it here reads as "Run run-…".
+  if (path.startsWith("/runs/")) return [{ label: "Board", href: "/" }, { label: "Run" }];
   return [{ label: NAV.find((n) => n.href === path)?.label ?? "Factory" }];
 }
 

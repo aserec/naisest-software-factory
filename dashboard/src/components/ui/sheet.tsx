@@ -14,7 +14,7 @@ export function Sheet({ open, onClose, title, description, children, footer }: {
           onInteractOutside={(e) => e.preventDefault()}
           onOpenAutoFocus={(e) => e.preventDefault()}
           className={cn(
-            "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-[-12px_0_32px_-12px_rgb(19_20_22/0.16)] outline-none sm:max-w-[640px]",
+            "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-[-12px_0_32px_-12px_rgb(19_20_22/0.16)] outline-none sm:max-w-[640px] lg:max-w-[min(640px,calc(100vw-608px))]",
             "duration-300 ease-[cubic-bezier(0.2,0,0,1)] data-[state=closed]:duration-200 data-[state=open]:animate-in data-[state=open]:slide-in-from-right data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right motion-reduce:animate-none"
           )}
         >
@@ -23,7 +23,7 @@ export function Sheet({ open, onClose, title, description, children, footer }: {
               <SheetPrimitive.Title className="text-base leading-6 font-semibold">{title}</SheetPrimitive.Title>
               <SheetPrimitive.Description className={description ? "mt-0.5 text-muted-foreground" : "sr-only"}>{description ?? "Details"}</SheetPrimitive.Description>
             </div>
-            <SheetPrimitive.Close className="-mt-1 -mr-2 flex size-8 flex-none items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <SheetPrimitive.Close className="-mt-2.5 -mr-3.5 flex size-11 flex-none sm:-mt-1 sm:-mr-2 sm:size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-raised hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
               <X className="size-4" strokeWidth={1.5} aria-hidden="true" />
               <span className="sr-only">Close</span>
             </SheetPrimitive.Close>

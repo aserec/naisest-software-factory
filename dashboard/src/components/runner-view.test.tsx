@@ -22,3 +22,17 @@ test("a source that is not set up shows a muted line, not an alert", async () =>
   expect(await screen.findAllByText("Grafana is not set up.")).toHaveLength(2);
   expect(screen.queryByRole("alert")).toBeNull();
 });
+
+test("without Grafana the log tabs are gone and the settings to set read in mono", async () => {
+  const unset = { unset: "Grafana is not set up. Set GRAFANA_URL and LOKI_UID." };
+  vi.stubGlobal("fetch", async () => json({ jobs: [], hosts: unset, logs: unset }));
+  renderWithQuery(<RunnerView />);
+  expect((await screen.findAllByText("GRAFANA_URL"))[0].tagName).toBe("CODE");
+  expect(screen.queryByRole("tab")).toBeNull();
+});
+
+test("with Grafana the log tabs show", async () => {
+  vi.stubGlobal("fetch", async () => json({ jobs: [], hosts: [], logs: [] }));
+  renderWithQuery(<RunnerView />);
+  expect(await screen.findAllByRole("tab")).toHaveLength(3);
+});
