@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
+import { loadSeams, providerKeys } from "./config";
 import { BUILD_STEPS, STEPS as RUN_STEPS } from "./steps/run";
 import { main as watcher } from "./steps/watcher";
 
@@ -17,7 +18,7 @@ const STEP_PREFIX = [
   ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY", "FACTORY_SCHEDULE"].map(passed),
   // File variables: only their paths pass.
   ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN", "FACTORY_TRIGGER_TOKEN"].map(passed),
-  ...["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"].map(passed),
+  ...providerKeys(loadSeams()).map(passed),
 ].join(" ");
 const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile --filter software-factory`;
 

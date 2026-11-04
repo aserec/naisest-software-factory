@@ -81,6 +81,9 @@ function validate<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, raw: unknown, 
   return r.data;
 }
 
+// The key variable of every model provider in seams.yml, then the Jev key. Each name once.
+export const providerKeys = (seams: SeamsConfig): string[] => [...new Set([...Object.values(seams.providers).map((p) => p.keyEnv), "BERGET_API_KEY"])];
+
 // The family of a provider's model, or an error naming the field.
 function family(seams: SeamsConfig, c: { provider: string; model: string }, field: string): string {
   const p = Object.hasOwn(seams.providers, c.provider) ? seams.providers[c.provider] : undefined;

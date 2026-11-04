@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { checkHardRules } from "./rules";
-import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, parseFactoryFile } from "./config";
+import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, parseFactoryFile, providerKeys } from "./config";
 
 const real = (name: string) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), "utf8");
 // The real file with one text replaced, in a temp dir.
@@ -113,4 +113,10 @@ test("a dashboardUrl that is not an https address is refused, so the token never
 test("a target may set stuckMinutes, and a zero or negative value is refused", () => {
   expect(loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 30 } }).stuckMinutes).toEqual({ verify: 30 });
   expect(() => loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 0 } })).toThrow(/stuckMinutes/);
+});
+
+test("providerKeys lists every provider key once, then the Jev key", () => {
+  const seams = loadSeams();
+  const twice = { ...seams, providers: { ...seams.providers, again: { ...seams.providers.tensorx } } };
+  expect(providerKeys(twice)).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"]);
 });

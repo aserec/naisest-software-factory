@@ -11,7 +11,7 @@ import { makeFileLogs } from "./adapters/file-logs";
 import { makeModelJudge } from "./adapters/model-judge";
 import { pi } from "./adapters/pi";
 import { makeTeamsChat } from "./adapters/teams-chat";
-import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice } from "./config";
+import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, providerKeys } from "./config";
 import { makeLocalCi } from "./adapters/local-ci";
 import { makeGitHubTracker } from "./adapters/github-tracker";
 import { makeGitHubCodeHost } from "./adapters/github-code-host";
@@ -100,7 +100,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   if (!dashboardToken) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
   const dashboardUrl = checkDashboardUrl(seams, env);
   // No comment, change text or pushed diff may carry any of these.
-  addKnownSecrets(token, githubToken, webhook, dashboardToken, env.BERGET_API_KEY, ...Object.values(seams.providers).map((p) => env[p.keyEnv]));
+  addKnownSecrets(token, githubToken, webhook, dashboardToken, ...providerKeys(seams).map((k) => env[k]));
   if (env.CI_JOB_IMAGE && env.CI_JOB_IMAGE !== target.jobImage) throw new Error(`The job runs image ${env.CI_JOB_IMAGE}, but target ${name} names ${target.jobImage}`);
   const dir = resolve(RUN_DIR, "target");
   const codeHost = make.codeHost(tokenFor(seams.codeHost), target, env);

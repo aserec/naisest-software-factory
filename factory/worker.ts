@@ -15,7 +15,7 @@ import { checkVars } from "./adapters/gitlab-ci";
 import { TSX_IMPORT } from "./agents";
 import { QUEUE_DIR, RUNS_DIR, type QueuedRun } from "./adapters/local-ci";
 import { Hetzner, type Vm } from "./hetzner";
-import { loadSeams } from "./config";
+import { loadSeams, providerKeys } from "./config";
 import { FACTORY_ROOT } from "./repo";
 import { BUILD_STEPS, FINISH_STEPS } from "./steps/run";
 
@@ -23,7 +23,6 @@ export type Exec = (cmd: string, args: string[], env?: Record<string, string>, c
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 // File secrets: a step reads each file and deletes it before any agent runs. Values never go on a command line.
 const FILE_SECRETS = { FACTORY_GITLAB_TOKEN: "GL_TOKEN", FACTORY_GITHUB_TOKEN: "FACTORY_GITHUB_TOKEN", TEAMS_WEBHOOK_URL: "TEAMS_WEBHOOK_URL", FACTORY_DASHBOARD_TOKEN: "FACTORY_DASHBOARD_TOKEN" };
-const ENV_SECRETS = ["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"];
 const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
 export const realExec: Exec = (cmd, args, env = {}, cwd) =>
@@ -38,7 +37,7 @@ export const realExec: Exec = (cmd, args, env = {}, cwd) =>
   });
 
 // The variables of one step, the same names .gitlab-ci.yml passes. Checked like a trigger's before anything runs.
-export function stepEnv(base: NodeJS.ProcessEnv, v: { pipeline?: string; schedule?: string; target: string; run?: QueuedRun; id?: string; source?: string }): Record<string, string> {
+export function stepEnv(base: NodeJS.ProcessEnv, v: { pipeline?: string; schedule?: string; target: string; run?: QueuedRun; id?: string; source?: string }, seams = loadSeams()): Record<string, string> {
   const e: Record<string, string> = {
     PATH, HOME: "/root", CLAUDE_CONFIG_DIR: `${FACTORY_ROOT}/run/claude-home`, PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright",
     FACTORY_PIPELINE: v.pipeline ?? "", FACTORY_SCHEDULE: v.schedule ?? "", FACTORY_TARGET: v.target,
@@ -46,7 +45,7 @@ export function stepEnv(base: NodeJS.ProcessEnv, v: { pipeline?: string; schedul
     FACTORY_SKIP_APPLY: v.run?.skipApply ? "1" : "", FACTORY_RUN_ID: v.id ?? "",
   };
   if (v.source) e.CI_PIPELINE_SOURCE = v.source; // web: a person started it (the watcher with logSource files)
-  for (const k of ["FACTORY_DASHBOARD_URL", "NODE_EXTRA_CA_CERTS", ...ENV_SECRETS]) if (base[k]) e[k] = base[k]!;
+  for (const k of ["FACTORY_DASHBOARD_URL", "NODE_EXTRA_CA_CERTS", ...providerKeys(seams)]) if (base[k]) e[k] = base[k]!;
   checkVars(e, { FACTORY_RUN_ID: /^([0-9]+)?$/, FACTORY_TARGET: /^[a-z0-9_-]+$/ });
   return e;
 }
