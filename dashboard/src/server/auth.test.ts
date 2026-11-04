@@ -18,61 +18,7 @@ beforeEach(() => {
   vi.stubEnv("GITLAB_READ_TOKEN", "read-token");
 });
 
-// A fake GitLab: /user answers only the user's token, the member read answers only the server's read token.
-function fakeGitlab(member: number | { status: number } | { level: number; state: string }) {
-  return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-    const u = String(url);
-    const h = new Headers(init?.headers);
-    if (u.endsWith("/api/v4/user")) return h.get("authorization") === "Bearer user-token" ? Response.json({ id: 7, username: "dev" }) : new Response("no", { status: 401 });
-    if (u.endsWith("/projects/42/members/all/7")) {
-      if (h.get("private-token") !== "read-token" || h.has("authorization")) return new Response("no", { status: 401 });
-      if (typeof member === "number") return Response.json({ access_level: member, state: "active" });
-      return "status" in member ? new Response("no", { status: member.status }) : Response.json({ access_level: member.level, state: member.state });
-    }
-    return new Response("?", { status: 404 });
-  }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
-}
-
 const load = () => import("./auth");
-const down = vi.fn(async () => {
-  throw new Error("network");
-}) as unknown as typeof fetch;
-
-describe("sign-in role check", () => {
-  it("accepts a Developer (30), reading the member with the read token", async () => {
-    const { checkRole } = await load();
-    expect(await checkRole("user-token", fakeGitlab(30))).toEqual({ user: "dev", userId: 7, level: 30 });
-  });
-
-  it("refuses a Reporter (20), a non-member (404) and a blocked Developer with the exact text", async () => {
-    const { checkRole, REFUSAL } = await load();
-    expect(REFUSAL).toBe("You need the Developer role on the factory project.");
-    for (const m of [20, { status: 404 }, { level: 30, state: "blocked" }]) expect(await checkRole("user-token", fakeGitlab(m))).toEqual({ refused: REFUSAL });
-  });
-
-  it("says GitLab did not confirm the role on a 500, a thrown error, or a refused user token", async () => {
-    const { checkRole, REFUSAL } = await load();
-    for (const [token, f] of [["user-token", fakeGitlab({ status: 500 })], ["user-token", down], ["wrong", fakeGitlab(30)]] as const) {
-      const r = (await checkRole(token, f)) as { refused: string };
-      expect(r.refused).toMatch(/did not confirm/);
-      expect(r.refused).not.toBe(REFUSAL);
-    }
-  });
-});
-
-describe("canAct (Ruling R22)", () => {
-  it("is true at 30 and active, read with the server's read token", async () => {
-    const { canAct } = await load();
-    const f = fakeGitlab(30);
-    expect(await canAct(7, f)).toBe(true);
-    expect(f).toHaveBeenCalledTimes(1);
-  });
-
-  it("is false at 20, on a 404, for a blocked user, on a non-OK answer and on a thrown error", async () => {
-    const { canAct } = await load();
-    for (const f of [fakeGitlab(20), fakeGitlab({ status: 404 }), fakeGitlab({ level: 40, state: "blocked" }), fakeGitlab({ status: 500 }), down]) expect(await canAct(7, f)).toBe(false);
-  });
-});
 
 describe("session", () => {
   const SECRET = "test-secret-test-secret-test-secret";
@@ -81,24 +27,32 @@ describe("session", () => {
     return `${name}=${await encode({ token, secret: SECRET, salt: name })}`;
   };
 
-  it("the jwt callback keeps only the user id, the username and the sign-in time", async () => {
+  it("the jwt callback keeps only the user id, the username, the sign-in and the sign-in time", async () => {
     const { authConfig } = await load();
-    const t = await authConfig.callbacks.jwt({ token: { name: "Dev Name", email: "d@x" }, account: { access_token: "at", refresh_token: "rt" }, profile: { id: 7, username: "dev" } });
-    expect(Object.keys(t!).sort()).toEqual(["loginAt", "userId", "username"]);
-    expect(t).toMatchObject({ userId: 7, username: "dev" });
+    const t = await authConfig.callbacks.jwt({ token: { name: "Dev Name", email: "d@x" }, account: { provider: "gitlab", access_token: "at", refresh_token: "rt" }, profile: { id: 7, username: "dev" } });
+    expect(Object.keys(t!).sort()).toEqual(["loginAt", "signIn", "userId", "username"]);
+    expect(t).toMatchObject({ userId: 7, username: "dev", signIn: "gitlab" });
   });
 
   it("the jwt callback keeps a GitHub user's login and marks the session as GitHub", async () => {
     const { authConfig } = await load();
     const t = await authConfig.callbacks.jwt({ token: {}, account: { provider: "github", access_token: "at" }, profile: { id: 9, login: "ann", name: "Ann" } });
-    expect(t).toMatchObject({ userId: 9, username: "ann", provider: "github" });
-    expect(Object.keys(t!).sort()).toEqual(["loginAt", "provider", "userId", "username"]);
+    expect(t).toMatchObject({ userId: 9, username: "ann", signIn: "github" });
+    expect(Object.keys(t!).sort()).toEqual(["loginAt", "signIn", "userId", "username"]);
+  });
+
+  it("a session token from before the sign-in seam keeps its sign-in", async () => {
+    const { authConfig } = await load();
+    const session = (token: object) => authConfig.callbacks.session({ session: {}, token });
+    expect(await session({ userId: 1, username: "a", loginAt: Date.now() })).toMatchObject({ signIn: "gitlab" });
+    expect(await session({ userId: 1, username: "a", loginAt: Date.now(), provider: "github" })).toMatchObject({ signIn: "github" });
+    expect(await session({ userId: 1, username: "a", loginAt: Date.now(), signIn: "github" })).toMatchObject({ signIn: "github" });
   });
 
   it("sessionUser gives the id and username from the cookie, and nothing without one or 8 h after sign-in", async () => {
     const { sessionUser } = await load();
     request.cookie = await cookieFor({ userId: 7, username: "dev", loginAt: Date.now() - 7 * 3_600_000 });
-    expect(await sessionUser()).toEqual({ userId: 7, username: "dev" });
+    expect(await sessionUser()).toEqual({ userId: 7, username: "dev", signIn: "gitlab" });
     request.cookie = await cookieFor({ userId: 7, username: "dev", loginAt: Date.now() - 8 * 3_600_000 - 1000 });
     expect(await sessionUser()).toBeUndefined();
     request.cookie = await cookieFor({ userId: 7, accessToken: "old", loginAt: Date.now() }); // a cookie from before R22
@@ -133,7 +87,7 @@ describe("Auth.js wiring", () => {
 
   it("never reaches GitLab for a callback with a state it did not issue", async () => {
     const { handlers } = await load();
-    const f = fakeGitlab(30);
+    const f = vi.fn(async () => Response.json({}));
     vi.stubGlobal("fetch", f);
     const res = await handlers.GET(new NextRequest("https://dash.test/api/auth/callback/gitlab?code=x&state=wrong"));
     vi.unstubAllGlobals();

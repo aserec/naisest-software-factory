@@ -5,9 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const who = vi.hoisted(() => ({ session: true, canAct: true }));
 vi.mock("@/server/auth", () => ({
+  DEV_LOGIN: false,
   auth: async () => (who.session ? { user: { name: "ann" } } : null),
-  sessionUser: async () => (who.session ? { userId: 1, username: "ann" } : undefined),
-  canAct: async () => who.canAct,
+  sessionUser: async () => (who.session ? { userId: 1, username: "ann", signIn: "fake" } : undefined),
+}));
+vi.mock("@/server/sign-ins", () => ({
+  signIns: () => [{ id: "fake", canAct: async () => who.canAct || { refused: "role" }, messages: { role: "You may not." } }],
 }));
 
 process.env.DASHBOARD_DB = ":memory:";
