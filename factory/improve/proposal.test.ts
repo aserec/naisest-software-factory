@@ -40,7 +40,7 @@ test("confirmGone: a link that leaves the clone is not confirmed gone", () => {
 
 test("confirmGone: a plain word is not a path", () => {
   for (const w of ["not", "review", "Never", "ignore-all-rules", "x.", "a_b"]) expect(confirmGone(w, dir), w).toBe(false);
-  expect(confirmGone("old.sh", dir)).toBe(true);
+  for (const w of ["e.g", "i.e", "Node.js", "Next.js", "old.sh"]) expect(confirmGone(w, dir), w).toBe(false); // no "/"
 });
 
 test("confirmGone: no package.json means a command is not confirmed", () => {
@@ -48,9 +48,10 @@ test("confirmGone: no package.json means a command is not confirmed", () => {
 });
 
 const OLD = "Run scripts/old.sh first.\nKeep tests small.";
-test("onlyRenames: a swap to a path that exists, or a removal", () => {
+test("onlyRenames: a swap to a path that exists, or the text removed in place", () => {
   expect(onlyRenames(OLD, "Run scripts/new.sh first.\nKeep tests small.", "scripts/old.sh", dir)).toBe(true);
-  expect(onlyRenames(OLD, "Keep tests small.", "scripts/old.sh", dir)).toBe(true);
+  expect(onlyRenames("Run scripts/old.sh first.", "Run  first.", "scripts/old.sh", dir)).toBe(true);
+  expect(onlyRenames(OLD, "Keep tests small.", "scripts/old.sh", dir)).toBe(false); // a fix never deletes a line
   expect(onlyRenames(OLD, "Run  first.\nKeep tests small.", "scripts/old.sh", dir)).toBe(true);
   expect(onlyRenames("Use pnpm run lint now.", "Use pnpm run test now.", "pnpm run lint", dir)).toBe(true);
 });
@@ -74,11 +75,23 @@ test("onlyRenames: a wording change is not a rename (a word is not a path)", () 
   expect(onlyRenames("Run scripts/old.sh first.", "Run src first.", "scripts/old.sh", dir)).toBe(false);
 });
 
+test("onlyRenames: e.g and Node.js are not paths", () => {
+  expect(onlyRenames("Always ask a person to review auth, e.g. login.\nKeep tests small.", "Keep tests small.", "e.g", dir)).toBe(false);
+  expect(onlyRenames("Never call Node.js APIs without review.\nKeep.", "Keep.", "Node.js", dir)).toBe(false);
+});
+
+test("onlyRenames: deleting a line that holds gone can move rules, so it is not a rename", () => {
+  const old = "## Always\n- Run tests.\n## Never (scripts/old.sh)\n- Approve without review.";
+  expect(onlyRenames(old, "## Always\n- Run tests.\n- Approve without review.", "scripts/old.sh", dir)).toBe(false);
+  expect(onlyRenames(old, "## Always\n- Run tests.\n## Never ()\n- Approve without review.", "scripts/old.sh", dir)).toBe(true);
+  expect(onlyRenames("A\nB", "A\nB\nC", "scripts/old.sh", dir)).toBe(false);
+});
+
 test("onlyRenames: moved lines are not a rename", () => {
   const old = "## Never\n- Approve without review.\n## Always\n- Run scripts/old.sh.";
   expect(onlyRenames(old, "## Never\n## Always\n- Approve without review.\n- Run scripts/old.sh.", "scripts/old.sh", dir)).toBe(false);
   expect(onlyRenames(old, "## Never\n- Approve without review.\n## Always\n- Run scripts/new.sh.", "scripts/old.sh", dir)).toBe(true);
-  expect(onlyRenames(old, "## Never\n- Approve without review.\n## Always", "scripts/old.sh", dir)).toBe(true);
+  expect(onlyRenames(old, "## Never\n- Approve without review.\n## Always", "scripts/old.sh", dir)).toBe(false);
 });
 
 test("onlyRenames: one renamed line cannot stand in for several", () => {
@@ -86,9 +99,10 @@ test("onlyRenames: one renamed line cannot stand in for several", () => {
 });
 
 test("onlyRenames: gone must be a whole token", () => {
-  expect(onlyRenames("Use scripts/old.sh.bak here.", "Use scripts/new.sh.bak here.", "old.sh", dir)).toBe(false);
-  expect(onlyRenames("Use scripts/old.sh.bak here.\nKeep.", "Keep.", "old.sh", dir)).toBe(false);
-  expect(onlyRenames("Use scripts/old.sh here.", "Use scripts/old.sh here.", "old.sh", dir)).toBe(true); // nothing changed
+  expect(onlyRenames("Use scripts/old.sh.bak here.", "Use scripts/new.sh.bak here.", "scripts/old.sh", dir)).toBe(false);
+  expect(onlyRenames("Use scripts/old.sh.bak here.", "Use  here.", "scripts/old.sh", dir)).toBe(false);
+  expect(onlyRenames("Use my/scripts/old.sh here.", "Use my/scripts/new.sh here.", "scripts/old.sh", dir)).toBe(false);
+  expect(onlyRenames("Use scripts/old.sh here.", "Use scripts/old.sh here.", "scripts/old.sh", dir)).toBe(true); // nothing changed
   expect(onlyRenames("Run scripts/old.sh.", "Run scripts/new.sh.", "scripts/old.sh", dir)).toBe(true); // a full stop ends the token
   expect(onlyRenames("Use pnpm run lint:fix.", "Use pnpm run test.", "pnpm run lint", dir)).toBe(false);
 });
