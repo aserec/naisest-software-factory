@@ -152,18 +152,21 @@ function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }
   );
 }
 
-// A step the run has not reached: its name and an empty track, so the whole line of ten steps shows.
-function AheadRow({ step }: { step: string }) {
+// A step with no events in this run: its name and an empty track, so the whole line of ten steps shows.
+// before: a step ahead of the first recorded one, such as a run continued in a new pipeline. It ran, but sent no events here.
+function AheadRow({ step, before = false }: { step: string; before?: boolean }) {
   return (
     <li className="border-b border-rule text-muted-foreground last:border-0">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3 @xl:flex">
         <span className="truncate @xl:w-40 @xl:flex-none">
           {words(step)}
-          <span className="sr-only"> not reached</span>
+          <span className="sr-only">{before ? ", no events in this run" : " not reached"}</span>
         </span>
         <span className="hidden h-2 rounded-full bg-raised @xl:block @xl:flex-1" />
         {/* As tall as a pill, so this row matches a reached row's height. */}
-        <span className="hidden h-5.5 @xl:block @xl:w-[17.5rem]" />
+        <span aria-hidden className="h-5.5 text-right text-xs leading-5.5 @xl:w-[17.5rem]">
+          {before && "no events"}
+        </span>
       </div>
     </li>
   );
@@ -224,6 +227,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
   const open = rows.find((l) => l.start.id === openId);
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")));
+  const first = Math.min(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")).filter((i) => i >= 0));
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
   const nowText = live ? words(live.start.step ?? "") : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
@@ -281,6 +285,9 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
         <Proof events={data} approving={approving} />
         <SectionHeading className="mb-0">Steps</SectionHeading>
         <ul>
+          {STEPS.slice(0, Number.isFinite(first) ? first : 0).map((s) => (
+            <AheadRow key={s} step={s} before />
+          ))}
           {rows.map((l) => (
             <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} state={l === rows.at(-1) ? state : undefined} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
           ))}

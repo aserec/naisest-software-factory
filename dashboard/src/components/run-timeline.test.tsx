@@ -118,6 +118,10 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
   // Time is the factory's six minutes; the wait for a person since the last event counts apart.
   expect(screen.getByText("Time").nextElementSibling?.textContent).toMatch(/^6 mthen waiting \d/);
   expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("Waits for you7 of 10");
+  // The run's record starts at decision; the six steps before it still show, marked as having no events here.
+  expect(screen.getAllByText(/, no events in this run$/).map((e) => e.parentElement?.textContent)).toEqual(
+    ["Event", "Triage", "Prepare patch", "Code review", "Precommit gate", "Risk check"].map((s) => `${s}, no events in this run`),
+  );
   // The factory ends the decision step with "stop"; the pill names what the run waits for.
   expect(screen.getByRole("button", { name: /Decision/ }).textContent).toContain("needs approval");
 });
