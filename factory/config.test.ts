@@ -40,10 +40,14 @@ test("a role with an unknown provider or a model its provider does not list is r
 test("a harness that cannot use the provider's api is refused", () => {
   expect(() => loadRouter(edited("router.yml", "reviewer: { harness: pi, provider: tensorx, model: z-ai/glm-5.3-flash", "reviewer: { harness: claude-code, provider: tensorx, model: z-ai/glm-5.3-flash"))).toThrow("router.yml low.reviewer: harness claude-code cannot use the openai api of provider tensorx");
 });
-test("the Team plan works only with claude-code, and never for the judge", () => {
-  expect(() => loadRouter(edited("router.yml", "reviewer: { harness: pi, provider: tensorx, model: z-ai/glm-5.3-flash", "reviewer: { harness: pi, provider: team-plan, model: claude-sonnet-5-5"))).toThrow("router.yml low.reviewer: harness pi with provider team-plan: the Team plan works only with claude-code");
-  expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "judgeModel: { provider: team-plan, model: claude-sonnet-5-5 }"))).toThrow("seams.yml judgeModel: provider team-plan: the Team plan works only with claude-code");
+test("a provider with onlyHarness serves only that harness, and never the judge", () => {
+  expect(() => loadRouter(edited("router.yml", "reviewer: { harness: pi, provider: tensorx, model: z-ai/glm-5.3-flash", "reviewer: { harness: pi, provider: team-plan, model: claude-sonnet-5-5"))).toThrow("router.yml low.reviewer: provider team-plan works only with harness claude-code");
+  expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "judgeModel: { provider: team-plan, model: claude-sonnet-5-5 }"))).toThrow("seams.yml judgeModel: provider team-plan works only with harness claude-code");
   expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "judgeModel: { provider: tensorx, model: nope }"))).toThrow("seams.yml judgeModel: provider tensorx has no model nope");
+  const seams = loadSeams();
+  const pinned = { ...seams, providers: { ...seams.providers, tensorx: { ...seams.providers.tensorx, onlyHarness: "pi" as const } } };
+  expect(() => loadRouter(undefined, pinned)).not.toThrow();
+  expect(() => loadSeams(edited("seams.yml", "keyEnv: TENSORX_API_KEY,", "keyEnv: TENSORX_API_KEY, onlyHarness: pi,"))).toThrow("seams.yml judgeModel: provider tensorx works only with harness pi");
 });
 test("one row's author and reviewer may not share a model family", () => {
   const seams = loadSeams(edited("seams.yml", "z-ai/glm-5.3-flash: glm", "z-ai/glm-5.3-flash: deepseek"));

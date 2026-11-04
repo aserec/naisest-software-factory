@@ -9,8 +9,6 @@ import type { FactoryCommands, RoleChoice, Router, SeamsConfig, Target } from ".
 // Repo root, found from this file, so tests and CI agree whatever the cwd is.
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-const TEAM_PLAN_KEY = "CLAUDE_CODE_OAUTH_TOKEN";
-
 const role = z.object({
   harness: z.enum(HARNESS_NAMES),
   provider: z.string().min(1),
@@ -34,6 +32,7 @@ const seamsSchema = z.object({
     api: z.enum(["anthropic", "openai"]),
     baseUrl: z.string().url().optional(),
     keyEnv: z.string().min(1),
+    onlyHarness: z.enum(HARNESS_NAMES).optional(),
     models: z.record(z.string().min(1)), // model id -> family
     images: z.array(z.string().min(1)).optional(), // model ids that read images
     // USD per million tokens. Pi works out a run's cost from these; without them a custom provider costs $0.
@@ -96,7 +95,8 @@ export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
     for (const [field, ids] of [["images", p.images ?? []], ["prices", Object.keys(p.prices ?? {})]] as const)
       for (const id of ids) if (!Object.hasOwn(p.models, id)) throw new Error(`seams.yml providers.${name}.${field}: model ${id} is not in models`);
   family(seams, seams.judgeModel, "seams.yml judgeModel");
-  if (seams.providers[seams.judgeModel.provider].keyEnv === TEAM_PLAN_KEY) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider}: the Team plan works only with claude-code`);
+  const h = seams.providers[seams.judgeModel.provider].onlyHarness;
+  if (h) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider} works only with harness ${h}`);
   return seams;
 }
 
@@ -117,7 +117,7 @@ export function loadRouter(path = `${root}router.yml`, seams = loadSeams()): Rou
     const f = family(seams, c, field);
     const p = seams.providers[c.provider];
     if (!HARNESSES[c.harness].apis.includes(p.api)) throw new Error(`${field}: harness ${c.harness} cannot use the ${p.api} api of provider ${c.provider}`);
-    if (p.keyEnv === TEAM_PLAN_KEY && c.harness !== "claude-code") throw new Error(`${field}: harness ${c.harness} with provider ${c.provider}: the Team plan works only with claude-code`);
+    if (p.onlyHarness && c.harness !== p.onlyHarness) throw new Error(`${field}: provider ${c.provider} works only with harness ${p.onlyHarness}`);
     return f;
   };
   for (const name of ["low", "high"] as const) {

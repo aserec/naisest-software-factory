@@ -15,7 +15,7 @@ dashboardUrl: REPLACE_WITH_DASHBOARD_URL
 # Used when judge is model-call.
 judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
 providers:
-  team-plan: { api: anthropic, keyEnv: CLAUDE_CODE_OAUTH_TOKEN, models: { claude-sonnet-5-5: claude, claude-opus-5-5: claude } }
+  team-plan: { api: anthropic, keyEnv: CLAUDE_CODE_OAUTH_TOKEN, onlyHarness: claude-code, models: { claude-sonnet-5-5: claude, claude-opus-5-5: claude } }
   tensorx: { api: openai, baseUrl: https://api.tensorx.ai/v1, keyEnv: TENSORX_API_KEY, models: { deepseek/deepseek-v4.1-flash-1017: deepseek, z-ai/glm-5.3-flash: glm },
     # TensorX rates as listed on requesty.ai/models/tensorx (2026-11). glm-5.3-flash has no listed price yet.
     prices: { deepseek/deepseek-v4.1-flash-1017: { input: 0.5, output: 1.5, cacheRead: 0.13 } } }
