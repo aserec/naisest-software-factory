@@ -13,6 +13,7 @@ colors:
   border: "#e8eaec"
   rule: "#f0f1f2"
   input-stroke: "#cdced1"
+  switch-off: "#8b8d90"
   positive: "#1e7b4f"
   destructive: "#c4242a"
   pill-positive-bg: "#dcfae5"
@@ -163,7 +164,8 @@ A near-greyscale palette with one signal hue and three soft state pills.
 - **Raised** (`raised`): hover fill, code and log blocks, the track behind a timeline bar.
 - **Active** (`active`): the selected nav item, a secondary button, the neutral pill.
 - **Border** (`border`) and **Rule** (`rule`): card and table borders; the lighter rule between timeline rows.
-- **Input Stroke** (`input-stroke`): outline buttons, an unchecked switch, a tab's hover underline.
+- **Input Stroke** (`input-stroke`): outline buttons, a tab's hover underline.
+- **Switch Off** (`switch-off`): the unchecked switch track, 3.3:1 on the sheet so an off switch still reads as a control.
 
 ### State
 - **Positive** (`positive`) and **Destructive** (`destructive`): solid state color for text, a failed step's bar, and destructive button strokes.
@@ -250,7 +252,9 @@ Tactile and calm: flat, compact, and pressed to 0.96 scale on click.
 - **Tabs:** underline tabs on a full-width 1px rule; the active tab takes a 2px Signal Teal line.
 
 ### Switches
-- 32px by 18px, full radius. Checked fills Ink Button, unchecked fills Input Stroke, with a white thumb.
+- 32px by 18px, full radius. Checked fills Ink Button, unchecked fills Switch Off, with a white thumb.
+- Turning on a switch that lets the factory merge (Auto merge, Apply) asks first in the confirm dialog. Turning any switch off never asks.
+- A target whose switch is off because the all-targets row is off shows "Off (all targets)" in Muted Ink instead of a switch.
 
 ### Side panel
 Detail lives in a panel that slides in from the right edge, never in a centred modal.

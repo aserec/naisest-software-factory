@@ -34,6 +34,7 @@
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-switch-off: var(--switch-off);
   --color-ring: var(--ring);
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -49,6 +50,7 @@
   --border: #e8eaec;
   --rule: #f0f1f2;
   --input: #cdced1;
+  --switch-off: #8b8d90; /* the unchecked switch track: 3.3:1 on the sheet */
   --foreground: #131416;
   --muted-foreground: #5d5f60;
   --primary: #1d1f20;
