@@ -99,8 +99,8 @@ function LaneRow({ lane, from, span, stuck, state, selected, onSelect }: { lane:
           <span className={`absolute inset-y-0 rounded-full ${bar}`} style={{ left: `${((start - from) / span) * 100}%`, width: `${Math.max(((end - start) / span) * 100, 1)}%` }} />
         </span>
         <span className="text-right text-muted-foreground @xl:order-3 @xl:w-16">{duration((end - start) / 1000)}</span>
-        {/* A live step reports its usage at the end, so until then its cost is unknown, not $0.00. */}
-        {!lane.end && lane.costUsd === 0 ? <span className="text-right text-muted-foreground @xl:order-5 @xl:w-14">—</span> : <span className="text-right @xl:order-5 @xl:w-14">{usd(lane.costUsd)}</span>}
+        {/* No usage: no model ran yet (a live step reports its usage at the end) or ever, so no cost, not $0.00. */}
+        {!lane.events.some((e) => e.type === "usage") ? <span className="text-right text-muted-foreground @xl:order-5 @xl:w-14">—</span> : <span className="text-right @xl:order-5 @xl:w-14">{usd(lane.costUsd)}</span>}
       </button>
     </li>
   );

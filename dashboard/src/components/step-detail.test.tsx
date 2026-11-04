@@ -35,3 +35,24 @@ test("a step without a CI job shows the log its step_end event sent, and asks no
   expect(await screen.findByText("installed 12 packages")).toBeTruthy();
   expect(fetchFn).not.toHaveBeenCalled();
 });
+
+test("a decision shows its reasons as a list, the merge risk and the change, and keeps the log closed", async () => {
+  vi.stubGlobal("fetch", vi.fn());
+  const step = ev("step_start", "00", { step: "decision", data: {} });
+  const end = ev("step_end", "03", { step: "decision", data: { outcome: "stop", log: "[chat needs_approval] title" } });
+  const decision = ev("decision", "01", { step: "decision", data: { auto: false, reasons: ["hard rule size failed: 1538 lines", "no proof: no proof.json"], risk: 6, riskMax: 4, changeUrl: "https://example.com/pull/441" } });
+  renderWithQuery(<StepDetail start={step} end={end} events={[decision]} />);
+  const items = [...document.querySelectorAll("li")].map((li) => li.textContent);
+  expect(items).toEqual(["Hard rule size failed: 1538 lines", "No proof: no proof.json"]);
+  expect(document.body.textContent).toContain("6 of 10, the limit is 4");
+  expect(screen.getByRole("link", { name: "https://example.com/pull/441" })).toBeTruthy();
+  expect(document.querySelector("details")?.open).toBe(false);
+  expect(document.body.textContent).toContain("None, no model ran in this step");
+});
+
+test("a model with no price shows its cost is missing, not just $0.00", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  const usage = ev("usage", "02", { data: { model: "glm-flash", input: 900, output: 40, costUsd: 0 } });
+  renderWithQuery(<StepDetail start={start} events={[usage]} />);
+  expect(document.body.textContent).toContain("Without glm-flash: seams.yml sets no price for it");
+});

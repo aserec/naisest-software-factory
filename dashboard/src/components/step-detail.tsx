@@ -44,8 +44,11 @@ export function StepDetail({ start, end, tools = [], events }: { start: RunEvent
   const gates = ofType(events, "gate_check");
   const rules = ofType(events, "rule_check");
   const answers = ofType(events, "jev_answer");
+  const decision = ofType(events, "decision").at(-1);
   const usage = ofType(events, "usage");
   const cost = usage.reduce((sum, u) => sum + (u.costUsd as number), 0);
+  // A model with no price in seams.yml reports its tokens and $0.
+  const unpriced = [...new Set(usage.filter((u) => !u.costUsd && (u.input || u.output)).map((u) => u.model as string))];
   const models = [...new Set(usage.map((u) => `${u.role} · ${u.model}`))];
   const tokens = (k: string) => usage.reduce((sum, u) => sum + ((u[k] as number) ?? 0), 0);
   const prompt = start.data.prompt as string | undefined;
@@ -69,13 +72,55 @@ export function StepDetail({ start, end, tools = [], events }: { start: RunEvent
             {count(tokens("input"))} in · {count(tokens("output"))} out
           </Fact>
         )}
-        <Fact label="Cost">{usd(cost)}</Fact>
+        <Fact label="Cost">
+          {usage.length === 0 ? (
+            <span className="text-muted-foreground">None, no model ran in this step</span>
+          ) : (
+            <>
+              {usd(cost)}
+              {unpriced.length > 0 && <div className="text-muted-foreground">Without {unpriced.join(" and ")}: seams.yml sets no price for it</div>}
+            </>
+          )}
+        </Fact>
         {start.job && (
           <Fact label="CI job">
             <span className="font-mono">{start.job}</span>
           </Fact>
         )}
       </dl>
+
+      {decision && (
+        <Section title="Decision">
+          <div className={`rounded-lg border px-4 py-3 ${decision.auto ? "border-pill-positive-ink/20 bg-pill-positive" : "border-pill-warning-ink/20 bg-pill-warning"}`}>
+            <p className="font-medium">{decision.auto ? "The factory merges this change without a person." : "A person must review and merge this change, because:"}</p>
+            {!decision.auto && (
+              <ul className="mt-2 list-disc divide-y divide-pill-warning-ink/10 pl-5">
+                {(decision.reasons as string[]).map((r) => (
+                  <li key={r} className="py-1.5 text-pretty">
+                    {r[0].toUpperCase() + r.slice(1)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {(typeof decision.risk === "number" || decision.changeUrl) && (
+            <dl className="mt-4 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
+              {typeof decision.risk === "number" && (
+                <Fact label="Merge risk">
+                  {decision.risk} of 10{typeof decision.riskMax === "number" && <span className="text-muted-foreground">, the limit is {decision.riskMax}</span>}
+                </Fact>
+              )}
+              {decision.changeUrl && (
+                <Fact label="Change">
+                  <a href={decision.changeUrl} target="_blank" rel="noreferrer" className="break-all underline underline-offset-4 hover:decoration-2">
+                    {decision.changeUrl}
+                  </a>
+                </Fact>
+              )}
+            </dl>
+          )}
+        </Section>
+      )}
 
       {findings.length > 0 && (
         <Section title="Review findings">
@@ -178,9 +223,19 @@ export function StepDetail({ start, end, tools = [], events }: { start: RunEvent
         </Section>
       )}
 
-      <Section title={start.job ? "Job log" : "Log"}>
-        <JobLog job={start.job} end={end} log={log} />
-      </Section>
+      {/* The decision's log repeats the reasons above, so it starts closed. */}
+      {decision ? (
+        <details>
+          <summary className="cursor-pointer text-muted-foreground">{start.job ? "Job log" : "Log"}</summary>
+          <div className="mt-3">
+            <JobLog job={start.job} end={end} log={log} />
+          </div>
+        </details>
+      ) : (
+        <Section title={start.job ? "Job log" : "Log"}>
+          <JobLog job={start.job} end={end} log={log} />
+        </Section>
+      )}
     </div>
   );
 }

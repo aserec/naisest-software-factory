@@ -18,8 +18,9 @@ export function piModels({ provider, model }: ModelChoice) {
 }
 
 // No tools (the diff is in the prompt), no session file, and nothing loaded from the cwd or the agent dir.
+// JSON mode, so the run reports its tokens and cost like an author run.
 export const piArgs = (provider: string, model: string, prompt: string, files: string[] = []) => [
-  "--print", "--no-tools", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
+  "--print", "--mode", "json", "--no-tools", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
   "--no-context-files", "--no-mcp", "--no-approve", "--offline", "--provider", provider, "--model", model, "--", ...files.map((f) => "@" + f), prompt,
 ];
 
@@ -138,8 +139,9 @@ export const pi: Harness = {
       writeFileSync(join(dir, "models.json"), JSON.stringify(piModels(job.model)));
       const files = (job.images ?? []).map((i) => { const f = join(dir, i.name); writeFileSync(f, i.data); return f; });
       const { code, out, err } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt, files), agentEnv(process.env, job.model.provider, dir), dir);
-      // Pi has no session to resume and reports no cost, so those stay empty. It has no tools, so the inbox is not used and it is never stopped.
-      return { session: "", ok: code === 0, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: code === 0 ? out : exitText(code, err) };
+      // Pi has no session to resume here. It has no tools, so the inbox is not used and it is never stopped.
+      const r = parsePiOutput(out);
+      return { session: "", ok: code === 0 && !r.error, limitHit: r.limitHit, stopped: false, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.error || code === 0 ? r.text : exitText(code, err) };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

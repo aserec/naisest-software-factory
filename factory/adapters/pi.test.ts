@@ -26,7 +26,7 @@ test("Pi gets the job's provider as the only provider", () => {
 test("an anthropic provider uses anthropic-messages", () => expect(piModels({ provider: anthropic, model: "m1" }).providers.gw.api).toBe("anthropic-messages"));
 test("Pi runs with no tools and loads nothing from the cwd", () => {
   const args = piArgs("tensorx", "m1", "-review this");
-  expect(args).toEqual(expect.arrayContaining(["--print", "--no-tools", "--no-session", "--no-extensions", "--no-context-files", "--no-mcp", "--no-approve", "--provider", "tensorx"]));
+  expect(args).toEqual(expect.arrayContaining(["--print", "--mode", "json", "--no-tools", "--no-session", "--no-extensions", "--no-context-files", "--no-mcp", "--no-approve", "--provider", "tensorx"]));
   expect(args.slice(-2)).toEqual(["--", "-review this"]); // a prompt starting with "-" is not read as a flag
 });
 test("Pi gets the image files before the prompt", () => expect(piArgs("tensorx", "m", "p", ["/t/a.png"]).slice(-3)).toEqual(["--", "@/t/a.png", "p"]));
@@ -65,13 +65,13 @@ function fakePi(body: string) {
 }
 const job = (over: Partial<HarnessJob> = {}): HarnessJob => ({ role: "reviewer", prompt: "review it", model: { provider: tensorx, model: "m1" }, cwd: realpathSync(tmpdir()), tools: "none", maxTurns: 1, ...over });
 
-test("a no-tools job returns stdout as text, from an empty dir with the provider's config", async () => {
-  const bin = fakePi("echo hello");
+test("a no-tools job returns the answer's text, tokens and cost, from an empty dir with the provider's config", async () => {
+  const bin = fakePi(events(answer("hello")));
   vi.stubEnv("TENSORX_API_KEY", "tx-key");
   vi.stubEnv("FACTORY_GITLAB_TOKEN", "gl-secret");
   vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-secret");
   const r = await pi.run(job());
-  expect(r).toEqual({ session: "", ok: true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: "hello\n" });
+  expect(r).toEqual({ session: "", ok: true, limitHit: false, stopped: false, costUsd: 0.02, tokens: { input: 10, output: 3, cacheRead: 0, cacheWrite: 0 }, contextTokens: 10, text: "hello" });
   expect(readFileSync(join(bin, "cwd"), "utf8").trim()).not.toBe(realpathSync(tmpdir()));
   expect(readFileSync(join(bin, "args"), "utf8")).toContain("--provider\ntensorx\n--model\nm1");
   expect(JSON.parse(readFileSync(join(bin, "models.json"), "utf8")).providers.tensorx.api).toBe("openai-completions");
