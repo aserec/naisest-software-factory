@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { DIFF_RISK_MAX } from "software-factory/run-events";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
@@ -20,6 +21,26 @@ export interface BoardItem {
   run?: string;
   costUsd?: number;
   stuck: boolean;
+  risk?: string; // triage risk, from the factory_risk_* label
+  step?: string; // the live step of an open run
+  round?: number; // the highest code-review round
+  mergeRisk?: number; // Jev 2's diff_risk, 2 to 10
+  mrUrl?: string;
+}
+
+// Triage risk, then Jev 2's merge risk. High or above the merge limit takes the warning pill; nothing is green,
+// so a pill never makes a change look safer than its risk check says.
+export function RiskPills({ risk, mergeRisk }: { risk?: string; mergeRisk?: number }) {
+  return (
+    <>
+      {risk && <Badge variant={risk === "high" ? "warning" : "default"}>{risk[0].toUpperCase() + risk.slice(1)} risk</Badge>}
+      {mergeRisk !== undefined && (
+        <Badge variant={mergeRisk > DIFF_RISK_MAX ? "warning" : "default"} title={`Jev 2's diff risk. Above ${DIFF_RISK_MAX} never merges without a person.`}>
+          Merge risk {mergeRisk}/10
+        </Badge>
+      )}
+    </>
+  );
 }
 
 // The board's name for each label.
@@ -55,18 +76,21 @@ function Row({ item: i }: { item: BoardItem }) {
   );
   // The whole card is the link, so the focus ring goes on the card.
   return (
-    <li className="relative flex items-start justify-between gap-4 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
-      <div className="min-w-0">
+    <li className="relative flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+      <div className="min-w-0 flex-1 basis-48">
         {title}
         <div className="mt-0.5 text-xs text-muted-foreground">
           <span className="font-mono">
             {i.target} #{i.ticket}
           </span>
+          {i.step && ` · ${i.step}`}
+          {i.round !== undefined && ` · round ${i.round}`}
           {when && ` · ${when}`}
         </div>
       </div>
-      <div className="flex flex-none items-center gap-3 pt-px">
+      <div className="ml-auto flex flex-none items-center gap-2 pt-px">
         {i.stuck && <Badge variant="destructive">Stuck</Badge>}
+        <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} />
         <span className={`w-14 text-right ${i.costUsd === undefined ? "text-muted-foreground" : ""}`}>{i.costUsd === undefined ? "—" : usd(i.costUsd)}</span>
       </div>
     </li>

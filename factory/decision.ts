@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import type { JevClient, JevQuestion } from "./jev";
 import type { RuleResult } from "./rules";
+import { DIFF_RISK_MAX } from "./run-events";
 import type { Answer, Risk } from "./types";
 
 const questions = parse(readFileSync(fileURLToPath(new URL("../jev/risk.yml", import.meta.url)), "utf8")) as JevQuestion[];
@@ -11,7 +12,6 @@ export interface RiskAnswers { diffRisk: Answer<number>; scopeYes: number; sensi
 export type MergeDecision = { kind: "auto" } | { kind: "needs_approval"; reasons: string[] };
 
 const MAX_DIFF = 8000;
-const DIFF_RISK_MAX = 4;
 const MIN_CONFIDENCE = 0.9;
 const RULE_NAMES: RuleResult["rule"][] = ["protected-path", "dependency-file", "size", "secret", "pipeline"];
 const EPSILON = 1e-9; // so 0.9 and 0.1 pass despite float error

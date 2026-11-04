@@ -44,14 +44,14 @@ describe("board", () => {
   });
   it("makes one call per state label per target and caches for 15 s", async () => {
     const { fn, calls } = fakeFetch({
-      "labels=factory_ready": () => Response.json([{ iid: 5, title: "Fix it", web_url: "https://gitlab.test/g/t1/-/issues/5", updated_at: "2026-10-29T10:00:00Z" }]),
+      "labels=factory_ready": () => Response.json([{ iid: 5, title: "Fix it", web_url: "https://gitlab.test/g/t1/-/issues/5", updated_at: "2026-10-29T10:00:00Z", labels: ["factory_ready", "factory_risk_high"] }]),
       "/issues": () => Response.json([]),
     });
     let t = 1_000_000;
     const gl = makeGitLab(fn, () => new Date(t));
     const rows = await gl.board();
     expect(calls).toHaveLength(16);
-    expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "factory_ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z" });
+    expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "factory_ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high" });
     expect(calls[0].url).toContain("/projects/g%2Ft1/issues");
     expect(calls.every((c) => c.token === READ)).toBe(true);
 

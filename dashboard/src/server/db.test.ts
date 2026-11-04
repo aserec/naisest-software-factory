@@ -192,6 +192,18 @@ describe("runs", () => {
     expect(db.runs({ target: "react_frontend" })[0]).toMatchObject({ endedAt: at(1, 3), outcome: "done", lastStep: { step: "prepare-patch", ended: true } });
     expect(db.runs({})).toHaveLength(2);
   });
+
+  it("keeps the highest review round and the decision's merge risk and merge request", () => {
+    const db = openDb(":memory:");
+    const finding = (round: number) => ev("review_finding", { text: "x", blocking: true, round });
+    db.addEvents([
+      ev("run_start", {}),
+      finding(2),
+      finding(1),
+      ev("decision", { auto: false, reasons: ["r"], risk: 6, changeUrl: "http://gl/mr/9" }),
+    ]);
+    expect(db.runs({})[0]).toMatchObject({ round: 2, mergeRisk: 6, mrUrl: "http://gl/mr/9" });
+  });
 });
 
 describe("prune and backup", () => {

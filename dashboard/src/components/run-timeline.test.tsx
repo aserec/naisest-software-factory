@@ -70,3 +70,14 @@ test("a running step and the run's time count to now, not to the last event", as
   expect((await screen.findByRole("button", { name: /code-review/ })).textContent).toContain("5 m");
   expect(screen.getByText("Time").nextElementSibling?.textContent).toBe("5 m");
 });
+
+test("the Risk figure shows the triage and merge risk, and a dash before triage", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  renderWithQuery(<RunTimeline run="r1" risk={{ risk: "medium", mergeRisk: 6 }} />);
+  expect(await screen.findByText("Medium risk")).toBeTruthy();
+  expect(screen.getByText("Merge risk 6/10").getAttribute("data-variant")).toBe("warning");
+  cleanup();
+  renderWithQuery(<RunTimeline run="r1" />);
+  const figure = (await screen.findByText("Risk")).parentElement!;
+  expect(figure.textContent).toBe("Risk—");
+});

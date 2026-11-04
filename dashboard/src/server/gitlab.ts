@@ -1,6 +1,6 @@
 import { DASHBOARD_TYPES, EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
 import type { Db } from "./db";
-import { makeGitHub } from "./github";
+import { makeGitHub, triageRisk } from "./github";
 import { readTargets } from "./targets";
 
 // The GitLab base URL. Here and not in auth.ts, so the background loop does not load next-auth.
@@ -31,14 +31,14 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
 
   let cached: { at: number; rows: ReturnType<typeof fetchBoard> } | undefined;
   async function fetchBoard() {
-    type Issue = { iid: number; title: string; web_url: string; updated_at: string };
+    type Issue = { iid: number; title: string; web_url: string; updated_at: string; labels: string[] };
     // Each target's tickets come from its own tracker: GitLab issues, or GitHub issues and boards.
     // Without a GitLab read token, as in a GitHub-only setup, the GitLab targets are left out.
     const targets = readTargets();
     const lists = targets.filter((t) => !t.github && process.env.GITLAB_READ_TOKEN).flatMap((t) =>
       STATES.map(async (state) => {
         const issues = await getJson<Issue[]>(`/projects/${encodeURIComponent(t.projectPath)}/issues?labels=${state}&per_page=100`);
-        return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at }));
+        return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at, risk: triageRisk(i.labels) }));
       }),
     );
     return [...(await Promise.all(lists)).flat(), ...(await github.board(targets))];

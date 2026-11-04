@@ -5,9 +5,9 @@ import type { TargetInfo } from "./targets";
 beforeEach(() => vi.stubEnv("GITHUB_READ_TOKEN", "read-token"));
 
 const target = (name: string, repo: string, project?: number): TargetInfo => ({ name, projectPath: repo, stuckMinutes: {}, github: { repo, project } });
-const card = (repo: string, number: number, status: string | null, state = "OPEN") => ({
+const card = (repo: string, number: number, status: string | null, state = "OPEN", labels: string[] = []) => ({
   updatedAt: "2026-11-03T10:00:00Z", fieldValueByName: status ? { name: status } : null,
-  content: { number, title: `T${number}`, url: `https://github.com/${repo}/issues/${number}`, state, repository: { nameWithOwner: repo } },
+  content: { number, title: `T${number}`, url: `https://github.com/${repo}/issues/${number}`, state, repository: { nameWithOwner: repo }, labels: { nodes: labels.map((name) => ({ name })) } },
 });
 
 it("board reads a shared GitHub board once and gives each target its open cards in factory columns", async () => {
@@ -16,13 +16,13 @@ it("board reads a shared GitHub board once and gives each target its open cards 
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer read-token");
     reads++;
     return Response.json({ data: { repositoryOwner: { projectV2: { items: { pageInfo: { hasNextPage: false }, nodes: [
-      card("o/web", 1, "Ready"), card("o/web", 2, "Needs approval"), card("o/web", 3, "Backlog"), card("o/web", 4, "Ready", "CLOSED"),
+      card("o/web", 1, "Ready"), card("o/web", 2, "Needs approval", "OPEN", ["bug", "factory_risk_medium"]), card("o/web", 3, "Backlog"), card("o/web", 4, "Ready", "CLOSED"),
       card("o/api", 5, "Running"), card("o/other", 6, "Ready"), card("o/web", 7, null),
     ] } } } } });
   }) as unknown as typeof fetch;
   const rows = await makeGitHub(f).board([target("web", "o/web", 2), target("api", "o/api", 2), { name: "gl", projectPath: "g/x", stuckMinutes: {} }]);
   expect(reads).toBe(1);
-  expect(rows.map((r) => [r.target, r.ticket, r.state])).toEqual([["web", "1", "factory_ready"], ["web", "2", "factory_needs_approval"], ["api", "5", "factory_running"]]);
+  expect(rows.map((r) => [r.target, r.ticket, r.state, r.risk])).toEqual([["web", "1", "factory_ready", undefined], ["web", "2", "factory_needs_approval", "medium"], ["api", "5", "factory_running", undefined]]);
 });
 
 it("canWrite is true for write or admin on any GitHub target's repo, and false for read, no answer or an error", async () => {

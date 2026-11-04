@@ -42,9 +42,9 @@ describe("session-only routes", () => {
 
 describe("GET /api/board", () => {
   it("joins the latest run per ticket and marks a step past its limit as stuck", async () => {
-    getDb().addEvents([ev("run_start", 300, "old"), ev("run_start", 200, "new"), ev("step_start", 200, "new", {}, "prepare-patch"), ev("usage", 190, "new", { costUsd: 1.25 })]);
+    getDb().addEvents([ev("run_start", 300, "old"), ev("run_start", 200, "new"), ev("step_start", 200, "new", {}, "prepare-patch"), ev("usage", 190, "new", { costUsd: 1.25 }), ev("decision", 180, "new", { auto: false, reasons: [], risk: 6, changeUrl: "http://gl/mr/1" })]);
     const rows = (await (await getBoard()).json()) as Record<string, unknown>[];
-    expect(rows[0]).toMatchObject({ ticket: "7", run: "new", costUsd: 1.25, stuck: true });
+    expect(rows[0]).toMatchObject({ ticket: "7", run: "new", costUsd: 1.25, stuck: true, step: "prepare-patch", mergeRisk: 6, mrUrl: "http://gl/mr/1" });
     expect(rows[1]).toMatchObject({ ticket: "8", stuck: false });
     expect(rows[1].run).toBeUndefined();
   });

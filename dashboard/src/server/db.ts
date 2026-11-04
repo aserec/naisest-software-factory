@@ -13,6 +13,9 @@ export interface RunSummary {
   outcome?: string;
   costUsd: number;
   lastStep?: { step: string; startedAt: string; ended: boolean };
+  round?: number; // the highest code-review round with a finding
+  mergeRisk?: number; // Jev 2's diff_risk, from the decision event
+  mrUrl?: string; // the merge request, from the decision event
 }
 
 export interface Db {
@@ -142,7 +145,7 @@ export function openDb(path: string): Db {
     runs({ target, ticket }) {
       const starts = [target != null && "target = ?", ticket != null && "ticket = ?"].filter(Boolean);
       const sql = `SELECT seq, run, target, ticket, at, step, type, data FROM events
-        WHERE +type IN ('run_start','run_end','usage','step_start','step_end') -- "+" stops SQLite scanning the type index; the run index is better
+        WHERE +type IN ('run_start','run_end','usage','step_start','step_end','review_finding','decision') -- "+" stops SQLite scanning the type index; the run index is better
           AND run IN (SELECT run FROM events WHERE type = 'run_start'${starts.map((c) => ` AND ${c}`).join("")})
         ORDER BY seq`;
       const rows = stmt(sql).all(...[target, ticket].filter((v) => v != null)) as Row[];
@@ -161,6 +164,11 @@ export function openDb(path: string): Db {
         } else if (r.type === "usage") s.costUsd += data.costUsd as number;
         else if (r.type === "step_start") s.lastStep = { step: text(r.step) ?? "", startedAt: r.at as string, ended: false };
         else if (r.type === "step_end" && s.lastStep && s.lastStep.step === (text(r.step) ?? "")) s.lastStep.ended = true;
+        else if (r.type === "review_finding") s.round = Math.max(s.round ?? 0, data.round as number);
+        else if (r.type === "decision") {
+          if (typeof data.risk === "number") s.mergeRisk = data.risk;
+          if (typeof data.changeUrl === "string") s.mrUrl = data.changeUrl;
+        }
       }
       return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
     },

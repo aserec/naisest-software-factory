@@ -12,6 +12,9 @@ export type SwitchName = (typeof SWITCHES)[number];
 // The sender cuts long text to this size. The schema only guards it.
 export const MAX_FIELD = 20_000;
 
+// A diff_risk above this never merges without a person.
+export const DIFF_RISK_MAX = 4;
+
 // Minutes before a step counts as stuck. `stuckMinutes` in targets/<name>.yml overrides.
 export const STUCK_MINUTES: Record<string, number> = {
   triage: 5,
@@ -36,7 +39,8 @@ export const EVENT_DATA: Record<EventType, z.ZodTypeAny> = {
   review_finding: z.object({ text: z.string(), blocking: z.boolean(), round: z.number() }),
   gate_check: z.object({ command: z.string(), exitCode: z.number(), outputTail: z.string() }),
   rule_check: z.object({ rule: z.string(), passed: z.boolean(), detail: z.string() }),
-  decision: z.object({ auto: z.boolean(), reasons: z.array(z.string()) }),
+  // risk: Jev 2's diff_risk, 2 to 10. changeUrl: the merge request. Older events have neither.
+  decision: z.object({ auto: z.boolean(), reasons: z.array(z.string()), risk: z.number().optional(), changeUrl: z.string().optional() }),
   label_change: z.object({ from: z.string().optional(), to: z.string() }),
   usage: z.object({
     role: z.string(),

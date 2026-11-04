@@ -2,7 +2,10 @@
 import type { TargetInfo } from "./targets";
 
 type FetchFn = typeof fetch;
-export interface BoardRow { target: string; ticket: string; title: string; state: string; url: string; updatedAt: string }
+export interface BoardRow { target: string; ticket: string; title: string; state: string; url: string; updatedAt: string; risk?: string }
+
+// The triage risk from the work item's factory_risk_* label, or undefined before triage.
+export const triageRisk = (labels: string[]) => labels.map((l) => /^factory_risk_(trivial|low|medium|high)$/.exec(l)?.[1]).find(Boolean);
 
 const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"];
 const columnState = (name: string) => name.trim().toLowerCase().replace(/\s+/g, "_");
@@ -23,17 +26,17 @@ export function makeGitHub(fetchFn: FetchFn = fetch) {
 
   // Every card of one board, read once for all targets that share it. ponytail: reads the whole board; filter with items(query:) if it grows past a few thousand cards.
   async function boardCards(owner: string, number: number) {
-    const cards: { status: string; repo: string; number: number; title: string; url: string; updatedAt: string }[] = [];
+    const cards: { status: string; repo: string; number: number; title: string; url: string; updatedAt: string; risk?: string }[] = [];
     for (let after: string | null = null; ;) {
       const d = await graphql(
-        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url state repository { nameWithOwner } } } } } } } } }`,
+        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url state repository { nameWithOwner } labels(first: 50) { nodes { name } } } } } } } } } }`,
         { owner, n: number, after },
       );
       const items = d.repositoryOwner?.projectV2?.items;
       if (!items) throw new Error(`GitHub project ${owner}/${number} not found`);
       for (const n of items.nodes) {
         const c = n.content;
-        if (c?.state === "OPEN" && n.fieldValueByName) cards.push({ status: columnState(n.fieldValueByName.name), repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt });
+        if (c?.state === "OPEN" && n.fieldValueByName) cards.push({ status: columnState(n.fieldValueByName.name), repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt, risk: triageRisk((c.labels?.nodes ?? []).map((l: { name: string }) => l.name)) });
       }
       if (!items.pageInfo.hasNextPage) return cards;
       after = items.pageInfo.endCursor;
@@ -49,7 +52,7 @@ export function makeGitHub(fetchFn: FetchFn = fetch) {
         if (project === undefined) {
           const per = await Promise.all(STATES.map(async (s) => ((await rest(`/repos/${repo}/issues?labels=factory_${s}&state=open&per_page=100`)) as any[])
             .filter((i) => !i.pull_request)
-            .map((i) => ({ target: t.name, ticket: String(i.number), title: i.title, state: `factory_${s}`, url: i.html_url, updatedAt: i.updated_at }))));
+            .map((i) => ({ target: t.name, ticket: String(i.number), title: i.title, state: `factory_${s}`, url: i.html_url, updatedAt: i.updated_at, risk: triageRisk(i.labels.map((l: { name: string }) => l.name)) }))));
           return per.flat();
         }
         const owner = repo.split("/")[0];
@@ -57,7 +60,7 @@ export function makeGitHub(fetchFn: FetchFn = fetch) {
         if (!boards.has(key)) boards.set(key, boardCards(owner, project));
         return (await boards.get(key)!)
           .filter((c) => c.repo === repo && STATES.includes(c.status))
-          .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: `factory_${c.status}`, url: c.url, updatedAt: c.updatedAt }));
+          .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: `factory_${c.status}`, url: c.url, updatedAt: c.updatedAt, risk: c.risk }));
       });
       return (await Promise.all(lists)).flat();
     },

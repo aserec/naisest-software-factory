@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd } from "@/lib/utils";
 import { StepDetail } from "./step-detail";
+import { RiskPills } from "./board";
 import { SectionHeading } from "./shell";
 import { isStuck } from "./stuck";
 
@@ -128,7 +129,8 @@ function useNow() {
 }
 
 // limits: minutes per step for the run's target, read on the server.
-export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record<string, number> }) {
+// risk: the work item's triage risk and the run's merge risk, read on the server.
+export function RunTimeline({ run, limits = {}, risk = {} }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number } }) {
   const { data, error } = useRunEvents(run);
   const [openId, setOpenId] = useOpenStep();
   const nowMs = useNow();
@@ -154,15 +156,24 @@ export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record
   return (
     <>
       <div className={`@container transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${open ? "xl:pr-[624px]" : ""}`}>
-        <div className="mb-8 grid grid-cols-2 border-y @lg:w-fit @lg:min-w-[32rem] @lg:grid-cols-3">
+        <div className="mb-8 grid grid-cols-2 border-y @lg:w-fit @lg:min-w-[40rem] @lg:grid-cols-4">
           <Figure label="Now" className="col-span-2 border-b pr-4 @lg:col-span-1 @lg:border-b-0">
             {live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}
           </Figure>
           <Figure label="Time" className="pr-4 @lg:border-l @lg:pl-4">
             {duration(span / 1000)}
           </Figure>
-          <Figure label="Cost" className="border-l pl-4">
+          <Figure label="Cost" className="border-l pl-4 @lg:pr-4">
             {usd(rows.reduce((sum, l) => sum + l.costUsd, 0))}
+          </Figure>
+          <Figure label="Risk" className="col-span-2 border-t @lg:col-span-1 @lg:border-t-0 @lg:border-l @lg:pl-4">
+            {risk.risk || risk.mergeRisk !== undefined ? (
+              <span className="flex h-8 items-center gap-2">
+                <RiskPills {...risk} />
+              </span>
+            ) : (
+              "—"
+            )}
           </Figure>
         </div>
         <SectionHeading className="mb-0">Steps</SectionHeading>

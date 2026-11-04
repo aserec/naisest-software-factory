@@ -1,7 +1,7 @@
-import { screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ago, duration } from "@/lib/utils";
-import { Board, emptyLine, finding, type BoardItem } from "./board";
+import { Board, emptyLine, finding, RiskPills, type BoardItem } from "./board";
 import { json, renderWithQuery } from "./test-utils";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -19,6 +19,26 @@ test("renders a section per label that has tickets, one line for the empty ones,
   expect(screen.getByText("$1.50")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Fix login" }).getAttribute("href")).toBe("/runs/r1");
   expect(screen.getByRole("link", { name: "Add docs" }).getAttribute("href")).toBe("http://gl/7"); // no run: links to GitLab
+});
+
+test("a card shows the live step, the round and both risks", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", step: "code-review", round: 2, risk: "low", mergeRisk: 3 })])));
+  renderWithQuery(<Board />);
+  expect(await screen.findByText(/code-review · round 2/)).toBeTruthy();
+  expect(screen.getByText("Low risk")).toBeTruthy();
+  expect(screen.getByText("Merge risk 3/10")).toBeTruthy();
+});
+
+test("high triage risk and a merge risk above the limit take the warning pill, the rest stay neutral", () => {
+  const variants = (p: Parameters<typeof RiskPills>[0]) => {
+    const { container, unmount } = render(<RiskPills {...p} />);
+    const v = [...container.querySelectorAll("[data-variant]")].map((b) => b.getAttribute("data-variant"));
+    unmount();
+    return v;
+  };
+  expect(variants({ risk: "high", mergeRisk: 5 })).toEqual(["warning", "warning"]);
+  expect(variants({ risk: "low", mergeRisk: 4 })).toEqual(["default", "default"]);
+  expect(variants({})).toEqual([]);
 });
 
 test("shows the error when the board fails", async () => {

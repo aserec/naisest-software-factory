@@ -1364,7 +1364,7 @@ test("a low-risk run sends run_start, a start and an end per step, usage, Jev an
   for (const s of steps) expect(events.findIndex((e) => e.type === "step_start" && e.step === s)).toBeLessThan(events.findIndex((e) => e.type === "step_end" && e.step === s));
   expect(events.filter((e) => e.type === "usage").length).toBeGreaterThan(0);
   expect(new Set(events.filter((e) => e.type === "jev_answer").map((e) => e.step))).toEqual(new Set(["triage", "risk-check"]));
-  expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [] }]);
+  expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [], risk: 3, changeUrl: "https://host.example/changes/5" }]);
   expect(events.filter((e) => e.type === "label_change").at(-1)?.data).toEqual({ to: "factory_done" });
   // run_end is the last event of the run; only its own step's end comes after it.
   expect(events.slice(-2).map((e) => [e.type, e.data.outcome])).toEqual([["run_end", "done"], ["step_end", "next"]]);

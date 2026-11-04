@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { COOKIE, RUN, sessionToken } from "./seed";
+import { APPROVE_RUN, COOKIE, MR_URL, RUN, sessionToken } from "./seed";
 
 test("open the board, a run, and the prepare-patch step in the side panel", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
@@ -22,6 +22,17 @@ test("open the board, a run, and the prepare-patch step in the side panel", asyn
   await expect(panel.getByText("log line from the stub")).toBeVisible();
   await panel.getByRole("button", { name: "Close" }).click();
   await expect(panel).toBeHidden();
+});
+
+test("a run that needs approval links its merge request and shows both risks; a running one has no link", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
+  await page.goto(`/runs/${APPROVE_RUN}`);
+  await expect(page.getByRole("link", { name: "Open the merge request" })).toHaveAttribute("href", MR_URL);
+  await expect(page.getByText("Medium risk")).toBeVisible();
+  await expect(page.getByText("Merge risk 6/10")).toBeVisible();
+  await page.goto(`/runs/${RUN}`);
+  await expect(page.getByRole("heading", { name: "demo #7" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open the merge request" })).toHaveCount(0);
 });
 
 test("a page without a session goes to sign-in, an API route answers 401", async ({ page, request }) => {

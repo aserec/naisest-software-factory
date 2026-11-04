@@ -4,6 +4,8 @@ import { encode } from "next-auth/jwt";
 import { APP, STUB_PORT } from "../playwright.config";
 
 export const RUN = "run-e2e";
+export const APPROVE_RUN = "run-e2e-approve"; // ticket 8, which waits in needs approval
+export const MR_URL = "http://localhost/g/demo/-/merge_requests/3";
 export const COOKIE = "authjs.session-token"; // the plain name, because the app runs on http
 
 // A session as the jwt callback in src/server/auth.ts stores it.
@@ -21,9 +23,13 @@ function startStub() {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://stub");
     if (url.pathname === "/api/v4/projects/g%2Fdemo/issues") {
-      const running = url.searchParams.get("labels") === "factory_running";
+      const issue = (iid: number, title: string, state: string) => ({ iid, title, web_url: `http://localhost/g/demo/-/issues/${iid}`, updated_at: new Date().toISOString(), labels: [state, "factory_risk_medium"] });
+      const issues: Record<string, object[]> = {
+        factory_running: [issue(7, "Fix login", "factory_running")],
+        factory_needs_approval: [issue(8, "Add rate limit", "factory_needs_approval")],
+      };
       res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify(running ? [{ iid: 7, title: "Fix login", web_url: "http://localhost/g/demo/-/issues/7", updated_at: new Date().toISOString() }] : []));
+      res.end(JSON.stringify(issues[url.searchParams.get("labels") ?? ""] ?? []));
     } else if (url.pathname === "/api/v4/projects/1/jobs/42/trace") {
       res.end("log line from the stub");
     } else {
@@ -37,6 +43,7 @@ function startStub() {
 function events() {
   const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
   const base = { run: RUN, target: "demo", ticket: "7" };
+  const approve = { run: APPROVE_RUN, target: "demo", ticket: "8" };
   const step = randomUUID();
   return [
     { id: randomUUID(), ...base, at: at(10), type: "run_start", data: {} },
@@ -45,6 +52,12 @@ function events() {
     { id: randomUUID(), ...base, at: at(7), step: "prepare-patch", type: "usage", data: { role: "author", model: "m", input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 0.25, contextTokens: 1 } },
     { id: randomUUID(), ...base, at: at(6), step: "prepare-patch", type: "step_end", data: { outcome: "next" } },
     { id: randomUUID(), ...base, at: at(5), step: "code-review", type: "step_start", data: {} },
+    { id: randomUUID(), ...base, at: at(4), step: "code-review", type: "review_finding", data: { text: "Check the empty password", blocking: true, round: 1 } },
+    // Ticket 8: a run that waits for a person after the decision.
+    { id: randomUUID(), ...approve, at: at(20), type: "run_start", data: {} },
+    { id: randomUUID(), ...approve, at: at(12), step: "decision", type: "step_start", data: {} },
+    { id: randomUUID(), ...approve, at: at(11), step: "decision", type: "decision", data: { auto: false, reasons: ["diff_risk 6 is above 4"], risk: 6, changeUrl: MR_URL } },
+    { id: randomUUID(), ...approve, at: at(11), step: "decision", type: "step_end", data: { outcome: "waiting" } },
   ];
 }
 
