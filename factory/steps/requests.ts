@@ -125,11 +125,15 @@ export async function replyOnChanges(ctx: StepContext): Promise<TicketRef[]> {
     try {
       const comments = await ctx.codeHost.changeComments(ref, since);
       const cursor = readCursor(comments);
-      const requests: Comment[] = [];
+      let requests: Comment[] = [];
       for (const x of comments) if (!x.byFactory && isRequest(x.body) && (cursor === undefined || Date.parse(x.at) > Date.parse(cursor)) && (await trusted(x.author))) requests.push(x);
       if (requests.length === 0) continue;
       const t = await ctx.tracker.ticket(ticket);
       if (t.state && ["needs_approval", "running", "stopped", "waiting"].includes(t.state)) continue;
+      // The webhook answers on the work item, with its own cursor line: that counts for the change too.
+      const seen = later(cursor, readCursor(await ctx.tracker.comments(ticket)));
+      requests = requests.filter((x) => seen === undefined || Date.parse(x.at) > Date.parse(seen));
+      if (requests.length === 0) continue;
       const newest = requests.reduce<string | undefined>((a, x) => later(a, x.at), undefined)!;
       const authors = [...new Set(requests.map((x) => x.author))];
       await ctx.codeHost.commentChange(ref, [...authors.map((a) => stateReply(a, t.state)), cursorLine(newest)].join("\n\n"));

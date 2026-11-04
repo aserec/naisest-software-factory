@@ -278,3 +278,19 @@ test("a change that fails does not stop the next", async () => {
     log.mockRestore();
   }
 });
+test("a reply on the work item with a cursor line newer than the request counts for the change: no second reply", async () => {
+  const w = other("blocked");
+  await w.tracker.comment("8", `@dev The factory takes requests only while its change waits.\n\n${cursorLine(T1)}`); // the webhook's reply
+  expect(await replyOnChanges(w.ctx)).toEqual([]);
+  expect(w.mrComments).toEqual([]);
+  w.host.sayOnChange("5", "dev", ASK, T3); // a newer request still gets its reply
+  vi.setSystemTime("2026-10-01T11:04:00Z");
+  expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
+});
+test.each(["close", "mergeByPerson"] as const)("a request on a change after %s gets no reply", async (how) => {
+  const w = other("blocked");
+  w.host[how]("5");
+  expect(await replyOnChanges(w.ctx)).toEqual([]);
+  expect(w.mrComments).toEqual([]);
+  expect(w.workItemComments).toEqual([]);
+});
