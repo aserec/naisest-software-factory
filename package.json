@@ -12,7 +12,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "precommit": "pnpm test && pnpm typecheck"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.79",
