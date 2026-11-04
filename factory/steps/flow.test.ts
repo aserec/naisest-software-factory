@@ -2156,4 +2156,5 @@ test("a later resume of the requested run still goes to a person", async () => {
 test("a first run with no round writes the cursor line too", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" } }));
   expect(w.mrComments.at(-1)).toMatch(/\n\nRequests read up to: \S+$/);
+  expect(w.mrComments.at(-1)!.endsWith(`\n\n${cursorLine(runFacts(w.record).eventAt!)}`)).toBe(true);
 });

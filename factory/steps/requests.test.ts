@@ -174,8 +174,9 @@ test("after a round, a request the agent read during it starts no round, and one
 });
 test("a first run with no round writes the cursor, so a request written during its risk check starts a round", async () => {
   const w = world({ state: "running", cursor: false });
-  w.ctx.record = addStep(addStep(w.ctx.record, "event", { start: true, ticket: "8" }), "precommit-gate", { passed: true, rounds: 1, branch: "b", sha: "h", change: "5", changeUrl: "u" });
-  w.host.sayOnChange("5", "dev", ASK, new Date(Date.now() + 1000).toISOString()); // after the run started, before the decision
+  const gate = { passed: true, rounds: 1, branch: "b", sha: "h", change: "5", changeUrl: "u" };
+  w.ctx.record = { ...w.ctx.record, steps: [{ step: "event", at: T1, data: { start: true, ticket: "8" } }, { step: "precommit-gate", at: T1, data: gate }] }; // the run started at T1
+  w.host.sayOnChange("5", "dev", ASK, T2); // written during the risk check: before the needs-a-person comment
   await askPerson(w.ctx, ["risk"]);
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
 });
