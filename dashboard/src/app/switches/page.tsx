@@ -26,6 +26,7 @@ const OFF: Record<SwitchName, string> = {
   prepare_patch: "A run stops before the author writes the change.",
   auto_merge: "Every change waits for a person to approve it.",
   apply: "A run stops before it merges.",
+  improve: "The weekly job opens no change to the repo's factory instructions.",
 };
 
 // The columns in SWITCHES order, under one heading per part of the factory.
@@ -33,6 +34,7 @@ const GROUPS: [string, SwitchName[]][] = [
   ["New work items", ["watcher", "dispatches"]],
   ["Runs", ["new_runs", "retry", "questions", "prepare_patch"]],
   ["Merge", ["auto_merge", "apply"]],
+  ["Self-improvement", ["improve"]],
 ];
 
 // Turning these on lets the factory merge, so the page asks first.

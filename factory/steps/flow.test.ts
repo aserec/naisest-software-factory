@@ -9,24 +9,33 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { prompt, runStep, save, ticketText } from "./context";
+import { CONTINUE, inbox, prompt, runStep, save, ticketText } from "./context";
+import type { HarnessJob, HarnessResult } from "../seams";
 import { previewLine } from "./prepare-patch";
+import * as preparePatchStep from "./prepare-patch";
+import { cursorLine } from "../requests";
+import { newRequests } from "./requests";
 import { parseFactoryFile } from "../config";
 import { cancelNote, endIfClosed, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
-import { NotFactoryRunError, type Mark } from "../seams";
-import { newRecord, saveRecord } from "../record";
+import { NotFactoryRunError, type FactoryState, type Mark } from "../seams";
+import { addStep, newRecord, runFacts, saveRecord } from "../record";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
 import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
 import * as apply from "./apply";
 import * as verify from "./verify";
 import { findSecrets } from "../rules";
+import { pumpInbox } from "../inbox";
+import { readNew } from "../inbox-file";
 import { DIFF } from "../fakes";
 import * as decision from "./decision";
+import * as codeReviewStep from "./code-review";
+import * as precommitGateStep from "./precommit-gate";
+import * as riskCheckStep from "./risk-check";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
@@ -37,6 +46,34 @@ test("trivial ticket: build pipeline ends in auto-merge with no person", async (
   expect(w.states).toEqual(["running"]);
   expect(w.finishTriggered).toBe(true);
   expect(w.cards).toHaveLength(0);
+});
+test("a bad thresholds file at the base commit sends a change that would merge alone to a person, naming the key", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "autoMergeConfidenceMin: 2" } }));
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrComments.at(-1)).toContain("autoMergeConfidenceMin must be");
+});
+test("a thresholds file that is not a map also sends the change to a person", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "- 1" } }));
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain(".factory/thresholds.yml is not a YAML map");
+});
+test("a good diffRiskMax from the thresholds file lets a change merge that the default would stop", async () => {
+  const world = (baseFiles?: Record<string, string>) => fakeWorld({ jev1: { risk: "trivial" }, jev2: "pass", baseFiles });
+  const stopped = world({ ".factory/thresholds.yml": "diffRiskMax: 2" });
+  await runBuildPipeline(stopped);
+  expect(stopped.finishTriggered).toBe(false);
+  expect(stopped.mrComments.at(-1)).toContain("is above the limit of 2");
+  const merged = await runBuildPipeline(world());
+  expect(merged.finishTriggered).toBe(true);
+});
+test("a thresholds clarityMin from the base branch asks questions for a ticket the default would build", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 9 }, files: { ".factory/thresholds.yml": "clarityMin: 10" } }));
+  expect(w.states).toEqual(["needs_info"]);
+});
+test("with no thresholds file a clear ticket still builds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial", clarity: 9 } }));
+  expect(w.states).toEqual(["running"]);
 });
 test("a watcher ticket from fake errors stops at needs_approval even when it could merge alone", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
@@ -1169,6 +1206,21 @@ test("a check-only review after a gate fix that fails blocks after 5 rounds, not
   expect(w.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nCode review did not pass after 5 rounds. Open findings:\n\n- the list never shows the spinner");
   expect(w.record.rounds.review).toBe(5);
 });
+test("maxAgentRounds from the thresholds file limits the code review rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 2" }, reviews: [[B], [B], [B]] }));
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 2 rounds");
+  expect(w.harness.jobs.filter((j) => j.role === "author" && j.resume)).toHaveLength(1);
+});
+test("maxAgentRounds from the thresholds file limits the precommit gate rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 2" }, lintFails: 5 }));
+  expect(w.workItemComments.at(-1)).toContain("not green after 2 rounds");
+});
+test("a bad maxAgentRounds keeps the default of 5 rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 0" }, reviews: [[B], [B], [B], [B], [B]], lintFails: 0 }));
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 5 rounds");
+  const g = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 0" }, lintFails: 5 }));
+  expect(g.workItemComments.at(-1)).toContain("not green after 5 rounds");
+});
 // 5 gate rounds are used before the review fix, so the gate after it is a check only.
 test("a check-only gate after a review fix counts 5 rounds, not 6", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 4, reviews: [[], [B], []] }));
@@ -1854,4 +1906,324 @@ test("a ticket whose old change a person closed runs again and is not blocked be
   expect(w.states).not.toContain("blocked");
   expect(w.mrOpened || w.host.changes.get("5")!.open).toBe(true);
   expect(w.finishTriggered).toBe(true);
+});
+
+// Part G: the author's inbox hears the comments on the run's change. No code starts a round yet,
+// so the record is built by hand: an event step with `round`, and the round's cursor.
+const CURSOR = "2020-01-01T00:00:00.000Z";
+async function roundWorld() {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  const change = runFacts(w.record).change!;
+  w.ctx.record = { ...addStep(w.record, "event", { start: true, ticket: "8", round: 1 }), requestRounds: [{ cursor: CURSOR, requests: [], costAtStart: 0, tokensAtStart: { input: 0, output: 0 } }] };
+  return { w, change };
+}
+test("a comment on the change reaches the author's inbox from the round's cursor, and the record remembers how far the agent read", async () => {
+  const { w, change } = await roundWorld();
+  const at = new Date(Date.now() + 1000).toISOString(); // after the factory's own comments on the change
+  w.host.sayOnChange(change, "dev", "@factory also fix the 409", at);
+  // What an author run does: the pump polls the inbox into the file, the agent's hook consumes the line, the run ends.
+  const file = join(tmp(), "inbox.jsonl");
+  const pump = pumpInbox(inbox(w.ctx), file, 5);
+  await vi.waitFor(() => expect(existsSync(file)).toBe(true));
+  expect(w.record.heardUntil).toBeUndefined(); // the line is written, the agent has not read it
+  expect(readNew(file).comments).toEqual([expect.stringContaining("@factory also fix the 409")]);
+  await pump.end();
+  expect(w.record.heardUntil).toBe(at);
+});
+test("a run with no change on the record reads no change comments", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.ci.vars = { ...w.ci.vars, ticket: "8" };
+  const { ref } = await w.host.openChange("b", "t", "body", "8"); // a change exists on the host, but the run has not pushed
+  w.host.sayOnChange(ref, "dev", "@factory stop", new Date(Date.now() + 60_000).toISOString()); // after the inbox's start time
+  expect(await inbox(w.ctx).poll()).toEqual({ comments: [], stop: false });
+});
+// Review Focus 4.
+test("a round resumed after @factory stop and @factory resume does not stop again on the old stop line", async () => {
+  const { w, change } = await roundWorld();
+  w.host.sayOnChange(change, "dev", "@factory stop", "2020-06-01T00:00:00.000Z");
+  expect((await inbox(w.ctx).poll()).stop).toBe(true);
+  w.ctx.record = addStep(w.record, "event", { start: true, ticket: "8", resume: true }); // the resume's event has no `round`: it starts after the old stop
+  expect((await inbox(w.ctx).poll()).stop).toBe(false);
+});
+
+// Part G: a person's @factory request on a change that waits for a person starts a round on the same run.
+const T0 = "2026-10-01T10:00:00Z";
+const T1 = "2026-10-01T11:00:00Z";
+const T2 = "2026-10-01T12:00:00Z";
+async function requestWorld(o: WorldOptions = {}, risk: "medium" | "trivial" = "medium") {
+  const first = await runBuildJobs(fakeWorld({ jev1: { risk } }), tmp());
+  expect(first.states).toEqual([risk === "medium" ? "needs_approval" : "running"]);
+  const w = fakeWorld({ state: "needs_approval", ...o });
+  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "41", change: "5" };
+  w.ci.buildRecord = async () => first.record;
+  w.openChange();
+  w.tracker.tickets.get("8")!.marks = ["triaged", "implemented", "reviewed", "checked", "risk_checked"];
+  w.host.sayOnChange("5", BOT, cursorLine(T0), T0, true);
+  w.host.sayOnChange("5", "dev", "@factory add a screenshot", T1);
+  w.tracker.say("8", "dev", "@factory and rename the prop", T2);
+  return { first, w };
+}
+const eventJob = (w: ReturnType<typeof fakeWorld>, dir = tmp()) => runStep("event", event.run, { dir, make: () => w.ctx });
+test("a request round restores the run, tells the work item, clears the marks and continues at prepare-patch with the saved session", async () => {
+  const { first, w } = await requestWorld();
+  const dir = tmp();
+  await eventJob(w, dir);
+  expect(w.restored).toEqual(["41"]);
+  expect(w.workItemComments).toEqual([`The factory started another round for the requests of @dev.\n\n${cursorLine(T2)}`]);
+  expect(w.tracker.tickets.get("8")!.marks).toEqual(["triaged"]);
+  expect(w.states).toEqual(["running"]);
+  expect(w.record.rounds).toEqual({ review: 0, gate: 0 });
+  expect(w.record.requestRounds).toEqual([{
+    cursor: T2,
+    requests: [{ author: "dev", body: "@factory add a screenshot", at: T1, on: "change" }, { author: "dev", body: "@factory and rename the prop", at: T2, on: "work item" }],
+    costAtStart: first.record.costUsd,
+    tokensAtStart: first.record.tokens,
+  }]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: true, resume: true, ticket: "8", resumeAt: "prepare-patch", fromPipeline: "41", sessionId: runFacts(first.record).session, round: 1 } });
+  expect(runFacts(w.record).roundStart).toBe(true);
+  // The dashboard keeps the run ID: no run_start, a step_start that says which round.
+  expect(w.record.runId).toBe(first.record.runId);
+  expect(dash(w).events.some((e) => e.type === "run_start")).toBe(false);
+  expect(dash(w).events.find((e) => e.type === "step_start")?.data).toEqual({ round: 1 });
+  // The next job picks the saved session up.
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  expect(w.claudeRuns[0]).toMatchObject({ resume: runFacts(first.record).session });
+});
+// The author works on the round's requests (Task 7).
+const REQUESTS = `<request author="dev">@factory add a screenshot</request>`;
+async function roundPrepare(o: WorldOptions = {}, script?: (job: HarnessJob) => Partial<HarnessResult> | undefined) {
+  const { first, w } = await requestWorld(o);
+  const dir = tmp();
+  await eventJob(w, dir);
+  if (script) { const run = w.harness.run; w.harness.run = async (job) => ({ ...(await run(job)), ...script(job) }); } // the world's harness records the job; the script changes its result
+  const start = w.claudeRuns.length;
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  return { first, w, dir, runs: w.claudeRuns.slice(start) };
+}
+test("a round resumes the saved session with the request prompt, the wrapped requests and no ticket block, and keeps the author's answer", async () => {
+  const { first, w, runs } = await roundPrepare({ factoryFile: "install: changed\nlint: x\ntest: x\nbuild: x\n" });
+  expect(runs).toHaveLength(1);
+  expect(runs[0].resume).toBe(runFacts(first.record).session);
+  expect(runs[0].prompt.startsWith(prompt("request"))).toBe(true);
+  expect(runs[0].prompt).toContain(REQUESTS);
+  expect(runs[0].prompt).toContain(`<request author="dev">@factory and rename the prop</request>`);
+  expect(runs[0].prompt).not.toContain("<ticket>");
+  expect(w.ran).toContain("pnpm install --frozen-lockfile"); // the saved commands, not the work tree's
+  expect(w.ran).not.toContain("changed");
+  expect(w.record.requestRounds!.at(-1)!.answer).toBe("1. Which list?");
+});
+test("a round with no saved session still uses the saved commands, not the work tree's", async () => {
+  const { first, w } = await requestWorld({ factoryFile: "install: changed\nlint: x\ntest: x\nbuild: x\n" });
+  const steps = first.record.steps.map((s) => (s.data && typeof s.data === "object" && "sessionId" in s.data ? { ...s, data: { ...s.data, sessionId: undefined } } : s));
+  w.ci.buildRecord = async () => ({ ...first.record, steps } as typeof first.record);
+  const dir = tmp();
+  await eventJob(w, dir);
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  expect(w.claudeRuns.at(-1)!.resume).toBeUndefined();
+  expect(w.ran).toContain("pnpm install --frozen-lockfile");
+  expect(w.ran).not.toContain("changed");
+});
+test("a round whose saved session cannot be loaded runs the author again with a new session, the prepare prompt, the ticket and the requests", async () => {
+  const { w, runs } = await roundPrepare({}, (job) => (job.resume ? { ok: false, text: "No conversation found" } : undefined));
+  expect(runs).toHaveLength(2);
+  expect(runs[0].resume).toBeDefined();
+  expect(runs[1].resume).toBeUndefined();
+  expect(runs[1].prompt.startsWith(prompt("prepare"))).toBe(true);
+  expect(runs[1].prompt).toContain("<ticket>");
+  expect(runs[1].prompt).toContain(REQUESTS);
+  expect(w.record.requestRounds!.at(-1)!.answer).toBe("1. Which list?");
+  expect(w.states).toEqual(["running"]);
+});
+test("a round that hits the usage limit is resumed with CONTINUE, not the requests again", async () => {
+  const { first, w, dir } = await roundPrepare({}, (job) => (job.resume ? { session: "sess-limit", ok: false, limitHit: true, text: "usage limit reached" } : undefined));
+  expect(w.states).toEqual(["waiting"]);
+  expect(w.record.requestRounds!.at(-1)!.answer).toBeUndefined();
+  const retry = fakeWorld({ state: "waiting" });
+  const run = retry.harness.run;
+  retry.harness.run = async (job) => ({ ...(await run(job)), ...(job.role === "author" && { text: "- @dev: added the screenshot" }) });
+  retry.ci.vars = { ...retry.ci.vars, payload: undefined, ticket: "8", buildRun: "42" };
+  retry.ci.buildRecord = async () => w.record;
+  await runBuildJobs(retry, tmp());
+  expect(retry.claudeRuns[0]).toMatchObject({ resume: "sess-limit", prompt: CONTINUE });
+  expect(runFacts(first.record).roundStart).toBe(false);
+  expect(retry.record.requestRounds!.at(-1)!.answer).toBe("- @dev: added the screenshot"); // the CONTINUE run's answer is the round's answer
+});
+// The GitLab webhook hears a request at once: the same answer the poller gives.
+const requestEvent = (actor = "dev", change?: string) => ({ kind: "request", ticket: "8", actor, ...(change ? { change } : {}) }) as const;
+const hearRequest = async (state: FactoryState, event: ReturnType<typeof requestEvent>, o: WorldOptions = {}) => {
+  const { w } = await requestWorld(o);
+  w.ci.vars = { ...w.ci.vars, payload: event, ticket: undefined, buildRun: undefined };
+  w.tracker.tickets.get("8")!.state = state;
+  await eventJob(w);
+  return w;
+};
+test("a request event on a change that waits for a person starts the round build", async () => {
+  for (const event of [requestEvent(), requestEvent("dev", "5")]) {
+    const w = await hearRequest("needs_approval", event);
+    expect(w.ci.started).toEqual([{ kind: "build", ticket: "8", buildRun: "41", change: "5" }]);
+    expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "started", ticket: "8" } });
+    expect(w.workItemComments).toEqual([]);
+  }
+});
+test("a request event on a blocked work item posts the reply with the cursor line", async () => {
+  const w = await hearRequest("blocked", requestEvent());
+  expect(w.ci.started).toEqual([]);
+  expect(w.workItemComments).toHaveLength(1);
+  expect(w.workItemComments[0]).toContain(cursorLine(T2));
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "replied" } });
+});
+test("a request event from the factory, an untrusted person, or for another change does nothing", async () => {
+  const cases: [ReturnType<typeof requestEvent>, WorldOptions, string][] = [
+    [requestEvent(BOT), {}, "bot"],
+    [requestEvent(), { actorLevel: 20 }, "not-member"],
+    [requestEvent("dev", "6"), {}, "other-change"],
+  ];
+  for (const [event, o, reason] of cases) {
+    const w = await hearRequest("needs_approval", event, o);
+    expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason } });
+    expect([w.ci.started, w.workItemComments]).toEqual([[], []]);
+  }
+});
+test("a request round stops quietly when the ticket no longer waits, there is no new request, or the change is closed", async () => {
+  const cases: [string, (w: ReturnType<typeof fakeWorld>) => void][] = [
+    ["state", (w) => void (w.tracker.tickets.get("8")!.state = "running")],
+    ["request", (w) => w.host.sayOnChange("5", BOT, cursorLine(T2), "2026-10-01T13:00:00Z", true)],
+    ["change", (w) => w.host.close("5")],
+  ];
+  for (const [, change] of cases) {
+    const { w } = await requestWorld();
+    change(w);
+    const before = [...w.tracker.tickets.get("8")!.marks];
+    await eventJob(w);
+    expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false } });
+    expect([w.restored, w.workItemComments, w.tracker.tickets.get("8")!.marks]).toEqual([[], [], before]);
+    expect(w.record.requestRounds).toBeUndefined();
+  }
+});
+// A late duplicate of a round build: the first one already paused the run. It must not resume (and block) that run.
+test.each(["waiting", "stopped"] as const)("a round build for a ticket in factory_%s stops quietly: no block, nothing posted", async (state) => {
+  const { w } = await requestWorld();
+  w.tracker.tickets.get("8")!.state = state;
+  await eventJob(w);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "not-waiting" } });
+  expect([w.states, w.restored, w.workItemComments, w.mrComments]).toEqual([[state], [], [], []]);
+});
+test("a round build whose build run is no longer the change's stops quietly as stale-build", async () => {
+  const { w } = await requestWorld();
+  w.ci.vars = { ...w.ci.vars, buildRun: "40" };
+  await eventJob(w);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "stale-build" } });
+  expect([w.states, w.restored, w.workItemComments, w.mrComments]).toEqual([["needs_approval"], [], [], []]);
+});
+test.each([["a judge that suspects injection", { injectionYes: 0.9 }], ["a judge that answers NaN", { injectionYes: NaN }]])("%s refuses the whole round and moves the cursor", async (_n, jev1) => {
+  const { w } = await requestWorld({ jev1 });
+  await eventJob(w);
+  expect(w.workItemComments).toEqual([`@dev The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.restored).toEqual([]);
+  expect(w.tracker.tickets.get("8")!.marks).toContain("implemented");
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "injection" } });
+  expect(w.record.requestRounds).toBeUndefined();
+  // Nothing is left to answer: the poller starts no round again.
+  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+});
+test("a judge that throws refuses nothing, writes no cursor and leaves the ticket waiting for the next poll", async () => {
+  const { w } = await requestWorld({ jev1: "throw" });
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await eventJob(w);
+  } finally {
+    log.mockRestore();
+  }
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "judge-error" } });
+  expect(w.workItemComments).toEqual([]);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.restored).toEqual([]);
+  expect((await newRequests(w.ctx, "8")).requests).toHaveLength(2);
+});
+test("a request round of another ticket's record (cannotContinue) blocks instead of starting", async () => {
+  const { w } = await requestWorld();
+  const record = await w.ci.buildRecord("41");
+  w.ci.buildRecord = async () => ({ ...record, workItem: "other/project#9" });
+  await eventJob(w).catch(() => {});
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.restored).toEqual([]);
+});
+test("a request round whose open change is not the record's change replies, keeps the change waiting and moves the cursor", async () => {
+  const { first, w } = await requestWorld();
+  const steps = first.record.steps.map((s) => (s.step === "precommit-gate" ? { ...s, data: { ...(s.data as object), change: "99" } } : s));
+  w.ci.buildRecord = async () => ({ ...first.record, steps });
+  await eventJob(w);
+  expect(w.workItemComments).toEqual([`@dev The factory could not start a round: the open change 5 is not the change of pipeline 41. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.restored).toEqual([]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "change-mismatch" } });
+  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+});
+
+// The end of a round (Task 8): a ticket that would merge alone still goes back to the person who asked.
+const T3 = "2026-10-01T13:00:00Z";
+const ROUND_JOBS = [["prepare-patch", preparePatchStep], ["code-review", codeReviewStep], ["precommit-gate", precommitGateStep], ["risk-check", riskCheckStep], ["decision", decision]] as const;
+async function finishedRound(answer = "- @dev: added the screenshot") {
+  const { first, w } = await requestWorld({}, "trivial");
+  w.tracker.say("8", "lead", "@factory one more thing", T3); // the newest request
+  w.tracker.tickets.get("8")!.assignees = ["owner"];
+  const dir = tmp();
+  await eventJob(w, dir);
+  const run = w.harness.run;
+  w.harness.run = async (job) => ({ ...(await run(job)), ...(job.role === "author" && { text: answer }) });
+  const marks: string[][] = [];
+  for (const [name, step] of ROUND_JOBS) {
+    await runStep(name, step.run, { dir, make: () => w.ctx });
+    marks.push([...w.tracker.tickets.get("8")!.marks]);
+  }
+  return { first, w, dir, marks };
+}
+test("a round on a ticket that would merge alone goes to a person, not to a finish run, and sets the four marks again", async () => {
+  const { first, w, marks } = await finishedRound();
+  expect(runFacts(first.record).decisionKind).toBe("auto");
+  expect(w.record.steps.filter((s) => s.step === "decision").at(-1)!.data).toEqual({ kind: "needs_approval", reasons: [decision.ASKED] });
+  expect(decision.ASKED).toBe("a person asked for changes");
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.cards.map((c) => [c.kind, c.lines])).toEqual([["needs_approval", [decision.ASKED]]]);
+  expect(marks.map((m) => m.filter((x) => x !== "triaged"))).toEqual([["implemented"], ["implemented", "reviewed"], ["implemented", "reviewed", "checked"], ["implemented", "reviewed", "checked", "risk_checked"], ["implemented", "reviewed", "checked", "risk_checked"]]);
+});
+test("the round comment comes before the needs-a-person comment, which ends with the cursor line; the change goes to the newest request's author", async () => {
+  const { w } = await finishedRound("x".repeat(5000));
+  const [round, ask] = w.mrComments.slice(-2);
+  expect(round).toBe(`The factory finished the round for the requests of @dev @lead.\n\n${"x".repeat(4000)}`);
+  expect(ask).toBe(`This change needs a person to review and merge it:\n\n- ${decision.ASKED}\n\n${cursorLine(T3)}`);
+  expect(w.host.assigned.at(-1)).toEqual({ ref: "5", person: "lead" }); // not the work item's assignee "owner"
+});
+test("the round closes with its own review rounds, gate rounds, cost and tokens", async () => {
+  const { first, w } = await finishedRound();
+  const round = w.record.requestRounds!.at(-1)!;
+  expect(round.endedAt).toEqual(expect.any(String));
+  expect([round.review, round.gate]).toEqual([1, 1]);
+  expect(round.costUsd).toBeCloseTo(w.record.costUsd - first.record.costUsd, 6);
+  expect(round.costUsd!).toBeGreaterThan(0);
+  expect(round.tokens).toEqual({ input: w.record.tokens!.input - first.record.tokens!.input, output: w.record.tokens!.output - first.record.tokens!.output });
+  expect(runFacts(w.record).openRound).toBeUndefined();
+});
+test("the cursor line is the time the agent read up to, when that is later than the round's cursor", async () => {
+  const { w } = await finishedRound();
+  const at = "2026-10-01T14:00:00Z";
+  w.ctx.record = { ...w.record, heardUntil: at, requestRounds: w.record.requestRounds!.map((r) => ({ ...r, endedAt: undefined })) }; // the round is open again
+  await decision.askPerson(w.ctx, ["x"]);
+  expect(w.mrComments.at(-1)).toBe(`This change needs a person to review and merge it:\n\n- x\n\n${cursorLine(at)}`);
+});
+test("a later resume of the requested run still goes to a person", async () => {
+  const { w } = await finishedRound();
+  w.ctx.record = addStep(w.record, "event", { start: true, ticket: "8", resume: true, resumeAt: "decision" });
+  w.tracker.tickets.get("8")!.state = "running";
+  await decision.run(w.ctx);
+  expect(w.record.steps.filter((s) => s.step === "decision").at(-1)!.data).toEqual({ kind: "needs_approval", reasons: [decision.ASKED] });
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+});
+test("a first run with no round writes the cursor line too", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" } }));
+  expect(w.mrComments.at(-1)).toMatch(/\n\nRequests read up to: \S+$/);
+  expect(w.mrComments.at(-1)!.endsWith(`\n\n${cursorLine(runFacts(w.record).eventAt!)}`)).toBe(true);
 });

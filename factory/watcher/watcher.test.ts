@@ -51,6 +51,7 @@ test("scrub keeps ordinary error text", () => {
   expect(scrub("TypeError at List.tsx:42")).toBe("TypeError at List.tsx:42");
   expect(scrub("a@b.co and token=abc and 0123456789abcdef0123 and +1 555-123-4567")).toBe("[removed] and token=[removed] and [removed] and [removed]");
   expect(scrub(`glpat-${"a".repeat(20)}`)).toBe("[removed]");
+  expect(scrub("api_key=abc123def456 level=ERROR")).toBe("api_key=[removed] level=ERROR");
   expect(scrub('{"password": "hunter2", "level": "ERROR"}')).toBe('{"password": "[removed]", "level": "ERROR"}');
 });
 

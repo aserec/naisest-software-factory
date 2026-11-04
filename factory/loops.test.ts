@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { codeReviewLoop, MAX_AGENT_ROUNDS, precommitGate, type LoopDeps } from "./loops.js";
+import { codeReviewLoop, precommitGate, type LoopDeps } from "./loops.js";
+import { DEFAULT_THRESHOLDS } from "./thresholds.js";
 import type { Finding } from "./agents.js";
 import type { HarnessResult } from "./seams.js";
 
@@ -67,10 +68,10 @@ test("a failed author run blocks with the findings it was asked to fix and its o
 // A resumed run continues its round count, so 5 rounds are never exceeded across a resume.
 test("loops started at a later round stop at the same limit", async () => {
   const d = fakeDeps({ reviews: [[B]] });
-  expect(await codeReviewLoop(d, MAX_AGENT_ROUNDS, 5)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
+  expect(await codeReviewLoop(d, DEFAULT_THRESHOLDS.maxAgentRounds, 5)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
   expect(d.fixCalls).toHaveLength(0);
   const g = fakeDeps({ results: { lint: [false] } });
-  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, MAX_AGENT_ROUNDS, 5)).toMatchObject({ kind: "blocked", rounds: 5 });
+  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, DEFAULT_THRESHOLDS.maxAgentRounds, 5)).toMatchObject({ kind: "blocked", rounds: 5 });
   expect(g.fixCalls).toHaveLength(0);
 });
 test("a stopped fix run stops the loop with its session, not blocked", async () => {

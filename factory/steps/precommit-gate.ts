@@ -1,11 +1,12 @@
 import { emit } from "../emit";
-import { MAX_AGENT_ROUNDS, precommitGate } from "../loops";
+import { precommitGate } from "../loops";
 import { readImages, readProof, proofSection } from "../proof";
 import { need } from "../record";
 import { findSecrets } from "../rules";
 import { review } from "./code-review";
 import { facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
 import { runLine, withoutMarks } from "./merge";
+import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { block, endIfClosed, stopReason, stopped, waiting } from "./run";
 
 const COMMIT_TITLE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^()]+\))?!?: \S.*$/;
@@ -46,18 +47,19 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const stop = await install(ctx);
   if (stop) return stop;
+  const max = readThresholds(await ctx.repo.readBase(THRESHOLDS_PATH)).values.maxAgentRounds;
   // Done only when code review passed on the code the gate passed. A continued gate job may hold changes no review saw.
   let unreviewed = facts(ctx).resumeAt === "precommit-gate";
   let result;
   for (;;) {
     // A resumed run goes on from its last round. A check after the last fix counts as the last round, never one more.
-    const start = Math.min(ctx.record.rounds.gate + 1, MAX_AGENT_ROUNDS);
+    const start = Math.min(ctx.record.rounds.gate + 1, max);
     result = await precommitGate({ review: async () => [], fix: (feedback) => fix(ctx, feedback), run: async (cmd) => {
       const r = await ctx.repo.run(cmd);
       // ponytail: the Repo seam gives ok, not the exit code; add it to Repo.run if the dashboard needs the real code.
       emit(ctx, "gate_check", { command: cmd, exitCode: r.ok ? 0 : 1, outputTail: r.output });
       return r;
-    } }, need(facts(ctx).commands, ".factory.yml commands"), MAX_AGENT_ROUNDS, start);
+    } }, need(facts(ctx).commands, ".factory.yml commands"), max, start);
     ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
     if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
     if (result.kind === "stopped") return stopped(ctx, "precommit-gate", { session: result.sessionId, reason: stopReason(ctx) });

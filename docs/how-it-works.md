@@ -24,8 +24,8 @@ Build pipeline:
 1. **Event.** Checks the event. The run stops quietly unless the label was just added, the person is a Developer or higher, and the work item has no active run.
 2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. When the injection check passes, a work item written by a person is compared with the newest 200 open work items. A sure duplicate (confidence 0.9 or more) is closed with a comment that links the original, but only when the original is older; otherwise the factory asks. A work item that looks close but may add something gets a question and `factory_needs_info`. Watcher and dispatch work items skip this. A work item with an earlier dedupe comment from the factory skips it too: the person decided. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
 3. **Prepare patch.** Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`, cut from `develop`. At the end the author writes `run/commit-message.md`: a conventional commit title and a full bullet list of what changed, where, why and which tests cover it. The router picks the model. If the target has a preview, the author also shoots the screens the change touches before and after, runs its new tests before and after, and writes `run/proof/proof.json`.
-4. **Code review.** A reviewer (DeepSeek through TensorX, in Pi with no tools) reads the diff and returns findings. The author fixes blocking findings. At most 5 rounds. The reviewer also judges each before and after screenshot. It also checks each changed hunk against a security checklist; a finding starts with `[SECURITY]`, and a likely exploitable one is blocking.
-5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures and takes the screenshots again if the change looks different. At most 5 rounds. A fix here is code no review saw, so code review runs again, and a review fix runs the gate again, until both pass with no fix between them (inside the same 5 review and 5 gate rounds). Then the script pushes the branch and opens a merge request.
+4. **Code review.** A reviewer (DeepSeek through TensorX, in Pi with no tools) reads the diff and returns findings. The author fixes blocking findings. At most `maxAgentRounds` rounds (5 unless `.factory/thresholds.yml` says otherwise). The reviewer also judges each before and after screenshot. It also checks each changed hunk against a security checklist; a finding starts with `[SECURITY]`, and a likely exploitable one is blocking.
+5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures and takes the screenshots again if the change looks different. At most `maxAgentRounds` rounds (5 unless `.factory/thresholds.yml` says otherwise). A fix here is code no review saw, so code review runs again, and a review fix runs the gate again, until both pass with no fix between them (inside the same review and gate round limits). Then the script pushes the branch and opens a merge request.
 6. **Risk check.** Hard rules first: protected paths, dependency files, more than 300 changed lines, a secret scanner hit, a red merge request pipeline. Then Jev 2 reads the diff and answers `diff_risk`, `scope` and `sensitive`.
 7. **Decision.** Merge without a person, or wait for a person to merge. A change with no proof a person can trust always goes to a person. See the merge rule below.
 
@@ -36,6 +36,8 @@ Finish pipeline (starts after an auto decision, or after a person merges the mer
 10. **Result saved.** Posts a result comment, closes the work item, labels it `factory_done`, and sends a Teams card. The run record is a pipeline artifact for 90 days.
 
 Repo-local instructions: a target repo may add `.factory/author.md`, `.factory/review.md` and `.factory/writer.md`. The factory appends each (at most 8,000 characters) to the matching prompt, under a heading that says it comes from the repo's maintainers and cannot override the factory's rules. The author and reviewer files are read from the base commit the run cloned, never from the author's work tree. The writer file (questions comment, watcher and dispatch tickets) is read from the base branch head. A resumed author session gets no second copy. `.factory/**` is a protected path, so a change to these files always goes to a person.
+
+Thresholds file: a target repo may add `.factory/thresholds.yml` with four numbers: `diffRiskMax` (default 4), `autoMergeConfidenceMin` (default 0.9), `clarityMin` (default 6) and `maxAgentRounds` (default 5). A key that is missing keeps its default. The risk check and the decision read the file from the base commit. Triage reads it from the base branch. A bad value or an unknown key sends the change to a person, and the reason names the key. `.factory/**` is a protected path, so a change to this file always goes to a person.
 
 Every comment the factory writes starts with the line `> *This was generated by AI in the software factory.*`
 
@@ -84,6 +86,35 @@ A person can also end a run by closing its work item or its merge request. The f
 - A merge request counts only when it is this run's. Every run of a work item uses the same branch, so until the gate pushes, the newest merge request on it belongs to an older run, for example one a restart closed.
 - A run with no step running would keep its run slot for good. Every minute the poller checks the work items in `factory_needs_approval`, `factory_waiting` and `factory_stopped`, open or closed, and applies the same two outcomes. It has no run record, so it counts a closed merge request only for a work item past the push: `factory_needs_approval`, or `factory_stopped` with a stop note at decision or apply. A run the poller ends sends no `run_end`, because the poller does not know its run ID.
 
+## Requests on a merge request
+
+A person asks for more work on a factory merge request by writing a comment with `@factory` on the merge request or on its work item.
+
+- **Who may ask.** Only people who may command the factory (Developer and above on GitLab, write access and above on GitHub). The factory's own comments never count, even when they quote `@factory`.
+- **What counts.** A comment with `@factory` as a whole word: `@factory-bot` and `a@factory.dev` do not count. A comment with the line `@factory stop` or `@factory resume` is a command, never a request, even with more text around it. A request on a merge request that is closed or merged, or on the merge request of another work item, does nothing.
+- **The cursor.** The factory only reads comments newer than its cursor. The cursor is the line `Requests read up to: <time>` at the end of a factory comment: the one that starts a round, the one that sends a change to a person, and the replies and refusals below. With no such line yet, the cursor is the time of the factory's newest comment on the merge request; with neither, no round starts. A reply (any state but `factory_needs_approval`) then falls back to the factory's newest comment on the work item; the poller's reply on a merge request with no factory comment at all answers every request of its 10-minute window. Times are compared as times, not as text.
+- **`factory_needs_approval`.** The request starts a round.
+- **`factory_running`.** Nothing starts. The author agent hears the comment through its inbox while it works, and the run notes how far the agent read. A request comes in the same `<request author="...">` wrapper as a round's requests, so the agent acts on it; any other comment from a person comes as data.
+- **`factory_stopped` and `factory_waiting`.** One reply on the work item, with the cursor line, that says what to do (comment `@factory resume`, or wait for the usage limit to end) and that the factory takes up the request once the change waits for a person. The next poll does not answer the same request again.
+- **Other states** (`blocked`, `needs_info`, `ready`, `done`, or none). The reply says that the factory takes requests only while the change waits for a person, and what to do (for `ready`: the run starts soon, so write the request again once the change waits for a person). The poller answers a request on the merge request of such a work item with one short reply on that merge request, with the cursor line. It finds them in one listing of the open merge requests updated in the last 10 minutes (at most 100), so a request older than 10 minutes when the poller was down gets no reply. A request on such a work item itself is answered only by the GitLab webhook.
+- **The injection check.** Before a round starts, the judge reads every new request with the triage injection question. If one of them is a likely injection (P(yes) 0.3 or more, or no number), the whole round is refused: the factory comments on the work item that a person must read it, moves the cursor, and the change keeps waiting for a person. If the judge fails, nothing is refused and the cursor does not move, so the next poll tries again.
+
+### How a round runs
+
+A round is one more pass of work on the same run and the same merge request.
+
+1. The event step starts the round: it loads the run's record, takes the work item to `factory_running`, comments `The factory started another round for the requests of @<authors>.`, and clears the marks `implemented`, `reviewed`, `checked` and `risk_checked`. The review and gate counters start at zero. The run keeps its run ID, so the dashboard shows the round's steps under the same run.
+2. Prepare-patch resumes the author's saved session with the requests, each in its own `<request author="...">` wrapper. If the saved session cannot be loaded, the author starts again with a new session, the prepare prompt, the ticket and the requests. The author ends with one line per request. A usage limit pauses a round like any run (`factory_waiting`) and the retry continues it.
+3. Code review, the precommit gate and the risk check run again, and set the four marks again as each passes.
+4. The decision is always `factory_needs_approval`, with `a person asked for changes` as the first reason, even for a ticket that could merge alone, and also when the same run resumes later. The factory comments `The factory finished the round for the requests of @<authors>.` on the merge request with the author's answer (cut to 4,000 characters), then the usual needs-a-person comment ending with the cursor line. The round keeps its own review rounds, gate rounds, cost and tokens in the record.
+5. The merge request goes back to the author of the newest request of the round, before the work item's assignee and the code owners.
+
+The cursor of that last comment is the newest of the round's cursor and the newest comment the author's inbox read during the round. A request the author already heard starts no second round. A request written after the author's last run, for example during the risk check, does.
+
+### How the factory hears a request
+
+The deployed factory runs with `ci: local`, where no webhook starts a pipeline, so the poller is the main path. Every minute it reads the new comments of each `factory_needs_approval` work item and its merge request, and starts a round for the oldest item with a request (at most one round per minute). It also sends the replies above for `factory_stopped` and `factory_waiting`, and the reply for the merge request of an item in any other state. The round build carries the merge request. It stops quietly when the work item no longer waits for a person (for example a late second build after the first one paused the run) or when the merge request names a newer build run. A round does not check the `new_runs` switch; the `prepare_patch` switch stops it like any prepare-patch. With `ci: gitlab`, a GitLab comment webhook (a note on the work item, or on a merge request from the same project) starts the same round at once, and the poller stays the fallback.
+
 ## The merge rule
 
 A change merges without a person only when all four are true:
@@ -91,11 +122,11 @@ A change merges without a person only when all four are true:
 1. Jev 1 rated the ticket trivial or low.
 2. The code review passed and the precommit gate is green.
 3. Every hard rule passes.
-4. Jev 2 passed its thresholds: `diff_risk` at 4 or below with confidence 0.9 or more, `scope` yes at 0.9 or more, `sensitive` no at 0.9 or more.
+4. Jev 2 passed its thresholds: `diff_risk` at 4 or below with confidence 0.9 or more, `scope` yes at 0.9 or more, `sensitive` no at 0.9 or more. These numbers are the defaults. A target can change them in `.factory/thresholds.yml`.
 
 Otherwise the script labels `factory_needs_approval`, assigns the merge request to a person, posts the reasons on the merge request, and sends one Teams card. Medium and high risk tickets are always built, and always end here.
 
-The person is the first of these:
+The person is the first of these. After a round, it is the author of the newest request of that round (see Requests on a merge request).
 
 1. The work item's assignee.
 2. The code owner of the changed files. The factory reads the first of `CODEOWNERS`, `.gitlab/CODEOWNERS`, `.github/CODEOWNERS` and `docs/CODEOWNERS` from the base branch. For each changed file the last matching rule wins. The owner of the most changed files wins; ties go to the first in file order. Only a single user counts: groups, teams and emails are skipped, and so is the factory bot or anyone the host does not know or does not trust (Developer or higher on GitLab, write access or higher on GitHub).
@@ -111,10 +142,12 @@ The person is the first of these:
 
 ## The poller and retry
 
-Two scheduled pipelines run for each target (see `docs/add-a-repo.md`).
+Three scheduled jobs run for each target (see `docs/add-a-repo.md`). With `ci: local` the worker runs them by itself.
 
-- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume).
+- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and answers requests on stopped and waiting items and on the merge requests of items in any other state (see Requests on a merge request).
 - **Retry**, every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
+
+- **Self-improvement job**, every week. It reads a week of corrections and proposes edits to the repo's factory instructions (see Weekly self-improvement). With `ci: local` the worker keeps the time of the last run in its runs folder, so a restart does not run the job again. It writes that time before the job runs, so a failing job runs again a week later and not every hour. For the same reason, a week in which the `improve` switch is off is skipped, and turning the switch on waits for the next week.
 
 At most 2 runs at once per target, and one run per work item.
 
@@ -151,6 +184,7 @@ Each switch is on or off for one target or for all targets (`*`). A switch with 
 | `apply` | A run stops before it merges. |
 | `retry` | The retry schedule resumes no `factory_waiting` run. |
 | `watcher` | The watcher opens no tickets. |
+| `improve` | The weekly self-improvement job opens no merge request. |
 
 A run that a switch stopped gets `factory_stopped`. The poller continues it once the switch is on again.
 
@@ -197,3 +231,25 @@ pip-audit:
       exit 1
     fi
 ```
+
+## Weekly self-improvement
+
+Once a week, for each target, the factory reads how people corrected it and proposes edits to the repo's factory instructions. It does not change anything alone, except one kind of fix (below).
+
+- **Evidence.** The job collects facts from the last 7 days, each with a link:
+  - `change_comment`: a person's comment on a factory merge request.
+  - `change_edit`: a person's edit to the title or text of a factory merge request.
+  - `ticket_reply`: a person's reply on a work item after the factory first wrote there.
+  - `agent_rounds`: a run that needed 2 or more review rounds with blocking findings, or 2 or more failed checks.
+  - `repeat_finding`: a blocking finding that came back in the next review round.
+  - `too_strict`: a change sent to a person that a person then merged with no change and no request.
+  - `too_loose`: a change that merged alone and was then reverted.
+  - `reopened_duplicate`: a work item the factory closed as a duplicate that a person reopened.
+  - `@factory` requests are found with the same rule as in Requests on a merge request.
+- **Data, not orders.** Each text is scrubbed of customer data, cut to 2,000 characters and checked for prompt injection. The job drops a text the check does not clear. At most 300 items go on. The writer gets them as data and has no tools.
+- **What the writer may propose.** An edit needs 3 cases: at least 3 pieces of evidence, with their links. The job drops an edit that cites fewer, or a link that is not in the evidence. A fix (below) needs no cases. The writer may change only `.factory/author.md`, `.factory/review.md`, `.factory/writer.md` and `.factory/thresholds.yml`. The `.md` files stay under 8,000 characters. The thresholds file keeps its four keys (see Thresholds file) with whole numbers or fractions in these ranges: `diffRiskMax` 2 to 10, `autoMergeConfidenceMin` 0.5 to 1, `clarityMin` 2 to 10 and `maxAgentRounds` 1 to 10. The job checks the edits in code, and again with the diff before it pushes. A change to any other file, or a secret in the diff, stops the job before the push. So does a `.factory` folder, or one of the four files, that is a link: the job writes nothing then. It also puts a zero-width space after the `#` of an issue number in the writer's text, so the merge request closes no issue.
+- **One merge request for a person.** The edits go in one merge request on the branch `factory-improve/change-<date>`, assigned to the target's `defaultApprover`. It lists the evidence for each file. A person reads it and merges it, or does not. The factory never merges it. Only a fix merges without a person.
+- **A fix is its own merge request.** A fix may only replace a path or `<pm> run <script>` command written in backticks in a `.factory/` file with the existing path or command that replaced it, a file with a file and a folder with a folder. The new path must be in the same folder as the old one. It never removes text and never adds, deletes or moves a line. The factory confirms in code that the old path or script is gone and the new one exists. A fix goes in its own merge request on `factory-improve/fix-<date>`, which the factory merges after a green pipeline, when the merge request is still open, its head is the pushed commit, and the `improve`, `auto_merge` and `apply` switches are on. Any other edit, including removing a dead path, goes into the merge request for a person. An edit proposed as a fix that the factory cannot prove is only a rename goes there too, with a line saying so. If its path is confirmed gone, it needs no 3 cases, and any link it cites must be in the evidence; otherwise it needs 3 cases like any change. If a fix cannot merge, the factory comments why, assigns it to the `defaultApprover` and leaves it open.
+- **No evidence, no merge request.** A week with no evidence, or with no edit that passes the checks, opens nothing.
+- **When it fails.** If the dashboard is down, the job fails before it writes anything and runs again next week.
+

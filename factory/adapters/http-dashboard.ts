@@ -105,6 +105,13 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
       if (!res.ok) throw new Error(`dashboard dispatches: HTTP ${res.status}`);
       return (await res.json()) as Dispatch[];
     },
+    async history(target, since, types) {
+      const q = new URLSearchParams({ target, since });
+      for (const t of types) q.append("type", t);
+      const res = await call(`/api/factory/history?${q}`);
+      if (!res.ok) throw new Error(`dashboard history: HTTP ${res.status}`);
+      return (await res.json()) as RunEvent[];
+    },
     async dispatchDone(id) {
       const res = await call(`/api/factory/dispatches/${encodeURIComponent(id)}/done`, { method: "POST" });
       if (!res.ok) throw new Error(`dashboard dispatchDone: HTTP ${res.status}`);

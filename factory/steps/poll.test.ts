@@ -364,3 +364,35 @@ test("a closed waiting ticket ends, and one failed ticket does not stop the othe
   expect(await endClosedRuns(ctx)).toEqual(["8"]);
   expect(t.state).toBeUndefined();
 });
+
+// Part G: the poller answers a request on the change of a ticket in any other state.
+test("the poller replies to a request on the change of a blocked ticket and logs it", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const ctx = fakeCtx({ running: 0 });
+    ctx.world.tracker.tickets.get("8")!.state = "blocked";
+    ctx.world.openChange();
+    ctx.world.host.sayOnChange("5", "dev", "@factory fix the 409");
+    await main(ctx);
+    expect(ctx.world.mrComments).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith("Replied to requests on changes of tickets: 8");
+  } finally {
+    vi.unstubAllEnvs();
+    log.mockRestore();
+  }
+});
+test("an error in the replies is logged and the tick goes on", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const ctx = fakeCtx({ running: 0 });
+    ctx.codeHost.recentChanges = async () => { throw new Error("status 503"); };
+    await main(ctx);
+    expect(log).toHaveBeenCalledWith("Replies on changes failed: Error: status 503");
+    expect(log).toHaveBeenCalledWith("Started build runs for tickets: none");
+  } finally {
+    vi.unstubAllEnvs();
+    log.mockRestore();
+  }
+});

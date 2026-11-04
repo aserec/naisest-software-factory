@@ -1,15 +1,17 @@
 // Changes are GitHub pull requests. Checks are the commit's check runs and commit statuses (GitHub Actions and others).
 import { AI_LINE, noQuickActions } from "../gitlab";
 import type { GitHub } from "../github";
-import { gitRepo } from "../repo";
+import { FACTORY_GIT_EMAIL, gitRepo } from "../repo";
 import { findSecrets } from "../rules";
-import { changeBranchPrefix, type Checks, type CodeHost } from "../seams";
+import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "../seams";
 
 const ASSETS = "factory-assets"; // the branch that holds attached images, so they never enter a change
 
 export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
   const r = `/repos/${repo}`;
   const pr = (ref: string) => `${r}/pulls/${Number(ref)}`;
+  let bot: Promise<string> | undefined;
+  const botName = () => (bot ??= gh.json("GET", "/user").then((u) => u.login as string));
   const opened = (p: any) => ({ ref: String(p.number), url: p.html_url as string });
   const head = async (ref: string) => (await gh.json("GET", pr(ref))).head.sha as string;
   const branchSha = async (branch: string) => (await gh.json("GET", `${r}/git/ref/heads/${branch}`)).object.sha as string;
@@ -21,7 +23,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `https://github.com/${repo}.git`, token, env),
     // A re-run reuses the open pull request of the factory branch and updates its text.
     async openChange(branch, title, body, ticket) {
-      const text = [AI_LINE, `Closes #${ticket}`, body].join("\n\n");
+      const text = [AI_LINE, ...(ticket ? [`Closes #${ticket}`] : []), body].join("\n\n");
       const [open] = await gh.json("GET", `${r}/pulls?state=open&head=${encodeURIComponent(`${repo.split("/")[0]}:${branch}`)}`);
       if (!open) return openPr(branch, title, text);
       if (open.base.ref !== baseBranch) throw new Error(`Pull request #${open.number} from ${branch} targets ${open.base.ref}, not ${baseBranch}`);
@@ -31,7 +33,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       const p = await gh.json("GET", pr(ref));
       const cmp = await gh.json("GET", `${r}/compare/${encodeURIComponent(p.base.ref)}...${p.head.sha}`);
       return {
-        ref, open: p.state === "open", merged: !!p.merged, head: p.head.sha, url: p.html_url, body: p.body ?? "", target: p.base.ref,
+        ref, open: p.state === "open", merged: !!p.merged, head: p.head.sha, url: p.html_url, title: p.title ?? "", body: p.body ?? "", target: p.base.ref,
         landedSha: p.merge_commit_sha ?? p.head.sha, behind: cmp.behind_by > 0,
       };
     },
@@ -108,6 +110,55 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       const body = `${AI_LINE}\n\n${text}`;
       if (findSecrets(body).length > 0) throw new Error("Comment refused: it contains a secret");
       await gh.json("POST", `${r}/issues/${Number(ref)}/comments`, { body });
+    },
+    // ponytail: review summaries are not read; add pulls/<n>/reviews if people use them
+    // Without a shared account the code host cannot tell the factory's comments from its token user's own, so it asks for both: the token user and the AI line.
+    async changeComments(ref, since) {
+      const name = await botName();
+      // GitHub's since filters on the edit time; keep only comments created after it, newest first.
+      // Issue comments and inline review comments are two lists, so merge them by time.
+      const q = `?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`;
+      const all = [...(await gh.all(`${r}/issues/${Number(ref)}/comments${q}`)), ...(await gh.all(`${pr(ref)}/comments${q}`))];
+      return all
+        .filter((c) => !since || Date.parse(c.created_at) > Date.parse(since))
+        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+        .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && String(c.body ?? "").startsWith(AI_LINE), body: c.body ?? "", at: c.created_at }));
+    },
+    // Body edits come from the pull request's edit history, renames from its timeline; both newest first.
+    async changeEdits(ref) {
+      const name = await botName();
+      const [owner, repoName] = repo.split("/");
+      const d = await gh.graphql(
+        `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+          userContentEdits(last: 100) { nodes { editor { login } editedAt } }
+          timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: 100) { nodes { ... on RenamedTitleEvent { actor { login } createdAt } } }
+        } } }`,
+        { owner, name: repoName, number: Number(ref) },
+      );
+      const p = d.repository.pullRequest;
+      const edit = (field: "title" | "body", login: string | undefined, at: string) => ({ author: login ?? "ghost", byFactory: login === name, field, at });
+      return [
+        ...p.userContentEdits.nodes.map((n: any) => edit("body", n.editor?.login, n.editedAt)),
+        ...p.timelineItems.nodes.map((n: any) => edit("title", n.actor?.login, n.createdAt)),
+      ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    },
+    async changeCommits(ref) {
+      const commits: any[] = await gh.json("GET", `${pr(ref)}/commits?per_page=100`);
+      return commits.map((c) => ({ sha: c.sha, byFactory: c.commit?.author?.email === FACTORY_GIT_EMAIL }));
+    },
+    // Every revert that reached the base branch is a commit here: a revert commit, a merged revert pull request, or a Revert button.
+    // ponytail: newest 100 base commits per week; page further if a target merges more
+    async baseCommits(since) {
+      const commits: any[] = await gh.json("GET", `${r}/commits?sha=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
+      return commits.map((c) => ({ sha: c.sha, title: String(c.commit.message).split("\n")[0], message: c.commit.message, at: c.commit.committer.date }));
+    },
+    // ponytail: newest 100 pulls only, as in changeOfTicket
+    async recentChanges(since) {
+      const pulls: any[] = await gh.json("GET", `${r}/pulls?state=open&sort=updated&direction=desc&per_page=100`);
+      return pulls.flatMap((x) => {
+        const ticket = ticketOfBranch(String(x.head?.ref));
+        return ticket && Date.parse(x.updated_at) > Date.parse(since) && String(x.head?.repo?.full_name).toLowerCase() === repo.toLowerCase() ? [{ ref: String(x.number), ticket }] : [];
+      });
     },
     async assignChange(ref, person) {
       await gh.json("POST", `${r}/issues/${Number(ref)}/assignees`, { assignees: [person] });

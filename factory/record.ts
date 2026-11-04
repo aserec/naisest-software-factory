@@ -3,12 +3,20 @@ import { join } from "node:path";
 import type { MergeDecision, RiskAnswers } from "./decision";
 import type { ProofRecord } from "./proof";
 import type { RuleResult } from "./rules";
-import type { ChangeRef, Checks, TicketRef } from "./seams";
+import type { ChangeRef, Checks, PersonRef, TicketRef } from "./seams";
+import type { Thresholds } from "./thresholds";
 import type { TriageAnswers, TriageOutcome } from "./triage";
 import type { FactoryCommands, RouterRow } from "./types";
 import type { CommitMessage } from "./steps/precommit-gate";
 
 export const RUN_DIR = "run";
+
+export interface Request { author: PersonRef; body: string; at: string; on: "work item" | "change" }
+// One round of @factory requests on the change: what was asked, and what it cost and found.
+export interface RequestRound {
+  cursor: string; requests: Request[]; costAtStart: number; tokensAtStart: { input: number; output: number };
+  answer?: string; endedAt?: string; review?: number; gate?: number; costUsd?: number; tokens?: { input: number; output: number };
+}
 
 export interface RunRecord {
   runId?: string; // the dashboard's run ID; a resumed run keeps it
@@ -21,6 +29,8 @@ export interface RunRecord {
   tokens?: { input: number; output: number };
   summary?: string; // what changed
   ticket?: { title: string; description: string }; // the text Jev 1 checked; agents only see this text
+  requestRounds?: RequestRound[];
+  heardUntil?: string; // the time of the newest comment already taken into the run
 }
 
 // What stopped() and waiting() save when an agent run pauses. A paused run resumes from it.
@@ -32,6 +42,7 @@ export interface StepData {
   event: {
     start?: boolean; reason?: string; error?: string; ticket?: TicketRef; actor?: string; action?: string; command?: string; change?: ChangeRef;
     resume?: true; resumeAt?: string; fromPipeline?: string; sessionId?: string; // a resumed run
+    round?: number; // a request round starts here: its number, from 1
   };
   triage: { answers: TriageAnswers; outcome: TriageOutcome; row: RouterRow };
   questions: PauseData;
@@ -40,7 +51,7 @@ export interface StepData {
   "precommit-gate":
     | { passed: true; rounds: number; branch: string; sha: string; change: ChangeRef; changeUrl: string; images?: Record<string, string>; uploadFailed?: string[]; commit?: CommitMessage }
     | PauseData;
-  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string };
+  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string; thresholds?: Thresholds; thresholdErrors?: string[] };
   decision: MergeDecision | PauseData;
   apply: { change: ChangeRef; sha: string; skipped?: true; reviewed?: string; rebased?: string[] } | PauseData;
   verify: { status: Checks };
@@ -84,10 +95,15 @@ export function runFacts(r: RunRecord) {
   const decision = last(r, "decision");
   const applied = last(r, "apply");
   const end = r.steps.at(-1);
+  const newest = newestFirst(r)[0];
   const pause = end?.data as PauseData | undefined;
   return {
     ticket: event?.ticket, // the event step's ticket
     eventAt: newestFirst(r).find((s) => s.step === "event")?.at, // when this run (or its resume) started
+    resumed: !!event?.resume && event.round === undefined, // the newest event is a resume after a pause, not a round start
+    roundStart: newest?.step === "event" && (newest.data as StepData["event"]).round !== undefined, // the newest event started a round
+    openRound: r.requestRounds?.at(-1)?.endedAt === undefined ? r.requestRounds?.at(-1) : undefined, // the last round, if it has not ended
+    requested: !!r.requestRounds?.length,
     resumeAt: event?.resumeAt, // a resumed run continues at this build job
     // On a resumed run, the saved session if this job is the one that paused.
     resumeSession: (job: string) => (event?.resumeAt === job ? event.sessionId : undefined),

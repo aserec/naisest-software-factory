@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { AI_LINE, GitLab } from "../gitlab";
+import { FACTORY_GIT_EMAIL } from "../repo";
 import { makeGitLabCodeHost } from "./gitlab-code-host";
 
 const PATH = "acme/web/react_frontend";
@@ -19,7 +20,7 @@ const last = () => calls[calls.length - 1];
 // The real 5 s sleep would stall every rebase test.
 let slept: number[] = [];
 const host = () => makeGitLabCodeHost(new GitLab("https://gl.example", "tok", fakeFetch), PATH, "tok", {}, "develop", async (ms: number) => void slept.push(ms));
-const mr = (o: object = {}) => ({ iid: 5, state: "opened", target_branch: "develop", description: "D", sha: "h", merge_commit_sha: null, squash_commit_sha: null, web_url: "u5", ...o });
+const mr = (o: object = {}) => ({ iid: 5, title: "T", state: "opened", target_branch: "develop", description: "D", sha: "h", merge_commit_sha: null, squash_commit_sha: null, web_url: "u5", ...o });
 // A quick action runs from any line that starts with "/".
 const quickAction = /^\s*\//m;
 
@@ -52,6 +53,11 @@ describe("openChange", () => {
     expect(await host().openChange("factory/8-x", "Add a spinner", "Factory run: u", "8")).toEqual({ ref: "5", url: "u5" });
     expect(last()).toMatchObject({ method: "POST", body: { source_branch: "factory/8-x", target_branch: "develop", title: "Add a spinner", description: [AI_LINE, "Closes #8", "Factory run: u"].join("\n\n") } });
   });
+  test("with no ticket the text has the AI line and no closing line", async () => {
+    routes["/projects/7/merge_requests"] = (c: any) => (c.method === "GET" ? [] : { iid: 5, web_url: "u5" });
+    await host().openChange("factory/weekly-1", "Weekly", "Report");
+    expect(last().body.description).toBe([AI_LINE, "Report"].join("\n\n"));
+  });
   test("a re-run reuses the open change of the branch and updates its text", async () => {
     routes["/projects/7/merge_requests"] = [{ iid: 4, web_url: "u4", target_branch: "develop" }];
     routes["PUT /projects/7/merge_requests/4"] = {};
@@ -80,11 +86,15 @@ describe("openChange", () => {
 describe("change", () => {
   test("maps state, head, landed commit, url and body", async () => {
     routes["/projects/7/merge_requests/5"] = mr({ description: null });
-    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", body: "", target: "develop", behind: false });
+    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", title: "T", body: "", target: "develop", behind: false });
     routes["/projects/7/merge_requests/5"] = mr({ state: "merged", merge_commit_sha: "m" });
     expect(await host().change("5")).toMatchObject({ open: false, merged: true, landedSha: "m" });
     routes["/projects/7/merge_requests/5"] = mr({ state: "closed", squash_commit_sha: "sq" });
     expect(await host().change("5")).toMatchObject({ open: false, merged: false, landedSha: "sq" });
+  });
+  test("gives the merge request's title", async () => {
+    routes["/projects/7/merge_requests/5"] = mr({ title: "Add a spinner" });
+    expect((await host().change("5")).title).toBe("Add a spinner");
   });
   test("asks for the diverged count: a branch with target commits it lacks is behind", async () => {
     routes["/projects/7/merge_requests/5"] = mr({ diverged_commits_count: 0 });
@@ -253,6 +263,60 @@ describe("merge, revert, comment, assign", () => {
     const before = calls.length;
     await expect(host().commentChange("5", "glpat-abcdefghijklmnopqrst")).rejects.toThrow(/secret/);
     expect(calls.slice(before).filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+  test("changeComments lists the people's and the factory's notes after since, newest first, and flags the factory's", async () => {
+    routes["/projects/7/merge_requests/5/notes"] = [
+      { system: false, author: { username: "ann" }, body: "@factory fix it", created_at: "2026-11-04T12:00:00Z" },
+      { system: true, author: { username: "ann" }, body: "added 1 commit", created_at: "2026-11-04T11:30:00Z" },
+      { system: false, author: { username: "factory-bot" }, body: "done", created_at: "2026-11-04T11:00:00Z" },
+      { system: false, author: { username: "bob" }, body: "old", created_at: "2026-11-04T09:00:00Z" },
+    ];
+    expect(await host().changeComments("5", "2026-11-04T10:00:00Z")).toEqual([
+      { author: "ann", byFactory: false, body: "@factory fix it", at: "2026-11-04T12:00:00Z" },
+      { author: "factory-bot", byFactory: true, body: "done", at: "2026-11-04T11:00:00Z" },
+    ]);
+    expect(last().url).toBe("/projects/7/merge_requests/5/notes?sort=desc&order_by=created_at&per_page=100");
+  });
+  test("changeComments compares times as times: a note at the same second plus .500Z is after a since without milliseconds", async () => {
+    routes["/projects/7/merge_requests/5/notes"] = [
+      { system: false, author: { username: "ann" }, body: "later", created_at: "2026-11-04T10:00:00.500Z" },
+      { system: false, author: { username: "bob" }, body: "same", created_at: "2026-11-04T10:00:00.000Z" },
+    ];
+    expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => c.body)).toEqual(["later"]);
+  });
+  test("changeEdits keeps only the system notes about the title and the description, and flags the bot's", async () => {
+    routes["/projects/7/merge_requests/5/notes"] = [
+      { system: true, author: { username: "ann" }, body: "changed title from **A** to **B**", created_at: "2026-11-04T12:00:00Z" },
+      { system: true, author: { username: "ann" }, body: "added 1 commit", created_at: "2026-11-04T11:50:00Z" },
+      { system: false, author: { username: "ann" }, body: "changed title in a comment", created_at: "2026-11-04T11:40:00Z" },
+      { system: true, author: { username: "factory-bot" }, body: "changed the description", created_at: "2026-11-04T11:00:00Z" },
+    ];
+    expect(await host().changeEdits("5")).toEqual([
+      { author: "ann", byFactory: false, field: "title", at: "2026-11-04T12:00:00Z" },
+      { author: "factory-bot", byFactory: true, field: "body", at: "2026-11-04T11:00:00Z" },
+    ]);
+    expect(last().url).toBe("/projects/7/merge_requests/5/notes?sort=desc&order_by=created_at&per_page=100");
+  });
+  test("changeCommits reads the change's commits and flags those with the factory's email", async () => {
+    routes["/projects/7/merge_requests/5/commits"] = [{ id: "a1", author_email: FACTORY_GIT_EMAIL }, { id: "b2", author_email: "ann@x.io" }];
+    expect(await host().changeCommits("5")).toEqual([{ sha: "a1", byFactory: true }, { sha: "b2", byFactory: false }]);
+    expect(last().url).toBe("/projects/7/merge_requests/5/commits?per_page=100");
+  });
+  test("baseCommits reads the base branch's commits since a time", async () => {
+    routes["/projects/7/repository/commits"] = [{ id: "c1", title: "Revert x", message: "Revert x\n\nbody", committed_date: "2026-11-02T10:00:00Z", author_name: "ann" }];
+    expect(await host().baseCommits("2026-11-01T00:00:00Z")).toEqual([{ sha: "c1", title: "Revert x", message: "Revert x\n\nbody", at: "2026-11-02T10:00:00Z" }]);
+    expect(last().url).toBe("/projects/7/repository/commits?ref_name=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100");
+  });
+  test("recentChanges makes one call and keeps the open changes of the factory's branches from this project", async () => {
+    routes["/projects/7/merge_requests"] = [
+      { iid: 12, source_branch: "factory/12-x", source_project_id: 7 },
+      { iid: 13, source_branch: "factory/13-y", source_project_id: 99 },
+      { iid: 14, source_branch: "feature/x", source_project_id: 7 },
+    ];
+    const since = "2026-11-04T10:00:00Z";
+    expect(await host().recentChanges(since)).toEqual([{ ref: "12", ticket: "12" }]);
+    const listing = calls.filter((c) => c.url.startsWith("/projects/7/merge_requests"));
+    expect(listing.map((c) => c.url)).toEqual([`/projects/7/merge_requests?state=opened&updated_after=${encodeURIComponent(since)}&order_by=updated_at&sort=desc&per_page=100`]);
   });
   test("assign looks up the user and puts the id on the change", async () => {
     routes["/users"] = [{ id: 12 }];

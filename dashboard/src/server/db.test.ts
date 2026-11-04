@@ -255,3 +255,15 @@ describe("dispatches", () => {
     expect(db.dispatches("react_frontend").map((s) => s.id)).toEqual([b.id]);
   });
 });
+
+describe("history", () => {
+  it("returns the asked target, types and times oldest first, and stops at limit", () => {
+    const db = openDb(":memory:");
+    const keep = [ev("decision", {}, { at: at(3) }), ev("run_start", {}, { at: at(2) }), ev("run_start", {}, { at: at(4) })];
+    db.addEvents([ev("run_start", {}, { at: at(1) }), ...keep, ev("usage", {}, { at: at(3) }), ev("run_start", {}, { target: "other", at: at(3) })]);
+    const q = { target: "react_frontend", since: at(2), types: ["run_start", "decision"] as RunEvent["type"][], limit: 10 };
+    expect(db.history(q).map((e) => e.id)).toEqual(keep.map((e) => e.id));
+    expect(db.history({ ...q, limit: 2 }).map((e) => e.id)).toEqual(keep.slice(0, 2).map((e) => e.id));
+    expect(db.history({ ...q, types: [] })).toEqual([]);
+  });
+});

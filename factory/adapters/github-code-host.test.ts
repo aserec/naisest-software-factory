@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { AI_LINE } from "../gitlab";
 import { GitHub } from "../github";
+import { FACTORY_GIT_EMAIL } from "../repo";
 import { makeGitHubCodeHost } from "./github-code-host";
 
 const R = "/repos/o/app";
@@ -39,6 +40,12 @@ describe("openChange", () => {
     expect(body.body.startsWith([AI_LINE, "Closes #8"].join("\n\n"))).toBe(true);
     expect(body.body).not.toMatch(/^\s*\//m);
   });
+  test("with no ticket the text has the AI line and no closing line", async () => {
+    routes[`GET ${R}/pulls`] = [];
+    routes[`POST ${R}/pulls`] = { number: 5, html_url: "u5" };
+    await host().openChange("factory/weekly-1", "Weekly", "Report");
+    expect(sent("POST", `${R}/pulls`).body).toBe([AI_LINE, "Report"].join("\n\n"));
+  });
   test("a re-run reuses the open pull request of the branch and updates its text", async () => {
     routes[`GET ${R}/pulls`] = [{ number: 4, base: { ref: "develop" } }];
     routes[`PATCH ${R}/pulls/4`] = { number: 4, html_url: "u4" };
@@ -53,6 +60,14 @@ describe("change", () => {
     routes[`${R}/pulls/5`] = { state: "open", merged: false, head: { sha: "h" }, base: { ref: "develop" }, html_url: "u", body: "B", merge_commit_sha: null };
     routes[`${R}/compare/develop...h`] = { behind_by: 2 };
     expect(await host().change("5")).toMatchObject({ open: true, merged: false, head: "h", target: "develop", body: "B", behind: true });
+  });
+});
+
+describe("change", () => {
+  test("gives the pull request's title", async () => {
+    routes[`${R}/pulls/5`] = { title: "Add a spinner", state: "open", head: { sha: "h" }, base: { ref: "develop" }, html_url: "u" };
+    routes[`${R}/compare/develop...h`] = { behind_by: 0 };
+    expect((await host().change("5")).title).toBe("Add a spinner");
   });
 });
 
@@ -169,6 +184,93 @@ describe("revert", () => {
 test("a comment with a secret is refused", async () => {
   await expect(host().commentChange("5", "token glpat-abcdefghijklmnopqrst")).rejects.toThrow(/secret/);
   expect(calls).toHaveLength(0);
+});
+
+test("changeComments lists the comments created after since, newest first, and flags only the bot's own AI-line ones", async () => {
+  routes["/user"] = { login: "bot" };
+  routes[`${R}/pulls/5/comments`] = [];
+  routes[`${R}/issues/5/comments`] = [
+    { user: { login: "bob" }, body: "edited old", created_at: "2026-11-04T09:00:00Z" },
+    { user: { login: "bot" }, body: `${AI_LINE}\n\ndone`, created_at: "2026-11-04T11:00:00Z" },
+    { user: { login: "bot" }, body: "typed by a person on the shared account", created_at: "2026-11-04T11:30:00Z" },
+    { user: { login: "ann" }, body: "@factory fix it", created_at: "2026-11-04T12:00:00Z" },
+  ];
+  expect(await host().changeComments("5", "2026-11-04T10:00:00Z")).toEqual([
+    { author: "ann", byFactory: false, body: "@factory fix it", at: "2026-11-04T12:00:00Z" },
+    { author: "bot", byFactory: false, body: "typed by a person on the shared account", at: "2026-11-04T11:30:00Z" },
+    { author: "bot", byFactory: true, body: `${AI_LINE}\n\ndone`, at: "2026-11-04T11:00:00Z" },
+  ]);
+  expect(calls.find((c) => c.path.startsWith(`${R}/issues/5/comments`))!.path).toBe(`${R}/issues/5/comments?per_page=100&since=${encodeURIComponent("2026-11-04T10:00:00Z")}&page=1`);
+});
+
+test("changeComments compares times as times: a comment at the same second plus .500Z is after a since without milliseconds", async () => {
+  routes["/user"] = { login: "bot" };
+  routes[`${R}/pulls/5/comments`] = [];
+  routes[`${R}/issues/5/comments`] = [
+    { user: { login: "bob" }, body: "same", created_at: "2026-11-04T10:00:00Z" },
+    { user: { login: "ann" }, body: "later", created_at: "2026-11-04T10:00:00.500Z" },
+  ];
+  expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => c.body)).toEqual(["later"]);
+});
+
+test("changeEdits reads body edits and title renames in one query, newest first, and flags the token user's", async () => {
+  routes["/user"] = { login: "bot" };
+  routes["/graphql"] = { data: { repository: { pullRequest: {
+    userContentEdits: { nodes: [{ editor: { login: "bot" }, editedAt: "2026-11-04T10:00:00Z" }, { editor: null, editedAt: "2026-11-04T09:00:00Z" }] },
+    timelineItems: { nodes: [{ actor: { login: "ann" }, createdAt: "2026-11-04T11:00:00Z" }] },
+  } } } };
+  expect(await host().changeEdits("5")).toEqual([
+    { author: "ann", byFactory: false, field: "title", at: "2026-11-04T11:00:00Z" },
+    { author: "bot", byFactory: true, field: "body", at: "2026-11-04T10:00:00Z" },
+    { author: "ghost", byFactory: false, field: "body", at: "2026-11-04T09:00:00Z" },
+  ]);
+  const q = calls.find((c) => c.path === "/graphql")!.body;
+  expect(q.query).toMatch(/userContentEdits/);
+  expect(q.query).toMatch(/RENAMED_TITLE_EVENT/);
+  expect(q.variables).toMatchObject({ owner: "o", name: "app", number: 5 });
+});
+
+test("changeCommits reads the pull request's commits and flags those with the factory's email", async () => {
+  routes[`${R}/pulls/5/commits`] = [{ sha: "a1", commit: { author: { email: FACTORY_GIT_EMAIL } } }, { sha: "b2", commit: { author: { email: "ann@x.io" } } }];
+  expect(await host().changeCommits("5")).toEqual([{ sha: "a1", byFactory: true }, { sha: "b2", byFactory: false }]);
+  expect(calls[0].path).toBe(`${R}/pulls/5/commits?per_page=100`);
+});
+
+test("baseCommits reads the base branch's commits since a time; the title is the first line", async () => {
+  routes[`${R}/commits`] = [{ sha: "c1", commit: { message: "Revert x\n\nbody", committer: { date: "2026-11-02T10:00:00Z" } } }];
+  expect(await host().baseCommits("2026-11-01T00:00:00Z")).toEqual([{ sha: "c1", title: "Revert x", message: "Revert x\n\nbody", at: "2026-11-02T10:00:00Z" }]);
+  expect(calls[0].path).toBe(`${R}/commits?sha=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100`);
+});
+
+test("changeComments merges the inline review comments with the others by time, newest first, with the same since and byFactory rules", async () => {
+  routes["/user"] = { login: "bot" };
+  routes[`${R}/issues/5/comments`] = [
+    { user: { login: "ann" }, body: "issue early", created_at: "2026-11-04T11:00:00Z" },
+    { user: { login: "ann" }, body: "issue late", created_at: "2026-11-04T13:00:00Z" },
+  ];
+  routes[`${R}/pulls/5/comments`] = [
+    { user: { login: "bob" }, body: "inline old", created_at: "2026-11-04T09:00:00Z" },
+    { user: { login: "bot" }, body: `${AI_LINE}\n\ninline factory`, created_at: "2026-11-04T12:00:00Z" },
+    { user: { login: "bot" }, body: "inline person", created_at: "2026-11-04T12:30:00Z" },
+  ];
+  expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => [c.body.split("\n").pop(), c.byFactory])).toEqual([
+    ["issue late", false], ["inline person", false], ["inline factory", true], ["issue early", false],
+  ]);
+  const since = encodeURIComponent("2026-11-04T10:00:00Z");
+  expect(calls.map((c) => c.path)).toContain(`${R}/pulls/5/comments?per_page=100&since=${since}&page=1`);
+});
+
+test("recentChanges makes one call and keeps the changes updated after since, from the factory's branches of this repo", async () => {
+  const pull = (number: number, ref: string, updated_at: string, repo = "o/app") => ({ number, head: { ref, repo: { full_name: repo } }, updated_at });
+  routes[`${R}/pulls`] = [
+    pull(12, "factory/12-x", "2026-11-04T11:00:00Z"),
+    pull(13, "factory/13-y", "2026-11-04T11:00:00Z", "fork/app"),
+    pull(14, "feature/x", "2026-11-04T11:00:00Z"),
+    pull(15, "factory/15-z", "2026-11-04T09:00:00Z"),
+    pull(16, "factory/16-w", "2026-11-04T10:00:00.500Z", "O/App"),
+  ];
+  expect(await host().recentChanges("2026-11-04T10:00:00Z")).toEqual([{ ref: "12", ticket: "12" }, { ref: "16", ticket: "16" }]);
+  expect(calls.map((c) => c.path)).toEqual([`${R}/pulls?state=open&sort=updated&direction=desc&per_page=100`]);
 });
 
 test("attach puts the image on its own branch, made from the base the first time", async () => {

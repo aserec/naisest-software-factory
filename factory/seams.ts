@@ -1,6 +1,6 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { RunRecord } from "./record";
-import type { ControlState, RunEvent, Dispatch } from "./run-events";
+import type { ControlState, EventType, RunEvent, Dispatch } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -21,6 +21,7 @@ export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }
   | { kind: "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
   | { kind: "command"; ticket: TicketRef; actor: PersonRef; command: "stop" | "resume" }
+  | { kind: "request"; ticket: TicketRef; actor: PersonRef; change?: ChangeRef }
   | { kind: "ignored"; reason: "other-project" | "not-added" };
 
 export interface TicketDraft { title: string; body: string; state?: FactoryState; marks: Mark[]; fingerprint: string }
@@ -65,11 +66,11 @@ export interface Repo {
 }
 
 export type Checks = "green" | "red" | "running" | "none";
-export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
+export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
 export interface CodeHost {
   baseBranch(): Promise<string>;
   cloneAt(dir: string): Repo;
-  openChange(branch: string, title: string, body: string, ticket: TicketRef): Promise<{ ref: ChangeRef; url: string }>; // adds the AI line and the closing line
+  openChange(branch: string, title: string, body: string, ticket?: TicketRef): Promise<{ ref: ChangeRef; url: string }>; // adds the AI line and, with a ticket, the closing line
   change(ref: ChangeRef): Promise<Change>;
   checks(at: { change: ChangeRef; sha: string } | { branch: string; sha: string }): Promise<Checks>;
   merge(ref: ChangeRef, sha: string, message: string): Promise<string>;
@@ -79,6 +80,11 @@ export interface CodeHost {
   changeOfTicket(ticket: TicketRef): Promise<{ ref: ChangeRef; open: boolean; merged: boolean; url: string } | undefined>; // the newest change, in any state, whose branch starts with changeBranchPrefix(ticket)
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
+  changeComments(ref: ChangeRef, since?: string): Promise<Comment[]>; // people's and the factory's comments, newest first, only those created after since; system notes left out
+  changeEdits(ref: ChangeRef): Promise<{ author: PersonRef; byFactory: boolean; field: "title" | "body"; at: string }[]>; // edits of the title and the text, newest first; byFactory: made by the token's own user
+  changeCommits(ref: ChangeRef): Promise<{ sha: string; byFactory: boolean }[]>; // byFactory: the commit's author email is FACTORY_GIT_EMAIL
+  baseCommits(since: string): Promise<{ sha: string; title: string; message: string; at: string }[]>; // the commits on the base branch since, newest first, at most 100
+  recentChanges(since: string): Promise<{ ref: ChangeRef; ticket: TicketRef }[]>; // the open changes of this repo from branches factory/<n>-, updated after since, newest first, at most 100, from one listing call; forks left out
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
   closeChange(ref: ChangeRef): Promise<void>; // closes without merging
@@ -86,6 +92,7 @@ export interface CodeHost {
 
 // The factory's change branches are named factory/<ticket>-<slug>. The dash keeps ticket 12 apart from ticket 123.
 export const changeBranchPrefix = (ticket: TicketRef) => `factory/${ticket}-`;
+export const ticketOfBranch = (branch: string): TicketRef | undefined => /^factory\/(\d+)-/.exec(branch)?.[1];
 
 // The run is not one the factory started. Never worth a retry.
 export class NotFactoryRunError extends Error {}
@@ -111,7 +118,9 @@ export interface Price { input: number; output: number; cacheRead?: number; cach
 export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[]; prices?: Record<string, Price> } // models: model id -> family; images: model ids that read images
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
-export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
+// `until` is how far a poll read (the time of its newest comment), when it read any. `heard` is told how far the agent got:
+// the pump calls it when the agent has consumed a poll's news.
+export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean; until?: string }>; heard?(until: string): void }
 // One tool the agent used. input and result are text (JSON for input); ms is how long the tool ran.
 export interface ToolCall { name: string; input: string; result: string; ms: number; ok: boolean }
 export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean; onToolCall?: (c: ToolCall) => void } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost; onToolCall is called as each tool finishes, while the agent runs
@@ -132,4 +141,5 @@ export interface Dashboard {
   requestDone(id: string, outcome: "done" | "refused"): Promise<void>;
   dispatches(target: string): Promise<Dispatch[]>; // pending dispatches from outside systems, oldest first
   dispatchDone(id: string): Promise<void>;
+  history(target: string, since: string, types: EventType[]): Promise<RunEvent[]>; // past events of the target at or after `since`, oldest first, at most 5000; throws when the dashboard cannot be reached or answers with an error
 }

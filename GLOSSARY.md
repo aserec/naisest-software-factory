@@ -15,6 +15,14 @@ _Avoid_: Dedup, similarity check
 **Repo-local instructions**:
 Optional files `.factory/author.md`, `.factory/review.md` and `.factory/writer.md` in a target repo. The factory appends each, cut to 8,000 characters, to the matching agent prompt. They cannot override the factory's rules.
 
+**Thresholds file**:
+`.factory/thresholds.yml` in a target repo. It sets four numbers the factory decides with. A missing key keeps the default. A bad one sends the change to a person.
+_Avoid_: Config, settings
+
+**Evidence**:
+One fact the self-improvement job collected, such as a person's comment on a factory change, with a link to it.
+_Avoid_: Signal (a Dispatch is not one either)
+
 **Run**:
 One attempt by the factory to take a work item from `factory_ready` to a final state. A work item has at most one active run.
 _Avoid_: Job, execution, workflow
@@ -74,6 +82,18 @@ _Avoid_: Rerun, reset
 **Closed run**:
 A run that ended because a person closed its work item. The factory closes the run's open change, removes the state and ends the run as `closed`. A change a person closed without a merge blocks the run instead.
 _Avoid_: Cancelled run, aborted run
+
+**Self-improvement**:
+The weekly job that reads how people corrected the factory in one target and proposes edits to its `.factory/` files in a merge request a person merges.
+_Avoid_: Learning, retraining, tuning
+
+**Request**:
+A trusted person's comment with `@factory` on a factory merge request or its work item that asks for more work.
+_Avoid_: command, mention
+
+**Round**:
+One more pass of work on the same run and merge request, from prepare-patch to the decision, for the requests since the last round.
+_Avoid_: iteration, rerun
 
 ## Observability
 

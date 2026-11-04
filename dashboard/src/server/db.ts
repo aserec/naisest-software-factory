@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { SWITCHES, type ControlRequest, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
+import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
 
 export interface RunSummary {
   run: string;
@@ -21,6 +21,8 @@ export interface RunSummary {
 export interface Db {
   addEvents(events: RunEvent[]): number;
   events(q: { run?: string; after?: number; limit?: number }): { events: (RunEvent & { seq: number })[]; cursor: number };
+  /** Events of the target at or after `since` with one of the types, oldest first. */
+  history(q: { target: string; since: string; types: EventType[]; limit: number }): RunEvent[];
   runs(q: { target?: string; ticket?: string }): RunSummary[];
   switches(target: string): Record<SwitchName, boolean>;
   setSwitch(scope: string, name: SwitchName, on: boolean, user: string): void;
@@ -140,6 +142,11 @@ export function openDb(path: string): Db {
       const rows = stmt(EVENTS_SQL(run != null)).all(...(run != null ? [after, run, limit] : [after, limit])) as Row[];
       const events = rows.map(toEvent);
       return { events, cursor: events.length ? events[events.length - 1].seq : after };
+    },
+
+    history({ target, since, types, limit }) {
+      const sql = `SELECT * FROM events WHERE type IN (${types.map(() => "?").join(", ")}) AND target = ? AND at >= ? ORDER BY seq LIMIT ?`;
+      return (stmt(sql).all(...types, target, since, limit) as Row[]).map(toEvent);
     },
 
     runs({ target, ticket }) {

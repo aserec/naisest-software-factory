@@ -11,6 +11,7 @@ import type { Repo } from "./seams";
 
 // Paths come from this file's place, not from env, which a trigger caller can set.
 // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL; the runner keeps File-type variables in <project dir>.tmp.
+export const FACTORY_GIT_EMAIL = "factory@noreply.invalid"; // the author of every commit the factory makes
 export const FACTORY_ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
@@ -97,7 +98,7 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
     async commitAndPush(branch, message) {
       await git([...ours, "add", "-A"]);
       const tree = (await git([...ours, "write-tree"])).trim();
-      const who = { GIT_AUTHOR_NAME: "Software Factory", GIT_AUTHOR_EMAIL: "factory@noreply.invalid", GIT_COMMITTER_NAME: "Software Factory", GIT_COMMITTER_EMAIL: "factory@noreply.invalid" };
+      const who = { GIT_AUTHOR_NAME: "Software Factory", GIT_AUTHOR_EMAIL: FACTORY_GIT_EMAIL, GIT_COMMITTER_NAME: "Software Factory", GIT_COMMITTER_EMAIL: FACTORY_GIT_EMAIL };
       const sha = (await git([...ours, "commit-tree", tree, "-p", "HEAD", "-m", message], who)).trim();
       // Force: a re-run replaces the earlier factory attempt on this factory-owned branch.
       await git(["--git-dir", gitDir, "push", "--force", url, `${sha}:refs/heads/${branch}`], auth);

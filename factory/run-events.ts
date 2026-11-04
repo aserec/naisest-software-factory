@@ -9,7 +9,7 @@ export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume"
 // The steps of a run in order. The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
 export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
 
-export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply"] as const;
+export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply", "improve"] as const;
 export type SwitchName = (typeof SWITCHES)[number];
 
 // The sender cuts long text to this size. The schema only guards it.

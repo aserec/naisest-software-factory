@@ -4,8 +4,8 @@ import { expect, test } from "vitest";
 
 // Steps speak in factory words. A tool's own words, or an import of a tool module, mean a swap would change a step.
 const TOOL_WORDS = /\bgitlab\b|\biid\b|\.labels?\b|mergeRequest|merge_request|PostToolUse|models\.json|playwright|chromium|from "\.\.\/(gitlab|teams|agents)"/i;
-// The findings format and the ticket wrapping are the factory's, so these come from agents.
-const AGENTS_OK = /^import \{ (?:(?:wrapTicket|parseFindings|reviewerPrompt)(?:, )?)+ \} from "\.\.\/agents";$/;
+// The findings format and the ticket and request wrapping are the factory's, so these come from agents.
+const AGENTS_OK = /^import \{ (?:(?:wrapTicket|wrapRequest|parseFindings|reviewerPrompt)(?:, )?)+ \} from "\.\.\/agents";$/;
 
 const dir = fileURLToPath(new URL(".", import.meta.url));
 const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "test-helpers.ts");
