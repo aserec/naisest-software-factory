@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { encode } from "next-auth/jwt";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +22,57 @@ beforeEach(() => {
 });
 
 const load = () => import("./auth");
+
+describe("signIn callback (the gate before a session exists)", () => {
+  // GitLab: /user answers only "user-token" (user 7); the member read gives `level`. GitHub: ann has `ghPerm` on o/b.
+  const tools = (level: number | "down", ghPerm: string) =>
+    vi.fn(async (url: string) => {
+      if (url.endsWith("/api/v4/user")) return Response.json({ id: 7, username: "dev" });
+      if (url.endsWith("/projects/42/members/all/7")) return level === "down" ? new Response("no", { status: 500 }) : Response.json({ access_level: level, state: "active" });
+      if (url.endsWith("/repos/o/b/collaborators/ann/permission")) return Response.json({ permission: ghPerm });
+      return new Response("?", { status: 404 });
+    });
+
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_OAUTH_CLIENT_ID", "gh-id");
+    vi.stubEnv("GITHUB_READ_TOKEN", "gh-read");
+    const dir = mkdtempSync(join(tmpdir(), "targets-"));
+    writeFileSync(join(dir, "b.yml"), "name: b\nprojectPath: o/b\ntracker: github\ngithubRepo: o/b\n");
+    vi.stubEnv("TARGETS_DIR", dir);
+  });
+
+  const gate = async (level: number | "down", ghPerm: string, account: { provider?: string; access_token?: string } | null, profile?: object) => {
+    const { authConfig } = await load();
+    vi.stubGlobal("fetch", tools(level, ghPerm));
+    try {
+      return await authConfig.callbacks.signIn({ account, profile });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
+  const gitlab = { provider: "gitlab", access_token: "user-token" };
+  const ann = { id: 9, login: "ann" };
+
+  it("lets in an allowed GitLab account", async () => {
+    expect(await gate(30, "read", gitlab)).toBe(true);
+  });
+
+  it("sends a refused or unconfirmed GitLab account to the sign-in page with its key", async () => {
+    expect(await gate(20, "read", gitlab)).toBe("/sign-in?error=gitlab.role");
+    expect(await gate("down", "read", gitlab)).toBe("/sign-in?error=gitlab.unconfirmed");
+  });
+
+  it("sends a GitHub login without write access to the sign-in page, and lets one with write in", async () => {
+    expect(await gate(30, "read", { provider: "github" }, ann)).toBe("/sign-in?error=github.role");
+    expect(await gate(30, "write", { provider: "github" }, ann)).toBe(true);
+  });
+
+  it("refuses an unknown provider, no account, and dev while the dev login is off", async () => {
+    expect(await gate(30, "write", { provider: "evil", access_token: "user-token" })).toBe(false);
+    expect(await gate(30, "write", null)).toBe(false);
+    expect(await gate(30, "write", { provider: "dev" })).toBe(false);
+  });
+});
 
 describe("session", () => {
   const SECRET = "test-secret-test-secret-test-secret";

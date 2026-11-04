@@ -34,7 +34,7 @@ export interface Ci {
 // Who is signed in, as the session cookie keeps it. `signIn` is the id of the SignIn they used.
 export interface SessionUser { userId: number; username: string; signIn: string }
 
-// A way to sign in, and the rights check behind it. compose's signIns() lists the ones that are on.
+// A way to sign in, and the rights check behind it. signIns() in sign-ins.ts lists the ones that are on.
 export interface SignIn {
   readonly id: string; // the Auth.js provider id
   readonly name: string; // the display name
