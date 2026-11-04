@@ -19,6 +19,13 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
   build: pnpm build
   ```
 - [ ] Optional: add `.factory/author.md`, `.factory/review.md` and `.factory/writer.md` to tune the agents. The factory adds each file to the matching prompt: `author.md` for the author (also its commit message and merge request text), `review.md` for the reviewer, `writer.md` for the questions comment and the watcher and dispatch ticket writers. A missing or empty file changes nothing. Only the first 8,000 characters are read. The factory reads `author.md` and `review.md` from the commit it cloned, so the author cannot change its own instructions. It reads `writer.md` from the head of the base branch. The files cannot override the factory's rules. Add them in a merge request that a person reviews: `.factory/**` is a protected path, so a change to them always goes to a person.
+- [ ] Optional: add `.factory/thresholds.yml` to change the numbers the factory decides with. A key that is missing keeps its default. A bad value or an unknown key sends the change to a person, and the reason names the key. The factory reads it from the commit it cloned, and triage reads it from the base branch. Add it in a merge request that a person reviews, like the other `.factory` files.
+  ```yaml
+  diffRiskMax: 4              # whole number, 2 to 10. A diff_risk above it needs a person.
+  autoMergeConfidenceMin: 0.9 # 0.5 to 1. Jev 2 must be at least this sure.
+  clarityMin: 6               # whole number, 2 to 10. A ticket below it gets questions.
+  maxAgentRounds: 5           # whole number, 1 to 10. Review and gate rounds.
+  ```
 - [ ] Add the webhook (Settings > Webhooks) for issue, comment and merge request events. Each event starts a pipeline; a comment starts a run only when it has the line `@factory resume`. URL:
   ```text
   https://gitlab.example.com/api/v4/projects/<factory project id>/ref/main/trigger/pipeline?token=<trigger token>&variables[FACTORY_PIPELINE]=build&variables[FACTORY_TARGET]=<name>&variables[SAST_DISABLED]=true&variables[SECRET_DETECTION_DISABLED]=true

@@ -47,6 +47,34 @@ test("trivial ticket: build pipeline ends in auto-merge with no person", async (
   expect(w.finishTriggered).toBe(true);
   expect(w.cards).toHaveLength(0);
 });
+test("a bad thresholds file at the base commit sends a change that would merge alone to a person, naming the key", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "autoMergeConfidenceMin: 2" } }));
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrComments.at(-1)).toContain("autoMergeConfidenceMin must be");
+});
+test("a thresholds file that is not a map also sends the change to a person", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "- 1" } }));
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain(".factory/thresholds.yml is not a YAML map");
+});
+test("a good diffRiskMax from the thresholds file lets a change merge that the default would stop", async () => {
+  const world = (baseFiles?: Record<string, string>) => fakeWorld({ jev1: { risk: "trivial" }, jev2: "pass", baseFiles });
+  const stopped = world({ ".factory/thresholds.yml": "diffRiskMax: 2" });
+  await runBuildPipeline(stopped);
+  expect(stopped.finishTriggered).toBe(false);
+  expect(stopped.mrComments.at(-1)).toContain("is above 2");
+  const merged = await runBuildPipeline(world());
+  expect(merged.finishTriggered).toBe(true);
+});
+test("a thresholds clarityMin from the base branch asks questions for a ticket the default would build", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 9 }, files: { ".factory/thresholds.yml": "clarityMin: 10" } }));
+  expect(w.states).toEqual(["needs_info"]);
+});
+test("with no thresholds file a clear ticket still builds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial", clarity: 9 } }));
+  expect(w.states).toEqual(["running"]);
+});
 test("a watcher ticket from fake errors stops at needs_approval even when it could merge alone", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   w.tracker.tickets.get("8")!.marks = ["watcher"];

@@ -2,6 +2,7 @@ import { emit } from "../emit";
 import { askRisk, riskReasons } from "../decision";
 import { need } from "../record";
 import { checkHardRules, parseNumstat, type RuleResult } from "../rules";
+import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { Target } from "../types";
 import { facts, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
@@ -24,16 +25,18 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const diff = await ctx.repo.diff();
   const rules = hardRules(diff.numstat, diff.text, ctx.target, checks === "green");
   for (const r of rules) emit(ctx, "rule_check", { rule: r.rule, passed: r.passed, detail: r.detail });
+  // The base commit, so the agent cannot change its own thresholds. A bad value sends the change to a person in the decision step.
+  const { values: thresholds, errors: thresholdErrors } = readThresholds(await ctx.repo.readBase(THRESHOLDS_PATH));
   let risk;
   try {
     risk = await askRisk(ctx.judge, ctx.record.ticket!, diff.text);
   } catch (e) {
     // No guessing: the decision step sends this change to a person.
-    save(ctx, "risk-check", { headSha, checks, rules, riskError: String(e) });
+    save(ctx, "risk-check", { headSha, checks, rules, riskError: String(e), thresholds, thresholdErrors });
     return "next";
   }
-  save(ctx, "risk-check", { headSha, checks, rules, risk });
-  if (riskReasons(risk).length === 0) await ctx.tracker.mark(ticketRef(ctx), "risk_checked");
+  save(ctx, "risk-check", { headSha, checks, rules, risk, thresholds, thresholdErrors });
+  if (riskReasons(risk, thresholds).length === 0) await ctx.tracker.mark(ticketRef(ctx), "risk_checked");
   return "next";
 }
 

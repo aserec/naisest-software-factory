@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
-import { askRisk, decideMerge } from "./decision";
+import { askRisk, decideMerge, riskReasons } from "./decision";
 import type { JevClient } from "./jev";
+import { DEFAULT_THRESHOLDS } from "./thresholds";
 import type { Risk } from "./types";
 
 const ok = { triageRisk: "low" as Risk, reviewPassed: true, gateGreen: true, rules: (["protected-path", "dependency-file", "size", "secret", "pipeline"] as const).map((rule) => ({ rule, passed: true, detail: "ok" })), risk: { diffRisk: { value: 4, confidence: 0.9 }, scopeYes: 0.9, sensitiveYes: 0.1 } };
@@ -22,6 +23,19 @@ test("an unknown rule name waits", () => expect(decideMerge({ ...ok, rules: [...
 test("sensitive -0.5 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, sensitiveYes: -0.5 } }).kind).toBe("needs_approval"));
 test("scope 0.89 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, scopeYes: 0.89 } }).kind).toBe("needs_approval"));
 test("unknown triage risk waits", () => expect(decideMerge({ ...ok, triageRisk: "unknown" as Risk }).kind).toBe("needs_approval"));
+
+test("the thresholds move the diff risk and confidence limits", () => {
+  const t = { ...DEFAULT_THRESHOLDS, diffRiskMax: 6, autoMergeConfidenceMin: 0.8 };
+  const risk = { diffRisk: { value: 5, confidence: 0.85 }, scopeYes: 0.85, sensitiveYes: 0.15 };
+  expect(riskReasons(risk, t)).toEqual([]);
+  expect(riskReasons(risk)).toHaveLength(4);
+  expect(decideMerge({ ...ok, risk, thresholds: t })).toEqual({ kind: "auto" });
+  expect(decideMerge({ ...ok, risk }).kind).toBe("needs_approval");
+});
+test("a stricter threshold names its own number in the reason", () => {
+  const t = { ...DEFAULT_THRESHOLDS, diffRiskMax: 3 };
+  expect(riskReasons({ ...ok.risk, diffRisk: { value: 4, confidence: 0.95 } }, t)).toEqual(["diff_risk 4 is above 3"]);
+});
 
 test("askRisk maps answers and cuts the diff to 8000 characters", async () => {
   let seen: any;

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import type { JevClient, JevQuestion } from "./jev";
+import { DEFAULT_THRESHOLDS } from "./thresholds";
 import type { Answer, Risk } from "./types";
 
 const questions = parse(readFileSync(fileURLToPath(new URL("../jev/triage.yml", import.meta.url)), "utf8")) as JevQuestion[];
@@ -13,7 +14,6 @@ export type TriageOutcome = { kind: "blocked"; reason: string } | { kind: "needs
 
 const MAX_DESCRIPTION = 8000;
 export const INJECTION_LIMIT = 0.3;
-const CLARITY_MIN = 6;
 const RISK_CONFIDENCE_MIN = 0.7;
 const RISKS: Risk[] = ["trivial", "low", "medium", "high"];
 
@@ -37,10 +37,10 @@ export async function askTriage(jev: JevClient, state: object): Promise<TriageAn
   };
 }
 
-export function decideTriage(a: TriageAnswers): TriageOutcome {
+export function decideTriage(a: TriageAnswers, clarityMin = DEFAULT_THRESHOLDS.clarityMin): TriageOutcome {
   // Every check fails closed: NaN or an unknown value never lets a ticket through.
   if (!(a.injectionYes < INJECTION_LIMIT)) return { kind: "blocked", reason: `Possible prompt injection (P(yes) ${a.injectionYes})` };
-  if (!(a.clarity.value >= CLARITY_MIN)) return { kind: "needs_info" };
+  if (!(a.clarity.value >= clarityMin)) return { kind: "needs_info" };
   // An unknown risk counts as high. An unsure risk answer counts as one level higher.
   const known = RISKS.includes(a.risk.value) ? a.risk.value : "high";
   const i = RISKS.indexOf(known);

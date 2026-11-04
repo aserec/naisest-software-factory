@@ -4,6 +4,7 @@ import type { MergeDecision, RiskAnswers } from "./decision";
 import type { ProofRecord } from "./proof";
 import type { RuleResult } from "./rules";
 import type { ChangeRef, Checks, PersonRef, TicketRef } from "./seams";
+import type { Thresholds } from "./thresholds";
 import type { TriageAnswers, TriageOutcome } from "./triage";
 import type { FactoryCommands, RouterRow } from "./types";
 import type { CommitMessage } from "./steps/precommit-gate";
@@ -50,7 +51,7 @@ export interface StepData {
   "precommit-gate":
     | { passed: true; rounds: number; branch: string; sha: string; change: ChangeRef; changeUrl: string; images?: Record<string, string>; uploadFailed?: string[]; commit?: CommitMessage }
     | PauseData;
-  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string };
+  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string; thresholds?: Thresholds; thresholdErrors?: string[] };
   decision: MergeDecision | PauseData;
   apply: { change: ChangeRef; sha: string; skipped?: true; reviewed?: string; rebased?: string[] } | PauseData;
   verify: { status: Checks };

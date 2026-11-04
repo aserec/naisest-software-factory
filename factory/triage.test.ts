@@ -3,6 +3,11 @@ import { makeJevClient } from "./jev";
 import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "./triage";
 
 const base: TriageAnswers = { injectionYes: 0.05, type: { value: "bug", confidence: 0.9 }, risk: { value: "low", confidence: 0.9 }, clarity: { value: 8, confidence: 0.9 }, effort: { value: 3, confidence: 0.9 } };
+test("the clarity threshold moves", () => {
+  const a = { ...base, clarity: { value: 7, confidence: 0.9 } };
+  expect(decideTriage(a).kind).toBe("build");
+  expect(decideTriage(a, 8)).toEqual({ kind: "needs_info" });
+});
 test("injection at 0.3 blocks", () => expect(decideTriage({ ...base, injectionYes: 0.3 }).kind).toBe("blocked"));
 test("clarity 5 asks questions", () => expect(decideTriage({ ...base, clarity: { value: 5, confidence: 0.9 } })).toEqual({ kind: "needs_info" }));
 test("unsure low risk becomes medium", () => expect(decideTriage({ ...base, risk: { value: "low", confidence: 0.6 } })).toEqual({ kind: "build", risk: "medium", effort: 3 }));

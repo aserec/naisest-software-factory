@@ -18,6 +18,8 @@ function decide(ctx: StepContext, ticket: Ticket): MergeDecision {
   let d = decideByChecks(ctx);
   const reasons = () => (d.kind === "needs_approval" ? d.reasons : []);
   if (ticket.marks.includes("watcher") && ctx.seams.logSource === "files") d = { kind: "needs_approval", reasons: [...reasons(), FAKE_ERRORS] };
+  const bad = facts(ctx).riskCheck?.thresholdErrors ?? [];
+  if (bad.length) d = { kind: "needs_approval", reasons: [...reasons(), ...bad] };
   return facts(ctx).requested ? { kind: "needs_approval", reasons: [ASKED, ...reasons()] } : d;
 }
 
@@ -33,6 +35,7 @@ function decideByChecks(ctx: StepContext): MergeDecision {
     gateGreen: f.gatePassed === true,
     rules: rc.rules,
     risk: need(rc.risk, "Jev 2 risk answers"),
+    thresholds: rc.thresholds,
   });
   const row = modelRow(ctx);
   if (d.kind === "auto" && !row.mayAutoMerge) return { kind: "needs_approval", reasons: [`the ${row.author.model} router row may not merge alone`, ...proof] };

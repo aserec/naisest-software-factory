@@ -5,6 +5,7 @@ import { need } from "../record";
 import { pickModels } from "../router";
 import type { Ticket } from "../seams";
 import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
+import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
 import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
@@ -24,7 +25,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   } catch (e) {
     return block(ctx, `Triage failed, so the factory did not guess: ${String(e)}`);
   }
-  const outcome = decideTriage(answers);
+  // A failed read keeps the default here. The decision step reads the file again from the base commit.
+  const outcome = decideTriage(answers, readThresholds(await ctx.codeHost.readFile(THRESHOLDS_PATH).catch(() => undefined)).values.clarityMin);
   const row = pickModels(outcome.kind === "build" ? outcome.risk : answers.risk.value, answers.effort.value, ctx.router);
   // Agents only ever see this checked text, even if the work item changes later.
   ctx.record = { ...ctx.record, ticket: { title: state.title, description: state.description }, models: { author: `${row.author.harness}/${row.author.model}`, reviewer: `${row.reviewer.harness}/${row.reviewer.model}` } };
