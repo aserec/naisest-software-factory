@@ -1,6 +1,6 @@
 import type { FactoryEvent } from "../seams";
 import { buildRunOf } from "./merge";
-import { requestRound } from "./requests";
+import { answerRequests, requestRound } from "./requests";
 import { isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
 // The start rules sit in run.ts: run.ts cannot import this file, whose isMain line runs at load.
 import { activeRuns, continueBlocked, decideStart, mayStart, readyActor, resume, resumeOnCommand, startRun } from "./run";
@@ -36,6 +36,16 @@ async function commandEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "
   return resumeOnCommand(ctx, e.ticket, e.actor, quiet);
 }
 
+// A person's `@factory` request: the poller's answer, given at once. The round itself starts in the build that answerRequests starts.
+async function requestEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "request" }>): Promise<StepResult> {
+  const quiet = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: e.ticket }), "stop" as const);
+  if (await ctx.tracker.isFactory(e.actor)) return quiet("bot");
+  if (!(await ctx.tracker.trusted(e.actor))) return quiet("not-member");
+  // Only the ticket's open change counts.
+  if (e.change !== undefined && (await ctx.codeHost.changeOfTicket(e.ticket).then((c) => (c?.open ? c.ref : undefined))) !== e.change) return quiet("other-change");
+  return quiet(await answerRequests(ctx, await ctx.tracker.ticket(e.ticket)));
+}
+
 export async function run(ctx: StepContext): Promise<StepResult> {
   const { payload, ticket, buildRun } = ctx.ci.vars;
   // A change that waits for a person: the poller found a request on it. Any other state: a paused run to continue.
@@ -45,6 +55,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   let e: FactoryEvent = payload === undefined && ticket ? { kind: "ready", ticket, actor: (await ctx.tracker.startedBy(ticket)) ?? "" } : ctx.tracker.parseEvent(payload);
   if (e.kind === "merged") return changeEvent(ctx, e);
   if (e.kind === "command") return commandEvent(ctx, e);
+  if (e.kind === "request") return requestEvent(ctx, e);
   if (e.kind !== "ready") {
     save(ctx, "event", { start: false, reason: e.kind === "ignored" ? e.reason : "not-added" });
     return "stop";

@@ -21,6 +21,7 @@ export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }
   | { kind: "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
   | { kind: "command"; ticket: TicketRef; actor: PersonRef; command: "stop" | "resume" }
+  | { kind: "request"; ticket: TicketRef; actor: PersonRef; change?: ChangeRef }
   | { kind: "ignored"; reason: "other-project" | "not-added" };
 
 export interface TicketDraft { title: string; body: string; state?: FactoryState; marks: Mark[]; fingerprint: string }

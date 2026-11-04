@@ -1,3 +1,4 @@
+import { isRequest } from "../requests";
 import { DEVELOPER, GitLab, type StateLabel } from "../gitlab";
 import type { FactoryEvent, FactoryState, Mark, Ticket, Tracker } from "../seams";
 
@@ -107,10 +108,18 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
         if (!change || !titles(change.current).includes(READY) || titles(change.previous).includes(READY) || typeof a?.iid !== "number") return ignored("not-added");
         return { kind: "ready", ticket: String(a.iid), actor };
       }
-      // A person's note with the line `@factory stop` or `@factory resume`. The event step decides who may.
+      // A person's note with the line `@factory stop` or `@factory resume`, or a `@factory` request. The event step decides who may.
       if (p.object_kind === "note" && a?.noteable_type === "Issue" && !a.system && typeof p.issue?.iid === "number") {
         const command = String(a.note ?? "").split("\n").map((l) => l.trim().toLowerCase()).find((l) => l === "@factory stop" || l === "@factory resume");
         if (command) return { kind: "command", ticket: String(p.issue.iid), actor, command: command === "@factory stop" ? "stop" : "resume" };
+        if (isRequest(String(a.note ?? ""))) return { kind: "request", ticket: String(p.issue.iid), actor };
+        return ignored("not-added");
+      }
+      // A request on a factory change (branch factory/<ticket>-<slug>). A fork's change never counts.
+      if (p.object_kind === "note" && a?.noteable_type === "MergeRequest" && !a.system) {
+        const m = /^factory\/(\d+)-/.exec(String(p.merge_request?.source_branch ?? ""));
+        const mr = p.merge_request;
+        if (m && typeof mr.iid === "number" && mr.source_project_id === mr.target_project_id && isRequest(String(a.note ?? ""))) return { kind: "request", ticket: m[1], actor, change: String(mr.iid) };
         return ignored("not-added");
       }
       // A merge of a factory change (branch factory/<ticket>-<slug>). An approval starts nothing.

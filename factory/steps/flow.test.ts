@@ -20,7 +20,7 @@ import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
-import { NotFactoryRunError, type Mark } from "../seams";
+import { NotFactoryRunError, type FactoryState, type Mark } from "../seams";
 import { addStep, newRecord, runFacts, saveRecord } from "../record";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
@@ -1941,6 +1941,42 @@ test("a request round restores the run, tells the work item, clears the marks an
   // The next job picks the saved session up.
   await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
   expect(w.claudeRuns[0]).toMatchObject({ resume: runFacts(first.record).session });
+});
+// The GitLab webhook hears a request at once: the same answer the poller gives.
+const requestEvent = (actor = "dev", change?: string) => ({ kind: "request", ticket: "8", actor, ...(change ? { change } : {}) }) as const;
+const hearRequest = async (state: FactoryState, event: ReturnType<typeof requestEvent>, o: WorldOptions = {}) => {
+  const { w } = await requestWorld(o);
+  w.ci.vars = { ...w.ci.vars, payload: event, ticket: undefined, buildRun: undefined };
+  w.tracker.tickets.get("8")!.state = state;
+  await eventJob(w);
+  return w;
+};
+test("a request event on a change that waits for a person starts the round build", async () => {
+  for (const event of [requestEvent(), requestEvent("dev", "5")]) {
+    const w = await hearRequest("needs_approval", event);
+    expect(w.ci.started).toEqual([{ kind: "build", ticket: "8", buildRun: "41" }]);
+    expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "started", ticket: "8" } });
+    expect(w.workItemComments).toEqual([]);
+  }
+});
+test("a request event on a blocked work item posts the reply with the cursor line", async () => {
+  const w = await hearRequest("blocked", requestEvent());
+  expect(w.ci.started).toEqual([]);
+  expect(w.workItemComments).toHaveLength(1);
+  expect(w.workItemComments[0]).toContain(cursorLine(T2));
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "replied" } });
+});
+test("a request event from the factory, an untrusted person, or for another change does nothing", async () => {
+  const cases: [ReturnType<typeof requestEvent>, WorldOptions, string][] = [
+    [requestEvent(BOT), {}, "bot"],
+    [requestEvent(), { actorLevel: 20 }, "not-member"],
+    [requestEvent("dev", "6"), {}, "other-change"],
+  ];
+  for (const [event, o, reason] of cases) {
+    const w = await hearRequest("needs_approval", event, o);
+    expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason } });
+    expect([w.ci.started, w.workItemComments]).toEqual([[], []]);
+  }
 });
 test("a request round stops quietly when the ticket no longer waits, there is no new request, or the change is closed", async () => {
   const cases: [string, (w: ReturnType<typeof fakeWorld>) => void][] = [
