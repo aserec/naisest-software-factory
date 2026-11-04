@@ -21,6 +21,7 @@ export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }
   | { kind: "merged"; ticket: TicketRef; change: ChangeRef; actor: PersonRef }
   | { kind: "command"; ticket: TicketRef; actor: PersonRef; command: "stop" | "resume" }
+  | { kind: "request"; ticket: TicketRef; actor: PersonRef; change?: ChangeRef }
   | { kind: "ignored"; reason: "other-project" | "not-added" };
 
 export interface TicketDraft { title: string; body: string; state?: FactoryState; marks: Mark[]; fingerprint: string }
@@ -79,6 +80,8 @@ export interface CodeHost {
   changeOfTicket(ticket: TicketRef): Promise<{ ref: ChangeRef; open: boolean; merged: boolean; url: string } | undefined>; // the newest change, in any state, whose branch starts with changeBranchPrefix(ticket)
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
+  changeComments(ref: ChangeRef, since?: string): Promise<Comment[]>; // people's and the factory's comments, newest first, only those created after since; system notes left out
+  recentChanges(since: string): Promise<{ ref: ChangeRef; ticket: TicketRef }[]>; // the open changes of this repo from branches factory/<n>-, updated after since, newest first, at most 100, from one listing call; forks left out
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
   closeChange(ref: ChangeRef): Promise<void>; // closes without merging
@@ -86,6 +89,7 @@ export interface CodeHost {
 
 // The factory's change branches are named factory/<ticket>-<slug>. The dash keeps ticket 12 apart from ticket 123.
 export const changeBranchPrefix = (ticket: TicketRef) => `factory/${ticket}-`;
+export const ticketOfBranch = (branch: string): TicketRef | undefined => /^factory\/(\d+)-/.exec(branch)?.[1];
 
 // The run is not one the factory started. Never worth a retry.
 export class NotFactoryRunError extends Error {}
@@ -111,7 +115,9 @@ export interface Price { input: number; output: number; cacheRead?: number; cach
 export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; models: Record<string, string>; images?: string[]; prices?: Record<string, Price> } // models: model id -> family; images: model ids that read images
 export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
 export type Role = "author" | "reviewer" | "writer";
-export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean }> }
+// `until` is how far a poll read (the time of its newest comment), when it read any. `heard` is told how far the agent got:
+// the pump calls it when the agent has consumed a poll's news.
+export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean; until?: string }>; heard?(until: string): void }
 // One tool the agent used. input and result are text (JSON for input); ms is how long the tool ran.
 export interface ToolCall { name: string; input: string; result: string; ms: number; ok: boolean }
 export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean; onToolCall?: (c: ToolCall) => void } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost; onToolCall is called as each tool finishes, while the agent runs

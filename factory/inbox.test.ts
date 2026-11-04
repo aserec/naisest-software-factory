@@ -3,8 +3,9 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { INBOX_HOOK, factorySettings, HOOKS_DIR, TSX_IMPORT } from "./agents";
-import { fakeTracker } from "./fakes";
+import { INBOX_HOOK, factorySettings, HOOKS_DIR, TSX_IMPORT, wrapRequest } from "./agents";
+import { fakeCodeHost, fakeTracker } from "./fakes";
+import { readNew } from "./inbox-file";
 import { makeInbox, pumpInbox } from "./inbox";
 
 const SINCE = "2026-01-01T00:00:00.000Z";
@@ -19,7 +20,14 @@ test("a trusted comment comes back wrapped as data, oldest first", async () => {
   const t = world();
   t.say("8", "dev", "first", "2026-02-01T00:00:00.000Z");
   t.say("8", "dev", "second", "2026-02-02T00:00:00.000Z");
-  expect(await makeInbox(t, "8", SINCE).poll()).toEqual({ comments: [WRAP("dev", "first"), WRAP("dev", "second")], stop: false });
+  expect(await makeInbox(t, "8", SINCE).poll()).toEqual({ comments: [WRAP("dev", "first"), WRAP("dev", "second")], stop: false, until: "2026-02-02T00:00:00.000Z" });
+});
+test("a trusted @factory request reaches the agent as a request, not as data; a command and a plain comment stay data", async () => {
+  const t = world();
+  t.say("8", "dev", "@factory also fix the 409", "2026-02-01T00:00:00.000Z");
+  t.say("8", "dev", "@factory resume", "2026-02-02T00:00:00.000Z");
+  t.say("8", "dev", "looks good", "2026-02-03T00:00:00.000Z");
+  expect((await makeInbox(t, "8", SINCE).poll()).comments).toEqual([wrapRequest("dev", "@factory also fix the 409"), WRAP("dev", "@factory resume"), WRAP("dev", "looks good")]);
 });
 test("a comment cannot close the wrapper early", async () => {
   const t = world();
@@ -36,13 +44,13 @@ test("@factory stop from a trusted person stops, whatever the case and spaces", 
 test("@factory stop from an untrusted person does not stop and is not passed on", async () => {
   const t = world();
   t.say("8", "stranger", "@factory stop", "2026-02-01T00:00:00.000Z");
-  expect(await makeInbox(t, "8", SINCE).poll()).toEqual({ comments: [], stop: false });
+  expect(await makeInbox(t, "8", SINCE).poll()).toMatchObject({ comments: [], stop: false });
 });
 test("a factory comment that quotes @factory stop does not stop, even if the tracker would trust it", async () => {
   const t = world();
   t.trusted = async () => true;
   await t.comment("8", "You wrote:\n@factory stop");
-  expect(await makeInbox(t, "8", SINCE).poll()).toEqual({ comments: [], stop: false });
+  expect(await makeInbox(t, "8", SINCE).poll()).toMatchObject({ comments: [], stop: false });
 });
 test("a quote of the command is not the command", async () => {
   const t = world();
@@ -171,4 +179,69 @@ test("the pump polls every 10 s by default", async () => {
 test("a closed check that says closed stops; one that throws does not", async () => {
   expect((await makeInbox(world(), "8", SINCE, undefined, async () => true).poll()).stop).toBe(true);
   expect((await makeInbox(world(), "8", SINCE, undefined, async () => { throw new Error("status 502"); }).poll()).stop).toBe(false);
+});
+
+// Part G: the comments on the run's change come with the ticket's.
+async function withChange() {
+  const t = world();
+  const host = fakeCodeHost();
+  const ref = (await host.openChange("b", "title", "body", "8")).ref;
+  const reads: string[] = [];
+  const poll = (since = SINCE) => makeInbox(t, "8", since, undefined, undefined, { changeComments: (s) => host.changeComments(ref, s), onRead: (u) => reads.push(u) });
+  return { t, host, ref, reads, poll };
+}
+test("a trusted comment on the change reaches the agent wrapped, merged with the ticket's, oldest first", async () => {
+  const { t, host, ref, poll } = await withChange();
+  t.say("8", "dev", "on the ticket", "2026-02-02T00:00:00.000Z");
+  host.sayOnChange(ref, "dev", "@factory also fix the 409", "2026-02-01T00:00:00.000Z");
+  host.sayOnChange(ref, "dev", "later on the change", "2026-02-03T00:00:00.000Z");
+  expect(await poll().poll()).toEqual({ comments: [wrapRequest("dev", "@factory also fix the 409"), WRAP("dev", "on the ticket"), WRAP("dev", "later on the change")], stop: false, until: "2026-02-03T00:00:00.000Z" });
+});
+test("an untrusted comment and a factory comment on the change do not reach the agent", async () => {
+  const { host, ref, poll } = await withChange();
+  host.sayOnChange(ref, "stranger", "@factory stop", "2026-02-01T00:00:00.000Z");
+  host.sayOnChange(ref, "dev", "@factory stop", "2026-02-02T00:00:00.000Z", true);
+  expect(await poll().poll()).toMatchObject({ comments: [], stop: false });
+});
+test("@factory stop on the change stops", async () => {
+  const { host, ref, poll } = await withChange();
+  host.sayOnChange(ref, "dev", "@factory stop", "2026-02-01T00:00:00.000Z");
+  expect((await poll().poll()).stop).toBe(true);
+});
+test("a poll says how far it read, as the newest time of both lists compared as times, not as text, and does not call onRead itself", async () => {
+  const { t, host, ref, reads, poll } = await withChange();
+  t.say("8", "dev", "ticket", "2026-02-01T10:00:00.000Z");
+  host.sayOnChange(ref, "dev", "change", "2026-02-01T11:00:00.000+02:00"); // 09:00Z: later as text, earlier as a time
+  expect((await poll().poll()).until).toBe("2026-02-01T10:00:00.000Z");
+  expect(reads).toEqual([]);
+});
+test("a poll with nothing new has no until", async () => {
+  const { poll } = await withChange();
+  expect((await poll().poll()).until).toBeUndefined();
+});
+test("heard passes the time on to onRead", async () => {
+  const { reads, poll } = await withChange();
+  poll().heard!("2026-02-01T10:00:00.000Z");
+  expect(reads).toEqual(["2026-02-01T10:00:00.000Z"]);
+});
+// The pump writes each line with news; the agent's hook consumes it with readNew. Only what the agent consumed counts as heard.
+const pumped = async (consume: boolean) => {
+  const { t, host, ref, reads, poll } = await withChange();
+  host.sayOnChange(ref, "dev", "@factory also fix the 409", "2026-02-01T10:00:00.000Z");
+  t.say("8", "dev", "ticket comment", "2026-02-02T10:00:00.000Z");
+  const file = join(mkdtempSync(join(tmpdir(), "pump-")), "inbox.jsonl");
+  const pump = pumpInbox(poll(), file, 5);
+  await new Promise((r) => setTimeout(r, 80));
+  const read = consume ? readNew(file) : undefined;
+  expect(await pump.end()).toBe(false);
+  return { reads, read };
+};
+test("a line the agent never consumed does not reach onRead", async () => {
+  const { reads } = await pumped(false);
+  expect(reads).toEqual([]);
+});
+test("after the agent consumed the line, end() reports its until", async () => {
+  const { reads, read } = await pumped(true);
+  expect(read!.comments).toHaveLength(2);
+  expect(reads).toEqual(["2026-02-02T10:00:00.000Z"]);
 });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { wrapTicket } from "../agents";
 import { makeInbox } from "../inbox";
+import { later } from "../requests";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
@@ -108,12 +109,19 @@ export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<bool
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
 // It also asks the dashboard whether a person stopped this run there, and the tracker and code host whether a person
 // closed the work item or the run's change. The stop step then ends a closed run (stopped() in run.ts).
-export const inbox = (ctx: StepContext) =>
-  makeInbox(ctx.tracker, ticketRef(ctx), facts(ctx).eventAt ?? new Date().toISOString(), async () => {
+// Once the run has pushed, the change's comments come too. A request round reads from its cursor; any other start reads from the event.
+export const inbox = (ctx: StepContext) => {
+  const f = facts(ctx);
+  const change = f.change;
+  return makeInbox(ctx.tracker, ticketRef(ctx), (f.roundStart ? f.openRound?.cursor : undefined) ?? f.eventAt ?? new Date().toISOString(), async () => {
     const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
     if (stop) ctx.dashboardStop = true;
     return stop;
-  }, () => closedByPerson(ctx));
+  }, () => closedByPerson(ctx), {
+    ...(change ? { changeComments: (since: string) => ctx.codeHost.changeComments(change, since) } : {}),
+    onRead: (t) => void (ctx.record = { ...ctx.record, heardUntil: later(ctx.record.heardUntil, t) }),
+  });
+};
 
 // Runs one agent job on the harness the router picked, and adds its cost and tokens to the record.
 // An author run with tools gets the inbox: comments from trusted people reach it, and a stop line stops it.

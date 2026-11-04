@@ -17,3 +17,14 @@ export function readNew(file: string): { comments: string[]; stop: boolean } {
   }
   return out;
 }
+
+// The `until` of the newest line the agent has read (see `.read`), if any line has one.
+export function readUntil(file: string): string | undefined {
+  if (!existsSync(file)) return undefined;
+  const read = existsSync(`${file}.read`) ? Number(readFileSync(`${file}.read`, "utf8")) || 0 : 0;
+  let until: string | undefined;
+  for (const line of readFileSync(file, "utf8").split("\n").slice(0, read)) {
+    try { until = JSON.parse(line).until ?? until; } catch { /* skip a broken line */ }
+  }
+  return until;
+}

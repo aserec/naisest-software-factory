@@ -6,6 +6,8 @@ import type { Answer, Risk } from "./types";
 
 const questions = parse(readFileSync(fileURLToPath(new URL("../jev/triage.yml", import.meta.url)), "utf8")) as JevQuestion[];
 
+export const injectionQuestion = questions.find((q) => q.id === "injection")!;
+
 export interface TriageAnswers { injectionYes: number; type: Answer<string>; risk: Answer<Risk>; clarity: Answer<number>; effort: Answer<number> }
 export type TriageOutcome = { kind: "blocked"; reason: string } | { kind: "needs_info" } | { kind: "build"; risk: Risk; effort: number };
 

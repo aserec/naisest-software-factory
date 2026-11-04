@@ -1,8 +1,9 @@
 import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
+import { later } from "./requests";
 import { findSecrets } from "./rules";
 import { SWITCHES } from "./run-events";
-import { changeBranchPrefix, NotFactoryRunError } from "./seams";
+import { changeBranchPrefix, ticketOfBranch, NotFactoryRunError } from "./seams";
 import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, Dispatch, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
@@ -91,8 +92,9 @@ export const DIFF = { "src/List.tsx": "@@ -1,2 +1,3 @@\n const a = 1;\n+  if (lo
 export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
   const head = o.head ?? "head1";
   let behind = o.behind ?? 0;
-  const changes = new Map<ChangeRef, Omit<Change, "behind"> & { branch: string; title: string }>();
+  const changes = new Map<ChangeRef, Omit<Change, "behind"> & { branch: string; title: string; updatedAt?: string }>();
   const byBranch = new Map<string, ChangeRef>();
+  const changeNotes = new Map<ChangeRef, Comment[]>(); // newest first
   const attached: { name: string; size: number }[] = [];
   let attachCalls = 0;
   const open = (branch: string, title: string, body: string, ticket: TicketRef) => {
@@ -180,7 +182,22 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       get(ref);
       if (findSecrets(text).length > 0) throw new Error("Comment refused: it contains a secret");
       host.mrComments.push(text);
+      host.sayOnChange(ref, FAKE_FACTORY, text, undefined, true);
     },
+    // A person (or, with byFactory, the factory) comments on the change on the host.
+    sayOnChange: (ref: ChangeRef, author: PersonRef, body: string, at = new Date().toISOString(), byFactory = false) => {
+      get(ref);
+      changeNotes.set(ref, [{ author, byFactory, body, at }, ...(changeNotes.get(ref) ?? [])]);
+      const c = get(ref);
+      c.updatedAt = later(c.updatedAt, at); // a comment updates the change, as on the host
+    },
+    changeComments: async (ref: ChangeRef, since?: string): Promise<Comment[]> => (get(ref), (changeNotes.get(ref) ?? []).filter((c) => !since || Date.parse(c.at) > Date.parse(since))),
+    // The open changes of factory branches updated after since, newest first.
+    recentChanges: async (since: string) =>
+      [...changes.values()]
+        .filter((c) => c.open && c.updatedAt !== undefined && Date.parse(c.updatedAt) > Date.parse(since) && ticketOfBranch(c.branch))
+        .sort((a, b) => Date.parse(b.updatedAt!) - Date.parse(a.updatedAt!))
+        .map((c) => ({ ref: c.ref, ticket: ticketOfBranch(c.branch)! })),
     assignChange: async (ref: ChangeRef, person: PersonRef) => void host.assigned.push({ ref, person }),
     attach: async (name: string, data: Buffer) => {
       if (++attachCalls <= (o.attachFails ?? 0)) throw new Error("GitLab POST /projects/1/uploads failed with status 500");

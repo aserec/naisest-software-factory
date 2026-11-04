@@ -1,6 +1,6 @@
 import { AI_LINE, GitLab, GITLAB_URL } from "../gitlab";
 import { gitRepo } from "../repo";
-import { changeBranchPrefix, type Checks, type CodeHost } from "../seams";
+import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "../seams";
 
 export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
   let project: Promise<{ id: number }> | undefined;
@@ -8,6 +8,8 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
   const projectId = async () => (await proj()).id;
   const mrUrl = async (ref: string) => `/projects/${await projectId()}/merge_requests/${Number(ref)}`;
   const opened = (m: { iid: number; webUrl: string }) => ({ ref: String(m.iid), url: m.webUrl });
+  let bot: Promise<string> | undefined;
+  const botName = () => (bot ??= gitlab.getJson("/user").then((u: { username: string }) => u.username));
   const put = async (endpoint: string, body?: unknown) => gitlab.call("PUT", endpoint, body);
 
   return {
@@ -86,6 +88,22 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     },
     async commentChange(ref, text) {
       await gitlab.commentMergeRequest(await projectId(), Number(ref), text);
+    },
+    async changeComments(ref, since) {
+      const name = await botName();
+      const notes = await gitlab.getJson(`${await mrUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
+      return notes
+        .filter((n: any) => !n.system && (!since || Date.parse(n.created_at) > Date.parse(since)))
+        .map((n: any) => ({ author: n.author.username, byFactory: n.author.username === name, body: n.body, at: n.created_at }));
+    },
+    async recentChanges(since) {
+      const id = await projectId();
+      const mrs: any[] = await gitlab.getJson(`/projects/${id}/merge_requests?state=opened&updated_after=${encodeURIComponent(since)}&order_by=updated_at&sort=desc&per_page=100`);
+      // A merge request from a fork can carry a factory branch name, so its source project must be ours.
+      return mrs.flatMap((x) => {
+        const ticket = ticketOfBranch(String(x.source_branch));
+        return ticket && x.source_project_id === id ? [{ ref: String(x.iid), ticket }] : [];
+      });
     },
     async assignChange(ref, person) {
       await put(await mrUrl(ref), { assignee_ids: [await gitlab.userId(person)] });

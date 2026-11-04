@@ -75,6 +75,14 @@ _Avoid_: Rerun, reset
 A run that ended because a person closed its work item. The factory closes the run's open change, removes the state and ends the run as `closed`. A change a person closed without a merge blocks the run instead.
 _Avoid_: Cancelled run, aborted run
 
+**Request**:
+A trusted person's comment with `@factory` on a factory merge request or its work item that asks for more work.
+_Avoid_: command, mention
+
+**Round**:
+One more pass of work on the same run and merge request, from prepare-patch to the decision, for the requests since the last round.
+_Avoid_: iteration, rerun
+
 ## Observability
 
 **Dashboard**:

@@ -209,12 +209,34 @@ describe("parseEvent", () => {
     p.object_attributes.note = "  @Factory RESUME ";
     expect(tracker().parseEvent(p)).toEqual({ kind: "command", ticket: "8", actor: "devone", command: "resume" });
   });
-  test("a note that only mentions a command, a system note and a note on a change are ignored", () => {
+  test("a system note and a plain comment are ignored; a command inside a longer line is a request", () => {
     const ignoredEvent = { kind: "ignored", reason: "not-added" };
-    for (const edit of [(a: any) => (a.note = "do not @factory stop it"), (a: any) => (a.note = "> @factory stop"), (a: any) => (a.system = true), (a: any) => (a.noteable_type = "MergeRequest")]) {
+    for (const edit of [(a: any) => (a.system = true), (a: any) => (a.note = "thanks, looks good")]) {
       const p = load("note-stop.json");
       edit(p.object_attributes);
       expect(tracker().parseEvent(p)).toEqual(ignoredEvent);
+    }
+    const p = load("note-stop.json");
+    p.object_attributes.note = "do not @factory stop it";
+    expect(tracker().parseEvent(p)).toEqual({ kind: "request", ticket: "8", actor: "devone" });
+  });
+  test("a note on a work item that asks @factory gives a request", () => {
+    const p = load("note-stop.json");
+    p.object_attributes.note = "@factory please add a test";
+    expect(tracker().parseEvent(p)).toEqual({ kind: "request", ticket: "8", actor: "devone" });
+  });
+  const mrNote = (o: { branch?: string; target?: number; note?: string } = {}) => ({
+    ...load("note-stop.json"),
+    object_attributes: { id: 1245, note: o.note ?? "@factory rename the prop", noteable_type: "MergeRequest", system: false },
+    issue: undefined,
+    merge_request: { iid: 5, source_branch: o.branch ?? "factory/8-x", source_project_id: 7, target_project_id: o.target ?? 7 },
+  });
+  test("a note on a factory change gives a request with the change", () => {
+    expect(tracker().parseEvent(mrNote())).toEqual({ kind: "request", ticket: "8", actor: "devone", change: "5" });
+  });
+  test("a note on a fork's change, a non-factory branch or a command line on a change is ignored", () => {
+    for (const p of [mrNote({ target: 9 }), mrNote({ branch: "feature/x" }), mrNote({ note: "@factory stop" }), mrNote({ note: "nice" })]) {
+      expect(tracker().parseEvent(p)).toEqual({ kind: "ignored", reason: "not-added" });
     }
   });
   test("another project is ignored", () => {

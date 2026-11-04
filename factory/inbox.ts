@@ -1,6 +1,9 @@
 // The inbox: comments from trusted people reach the running agent, and `@factory stop` or a stop from the dashboard stops it.
 import { appendFileSync } from "node:fs";
-import type { Inbox, TicketRef, Tracker } from "./seams";
+import { readUntil } from "./inbox-file";
+import { wrapRequest } from "./agents";
+import { isRequest, later } from "./requests";
+import type { Comment, Inbox, TicketRef, Tracker } from "./seams";
 
 const STOP = "@factory stop";
 const hasLine = (body: string, command: string) => body.split("\n").some((l) => l.trim().toLowerCase() === command);
@@ -12,29 +15,32 @@ const wrap = (author: string, body: string) =>
 // `since` is an ISO time. Each poll returns the comments newer than the last one it saw.
 // `stopCheck` (the dashboard's stop) is asked on every poll, the tracker at most once a minute. A check that throws does not stop.
 // `closedCheck` (a person closed the work item or the run's change) is asked with the tracker.
+// `more.changeComments` adds the comments on the run's change to the same read; `more.onRead` is told (through `heard`) how far the agent got, not how far the inbox read.
 const TRACKER_EVERY_MS = 60_000;
-export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, stopCheck?: () => Promise<boolean>, closedCheck?: () => Promise<boolean>): Inbox {
+export function makeInbox(tracker: Tracker, ticket: TicketRef, since: string, stopCheck?: () => Promise<boolean>, closedCheck?: () => Promise<boolean>, more?: { changeComments?: (since: string) => Promise<Comment[]>; onRead?: (until: string) => void }): Inbox {
   let lastRead = -Infinity;
   return {
+    heard: more?.onRead,
     async poll() {
       const dashboardStop = (await stopCheck?.().catch(() => false)) ?? false;
       if (Date.now() - lastRead < TRACKER_EVERY_MS) return { comments: [], stop: dashboardStop };
       lastRead = Date.now();
       const closed = (await closedCheck?.().catch(() => false)) ?? false;
-      const all = (await tracker.comments(ticket, since)).reverse(); // oldest first
+      const all = [...(await tracker.comments(ticket, since)).reverse(), ...((await more?.changeComments?.(since)) ?? []).reverse()].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)); // oldest first
       const trust = new Map<string, Promise<boolean>>();
       const kept = [];
       // Only people the factory trusts. The factory's own comments never count, even when they quote the command.
       for (const c of all) if (!c.byFactory && (await (trust.get(c.author) ?? trust.set(c.author, tracker.trusted(c.author)).get(c.author)!))) kept.push(c);
       // Only after every trust check: if one throws, the next poll reads the same comments again and no stop is lost.
-      if (all.length > 0) since = all.reduce((latest, c) => (c.at > latest ? c.at : latest), since);
-      return { comments: kept.map((c) => wrap(c.author, c.body)), stop: dashboardStop || closed || kept.some((c) => hasLine(c.body, STOP)) };
+      if (all.length > 0) since = all.reduce((latest, c) => later(latest, c.at)!, since);
+      return { ...(all.length > 0 ? { until: since } : {}), comments: kept.map((c) => (isRequest(c.body) ? wrapRequest(c.author, c.body) : wrap(c.author, c.body))), stop: dashboardStop || closed || kept.some((c) => hasLine(c.body, STOP)) };
     },
   };
 }
 
 // Polls the inbox while an agent runs (at once, then at most every `everyMs`) and appends each poll with news to `file`
-// as one JSON line. The agent's tool hook reads the file. end() stops the polling and says whether a stop came.
+// as one JSON line (with the poll's `until`). The agent's tool hook reads the file. end() stops the polling, tells the inbox
+// how far the agent read (`heard`: only lines it consumed count) and says whether a stop came.
 export function pumpInbox(inbox: Inbox, file: string, everyMs = 10_000) {
   let stopped = false;
   let done = false;
@@ -58,6 +64,8 @@ export function pumpInbox(inbox: Inbox, file: string, everyMs = 10_000) {
       done = true;
       wake();
       await loop;
+      const until = readUntil(file);
+      if (until) inbox.heard?.(until);
       return stopped;
     },
   };
