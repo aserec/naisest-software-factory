@@ -3,6 +3,9 @@ import { z } from "zod";
 
 export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "decision", "label_change", "usage", "stop", "resume", "restart", "switch_change", "error"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
+
+// The state of a work item, in factory words. factory/seams.ts re-exports it.
+export type FactoryState = "ready" | "running" | "needs_info" | "needs_approval" | "waiting" | "stopped" | "blocked" | "done";
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
 export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "switch_change"]);
 

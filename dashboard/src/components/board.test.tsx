@@ -7,10 +7,10 @@ import { json, renderWithQuery } from "./test-utils";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const item = (o: Partial<BoardItem>): BoardItem => ({ target: "demo", ticket: "7", title: "Fix login", state: "factory_running", url: "http://gl/7", updatedAt: "", stuck: false, ...o });
+const item = (o: Partial<BoardItem>): BoardItem => ({ target: "demo", ticket: "7", title: "Fix login", state: "running", url: "http://gl/7", updatedAt: "", stuck: false, ...o });
 
 test("renders a section per label that has tickets, one line for the empty ones, and a Stuck badge", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", costUsd: 1.5, stuck: true }), item({ ticket: "8", title: "Add docs", state: "factory_done" })])));
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", costUsd: 1.5, stuck: true }), item({ ticket: "8", title: "Add docs", state: "done" })])));
   renderWithQuery(<Board />);
   expect(await screen.findByText("Fix login")).toBeTruthy();
   expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Waiting on you", "With the factory"]);
@@ -72,8 +72,8 @@ test("a failed board load says so in plain words, keeps the last board with its 
 });
 
 test("the finding names what waits for a person, and says so when nothing does", () => {
-  expect(finding([item({ state: "factory_needs_approval" }), item({ state: "factory_needs_info" }), item({ state: "factory_needs_info" }), item({ stuck: true })])).toBe("1 to approve, 2 need an answer, 1 run stuck.");
-  expect(finding([item({ state: "factory_done" })])).toBe("Nothing waits for you.");
+  expect(finding([item({ state: "needs_approval" }), item({ state: "needs_info" }), item({ state: "needs_info" }), item({ stuck: true })])).toBe("1 to approve, 2 need an answer, 1 run stuck.");
+  expect(finding([item({ state: "done" })])).toBe("Nothing waits for you.");
 });
 
 test("durations and ages read as people say them", () => {
@@ -83,13 +83,13 @@ test("durations and ages read as people say them", () => {
 });
 
 test("the empty line names one or many labels, and nothing when none is empty", () => {
-  expect(emptyLine(["factory_done"])).toBe("Done is empty.");
-  expect(emptyLine(["factory_ready", "factory_done"])).toBe("Ready and Done are empty.");
+  expect(emptyLine(["done"])).toBe("Done is empty.");
+  expect(emptyLine(["ready", "done"])).toBe("Ready and Done are empty.");
   expect(emptyLine([])).toBeUndefined();
 });
 
 test("Done shows its ten newest tickets and counts the rest", async () => {
-  const done = Array.from({ length: 12 }, (_, n) => item({ ticket: String(n), title: `T${n}`, state: "factory_done", updatedAt: `2026-11-01T10:${String(n).padStart(2, "0")}:00Z` }));
+  const done = Array.from({ length: 12 }, (_, n) => item({ ticket: String(n), title: `T${n}`, state: "done", updatedAt: `2026-11-01T10:${String(n).padStart(2, "0")}:00Z` }));
   vi.stubGlobal("fetch", vi.fn(async () => json(done)));
   renderWithQuery(<Board />);
   expect(await screen.findByText("T11")).toBeTruthy();

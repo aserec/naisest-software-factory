@@ -6,9 +6,11 @@ import type { RunEvent } from "software-factory/run-events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const session = vi.hoisted(() => ({ on: true }));
-const gitlab = vi.hoisted(() => ({ board: vi.fn(), jobLog: vi.fn() }));
+const gitlab = vi.hoisted(() => ({ jobLog: vi.fn() }));
+const board = vi.hoisted(() => ({ board: vi.fn() }));
 vi.mock("@/server/auth", () => ({ auth: async () => (session.on ? { user: { name: "ann" } } : null), factoryAuthorized: () => true }));
 vi.mock("@/server/gitlab-instance", () => ({ getGitLab: () => gitlab }));
+vi.mock("@/server/compose", () => ({ getBoard: () => board }));
 
 process.env.DASHBOARD_DB = ":memory:";
 const dir = mkdtempSync(join(tmpdir(), "targets-"));
@@ -22,12 +24,12 @@ const { GET: getLog } = await import("./jobs/[job]/log/route");
 
 const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const ev = (type: RunEvent["type"], min: number, run: string, data: Record<string, unknown> = {}, step?: string): RunEvent => ({ id: randomUUID(), run, at: at(min), target: "demo", ticket: "7", type, data, ...(step ? { step } : {}) });
-const item = (ticket: string) => ({ target: "demo", ticket, title: `T${ticket}`, state: "factory_running", url: "u", updatedAt: "" });
+const item = (ticket: string) => ({ target: "demo", ticket, title: `T${ticket}`, state: "running", url: "u", updatedAt: "" });
 const log = (job: string) => getLog(new Request("http://x"), { params: Promise.resolve({ job }) });
 
 beforeEach(() => {
   session.on = true;
-  gitlab.board.mockResolvedValue([item("7"), item("8")]);
+  board.board.mockResolvedValue([item("7"), item("8")]);
 });
 
 describe("session-only routes", () => {
@@ -44,13 +46,13 @@ describe("GET /api/board", () => {
   it("joins the latest run per ticket and marks a step past its limit as stuck", async () => {
     getDb().addEvents([ev("run_start", 300, "old"), ev("run_start", 200, "new"), ev("step_start", 200, "new", {}, "prepare-patch"), ev("usage", 190, "new", { costUsd: 1.25 }), ev("decision", 180, "new", { auto: false, reasons: [], risk: 6, changeUrl: "http://gl/mr/1" })]);
     const rows = (await (await getBoard()).json()) as Record<string, unknown>[];
-    expect(rows[0]).toMatchObject({ ticket: "7", run: "new", costUsd: 1.25, stuck: true, step: "prepare-patch", mergeRisk: 6, mrUrl: "http://gl/mr/1" });
+    expect(rows[0]).toMatchObject({ ticket: "7", run: "new", costUsd: 1.25, stuck: true, step: "prepare-patch", mergeRisk: 6, changeUrl: "http://gl/mr/1" });
     expect(rows[1]).toMatchObject({ ticket: "8", stuck: false });
     expect(rows[1].run).toBeUndefined();
   });
 
-  it("answers 502 when GitLab fails", async () => {
-    gitlab.board.mockRejectedValue(new Error("GitLab 500"));
+  it("answers 502 when the tracker fails", async () => {
+    board.board.mockRejectedValue(new Error("GitLab 500"));
     expect((await getBoard()).status).toBe(502);
   });
 });

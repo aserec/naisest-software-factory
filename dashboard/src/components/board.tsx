@@ -5,28 +5,19 @@ import { DIFF_RISK_MAX } from "software-factory/run-events";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
+import type { BoardRow, FactoryState } from "@/server/seams";
 import { ago, usd, words } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
 
-// One column per state label. Keep in step with STATES in server/gitlab.ts.
-export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"].map((s) => `factory_${s}`);
-
-export interface BoardItem {
-  target: string;
-  ticket: string;
-  title: string;
-  state: string;
-  url: string;
-  updatedAt: string;
+export interface BoardItem extends BoardRow {
   run?: string;
   costUsd?: number;
   stuck: boolean;
-  risk?: string; // triage risk, from the factory_risk_* label
   step?: string; // the live step of an open run
   round?: number; // the highest code-review round
   mergeRisk?: number; // Jev 2's diff_risk, 2 to 10
   mergeRiskMax?: number; // the target's limit; older runs did not send it
-  mrUrl?: string;
+  changeUrl?: string;
 }
 
 // Triage risk (Jev 1, on the work item), then merge risk (Jev 2, on the diff), each named so they cannot be confused. High or above the merge limit takes the warning pill; nothing is green,
@@ -44,22 +35,22 @@ export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }
   );
 }
 
-// The board's name for each label.
-export const STATE: Record<string, string> = {
-  factory_needs_approval: "Needs approval",
-  factory_needs_info: "Needs info",
-  factory_stopped: "Stopped",
-  factory_blocked: "Blocked",
-  factory_running: "Running",
-  factory_waiting: "Waiting",
-  factory_ready: "Ready",
-  factory_done: "Done",
+// The board's name for each state.
+export const STATE: Record<FactoryState, string> = {
+  needs_approval: "Needs approval",
+  needs_info: "Needs info",
+  stopped: "Stopped",
+  blocked: "Blocked",
+  running: "Running",
+  waiting: "Waiting",
+  ready: "Ready",
+  done: "Done",
 };
 
-// Left: the labels that wait for a person. Right: the ones the factory is working through.
-const SIDES: [string, string[]][] = [
-  ["Waiting on you", ["factory_needs_approval", "factory_needs_info", "factory_stopped", "factory_blocked"]],
-  ["With the factory", ["factory_running", "factory_waiting", "factory_ready", "factory_done"]],
+// Left: the states that wait for a person. Right: the ones the factory is working through.
+const SIDES: [string, FactoryState[]][] = [
+  ["Waiting on you", ["needs_approval", "needs_info", "stopped", "blocked"]],
+  ["With the factory", ["running", "waiting", "ready", "done"]],
 ];
 
 const link = "font-medium outline-none after:absolute after:inset-0 after:rounded-lg";
@@ -100,9 +91,9 @@ function Row({ item: i }: { item: BoardItem }) {
 
 const DONE_SHOWN = 10; // Done only grows; the board shows the newest ones.
 
-function Column({ state, items }: { state: string; items: BoardItem[] }) {
-  const name = STATE[state] ?? state;
-  const shown = state === "factory_done" ? [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, DONE_SHOWN) : items;
+function Column({ state, items }: { state: FactoryState; items: BoardItem[] }) {
+  const name = STATE[state];
+  const shown = state === "done" ? [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, DONE_SHOWN) : items;
   return (
     <section>
       <SectionHeading as="h3">
@@ -118,9 +109,9 @@ function Column({ state, items }: { state: string; items: BoardItem[] }) {
   );
 }
 
-// "Stopped and Blocked are empty." One quiet line for every empty label on a side, instead of a heading each.
-export function emptyLine(states: string[]) {
-  const names = states.map((s) => STATE[s] ?? s);
+// "Stopped and Blocked are empty." One quiet line for every empty state on a side, instead of a heading each.
+export function emptyLine(states: FactoryState[]) {
+  const names = states.map((s) => STATE[s]);
   if (names.length === 0) return undefined;
   const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
   return `${list} ${names.length === 1 ? "is" : "are"} empty.`;
@@ -128,7 +119,7 @@ export function emptyLine(states: string[]) {
 
 // "1 to approve, 2 need an answer, 1 run stuck." The finding that goes under the title.
 export function finding(items: BoardItem[]) {
-  const n = (s: string) => items.filter((i) => i.state === `factory_${s}`).length;
+  const n = (s: FactoryState) => items.filter((i) => i.state === s).length;
   const stuck = items.filter((i) => i.stuck).length;
   const parts = [
     n("needs_approval") && `${n("needs_approval")} to approve`,
@@ -161,7 +152,7 @@ export function Board() {
       {data && (
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
           {SIDES.map(([side, states]) => {
-            const of = (s: string) => data.filter((i) => i.state === s);
+            const of = (s: FactoryState) => data.filter((i) => i.state === s);
             const empty = emptyLine(states.filter((s) => of(s).length === 0));
             return (
               <div key={side} className="flex flex-col gap-6">

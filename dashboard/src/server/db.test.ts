@@ -206,6 +206,19 @@ describe("runs", () => {
   });
 });
 
+describe("state", () => {
+  it("an old label_change reads as a state, and an unknown one as none", () => {
+    const db = openDb(":memory:");
+    expect(db.state("r1")).toBeUndefined();
+    db.addEvents([ev("label_change", { to: "factory_running" })]);
+    expect(db.state("r1")).toBe("running");
+    db.addEvents([ev("label_change", { to: "stopped" })]);
+    expect(db.state("r1")).toBe("stopped");
+    db.addEvents([ev("label_change", { to: "foo" })]);
+    expect(db.state("r1")).toBeUndefined();
+  });
+});
+
 describe("prune and backup", () => {
   it("prune strips tool input and result after 90 days and leaves other events alone", () => {
     const db = openDb(":memory:");

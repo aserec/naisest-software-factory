@@ -1,12 +1,12 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { HarnessName } from "./harnesses";
 import type { RunRecord } from "./record";
-import type { ControlState, EventType, RunEvent, Dispatch } from "./run-events";
+import type { ControlState, EventType, FactoryState, RunEvent, Dispatch } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
 export type ChangeRef = string;
-export type FactoryState = "ready" | "running" | "needs_info" | "needs_approval" | "waiting" | "stopped" | "blocked" | "done";
+export type { FactoryState }; // in run-events, so the dashboard can import it without the rest of the factory
 // Progress marks: labels next to the state. A new run removes all but watcher.
 export type Mark = "watcher" | "triaged" | "risk_trivial" | "risk_low" | "risk_medium" | "risk_high" | "implemented" | "reviewed" | "checked" | "risk_checked" | "merged" | "reverted";
 

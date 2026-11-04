@@ -19,7 +19,7 @@ function server(s: object, post = new Response("{}")) {
 }
 
 test("Stop asks first, then posts the stop for the run", async () => {
-  const f = server({ label: "factory_running" });
+  const f = server({ state: "running" });
   renderWithQuery(<RunControls run="r 1" />);
   fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
   expect(f.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false); // the dialog only asks
@@ -28,7 +28,7 @@ test("Stop asks first, then posts the stop for the run", async () => {
 });
 
 test("Cancel closes the confirm, starts with focus, and posts nothing", async () => {
-  const f = server({ label: "factory_running" });
+  const f = server({ state: "running" });
   renderWithQuery(<RunControls run="r1" />);
   fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
   const cancel = await screen.findByRole("button", { name: "Cancel" });
@@ -39,47 +39,47 @@ test("Cancel closes the confirm, starts with focus, and posts nothing", async ()
 });
 
 test("a stopped run shows Resume and Restart, and no Stop", async () => {
-  server({ label: "factory_stopped" });
+  server({ state: "stopped" });
   renderWithQuery(<RunControls run="r1" />);
   await screen.findByRole("button", { name: "Resume" });
   expect(names()).toEqual(["Resume", "Restart"]);
 });
 
 test("Resume is hidden when a pipeline cancel ended the run", async () => {
-  server({ label: "factory_stopped", cancelled: true });
+  server({ state: "stopped", cancelled: true });
   renderWithQuery(<RunControls run="r1" />);
   await screen.findByRole("button", { name: "Restart" });
   expect(names()).toEqual(["Restart"]);
 });
 
 test("after a pipeline cancel only Restart shows, even before the label says stopped", async () => {
-  server({ label: "factory_running", cancelled: true });
+  server({ state: "running", cancelled: true });
   renderWithQuery(<RunControls run="r1" />);
   await screen.findByRole("button", { name: "Restart" });
   expect(names()).toEqual(["Restart"]);
 });
 
 test("a run in any other state has no buttons, and a waiting request replaces them", async () => {
-  server({ label: "factory_done" });
+  server({ state: "done" });
   renderWithQuery(<RunControls run="r1" />);
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
   expect(names()).toEqual([]);
   cleanup();
-  server({ label: "factory_running", pending: ["stop"] });
+  server({ state: "running", pending: ["stop"] });
   renderWithQuery(<RunControls run="r1" />);
   expect((await screen.findByText(/Stop requested/)).textContent).toBeTruthy();
   expect(names()).toEqual([]);
 });
 
 test("a run with a done restart has no buttons, even after a pipeline cancel", async () => {
-  server({ label: "factory_stopped", cancelled: true, restarted: true });
+  server({ state: "stopped", cancelled: true, restarted: true });
   const { container } = renderWithQuery(<RunControls run="r1" />);
   await waitFor(() => expect(container.firstChild).not.toBeNull()); // the state arrived
   expect(names()).toEqual([]);
 });
 
 test("shows the reason when the server refuses", async () => {
-  server({ label: "factory_running" }, new Response("already requested", { status: 409 }));
+  server({ state: "running" }, new Response("already requested", { status: 409 }));
   renderWithQuery(<RunControls run="r1" />);
   fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
   fireEvent.click(screen.getAllByRole("button", { name: "Stop" }).at(-1)!);
@@ -87,7 +87,7 @@ test("shows the reason when the server refuses", async () => {
 });
 
 test("says why there are no buttons, and that the state could not be read", async () => {
-  server({ label: "factory_done" });
+  server({ state: "done" });
   renderWithQuery(<RunControls run="r1" />);
   expect((await screen.findByText(/nothing to stop/)).textContent).toBe("The work item is Done, so there is nothing to stop or resume.");
   cleanup();
@@ -96,13 +96,13 @@ test("says why there are no buttons, and that the state could not be read", asyn
   expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("Could not load the run state, so Stop and Resume are hidden.Retry");
 });
 
-test("without a label_change the GitLab state picks the buttons, and a run waiting for approval shows no sentence", async () => {
+test("without a label_change the tracker state picks the buttons, and a run waiting for approval shows no sentence", async () => {
   server({});
-  renderWithQuery(<RunControls run="r1" state="factory_running" />);
+  renderWithQuery(<RunControls run="r1" state="running" />);
   expect(await screen.findByRole("button", { name: "Stop" })).toBeTruthy();
   cleanup();
   const f = server({});
-  const { container } = renderWithQuery(<RunControls run="r1" state="factory_needs_approval" />);
+  const { container } = renderWithQuery(<RunControls run="r1" state="needs_approval" />);
   await waitFor(() => expect(f).toHaveBeenCalled());
   await new Promise((r) => setTimeout(r, 50)); // let the state answer render
   expect(container.innerHTML).toBe("");

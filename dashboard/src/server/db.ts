@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
+import { STATES, type FactoryState } from "./seams";
 
 export interface RunSummary {
   run: string;
@@ -34,8 +35,8 @@ export interface Db {
   restarted(run: string): boolean;
   /** True when the run has a run_end event. */
   ended(run: string): boolean;
-  /** The state label of the run's newest label_change. */
-  label(run: string): string | undefined;
+  /** The factory state of the run's newest label_change; undefined for none or an unknown value. */
+  state(run: string): FactoryState | undefined;
   finish(id: string, outcome: NonNullable<ControlRequest["outcome"]>): void;
   addDispatch(s: DispatchInput): Dispatch;
   /** Pending dispatches of the target, oldest first. */
@@ -226,9 +227,11 @@ export function openDb(path: string): Db {
     restarted,
     ended,
 
-    label(run) {
+    state(run) {
       const r = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'label_change' ORDER BY seq DESC LIMIT 1").get(run) as Row | undefined;
-      return r && (JSON.parse(r.data as string).to as string);
+      // Events saved before the seams hold the factory_* label name.
+      const to = r && String(JSON.parse(r.data as string).to).replace(/^factory_/, "");
+      return STATES.find((s) => s === to);
     },
 
     requests({ target, pending, sinceMinutes }) {

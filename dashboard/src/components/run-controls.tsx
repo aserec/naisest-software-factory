@@ -4,12 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Confirm } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
+import type { FactoryState } from "@/server/seams";
 import { STATE } from "./board";
 import { LoadError } from "./shell";
 
 type Action = "stop" | "resume" | "restart";
 interface RunState {
-  label?: string;
+  state?: FactoryState;
   cancelled: boolean;
   restarted: boolean;
   pending: Action[];
@@ -39,10 +40,10 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
   );
 }
 
-// Stop while the last state label is factory_running. Resume and Restart while it is factory_stopped.
+// Stop while the last state is running. Resume and Restart while it is stopped.
 // After a pipeline cancel only Restart, because the cancelled job saved nothing to resume from (spec 6.1).
-// state: the work item's label in GitLab. The run's own label_change events win; GitLab fills in when the run sent none.
-export function RunControls({ run, state }: { run: string; state?: string }) {
+// state: the work item's state in its tracker. The run's own label_change events win; the tracker fills in when the run sent none.
+export function RunControls({ run, state }: { run: string; state?: FactoryState }) {
   const client = useQueryClient();
   const key = ["run-state", run];
   const runState = useQuery({
@@ -67,12 +68,12 @@ export function RunControls({ run, state }: { run: string; state?: string }) {
   const { data, error } = runState;
   if (!data && error) return <LoadError what="the run state, so Stop and Resume are hidden" query={runState} />;
   if (!data) return null;
-  // A cancel means the run is over even before the poller sets the stopped label, so only Restart is left (Ruling R18).
+  // A cancel means the run is over even before the poller sets the stopped state, so only Restart is left (Ruling R18).
   // A done restart ended the run: a new run carries on, so this one shows no buttons.
-  const label = data.label ?? state;
-  const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : label === "factory_running" ? ["stop"] : label === "factory_stopped" ? ["resume", "restart"] : [];
+  const current = data.state ?? state;
+  const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : current === "running" ? ["stop"] : current === "stopped" ? ["resume", "restart"] : [];
   // A run that waits for approval says so on the page; the person's action is the merge, not a control.
-  const quiet = label === "factory_needs_approval";
+  const quiet = current === "needs_approval";
   // Nothing to show: no wrapper either, or the title row's gap leaves a hole after the merge button.
   if (quiet && !buttons.length && !data.pending.length && !send.error) return null;
   return (
@@ -82,13 +83,7 @@ export function RunControls({ run, state }: { run: string; state?: string }) {
       ))}
       {buttons.length === 0 && data.pending.length === 0 && !data.restarted && !quiet && (
         <p className="text-muted-foreground">
-          {label ? (
-            <>
-              The work item is {STATE[label] ?? <code className="font-mono text-xs">{label}</code>}, so there is nothing to stop or resume.
-            </>
-          ) : (
-            "The work item has no state label, so there is nothing to stop or resume."
-          )}
+          {current ? `The work item is ${STATE[current]}, so there is nothing to stop or resume.` : "The work item has no state, so there is nothing to stop or resume."}
         </p>
       )}
       {data.pending.map((a) => (

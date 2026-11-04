@@ -1,0 +1,56 @@
+// The one place that picks the dashboard's adapters. Mirrors factory/compose.ts.
+import { makeGitHubTracker } from "./adapters/github-tracker";
+import { makeGitLabTracker } from "./adapters/gitlab-tracker";
+import { NotSetUp } from "./not-set-up";
+import type { BoardRow, Tracker } from "./seams";
+import { readTargets, type TargetInfo } from "./targets";
+
+const CACHE_MS = 15_000;
+
+const trackers = (fetchFn: typeof fetch): Record<string, Tracker> => {
+  const github = makeGitHubTracker(fetchFn);
+  return { gitlab: makeGitLabTracker(fetchFn), github, "github-project": github };
+};
+const defaultTrackers = trackers((...a) => fetch(...a));
+
+function pick(all: Record<string, Tracker>, t: TargetInfo) {
+  const tracker = all[t.tracker];
+  if (!tracker) throw new Error(`${t.name}: unknown tracker ${t.tracker}`);
+  return tracker;
+}
+
+export const trackerOf = (t: TargetInfo): Tracker => pick(defaultTrackers, t);
+
+export const codeHostName = (t: TargetInfo): string => ({ gitlab: "GitLab", github: "GitHub" } as Record<string, string>)[t.codeHost] ?? t.codeHost;
+
+// Every target's open work items, each from its own tracker. A tracker that is not set up leaves its targets out; any other error fails the board.
+export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
+  const all = trackers(fetchFn);
+  let cached: { at: number; rows: Promise<BoardRow[]> } | undefined;
+
+  async function fetchBoard() {
+    const groups = new Map<Tracker, TargetInfo[]>();
+    for (const t of readTargets()) {
+      const tracker = pick(all, t);
+      groups.set(tracker, [...(groups.get(tracker) ?? []), t]);
+    }
+    const lists = [...groups].map(([tracker, targets]) => tracker.rows(targets).catch((e) => (e instanceof NotSetUp ? [] : Promise.reject(e))));
+    return (await Promise.all(lists)).flat();
+  }
+
+  return {
+    board() {
+      if (!cached || now().getTime() - cached.at >= CACHE_MS) {
+        const entry = { at: now().getTime(), rows: fetchBoard() };
+        cached = entry;
+        entry.rows.catch(() => cached === entry && (cached = undefined)); // do not cache a failure
+      }
+      return cached.rows;
+    },
+  };
+}
+
+let board: ReturnType<typeof makeBoard> | undefined;
+
+// One instance, so the 15 s board cache is shared by every request.
+export const getBoard = () => (board ??= makeBoard());

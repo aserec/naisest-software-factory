@@ -36,35 +36,6 @@ function fakeFetch(routes: Record<string, () => Response>) {
   return { fn, calls };
 }
 
-describe("board", () => {
-  it("leaves out the GitLab targets when there is no GitLab read token", async () => {
-    vi.stubEnv("GITLAB_READ_TOKEN", "");
-    const { fn, calls } = fakeFetch({});
-    expect(await makeGitLab(fn).board()).toEqual([]);
-    expect(calls).toHaveLength(0);
-  });
-  it("makes one call per state label per target and caches for 15 s", async () => {
-    const { fn, calls } = fakeFetch({
-      "labels=factory_ready": () => Response.json([{ iid: 5, title: "Fix it", web_url: "https://gitlab.test/g/t1/-/issues/5", updated_at: "2026-10-29T10:00:00Z", labels: ["factory_ready", "factory_risk_high"] }]),
-      "/issues": () => Response.json([]),
-    });
-    let t = 1_000_000;
-    const gl = makeGitLab(fn, () => new Date(t));
-    const rows = await gl.board();
-    expect(calls).toHaveLength(16);
-    expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "factory_ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high" });
-    expect(calls[0].url).toContain("/projects/g%2Ft1/issues");
-    expect(calls.every((c) => c.token === READ)).toBe(true);
-
-    t += 14_000;
-    await gl.board();
-    expect(calls).toHaveLength(16);
-    t += 2_000;
-    await gl.board();
-    expect(calls).toHaveLength(32);
-  });
-});
-
 describe("ids", () => {
   it("refuses an id that is not all digits", async () => {
     const { fn, calls } = fakeFetch({});
@@ -105,11 +76,10 @@ describe("runningJobs", () => {
 
 describe("cancelPipeline", () => {
   it("is the only call that uses the cancel token", async () => {
-    const { fn, calls } = fakeFetch({ "/pipelines/7/cancel": () => Response.json({}), "/trace": () => new Response("x"), "/issues": () => Response.json([]), "/jobs": () => Response.json([]) });
+    const { fn, calls } = fakeFetch({ "/pipelines/7/cancel": () => Response.json({}), "/trace": () => new Response("x"), "/jobs": () => Response.json([]) });
     const gl = makeGitLab(fn);
     await gl.cancelPipeline("7");
     await gl.jobLog("1");
-    await gl.board();
     await gl.runningJobs();
     const withCancel = calls.filter((c) => c.token === CANCEL);
     expect(withCancel).toEqual([{ url: "https://gitlab.test/api/v4/projects/42/pipelines/7/cancel", method: "POST", token: CANCEL }]);
@@ -156,6 +126,14 @@ describe("readTargets", () => {
     expect(a.stuckMinutes["prepare-patch"]).toBe(120);
     expect(b.stuckMinutes["prepare-patch"]).toBe(60);
     expect(b.stuckMinutes.triage).toBe(5);
+  });
+
+  it("names the tracker and code host, gitlab when the file has none, and wants githubRepo for a github tracker", () => {
+    const [a, b] = readTargets(targetsDir("name: a\nprojectPath: g/a\n", "name: b\nprojectPath: o/b\ntracker: github-project\ncodeHost: github\ngithubRepo: o/b\ngithubProject: 3\n"));
+    expect(a).toMatchObject({ tracker: "gitlab", codeHost: "gitlab" });
+    expect(a.githubRepo).toBeUndefined();
+    expect(b).toMatchObject({ tracker: "github-project", codeHost: "github", githubRepo: "o/b", githubProject: 3 });
+    expect(() => readTargets(targetsDir("projectPath: o/c\ntracker: github\n"))).toThrow("githubRepo is missing");
   });
 
   it("reads TARGETS_DIR when no dir is given", () => {

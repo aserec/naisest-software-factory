@@ -107,7 +107,7 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
     ev("step_end", "06", { step: "decision", data: { outcome: "stop" } }),
   ];
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: proof, cursor: 9 })));
-  renderWithQuery(<RunTimeline run="r1" state="factory_needs_approval" />);
+  renderWithQuery(<RunTimeline run="r1" state="needs_approval" />);
   const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect(await fact("Review")).toBe("Round 2, 0 of 1 finding blocking");
   expect(await fact("Checks")).toBe("1 of 2 passed");

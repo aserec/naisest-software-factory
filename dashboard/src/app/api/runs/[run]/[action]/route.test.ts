@@ -73,7 +73,7 @@ describe("POST /api/runs/[run]/[action]", () => {
 
 describe("GET /api/runs/[run]/state", () => {
   it("gives the label and the pending requests, and flags a cancelled stop without calling it pending", async () => {
-    expect(await (await state(run)).json()).toEqual({ label: "factory_running", cancelled: false, restarted: false, pending: [] });
+    expect(await (await state(run)).json()).toEqual({ state: "running", cancelled: false, restarted: false, pending: [] });
     await post(run, "stop");
     expect(await (await state(run)).json()).toMatchObject({ pending: ["stop"] });
     getDb().finish(getDb().requests({ target: "demo" }).find((r) => r.run === run)!.id, "cancelled");
@@ -94,7 +94,7 @@ describe("GET /api/runs/[run]/state", () => {
   it("gives the newest label of a run with more than 500 events", async () => {
     getDb().addEvents(Array.from({ length: 600 }, () => ev("tool_call", run, { name: "x", input: "", result: "", ms: 1, ok: true })));
     getDb().addEvents([ev("label_change", run, { to: "factory_stopped" })]);
-    expect(await (await state(run)).json()).toMatchObject({ label: "factory_stopped" });
+    expect(await (await state(run)).json()).toMatchObject({ state: "stopped" });
   });
 
   it("answers 401 without a session", async () => {

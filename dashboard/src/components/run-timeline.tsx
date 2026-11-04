@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd, words } from "@/lib/utils";
 import { Fact, StepDetail } from "./step-detail";
+import type { FactoryState } from "@/server/seams";
 import { RiskPills, STATE } from "./board";
 import { LoadError, SectionHeading } from "./shell";
 import { isStuck } from "./stuck";
@@ -62,10 +63,10 @@ const PILL: Record<string, "destructive" | "warning" | "secondary"> = { error: "
 // The step_end outcome in the words docs/how-it-works.md uses.
 const OUTCOME: Record<string, string> = { next: "passed" };
 
-// state: the work item's label, passed for the last step only. A run that ended there with "stop" waits for whatever
-// that label says (approval, an answer, a fix), so the pill uses the board's name for it.
-function Pills({ lane, stuck, state }: { lane: Lane; stuck: boolean; state?: string }) {
-  const said = lane.outcome === "stop" && state && STATE[state] ? STATE[state].toLowerCase() : lane.outcome && (OUTCOME[lane.outcome] ?? lane.outcome);
+// state: the work item's state, passed for the last step only. A run that ended there with "stop" waits for whatever
+// that state says (approval, an answer, a fix), so the pill uses the board's name for it.
+function Pills({ lane, stuck, state }: { lane: Lane; stuck: boolean; state?: FactoryState }) {
+  const said = lane.outcome === "stop" && state ? STATE[state].toLowerCase() : lane.outcome && (OUTCOME[lane.outcome] ?? lane.outcome);
   return (
     <>
       {stuck && <Badge variant="destructive">Stuck</Badge>}
@@ -75,7 +76,7 @@ function Pills({ lane, stuck, state }: { lane: Lane; stuck: boolean; state?: str
 }
 
 // In a narrow column (a phone, or beside the open panel): name and pills on the first line, the bar, duration and cost on the second. From a 36rem column: one line.
-function LaneRow({ lane, from, span, stuck, state, selected, onSelect }: { lane: Lane; from: number; span: number; stuck: boolean; state?: string; selected: boolean; onSelect: () => void }) {
+function LaneRow({ lane, from, span, stuck, state, selected, onSelect }: { lane: Lane; from: number; span: number; stuck: boolean; state?: FactoryState; selected: boolean; onSelect: () => void }) {
   const start = Date.parse(lane.start.at);
   const end = lane.end ? Date.parse(lane.end.at) : from + span;
   // The production line: ended steps in ink, the live one in the data hue, a failed or stuck one in red.
@@ -196,13 +197,13 @@ function useNow() {
   return now;
 }
 
-// The labels of a run that halted before a final state and waits to go on.
-const PAUSED = ["factory_needs_approval", "factory_needs_info", "factory_stopped", "factory_blocked", "factory_waiting"];
+// The states of a run that halted before a final state and waits to go on.
+const PAUSED: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked", "waiting"];
 
 // limits: minutes per step for the run's target, read on the server.
 // risk: the work item's triage risk and the run's merge risk, read on the server.
-// state: the work item's state label in GitLab, read on the server.
-export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: string }) {
+// state: the work item's state in its tracker, read on the server.
+export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState }) {
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
@@ -229,7 +230,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
   const reached = Math.max(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")));
   const first = Math.min(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")).filter((i) => i >= 0));
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
-  const nowText = live ? words(live.start.step ?? "") : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
+  const nowText = live ? words(live.start.step ?? "") : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
   const waited = paused && !data.some((e) => e.type === "run_end") && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
   const time = (
@@ -246,7 +247,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
     ["Cost", cost],
     ["Risk", pills || "—"],
   ];
-  const approving = state === "factory_needs_approval";
+  const approving = state === "needs_approval";
   // Why the run waits, said once at the top, so the person reads it before the merge button's consequences.
   const why = approving ? ((data.filter((e) => e.type === "decision").at(-1)?.data.reasons as string[] | undefined) ?? []) : [];
   return (

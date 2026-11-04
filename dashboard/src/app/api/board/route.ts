@@ -2,7 +2,7 @@ import { isStuck } from "@/components/stuck";
 import { auth } from "@/server/auth";
 import type { RunSummary } from "@/server/db";
 import { getDb } from "@/server/db-instance";
-import { getGitLab } from "@/server/gitlab-instance";
+import { getBoard } from "@/server/compose";
 import { readTargets } from "@/server/targets";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   if (!(await auth())) return Response.json({ error: "unauthorized" }, { status: 401 });
   try {
-    const items = await getGitLab().board();
+    const items = await getBoard().board();
     const limits = new Map(readTargets().map((t) => [t.name, t.stuckMinutes]));
     // runs() is newest first, so the first run of a ticket is its latest.
     const latest = new Map<string, RunSummary>();
@@ -22,7 +22,7 @@ export async function GET() {
         const open = !!r && !r.endedAt;
         return {
           ...i, run: r?.run, costUsd: r?.costUsd, stuck: open && isStuck(r.lastStep, limits.get(i.target) ?? {}, now),
-          step: open ? r.lastStep?.step : undefined, round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, mrUrl: r?.mrUrl,
+          step: open ? r.lastStep?.step : undefined, round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, changeUrl: r?.mrUrl,
         };
       }),
     );

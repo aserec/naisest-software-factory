@@ -1,14 +1,10 @@
 import { DASHBOARD_TYPES, EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
 import type { Db } from "./db";
-import { makeGitHub, triageRisk } from "./github";
 import { NotSetUp } from "./not-set-up";
-import { readTargets } from "./targets";
 
 // The GitLab base URL. Here and not in auth.ts, so the background loop does not load next-auth.
 export const gitlab = () => (process.env.GITLAB_URL || "https://gitlab.example.com").replace(/\/+$/, "");
 
-const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"].map((s) => `factory_${s}`);
-const CACHE_MS = 15_000;
 const LOG_BYTES = 200_000;
 
 const id = (v: string) => {
@@ -17,33 +13,16 @@ const id = (v: string) => {
 };
 
 export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
-  const github = makeGitHub(fetchFn);
   const factory = () => {
     if (!process.env.FACTORY_PROJECT_ID) throw new NotSetUp("FACTORY_PROJECT_ID is not set. Set it to the factory's GitLab project to see its running jobs.");
     return id(process.env.FACTORY_PROJECT_ID);
   };
-  // ponytail: one page of 100 per call, add paging if a state ever holds more than 100 issues.
   const get = (path: string) => fetchFn(`${gitlab()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" } });
   const getJson = async <T>(path: string) => {
     const r = await get(path);
     if (!r.ok) throw new Error(`GitLab ${r.status} for ${path}`);
     return (await r.json()) as T;
   };
-
-  let cached: { at: number; rows: ReturnType<typeof fetchBoard> } | undefined;
-  async function fetchBoard() {
-    type Issue = { iid: number; title: string; web_url: string; updated_at: string; labels: string[] };
-    // Each target's tickets come from its own tracker: GitLab issues, or GitHub issues and boards.
-    // Without a GitLab read token, as in a GitHub-only setup, the GitLab targets are left out.
-    const targets = readTargets();
-    const lists = targets.filter((t) => !t.github && process.env.GITLAB_READ_TOKEN).flatMap((t) =>
-      STATES.map(async (state) => {
-        const issues = await getJson<Issue[]>(`/projects/${encodeURIComponent(t.projectPath)}/issues?labels=${state}&per_page=100`);
-        return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at, risk: triageRisk(i.labels) }));
-      }),
-    );
-    return [...(await Promise.all(lists)).flat(), ...(await github.board(targets))];
-  }
 
   async function importJob(db: Db, job: string): Promise<number> {
     const r = await get(`/projects/${factory()}/jobs/${job}/artifacts/run/events.jsonl`);
@@ -64,15 +43,6 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
   }
 
   return {
-    board() {
-      if (!cached || now().getTime() - cached.at >= CACHE_MS) {
-        const entry = { at: now().getTime(), rows: fetchBoard() };
-        cached = entry;
-        entry.rows.catch(() => cached === entry && (cached = undefined)); // do not cache a failure
-      }
-      return cached.rows;
-    },
-
     async jobLog(job: string) {
       const r = await get(`/projects/${factory()}/jobs/${id(job)}/trace`);
       if (!r.ok) throw new Error(`GitLab ${r.status} for the job log`);
