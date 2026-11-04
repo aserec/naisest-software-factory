@@ -1,6 +1,7 @@
 import { DASHBOARD_TYPES, EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
 import type { Db } from "./db";
 import { makeGitHub, triageRisk } from "./github";
+import { NotSetUp } from "./not-set-up";
 import { readTargets } from "./targets";
 
 // The GitLab base URL. Here and not in auth.ts, so the background loop does not load next-auth.
@@ -18,7 +19,7 @@ const id = (v: string) => {
 export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
   const github = makeGitHub(fetchFn);
   const factory = () => {
-    if (!process.env.FACTORY_PROJECT_ID) throw new Error("FACTORY_PROJECT_ID is not set, so there are no GitLab CI jobs to show");
+    if (!process.env.FACTORY_PROJECT_ID) throw new NotSetUp("FACTORY_PROJECT_ID is not set. Set it to the factory's GitLab project to see its running jobs.");
     return id(process.env.FACTORY_PROJECT_ID);
   };
   // ponytail: one page of 100 per call, add paging if a state ever holds more than 100 issues.
@@ -80,7 +81,13 @@ export function makeGitLab(fetchFn: typeof fetch = fetch, now: () => Date = () =
 
     async runningJobs() {
       type Job = { id: number; name: string; pipeline: { id: number }; started_at: string; runner?: { description?: string } | null };
-      const jobs = await getJson<Job[]>(`/projects/${factory()}/jobs?scope[]=running&per_page=100`);
+      const project = factory();
+      const r = await get(`/projects/${project}/jobs?scope[]=running&per_page=100`);
+      // GitLab answers 404 for a project the token cannot see, too.
+      if (r.status === 404) throw new Error(`GitLab finds no project ${project} for the read token. Check FACTORY_PROJECT_ID and GITLAB_READ_TOKEN.`);
+      if (r.status === 401 || r.status === 403) throw new Error(`GitLab refused the read token (${r.status}). Check GITLAB_READ_TOKEN.`);
+      if (!r.ok) throw new Error(`GitLab answered ${r.status} for the running jobs.`);
+      const jobs = (await r.json()) as Job[];
       return jobs.map((j) => ({ job: String(j.id), name: j.name, pipeline: String(j.pipeline.id), startedAt: j.started_at, ...(j.runner?.description ? { runner: j.runner.description } : {}) }));
     },
 

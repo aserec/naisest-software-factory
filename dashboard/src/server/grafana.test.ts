@@ -40,7 +40,7 @@ it("refuses a source outside the three before any fetch", async () => {
 
 it("fails on a Grafana error answer", async () => {
   const f = vi.fn(async () => new Response("bad gateway", { status: 502 }));
-  await expect(runnerLogs({ source: "system", minutes: 5 }, f)).rejects.toThrow("Grafana 502");
+  await expect(runnerLogs({ source: "system", minutes: 5 }, f)).rejects.toThrow("Grafana answered 502.");
 });
 
 it("reads disk and memory use per host from the metrics source", async () => {

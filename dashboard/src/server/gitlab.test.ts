@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { openDb } from "./db";
 import { makeGitLab } from "./gitlab";
+import { NotSetUp } from "./not-set-up";
 import { readTargets } from "./targets";
 
 const READ = "read-token";
@@ -89,6 +90,16 @@ describe("runningJobs", () => {
     const { fn, calls } = fakeFetch({ "/jobs": () => Response.json([{ id: 3, name: "run", pipeline: { id: 8 }, started_at: "2026-10-29T10:00:00Z", runner: { description: "r1" } }]) });
     expect(await makeGitLab(fn).runningJobs()).toEqual([{ job: "3", name: "run", pipeline: "8", startedAt: "2026-10-29T10:00:00Z", runner: "r1" }]);
     expect(calls[0].url).toContain("/projects/42/jobs?scope[]=running");
+  });
+
+  it("says what a 404 means instead of showing the API path", async () => {
+    const { fn } = fakeFetch({ "/jobs": () => new Response("", { status: 404 }) });
+    await expect(makeGitLab(fn).runningJobs()).rejects.toThrow("GitLab finds no project 42 for the read token. Check FACTORY_PROJECT_ID and GITLAB_READ_TOKEN.");
+  });
+
+  it("is not set up without FACTORY_PROJECT_ID", async () => {
+    vi.stubEnv("FACTORY_PROJECT_ID", "");
+    await expect(makeGitLab(fakeFetch({}).fn).runningJobs()).rejects.toBeInstanceOf(NotSetUp);
   });
 });
 

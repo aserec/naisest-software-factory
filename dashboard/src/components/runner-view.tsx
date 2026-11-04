@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { ago } from "@/lib/utils";
 import { SectionHeading } from "./shell";
 
-type Part<T> = T | { error: string };
+type Part<T> = T | { error: string } | { unset: string };
 interface Runner {
   jobs: Part<{ job: string; name: string; pipeline: string; startedAt: string; runner?: string }[]>;
   hosts: Part<HostStat[]>;
@@ -24,6 +24,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-di
 // A part that failed shows its error; the other parts still show.
 function Show<T>({ part, children }: { part: Part<T> | undefined; children: (v: T) => React.ReactNode }) {
   if (part === undefined) return null;
+  if (part && typeof part === "object" && "unset" in part) return <p className="text-muted-foreground">{part.unset}</p>;
   if (part && typeof part === "object" && "error" in part)
     return (
       <p role="alert" className="text-destructive">

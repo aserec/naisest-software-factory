@@ -15,3 +15,10 @@ test("a failed part shows its error while the jobs still show", async () => {
   expect(screen.getByText("42%")).toBeTruthy();
   expect(screen.getByRole("alert").textContent).toBe("Grafana 502");
 });
+
+test("a source that is not set up shows a muted line, not an alert", async () => {
+  vi.stubGlobal("fetch", async () => json({ jobs: [], hosts: { unset: "Grafana is not set up." }, logs: { unset: "Grafana is not set up." } }));
+  renderWithQuery(<RunnerView />);
+  expect(await screen.findAllByText("Grafana is not set up.")).toHaveLength(2);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
