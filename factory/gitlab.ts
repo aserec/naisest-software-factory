@@ -47,6 +47,17 @@ export class GitLab {
     return (await this.call(method, endpoint, body)).json();
   }
 
+  // Every page of a list endpoint. The endpoint must already carry per_page=100.
+  async all(endpoint: string): Promise<any[]> {
+    const out: any[] = [];
+    for (let page = 1; page; ) {
+      const res = await this.call("GET", `${endpoint}&page=${page}`);
+      out.push(...(await res.json()));
+      page = Number(res.headers.get("X-Next-Page")) || 0;
+    }
+    return out;
+  }
+
   // A GET that returns GitLab's own JSON. The tracker adapter maps it to factory words.
   async getJson(endpoint: string) {
     return this.json("GET", endpoint);
@@ -107,12 +118,7 @@ export class GitLab {
 
   // Who last added this label, from the label history. The poller has no webhook that names the person.
   async labelAddedBy(projectId: number, iid: number, label: string): Promise<number | undefined> {
-    const events: any[] = [];
-    for (let page = 1; page; ) {
-      const res = await this.call("GET", `/projects/${projectId}/issues/${iid}/resource_label_events?per_page=100&page=${page}`);
-      events.push(...(await res.json()));
-      page = Number(res.headers.get("X-Next-Page")) || 0;
-    }
+    const events = await this.all(`/projects/${projectId}/issues/${iid}/resource_label_events?per_page=100`);
     return events.filter((e: any) => e.action === "add" && e.label?.name === label).at(-1)?.user?.id;
   }
 

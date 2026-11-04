@@ -92,7 +92,7 @@ export const DIFF = { "src/List.tsx": "@@ -1,2 +1,3 @@\n const a = 1;\n+  if (lo
 export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
   const head = o.head ?? "head1";
   let behind = o.behind ?? 0;
-  const changes = new Map<ChangeRef, Omit<Change, "behind"> & { branch: string; title: string; updatedAt?: string }>();
+  const changes = new Map<ChangeRef, Omit<Change, "behind"> & { branch: string; updatedAt?: string }>();
   const byBranch = new Map<string, ChangeRef>();
   const changeNotes = new Map<ChangeRef, Comment[]>(); // newest first
   const edits = new Map<ChangeRef, Awaited<ReturnType<CodeHost["changeEdits"]>>>(); // newest first; tests fill it
@@ -121,7 +121,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     // A person closes the change on the host, without the factory.
     close: (ref: ChangeRef) => void Object.assign(get(ref), { open: false, merged: false }),
     // A person merges the change on the host, without the factory.
-    mergeByPerson: (ref: ChangeRef) => void Object.assign(get(ref), { open: false, merged: true }),
+    mergeByPerson: (ref: ChangeRef, at?: string) => void Object.assign(get(ref), { open: false, merged: true, mergedAt: at }),
     mrComments: [] as string[],
     mrTitle: "",
     mrDescription: "",
@@ -198,9 +198,9 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       c.updatedAt = later(c.updatedAt, at); // a comment updates the change, as on the host
     },
     changeComments: async (ref: ChangeRef, since?: string): Promise<Comment[]> => (get(ref), (changeNotes.get(ref) ?? []).filter((c) => !since || Date.parse(c.at) > Date.parse(since))),
-    changeEdits: async (ref: ChangeRef) => (get(ref), edits.get(ref) ?? []),
+    changeEdits: async (ref: ChangeRef, since?: string) => (get(ref), (edits.get(ref) ?? []).filter((e) => !since || Date.parse(e.at) > Date.parse(since))),
     changeCommits: async (ref: ChangeRef) => (get(ref), commits.get(ref) ?? []),
-    baseCommits: async (since: string) => baseLog.filter((c) => Date.parse(c.at) > Date.parse(since)),
+    baseCommits: async (since: string) => baseLog.filter((c) => Date.parse(c.at) > Date.parse(since)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)),
     // The open changes of factory branches updated after since, newest first.
     recentChanges: async (since: string) =>
       [...changes.values()]
@@ -273,7 +273,7 @@ export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispat
     dispatchDone: async (id: string) => void (dash.pending = dash.pending.filter((s) => s.id !== id)),
     history: async (target: string, since: string, types: EventType[]) => {
       if (dash.down) throw new Error("dashboard is down");
-      return dash.events.filter((e) => e.target === target && e.at >= since && types.includes(e.type));
+      return dash.events.filter((e) => e.target === target && Date.parse(e.at) >= Date.parse(since) && types.includes(e.type));
     },
     send: (e: RunEvent) => void (dash.down || dash.events.push(e)),
     flush: async () => {},

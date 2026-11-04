@@ -230,16 +230,34 @@ test("changeEdits reads body edits and title renames in one query, newest first,
   expect(q.variables).toMatchObject({ owner: "o", name: "app", number: 5 });
 });
 
+test("changeEdits keeps only edits after since, and names a missing pull request", async () => {
+  routes["/user"] = { login: "bot" };
+  routes["/graphql"] = { data: { repository: { pullRequest: {
+    userContentEdits: { nodes: [{ editor: { login: "ann" }, editedAt: "2026-11-04T10:00:00Z" }, { editor: { login: "ann" }, editedAt: "2026-11-01T09:00:00Z" }] },
+    timelineItems: { nodes: [] },
+  } } } };
+  expect((await host().changeEdits("5", "2026-11-02T00:00:00Z")).map((e) => e.at)).toEqual(["2026-11-04T10:00:00Z"]);
+  routes["/graphql"] = { data: { repository: { pullRequest: null } } };
+  await expect(host().changeEdits("5")).rejects.toThrow("Pull request #5 not found in o/app");
+});
+
 test("changeCommits reads the pull request's commits and flags those with the factory's email", async () => {
   routes[`${R}/pulls/5/commits`] = [{ sha: "a1", commit: { author: { email: FACTORY_GIT_EMAIL } } }, { sha: "b2", commit: { author: { email: "ann@x.io" } } }];
   expect(await host().changeCommits("5")).toEqual([{ sha: "a1", byFactory: true }, { sha: "b2", byFactory: false }]);
-  expect(calls[0].path).toBe(`${R}/pulls/5/commits?per_page=100`);
+  expect(calls[0].path).toBe(`${R}/pulls/5/commits?per_page=100&page=1`);
 });
 
 test("baseCommits reads the base branch's commits since a time; the title is the first line", async () => {
   routes[`${R}/commits`] = [{ sha: "c1", commit: { message: "Revert x\n\nbody", committer: { date: "2026-11-02T10:00:00Z" } } }];
   expect(await host().baseCommits("2026-11-01T00:00:00Z")).toEqual([{ sha: "c1", title: "Revert x", message: "Revert x\n\nbody", at: "2026-11-02T10:00:00Z" }]);
-  expect(calls[0].path).toBe(`${R}/commits?sha=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100`);
+  expect(calls[0].path).toBe(`${R}/commits?sha=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100&page=1`);
+});
+test("baseCommits reads every page and survives a commit with no committer", async () => {
+  const commit = (i: number) => ({ sha: `s${i}`, commit: { message: "m", committer: { date: "2026-11-02T10:00:00Z" } } });
+  routes[`${R}/commits`] = (c: { path: string }) => (c.path.endsWith("page=1") ? Array.from({ length: 100 }, (_, i) => commit(i)) : [{ sha: "x", commit: { message: "m", author: { date: "2026-11-02T09:00:00Z" } } }]);
+  const all = await host().baseCommits("2026-11-01T00:00:00Z");
+  expect(all).toHaveLength(101);
+  expect(all.at(-1)).toMatchObject({ sha: "x", at: "2026-11-02T09:00:00Z" });
 });
 
 test("changeComments merges the inline review comments with the others by time, newest first, with the same since and byFactory rules", async () => {

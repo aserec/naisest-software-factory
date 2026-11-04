@@ -64,7 +64,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // The finish run loads this run's record from this run.
   if (d.kind === "auto" && !ctx.ci.vars.run) return block(ctx, "This run has no run id, so the finish run could not find this run's record.");
   save(ctx, "decision", d);
-  emit(ctx, "decision", { auto: d.kind === "auto", reasons: d.kind === "auto" ? [] : d.reasons, risk: f.riskCheck?.risk?.diffRisk.value, changeUrl: f.changeUrl });
+  emit(ctx, "decision", { auto: d.kind === "auto", reasons: d.kind === "auto" ? [] : d.reasons, risk: f.riskCheck?.risk?.diffRisk.value, riskMax: f.riskCheck?.thresholds?.diffRiskMax, changeUrl: f.changeUrl });
   if (d.kind === "auto") {
     const rules = need(facts(ctx).riskCheck, "risk check").rules.map((r) => `- ${r.rule}: ${r.detail}`).join("\n");
     await ctx.codeHost.commentChange(change, `The factory merges this without a person: triage risk was trivial or low, code review and precommit-gate passed, every hard rule passed and Jev 2 passed.\n\n${rules}`);

@@ -12,7 +12,16 @@ import type { ChangeRef } from "../seams";
 import { agent, isMain, switchOn, waitFor, type StepContext } from "./context";
 
 // Not factory/<n>-: the merge event, the poller and changeOfTicket never take these for a run.
-export const improveBranch = (kind: "change" | "fix", day: string) => `factory-improve/${kind}-${day}`;
+// One branch per ISO week, so a second run in the same week updates its change instead of opening another.
+export const improveBranch = (kind: "change" | "fix", week: string) => `factory-improve/${kind}-${week}`;
+
+// The ISO week of a time in UTC, as 2026-W45.
+export function isoWeek(d: Date): string {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7)); // the Thursday of the week names its year
+  const week = Math.ceil(((t.getTime() - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86_400_000 + 1) / 7);
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
 
 const FIX_TITLE = "fix(factory): drop instructions for paths that no longer exist";
 type Current = Partial<Record<ImprovePath, string>>;
@@ -39,7 +48,9 @@ function writeAll(ctx: StepContext, files: { path: string; text: string }[]): vo
   const real = join(realpathSync(ctx.dir), ".factory");
   for (const { path } of files) {
     const full = join(ctx.dir, path);
-    if (realpathSync(dirname(full)) !== real || lstatOrUndefined(full)?.isSymbolicLink()) throw new Error(`The improve job found ${path} is a link out of the clone, so it wrote nothing`);
+    const st = lstatOrUndefined(full);
+    if (realpathSync(dirname(full)) !== real || st?.isSymbolicLink()) throw new Error(`The improve job found ${path} is a link out of the clone, so it wrote nothing`);
+    if (st && !st.isFile()) throw new Error(`The improve job found ${path} is not a file, so it wrote nothing`);
   }
   for (const { path, text } of files) writeFileSync(join(ctx.dir, path), text);
 }
@@ -51,8 +62,9 @@ const lstatOrUndefined = (p: string) => {
     throw e;
   }
 };
-// "#12" in text the writer wrote would turn into an issue reference (and "Closes #12" into a closing line).
-const defuse = (text: string) => text.replace(/#(?=\d)/g, "#\u200b");
+// "#12" in text the writer wrote would turn into an issue reference, and "Closes #12" or "Closes <issue URL>" into a closing line.
+// A zero-width space after the first letter of each closing word breaks both.
+const defuse = (text: string) => text.replace(/#(?=\d)/g, "#\u200b").replace(/\b(c)(los(?:e[sd]?|ing))\b|\b(f)(ix(?:e[sd]|ing)?)\b|\b(r)(esolv(?:e[sd]?|ing))\b|\b(i)(mplement(?:s|ed|ing)?)\b/gi, (m) => `${m[0]}\u200b${m.slice(1)}`);
 
 // The fix merges only on green checks, when the change is still open and its head is the pushed commit. Else a person decides.
 async function mergeFix(ctx: StepContext, fix: Pushed): Promise<boolean> {
@@ -63,15 +75,20 @@ async function mergeFix(ctx: StepContext, fix: Pushed): Promise<boolean> {
     : !now.open || now.head !== fix.sha ? "The change moved since the factory pushed it, so the factory did not merge this fix."
     : undefined;
   // The merge is the one write that skips a person, so it waits for the same switches as any auto merge.
-  for (const name of ["improve", "auto_merge", "apply"] as const) {
-    if (!why && !(await switchOn(ctx, name))) why = `The ${name} switch is off, so the factory did not merge this fix.`;
+  // Unlike a running step, it fails closed: a dashboard it cannot reach means no merge.
+  if (!why) {
+    const c = await ctx.dashboard.control(ctx.target.name).catch(() => undefined);
+    if (!c) why = "The factory could not reach the dashboard to read the switches, so it did not merge this fix.";
+    for (const name of ["improve", "auto_merge", "apply"] as const) {
+      if (!why && !c!.switches[name]) why = `The ${name} switch is off, so the factory did not merge this fix.`;
+    }
   }
   if (!why) {
     try {
       await ctx.codeHost.merge(fix.ref, fix.sha, FIX_TITLE);
       return true;
     } catch (e) {
-      why = `The merge failed, so the factory did not merge this fix: ${String(e).slice(0, 300)}`;
+      why = `The merge failed, so the factory did not merge this fix. The code host said: ${String(e).slice(0, 300)}`;
     }
   }
   await ctx.codeHost.commentChange(fix.ref, why);
@@ -103,28 +120,32 @@ export async function improve(ctx: StepContext, now: Date): Promise<{ change?: C
   for (const line of checked.dropped) console.log(`Dropped: ${line}`);
   if (checked.fixes.length + checked.changes.length === 0) return {};
 
-  const day = now.toISOString().slice(0, 10);
+  const week = isoWeek(now);
   const out: Awaited<ReturnType<typeof improve>> = {};
   let fix: Pushed | undefined;
   if (checked.fixes.length) {
     const body = checked.fixes.map((e) => `\`${e.path}\`: \`${e.gone}\` no longer exists in the repo.`).join("\n");
-    fix = await push(ctx, improveBranch("fix", day), FIX_TITLE, body, checked.fixes);
+    fix = await push(ctx, improveBranch("fix", week), FIX_TITLE, body, checked.fixes);
     out.fix = fix.ref;
     // The change branch starts from the base again, so it holds only the changes.
     writeAll(ctx, checked.fixes.map((e) => ({ path: e.path, text: current[e.path]! })));
   }
-  if (checked.changes.length) {
-    const body = checked.changes.map((e) => {
-      const demoted = e.gone && edits.find((x) => x.path === e.path)?.kind === "fix" ? [`Proposed as a fix, but the factory could not confirm that it is only a rename of ${defuse(e.gone!)}.`] : [];
-      return [`## ${e.path}`, "", defuse(e.why), "", ...demoted, ...(demoted.length ? [""] : []), "Evidence:", ...e.evidence.map((l) => `- ${l}`)].join("\n");
-    }).join("\n\n");
-    const title = `chore(factory): weekly instruction changes ${day}`;
-    const change = await push(ctx, improveBranch("change", day), title, body, checked.changes);
-    await ctx.codeHost.assignChange(change.ref, ctx.target.defaultApprover);
-    out.change = change.ref;
+  // Even when the change push fails, the fix is merged or handed to a person, never left open with nobody on it.
+  try {
+    if (checked.changes.length) {
+      const body = checked.changes.map((e) => {
+        const demoted = e.gone && edits.find((x) => x.path === e.path)?.kind === "fix" ? [`Proposed as a fix, but the factory could not confirm that it is only a rename of ${defuse(e.gone!)}.`] : [];
+        return [`## ${e.path}`, "", defuse(e.why), "", ...demoted, ...(demoted.length ? [""] : []), "Evidence:", ...e.evidence.map((l) => `- ${l}`)].join("\n");
+      }).join("\n\n");
+      const title = `chore(factory): weekly instruction changes ${week}`;
+      const change = await push(ctx, improveBranch("change", week), title, body, checked.changes);
+      await ctx.codeHost.assignChange(change.ref, ctx.target.defaultApprover);
+      out.change = change.ref;
+    }
+  } finally {
+    // Last, so the change is open for people even when the fix does not merge.
+    if (fix) out.fixMerged = await mergeFix(ctx, fix);
   }
-  // Last, so the change is open for people even when the fix does not merge.
-  if (fix) out.fixMerged = await mergeFix(ctx, fix);
   return out;
 }
 

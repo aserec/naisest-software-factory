@@ -41,6 +41,9 @@ test("confirmGone: a link that leaves the clone is not confirmed gone", () => {
   expect(confirmGone("out", dir)).toBe(false);
   expect(confirmGone("out/missing/x", dir)).toBe(false); // the parent is missing too
   expect(confirmGone("scripts/missing/x", dir)).toBe(true);
+  // A dangling link that points out of the clone is not a missing path.
+  symlinkSync(join(tmpdir(), "improve-nowhere-xyz"), join(dir, "dangling"));
+  expect(confirmGone("dangling/x", dir)).toBe(false);
 });
 
 test("confirmGone: a plain word is not a path", () => {
@@ -120,6 +123,9 @@ test("onlyRenames: two occurrences need the same t", () => {
   expect(onlyRenames("Use `scripts/old.sh` or `scripts/old.sh`.", "Use `scripts/new.sh` or `scripts/new.sh`.", "scripts/old.sh", dir)).toBe(true);
   expect(onlyRenames("Use `scripts/old.sh` or `scripts/old.sh`.", "Use `scripts/new.sh` or `src/`.", "scripts/old.sh", dir)).toBe(false);
   expect(onlyRenames("Run `scripts/old.sh`.\nThen `scripts/old.sh` again.", "Run `scripts/new.sh`.\nRun `scripts/new.sh`.", "scripts/old.sh", dir)).toBe(false);
+  // Two lines, each a valid rename on its own, but to two different files.
+  writeFileSync(join(dir, "scripts/other.sh"), "");
+  expect(onlyRenames("Run `scripts/old.sh`.\nThen `scripts/old.sh` again.", "Run `scripts/new.sh`.\nThen `scripts/other.sh` again.", "scripts/old.sh", dir)).toBe(false);
 });
 
 test("onlyRenames: a wording change is not a rename (a word is not a path)", () => {

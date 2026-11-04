@@ -22,7 +22,7 @@ export async function GET() {
         const open = !!r && !r.endedAt;
         return {
           ...i, run: r?.run, costUsd: r?.costUsd, stuck: open && isStuck(r.lastStep, limits.get(i.target) ?? {}, now),
-          step: open ? r.lastStep?.step : undefined, round: r?.round, mergeRisk: r?.mergeRisk, mrUrl: r?.mrUrl,
+          step: open ? r.lastStep?.step : undefined, round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, mrUrl: r?.mrUrl,
         };
       }),
     );

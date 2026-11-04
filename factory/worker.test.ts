@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import type { QueuedRun } from "./adapters/local-ci";
 import { FACTORY_ROOT } from "./repo";
 import { BUILD_STEPS } from "./steps/run";
-import { handler, improveDue, machineHost, nextId, runImprove, runOne, stepEnv, takeQueue, targetLock, type Exec, type Live } from "./worker";
+import { handler, improveDue, machineHost, nextId, runImprove, runOne, stepEnv, takeQueue, targetLock, tickTarget, type Exec, type Live } from "./worker";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "worker-"));
 const base = { GL_TOKEN: "glpat-x", FACTORY_DASHBOARD_TOKEN: "dash", TENSORX_API_KEY: "tx" };
@@ -154,6 +154,28 @@ test("each improve job runs in a new working folder that is gone afterwards", as
       expect(s.script).toBe(join(FACTORY_ROOT, "factory/steps/improve.ts")); // absolute, since cwd is not the factory root
       expect(s.schedule).toBe("improve");
     }
+  } finally {
+    if (made) rmSync(secrets, { recursive: true, force: true });
+  }
+});
+
+test("each tick polls; the hourly tick also retries, watches and starts a due improve job once a week", async () => {
+  const secrets = `${FACTORY_ROOT}.tmp`, made = !existsSync(secrets);
+  mkdirSync(secrets, { recursive: true });
+  const runsDir = mkdtempSync(join(tmpdir(), "tick-"));
+  const steps: string[] = [];
+  const exec: Exec = async (_cmd, args) => (steps.push(args.at(-1)!.replace(/^.*\/|\.ts$/g, "")), { code: 0, out: "" });
+  const improved: string[] = [];
+  const o = { watch: true, improve: (t: string) => void improved.push(t), now: new Date("2026-11-04T12:00:00Z"), runsDir };
+  try {
+    await tickTarget(exec, base, "a", 1, o);
+    expect(steps).toEqual(["poll"]);
+    await tickTarget(exec, base, "a", 60, o);
+    expect(steps).toEqual(["poll", "poll", "retry-waiting", "watcher"]);
+    expect(improved).toEqual(["a"]);
+    await tickTarget(exec, base, "a", 120, { ...o, watch: false });
+    expect(steps.slice(4)).toEqual(["poll", "retry-waiting"]);
+    expect(improved).toEqual(["a"]); // not due again within the week
   } finally {
     if (made) rmSync(secrets, { recursive: true, force: true });
   }

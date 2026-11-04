@@ -26,3 +26,6 @@ test("a field that starts with a formula character gets a quote prefix", () => {
   expect(csvField("-1 day")).toBe("'-1 day");
   expect(csvField(-3)).toBe("-3");
 });
+test("a row uses the clarityMin it is given, as triage does", async () => {
+  expect(await shadowRow(fakeJev, { ref: "7", title: "t", body: "", tags: [] }, 9)).toMatch(/,needs_info$/);
+});

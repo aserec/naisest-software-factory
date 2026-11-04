@@ -202,7 +202,7 @@ const PAUSED = ["factory_needs_approval", "factory_needs_info", "factory_stopped
 // limits: minutes per step for the run's target, read on the server.
 // risk: the work item's triage risk and the run's merge risk, read on the server.
 // state: the work item's state label in GitLab, read on the server.
-export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number }; state?: string }) {
+export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: string }) {
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();

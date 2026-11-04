@@ -25,18 +25,19 @@ export interface BoardItem {
   step?: string; // the live step of an open run
   round?: number; // the highest code-review round
   mergeRisk?: number; // Jev 2's diff_risk, 2 to 10
+  mergeRiskMax?: number; // the target's limit; older runs did not send it
   mrUrl?: string;
 }
 
 // Triage risk (Jev 1, on the work item), then merge risk (Jev 2, on the diff), each named so they cannot be confused. High or above the merge limit takes the warning pill; nothing is green,
 // so a pill never makes a change look safer than its risk check says.
-export function RiskPills({ risk, mergeRisk }: { risk?: string; mergeRisk?: number }) {
+export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }) {
   return (
     <>
       {risk && <Badge variant={risk === "high" ? "warning" : "default"}>Triage risk {risk}</Badge>}
       {mergeRisk !== undefined && (
-        <Badge variant={mergeRisk > DIFF_RISK_MAX ? "warning" : "default"} title={`Jev 2's risk for the diff. Above ${DIFF_RISK_MAX} never merges without a person.`}>
-          Merge risk {mergeRisk}/10, limit {DIFF_RISK_MAX}
+        <Badge variant={mergeRisk > max ? "warning" : "default"} title={`Jev 2's risk for the diff. Above ${max} never merges without a person.`}>
+          Merge risk {mergeRisk}/10, limit {max}
         </Badge>
       )}
     </>
@@ -90,7 +91,7 @@ function Row({ item: i }: { item: BoardItem }) {
       </div>
       <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 pt-px">
         {i.stuck && <Badge variant="destructive">Stuck</Badge>}
-        <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} />
+        <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
         <span className={`w-14 text-right ${i.costUsd === undefined ? "text-muted-foreground" : ""}`}>{i.costUsd === undefined ? "—" : usd(i.costUsd)}</span>
       </div>
     </li>

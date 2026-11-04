@@ -200,9 +200,9 @@ describe("runs", () => {
       ev("run_start", {}),
       finding(2),
       finding(1),
-      ev("decision", { auto: false, reasons: ["r"], risk: 6, changeUrl: "http://gl/mr/9" }),
+      ev("decision", { auto: false, reasons: ["r"], risk: 6, riskMax: 7, changeUrl: "http://gl/mr/9" }),
     ]);
-    expect(db.runs({})[0]).toMatchObject({ round: 2, mergeRisk: 6, mrUrl: "http://gl/mr/9" });
+    expect(db.runs({})[0]).toMatchObject({ round: 2, mergeRisk: 6, mergeRiskMax: 7, mrUrl: "http://gl/mr/9" });
   });
 });
 
@@ -265,5 +265,12 @@ describe("history", () => {
     expect(db.history(q).map((e) => e.id)).toEqual(keep.map((e) => e.id));
     expect(db.history({ ...q, limit: 2 }).map((e) => e.id)).toEqual(keep.slice(0, 2).map((e) => e.id));
     expect(db.history({ ...q, types: [] })).toEqual([]);
+  });
+  it("compares times as times, so an event without milliseconds before since stays out", () => {
+    const db = openDb(":memory:");
+    const before = ev("run_start", {}, { at: "2026-06-01T10:00:00Z" });
+    const after = ev("run_start", {}, { at: "2026-06-01T10:00:01Z" });
+    db.addEvents([before, after]);
+    expect(db.history({ target: "react_frontend", since: "2026-06-01T10:00:00.500Z", types: ["run_start"], limit: 10 }).map((e) => e.id)).toEqual([after.id]);
   });
 });

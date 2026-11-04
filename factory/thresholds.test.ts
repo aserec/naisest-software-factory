@@ -23,6 +23,11 @@ test.each([
 test("an unknown key is an error, so a typo never passes quietly", () => {
   expect(readThresholds("diffRiskmax: 3")).toEqual({ values: DEFAULT_THRESHOLDS, errors: [".factory/thresholds.yml: unknown key diffRiskmax"] });
 });
+test("a key given twice fails closed with one error", () => {
+  const r = readThresholds("clarityMin: 8\nclarityMin: 3");
+  expect(r.values).toEqual(DEFAULT_THRESHOLDS);
+  expect(r.errors).toEqual([expect.stringContaining("is not valid YAML")]);
+});
 test("a good key next to a bad key still applies", () => {
   const r = readThresholds("clarityMin: 8\nmaxAgentRounds: 99");
   expect(r.values).toEqual({ ...DEFAULT_THRESHOLDS, clarityMin: 8 });

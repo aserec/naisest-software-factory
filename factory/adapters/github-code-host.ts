@@ -33,7 +33,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       const p = await gh.json("GET", pr(ref));
       const cmp = await gh.json("GET", `${r}/compare/${encodeURIComponent(p.base.ref)}...${p.head.sha}`);
       return {
-        ref, open: p.state === "open", merged: !!p.merged, head: p.head.sha, url: p.html_url, title: p.title ?? "", body: p.body ?? "", target: p.base.ref,
+        ref, open: p.state === "open", merged: !!p.merged, mergedAt: p.merged_at ?? undefined, head: p.head.sha, url: p.html_url, title: p.title ?? "", body: p.body ?? "", target: p.base.ref,
         landedSha: p.merge_commit_sha ?? p.head.sha, behind: cmp.behind_by > 0,
       };
     },
@@ -112,6 +112,8 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       await gh.json("POST", `${r}/issues/${Number(ref)}/comments`, { body });
     },
     // ponytail: review summaries are not read; add pulls/<n>/reviews if people use them
+    // ponytail: two paged lists per pull request, and the poller reads every pull request updated in the last 10 minutes.
+    // With since both are short. If the rate limit bites, read the repo-wide issues/comments and pulls/comments once per poll.
     // Without a shared account the code host cannot tell the factory's comments from its token user's own, so it asks for both: the token user and the AI line.
     async changeComments(ref, since) {
       const name = await botName();
@@ -125,7 +127,8 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
         .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && String(c.body ?? "").startsWith(AI_LINE), body: c.body ?? "", at: c.created_at }));
     },
     // Body edits come from the pull request's edit history, renames from its timeline; both newest first.
-    async changeEdits(ref) {
+    // ponytail: the newest 100 body edits and 100 renames; page with before: if a change is edited more
+    async changeEdits(ref, since) {
       const name = await botName();
       const [owner, repoName] = repo.split("/");
       const d = await gh.graphql(
@@ -135,22 +138,28 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
         } } }`,
         { owner, name: repoName, number: Number(ref) },
       );
-      const p = d.repository.pullRequest;
+      const p = d.repository?.pullRequest;
+      if (!p) throw new Error(`Pull request #${ref} not found in ${repo}`);
       const edit = (field: "title" | "body", login: string | undefined, at: string) => ({ author: login ?? "ghost", byFactory: login === name, field, at });
       return [
         ...p.userContentEdits.nodes.map((n: any) => edit("body", n.editor?.login, n.editedAt)),
         ...p.timelineItems.nodes.map((n: any) => edit("title", n.actor?.login, n.createdAt)),
-      ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+      ]
+        .filter((e) => !since || Date.parse(e.at) > Date.parse(since))
+        .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
     },
+    // GitHub lists at most 250 commits of a pull request.
     async changeCommits(ref) {
-      const commits: any[] = await gh.json("GET", `${pr(ref)}/commits?per_page=100`);
+      const commits = await gh.all(`${pr(ref)}/commits?per_page=100`);
       return commits.map((c) => ({ sha: c.sha, byFactory: c.commit?.author?.email === FACTORY_GIT_EMAIL }));
     },
     // Every revert that reached the base branch is a commit here: a revert commit, a merged revert pull request, or a Revert button.
-    // ponytail: newest 100 base commits per week; page further if a target merges more
     async baseCommits(since) {
-      const commits: any[] = await gh.json("GET", `${r}/commits?sha=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
-      return commits.map((c) => ({ sha: c.sha, title: String(c.commit.message).split("\n")[0], message: c.commit.message, at: c.commit.committer.date }));
+      const commits = await gh.all(`${r}/commits?sha=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
+      return commits.map((c) => {
+        const message = String(c.commit?.message ?? "");
+        return { sha: c.sha, title: message.split("\n")[0], message, at: c.commit?.committer?.date ?? c.commit?.author?.date ?? "" };
+      });
     },
     // ponytail: newest 100 pulls only, as in changeOfTicket
     async recentChanges(since) {

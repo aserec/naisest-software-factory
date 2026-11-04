@@ -23,7 +23,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     async change(ref) {
       const m = await gitlab.getJson(`${await mrUrl(ref)}?include_diverged_commits_count=true`);
       return {
-        ref, open: m.state === "opened", merged: m.state === "merged", head: m.sha, url: m.web_url, title: m.title ?? "", body: m.description ?? "", target: m.target_branch,
+        ref, open: m.state === "opened", merged: m.state === "merged", mergedAt: m.merged_at ?? undefined, head: m.sha, url: m.web_url, title: m.title ?? "", body: m.description ?? "", target: m.target_branch,
         landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha, behind: (m.diverged_commits_count ?? 0) > 0,
       };
     },
@@ -98,21 +98,21 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
         .map((n: any) => ({ author: n.author.username, byFactory: n.author.username === name, body: n.body, at: n.created_at }));
     },
     // GitLab writes an edit as a system note: "changed title from ..." or "changed the description".
-    async changeEdits(ref) {
+    // ponytail: edits among the newest 100 notes; page notesOf if a change gets more
+    async changeEdits(ref, since) {
       const name = await botName();
       return (await notesOf(ref)).flatMap((n: any) => {
         const field = n.system ? (String(n.body).startsWith("changed title") ? "title" : String(n.body).startsWith("changed the description") ? "body" : undefined) : undefined;
-        return field ? [{ author: n.author.username, byFactory: n.author.username === name, field, at: n.created_at }] : [];
+        return field && (!since || Date.parse(n.created_at) > Date.parse(since)) ? [{ author: n.author.username, byFactory: n.author.username === name, field, at: n.created_at }] : [];
       });
     },
     async changeCommits(ref) {
-      const commits: any[] = await gitlab.getJson(`${await mrUrl(ref)}/commits?per_page=100`);
+      const commits = await gitlab.all(`${await mrUrl(ref)}/commits?per_page=100`);
       return commits.map((c) => ({ sha: c.id, byFactory: c.author_email === FACTORY_GIT_EMAIL }));
     },
     // Every revert that reached the base branch is a commit here: a revert commit, a merged revert change, or a Revert button.
-    // ponytail: newest 100 base commits per week; page further if a target merges more
     async baseCommits(since) {
-      const commits: any[] = await gitlab.getJson(`/projects/${await projectId()}/repository/commits?ref_name=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
+      const commits = await gitlab.all(`/projects/${await projectId()}/repository/commits?ref_name=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
       return commits.map((c) => ({ sha: c.id, title: c.title, message: c.message, at: c.committed_date }));
     },
     async recentChanges(since) {

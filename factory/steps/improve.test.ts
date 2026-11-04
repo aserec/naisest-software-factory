@@ -10,10 +10,10 @@ import { newRecord } from "../record";
 import { SWITCHES } from "../run-events";
 import type { Checks, JevAnswer, RunEvent } from "../seams";
 import type { StepContext } from "./context";
-import { improve, improveBranch, main } from "./improve";
+import { improve, improveBranch, isoWeek, main } from "./improve";
 
 const NOW = new Date("2026-11-04T12:00:00Z");
-const DAY = "2026-11-04";
+const DAY = "2026-W45"; // the ISO week of NOW
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 const REVIEW = "Check the diff.\n";
 const AUTHOR = "Run `scripts/old.sh` first.\n";
@@ -22,7 +22,7 @@ const proposal = (...edits: object[]) => JSON.stringify({ edits });
 const reviewChange = { path: ".factory/review.md", kind: "change", text: `${REVIEW}Explain every protected path.\n`, why: "People merge these changes without edits.", evidence: LINKS };
 const authorFix = { path: ".factory/author.md", kind: "fix", text: "Run `scripts/new.sh` first.\n", gone: "scripts/old.sh", why: "The script moved.", evidence: [] };
 
-interface Options { reply?: string; evidence?: boolean; checks?: Checks; moved?: boolean; mergeThrows?: boolean; switchOff?: boolean; off?: (typeof SWITCHES)[number]; link?: "dir" | "file"; writerOk?: boolean }
+interface Options { reply?: string; evidence?: boolean; checks?: Checks; moved?: boolean; mergeThrows?: boolean; switchOff?: boolean; off?: (typeof SWITCHES)[number]; link?: "dir" | "file" | "folder"; writerOk?: boolean }
 
 // A real server repo and clone; the code host, tracker, dashboard and writer are fakes.
 async function world(o: Options = {}) {
@@ -38,6 +38,10 @@ async function world(o: Options = {}) {
   else {
     mkdirSync(join(seed, ".factory"));
     if (o.link === "file") symlinkSync(join(outside, "review.md"), join(seed, ".factory/review.md"));
+    else if (o.link === "folder") {
+      mkdirSync(join(seed, ".factory/review.md"));
+      writeFileSync(join(seed, ".factory/review.md/x"), "x");
+    }
     else writeFileSync(join(seed, ".factory/review.md"), REVIEW);
     writeFileSync(join(seed, ".factory/author.md"), AUTHOR);
   }
@@ -118,7 +122,7 @@ test("no evidence: no writer call and no change", async () => {
 test("a proposed change opens one change for the approver, with the 3 links, no closing line, and only the one file", async () => {
   const { w, out } = await run({ reply: proposal(reviewChange) });
   const branch = improveBranch("change", DAY);
-  expect(branch).toBe("factory-improve/change-2026-11-04");
+  expect(branch).toBe("factory-improve/change-2026-W45");
   expect(out).toEqual({ change: "8" });
   const job = w.harness.jobs[0];
   expect([job.role, job.tools, job.maxTurns]).toEqual(["writer", "none", 1]);
@@ -199,7 +203,7 @@ test("a why with a closing line does not close an issue", async () => {
   const { w } = await run({ reply: proposal({ ...reviewChange, why: "Closes #12 and fixes #3" }) });
   expect(w.host.mrDescription).not.toContain("Closes #12");
   expect(w.host.mrDescription).not.toMatch(/#\d/);
-  expect(w.host.mrDescription).toContain("Closes #\u200b12");
+  expect(w.host.mrDescription).toContain("C\u200bloses #\u200b12");
 });
 
 test("a fix and a change together: the change branch holds the change and not the fix", async () => {
@@ -271,6 +275,58 @@ test("a .factory file that is a link: improve rejects before it writes any file,
   expect(branches(w)).toBe("");
   expect(readFileSync(join(w.outside, "review.md"), "utf8")).toBe(REVIEW);
   expect(readFileSync(join(w.ctx.dir, ".factory/author.md"), "utf8")).toBe(AUTHOR); // the other file of the set is not written either
+});
+
+test("a .factory file that is a folder: improve rejects with a clear message, and nothing is pushed", async () => {
+  const w = await world({ link: "folder", reply: proposal(reviewChange) });
+  await expect(improve(w.ctx, NOW)).rejects.toThrow("The improve job found .factory/review.md is not a file, so it wrote nothing");
+  expect(branches(w)).toBe("");
+});
+
+test("isoWeek names the ISO week, whose year is the year of its Thursday", () => {
+  expect(isoWeek(NOW)).toBe("2026-W45");
+  expect(isoWeek(new Date("2027-01-01T00:00:00Z"))).toBe("2026-W53");
+  expect(isoWeek(new Date("2024-12-30T23:59:59Z"))).toBe("2025-W01");
+  expect(isoWeek(new Date("2026-11-08T23:00:00Z"))).toBe("2026-W45"); // Sunday ends the week
+});
+
+test("a second run in the same week updates the one change with its new text", async () => {
+  const o: Options = { reply: proposal(reviewChange) };
+  const w = await world(o);
+  const first = await improve(w.ctx, NOW);
+  o.reply = proposal({ ...reviewChange, why: "A newer reason." });
+  const second = await improve(w.ctx, new Date(NOW.getTime() + 2 * 86_400_000));
+  expect(second.change).toBe(first.change);
+  expect(opened(w)).toHaveLength(1);
+  expect(w.host.mrDescription).toContain("A newer reason.");
+});
+
+test("a change push that fails still merges the fix, so it is not left open with nobody on it", async () => {
+  const w = await world({ reply: proposal(authorFix, reviewChange) });
+  const push = w.ctx.repo.commitAndPush;
+  w.ctx.repo.commitAndPush = async (branch, message) => {
+    if (branch.includes("/change-")) throw new Error("push refused");
+    return push(branch, message);
+  };
+  await expect(improve(w.ctx, NOW)).rejects.toThrow("push refused");
+  expect(w.host.merged).toBe(true);
+});
+
+test("a dashboard that goes down during the fix's pipeline wait means no merge", async () => {
+  const w = await world({ reply: proposal(authorFix) });
+  const checks = w.host.checks;
+  w.host.checks = async (at) => ((w.dashboard.down = true), checks(at));
+  const out = await improve(w.ctx, NOW);
+  expect(out.fixMerged).toBe(false);
+  expect(w.host.merged).toBe(false);
+  expect(w.host.mrComments).toEqual(["The factory could not reach the dashboard to read the switches, so it did not merge this fix."]);
+  expect(w.host.assigned).toEqual([{ ref: "8", person: "approver" }]);
+});
+
+test("a closing word before an issue URL does not close the issue", async () => {
+  const { w } = await run({ reply: proposal({ ...reviewChange, why: "Closes https://github.com/o/r/issues/12, fixes https://gl.example/g/p/-/issues/3 and Resolves it." }) });
+  expect(w.host.mrDescription).not.toMatch(/\b(closes|fixes|resolves) https/i);
+  expect(w.host.mrDescription).toContain("C\u200bloses https://github.com/o/r/issues/12");
 });
 
 test("main needs FACTORY_SCHEDULE=improve", async () => {

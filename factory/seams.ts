@@ -66,7 +66,7 @@ export interface Repo {
 }
 
 export type Checks = "green" | "red" | "running" | "none";
-export interface Change { ref: ChangeRef; open: boolean; merged: boolean; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
+export interface Change { ref: ChangeRef; open: boolean; merged: boolean; mergedAt?: string; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
 export interface CodeHost {
   baseBranch(): Promise<string>;
   cloneAt(dir: string): Repo;
@@ -81,9 +81,9 @@ export interface CodeHost {
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   changeComments(ref: ChangeRef, since?: string): Promise<Comment[]>; // people's and the factory's comments, newest first, only those created after since; system notes left out
-  changeEdits(ref: ChangeRef): Promise<{ author: PersonRef; byFactory: boolean; field: "title" | "body"; at: string }[]>; // edits of the title and the text, newest first; byFactory: made by the token's own user
+  changeEdits(ref: ChangeRef, since?: string): Promise<{ author: PersonRef; byFactory: boolean; field: "title" | "body"; at: string }[]>; // edits of the title and the text after since, newest first, from the newest 100; byFactory: made by the token's own user
   changeCommits(ref: ChangeRef): Promise<{ sha: string; byFactory: boolean }[]>; // byFactory: the commit's author email is FACTORY_GIT_EMAIL
-  baseCommits(since: string): Promise<{ sha: string; title: string; message: string; at: string }[]>; // the commits on the base branch since, newest first, at most 100
+  baseCommits(since: string): Promise<{ sha: string; title: string; message: string; at: string }[]>; // the commits on the base branch since, newest first
   recentChanges(since: string): Promise<{ ref: ChangeRef; ticket: TicketRef }[]>; // the open changes of this repo from branches factory/<n>-, updated after since, newest first, at most 100, from one listing call; forks left out
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
@@ -141,5 +141,5 @@ export interface Dashboard {
   requestDone(id: string, outcome: "done" | "refused"): Promise<void>;
   dispatches(target: string): Promise<Dispatch[]>; // pending dispatches from outside systems, oldest first
   dispatchDone(id: string): Promise<void>;
-  history(target: string, since: string, types: EventType[]): Promise<RunEvent[]>; // past events of the target at or after `since`, oldest first, at most 5000; throws when the dashboard cannot be reached or answers with an error
+  history(target: string, since: string, types: EventType[]): Promise<RunEvent[]>; // past events of the target at or after `since`, oldest first, at most HISTORY_LIMIT; throws when the dashboard cannot be reached or answers with an error
 }

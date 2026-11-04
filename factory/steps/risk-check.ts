@@ -36,7 +36,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     return "next";
   }
   save(ctx, "risk-check", { headSha, checks, rules, risk, thresholds, thresholdErrors });
-  if (riskReasons(risk, thresholds).length === 0) await ctx.tracker.mark(ticketRef(ctx), "risk_checked");
+  if (thresholdErrors.length === 0 && riskReasons(risk, thresholds).length === 0) await ctx.tracker.mark(ticketRef(ctx), "risk_checked");
   return "next";
 }
 

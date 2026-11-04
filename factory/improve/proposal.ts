@@ -57,7 +57,15 @@ function scriptsOf(dir: string): object | undefined {
 const PATH_CHARS = /^[\w./-]+$/;
 const looksLikePath = (p: string) => PATH_CHARS.test(p) && p.includes("/");
 
-// "bad": not a path inside the clone. A path that cannot be looked at counts as existing.
+const lstatOrNull = (p: string) => {
+  try {
+    return lstatSync(p);
+  } catch {
+    return null;
+  }
+};
+
+// "bad": not a path inside the clone. A path that cannot be looked at counts as existing, so it is never taken as gone.
 function pathState(p: string, dir: string): "bad" | "exists" | "gone" {
   if (!looksLikePath(p) || isAbsolute(p) || p.split("/").includes("..")) return "bad";
   const full = resolve(dir, p);
@@ -72,6 +80,8 @@ function pathState(p: string, dir: string): "bad" | "exists" | "gone" {
         break;
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT" || parent === dir) throw e;
+        // The parent is there but leads nowhere: a dangling link, which may point out of the clone.
+        if (lstatOrNull(parent)) return "bad";
         parent = dirname(parent);
       }
     }
@@ -126,6 +136,7 @@ export function onlyRenames(oldText: string, newText: string, gone: string, dir:
   if (!COMMAND.test(gone) && !looksLikePath(gone)) return false;
   const [old, next] = [oldText.split("\n"), newText.split("\n")];
   const span = `\`${gone}\``;
+  let chosen: string | undefined; // the one replacement every changed line must use
   return (
     old.length === next.length &&
     old.every((r, i) => {
@@ -137,7 +148,9 @@ export function onlyRenames(oldText: string, newText: string, gone: string, dir:
       const start = parts[0].length + 1;
       if (!a.startsWith(`${parts[0]}\``)) return false;
       const t = a.slice(start, a.indexOf("`", start));
-      return t !== "" && sameKind(gone, t, dir) && parts.join(`\`${t}\``) === a;
+      if (t === "" || (chosen ?? t) !== t) return false;
+      chosen = t;
+      return sameKind(gone, t, dir) && parts.join(`\`${t}\``) === a;
     })
   );
 }

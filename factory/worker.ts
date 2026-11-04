@@ -9,11 +9,10 @@ import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { checkVars } from "./adapters/gitlab-ci";
+import { TSX_IMPORT } from "./agents";
 import { QUEUE_DIR, RUNS_DIR, type QueuedRun } from "./adapters/local-ci";
 import { Hetzner, type Vm } from "./hetzner";
 import { loadSeams } from "./config";
@@ -72,7 +71,7 @@ export async function runShort(exec: Exec, base: NodeJS.ProcessEnv, step: ShortS
   const env = stepEnv(base, { ...SHORT[step], target, source });
   const dir = mkdtempSync(join(SECRET_DIR, "s-"));
   try {
-    const script = cwd ? ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, join(FACTORY_ROOT, "factory/steps", `${step}.ts`)] : ["--import", "tsx", `factory/steps/${step}.ts`];
+    const script = cwd ? ["--import", TSX_IMPORT, join(FACTORY_ROOT, "factory/steps", `${step}.ts`)] : ["--import", "tsx", `factory/steps/${step}.ts`];
     const r = await exec("node", script, { ...env, HOME: homedir(), ...secretFiles(base, dir, dir) }, cwd);
     if (r.code !== 0) console.log(`${step} for ${target} ended with code ${r.code}`);
   } finally {
@@ -304,12 +303,7 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
   const watch = loadSeams().logSource !== "files";
   console.log(`The factory worker runs ${targets.join(", ")} with executor ${mode}`);
   for (let tick = 0; ; tick++) {
-    for (const t of targets) {
-      await runShort(exec, base, "poll", t);
-      if (tick % 60 === 0) await runShort(exec, base, "retry-waiting", t);
-      if (watch && tick % 60 === 0) await runShort(exec, base, "watcher", t);
-      if (tick % 60 === 0 && improveDue(t, new Date())) improve(t);
-    }
+    for (const t of targets) await tickTarget(exec, base, t, tick, { watch, improve });
     for (const q of takeQueue()) {
       const id = nextId();
       const live: Live = { cancelled: false };
@@ -323,6 +317,15 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
     await new Promise((r) => setTimeout(r, 60_000));
   }
 }
+// One minute of one target: poll every tick; retry, the watcher and a due improve job on the hour.
+export async function tickTarget(exec: Exec, base: NodeJS.ProcessEnv, t: string, tick: number, o: { watch: boolean; improve: (t: string) => void; now?: Date; runsDir?: string }) {
+  await runShort(exec, base, "poll", t);
+  if (tick % 60 !== 0) return;
+  await runShort(exec, base, "retry-waiting", t);
+  if (o.watch) await runShort(exec, base, "watcher", t);
+  if (improveDue(t, o.now ?? new Date(), o.runsDir)) o.improve(t);
+}
+
 // The dashboard's calls (dashboard/src/server/worker.ts), on the compose network only, with the dashboard token.
 export function handler(token: string | undefined, o: { cancel: (run: string) => Promise<boolean>; dispatch: (target: string) => boolean }) {
   const digest = (v: string) => createHash("sha256").update(v).digest();

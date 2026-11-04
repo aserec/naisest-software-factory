@@ -3,7 +3,7 @@ import { DEDUPE_MARKER } from "../dedupe";
 import { fakeCodeHost, fakeDashboard, fakeJudge, fakeTracker } from "../fakes";
 import type { JevAnswer, RunEvent } from "../seams";
 import type { Target } from "../types";
-import { collectEvidence, isRevertOf, loopEvidence, MAX_EVIDENCE, MAX_EVIDENCE_TEXT, WEEK_MS } from "./evidence";
+import { collectEvidence, isRevertOf, loopEvidence, DECISION_MS, MAX_EVIDENCE, MAX_EVIDENCE_TEXT, WEEK_MS } from "./evidence";
 
 const NOW = new Date("2026-11-04T12:00:00Z");
 const DAY = 86_400_000;
@@ -247,6 +247,63 @@ test("events older than 7 days give nothing", async () => {
   w.tracker.tickets.get("8")!.marks = ["reverted"];
   expect(await run(w)).toEqual({ evidence: [], dropped: 0 });
   expect(WEEK_MS).toBe(7 * DAY);
+});
+test("a decision up to 30 days old gives too_strict when a person merged its change this week, and only then", async () => {
+  const merged = async (at: string) => {
+    const w = world();
+    await withChange(w);
+    w.host.mergeByPerson("5", at);
+    w.host.commits.set("5", [{ sha: "a", byFactory: true }]);
+    w.dashboard.events.push(decision(false, { at: ago(20) }));
+    return kinds(await run(w));
+  };
+  expect(await merged(ago(1))).toEqual(["too_strict"]);
+  expect(await merged(ago(9))).toEqual([]);
+  expect(DECISION_MS).toBe(30 * DAY);
+});
+test("the reverted mark counts only for an auto decision of this week", async () => {
+  const w = world();
+  w.tracker.tickets.get("8")!.marks = ["reverted"];
+  w.dashboard.events.push(decision(true, { at: ago(10) }));
+  expect(kinds(await run(w))).toEqual([]);
+});
+test("a reply or a duplicate marker from before the week gives nothing", async () => {
+  const w = world();
+  w.dashboard.events.push(ev("run_start", {}));
+  await factorySays(w, `Same as #3.\n\n${DEDUPE_MARKER}`, ago(9));
+  w.tracker.say("8", "dev", "Like the login page", ago(8));
+  expect(kinds(await run(w))).toEqual([]);
+});
+test("a decision about another change of the work item is not judged against the newest one", async () => {
+  const w = world();
+  await withChange(w);
+  w.host.mergeByPerson("5");
+  w.host.commits.set("5", [{ sha: "a", byFactory: true }]);
+  w.dashboard.events.push(decision(false, { at: ago(3) }));
+  w.dashboard.events[0].data.changeUrl = "https://host.example/changes/4";
+  expect(kinds(await run(w))).toEqual([]);
+  w.dashboard.events[0].data.changeUrl = "https://host.example/changes/5";
+  expect(kinds(await run(w))).toEqual(["too_strict"]);
+});
+test("two work items with one change give one too_strict", async () => {
+  const w = world();
+  await withChange(w);
+  w.host.mergeByPerson("5");
+  w.host.commits.set("5", [{ sha: "a", byFactory: true }]);
+  w.tracker.tickets.set("9", { ...w.tracker.tickets.get("8")!, ref: "9" });
+  vi.spyOn(w.host, "changeOfTicket").mockResolvedValue({ ref: "5", open: false, merged: true, url: "https://host.example/changes/5" });
+  w.dashboard.events.push(dec(false), { ...dec(false), ticket: "9" });
+  expect(kinds(await run(w))).toEqual(["too_strict"]);
+});
+test("comments on the change are read from the week or the oldest decision, and commits only for a merged change", async () => {
+  const w = world();
+  await withChange(w);
+  w.dashboard.events.push(decision(false, { at: ago(12) }));
+  const comments = vi.spyOn(w.host, "changeComments");
+  const commits = vi.spyOn(w.host, "changeCommits");
+  await run(w);
+  expect(Date.parse(comments.mock.calls[0][1]!)).toBe(Date.parse(ago(12)) - 1);
+  expect(commits).not.toHaveBeenCalled();
 });
 test("a comment older than 7 days is left out", async () => {
   const w = world();

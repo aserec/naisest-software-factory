@@ -15,6 +15,7 @@ export interface RunSummary {
   lastStep?: { step: string; startedAt: string; ended: boolean };
   round?: number; // the highest code-review round with a finding
   mergeRisk?: number; // Jev 2's diff_risk, from the decision event
+  mergeRiskMax?: number; // the target's diffRiskMax, from the decision event
   mrUrl?: string; // the merge request, from the decision event
 }
 
@@ -145,8 +146,9 @@ export function openDb(path: string): Db {
     },
 
     history({ target, since, types, limit }) {
-      const sql = `SELECT * FROM events WHERE type IN (${types.map(() => "?").join(", ")}) AND target = ? AND at >= ? ORDER BY seq LIMIT ?`;
-      return (stmt(sql).all(...types, target, since, limit) as Row[]).map(toEvent);
+      // One statement for any list of types. julianday, so "10:00:00Z" is not read as later than "10:00:00.500Z".
+      const sql = `SELECT * FROM events WHERE type IN (SELECT value FROM json_each(?)) AND target = ? AND julianday(at) >= julianday(?) ORDER BY seq LIMIT ?`;
+      return (stmt(sql).all(JSON.stringify(types), target, since, limit) as Row[]).map(toEvent);
     },
 
     runs({ target, ticket }) {
@@ -174,6 +176,7 @@ export function openDb(path: string): Db {
         else if (r.type === "review_finding") s.round = Math.max(s.round ?? 0, data.round as number);
         else if (r.type === "decision") {
           if (typeof data.risk === "number") s.mergeRisk = data.risk;
+          if (typeof data.riskMax === "number") s.mergeRiskMax = data.riskMax;
           if (typeof data.changeUrl === "string") s.mrUrl = data.changeUrl;
         }
       }

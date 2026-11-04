@@ -52,6 +52,7 @@ test("a bad thresholds file at the base commit sends a change that would merge a
   expect(w.finishTriggered).toBe(false);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.mrComments.at(-1)).toContain("autoMergeConfidenceMin must be");
+  expect(w.tracker.tickets.get("8")!.marks).not.toContain("risk_checked");
 });
 test("a thresholds file that is not a map also sends the change to a person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "- 1" } }));
@@ -70,6 +71,12 @@ test("a good diffRiskMax from the thresholds file lets a change merge that the d
 test("a thresholds clarityMin from the base branch asks questions for a ticket the default would build", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 9 }, files: { ".factory/thresholds.yml": "clarityMin: 10" } }));
   expect(w.states).toEqual(["needs_info"]);
+});
+test("a thresholds file triage cannot read keeps the default clarityMin", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial", clarity: 6 } });
+  w.host.readFile = async () => { throw new Error("HTTP 500"); };
+  await runBuildPipeline(w);
+  expect(w.states[0]).toBe("running");
 });
 test("with no thresholds file a clear ticket still builds", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial", clarity: 9 } }));
@@ -1214,6 +1221,7 @@ test("maxAgentRounds from the thresholds file limits the code review rounds", as
 test("maxAgentRounds from the thresholds file limits the precommit gate rounds", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 2" }, lintFails: 5 }));
   expect(w.workItemComments.at(-1)).toContain("not green after 2 rounds");
+  expect(w.harness.jobs.filter((j) => j.role === "author" && j.resume)).toHaveLength(1);
 });
 test("a bad maxAgentRounds keeps the default of 5 rounds", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 0" }, reviews: [[B], [B], [B], [B], [B]], lintFails: 0 }));
@@ -1416,7 +1424,7 @@ test("a low-risk run sends run_start, a start and an end per step, usage, Jev an
   for (const s of steps) expect(events.findIndex((e) => e.type === "step_start" && e.step === s)).toBeLessThan(events.findIndex((e) => e.type === "step_end" && e.step === s));
   expect(events.filter((e) => e.type === "usage").length).toBeGreaterThan(0);
   expect(new Set(events.filter((e) => e.type === "jev_answer").map((e) => e.step))).toEqual(new Set(["triage", "risk-check"]));
-  expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [], risk: 3, changeUrl: "https://host.example/changes/5" }]);
+  expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [], risk: 3, riskMax: 4, changeUrl: "https://host.example/changes/5" }]);
   expect(events.filter((e) => e.type === "label_change").at(-1)?.data).toEqual({ to: "factory_done" });
   // run_end is the last event of the run; only its own step's end comes after it.
   expect(events.slice(-2).map((e) => [e.type, e.data.outcome])).toEqual([["run_end", "done"], ["step_end", "next"]]);

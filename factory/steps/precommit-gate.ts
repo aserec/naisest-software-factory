@@ -3,10 +3,10 @@ import { precommitGate } from "../loops";
 import { readImages, readProof, proofSection } from "../proof";
 import { need } from "../record";
 import { findSecrets } from "../rules";
+import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { review } from "./code-review";
 import { facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
 import { runLine, withoutMarks } from "./merge";
-import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { block, endIfClosed, stopReason, stopped, waiting } from "./run";
 
 const COMMIT_TITLE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^()]+\))?!?: \S.*$/;

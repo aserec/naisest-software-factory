@@ -65,7 +65,7 @@ test("a failed author run blocks with the findings it was asked to fix and its o
   expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 1, open: ["a.ts: bug", "author run failed: boom"] });
 });
 
-// A resumed run continues its round count, so 5 rounds are never exceeded across a resume.
+// A resumed run continues its round count, so the round limit is never exceeded across a resume.
 test("loops started at a later round stop at the same limit", async () => {
   const d = fakeDeps({ reviews: [[B]] });
   expect(await codeReviewLoop(d, DEFAULT_THRESHOLDS.maxAgentRounds, 5)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });

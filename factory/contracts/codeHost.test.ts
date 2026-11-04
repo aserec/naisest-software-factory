@@ -42,11 +42,12 @@ describe("fake code host: reads for the week", () => {
     host.edits.set(ref, [{ author: "ann", byFactory: false, field: "title", at: "2026-11-04T10:00:00Z" }]);
     host.commits.set(ref, [{ sha: "a1", byFactory: true }]);
     expect(await host.changeEdits(ref)).toHaveLength(1);
+    expect(await host.changeEdits(ref, "2026-11-04T10:00:00Z")).toEqual([]);
     expect(await host.changeCommits(ref)).toEqual([{ sha: "a1", byFactory: true }]);
   });
-  test("baseCommits gives the commits of baseLog after since", async () => {
+  test("baseCommits gives the commits of baseLog after since, newest first", async () => {
     const host = fakeCodeHost();
-    host.baseLog.push({ sha: "n", title: "new", message: "new", at: "2026-11-03T00:00:00Z" }, { sha: "o", title: "old", message: "old", at: "2026-10-01T00:00:00Z" });
-    expect((await host.baseCommits("2026-11-01T00:00:00Z")).map((c) => c.sha)).toEqual(["n"]);
+    host.baseLog.push({ sha: "o", title: "old", message: "old", at: "2026-10-01T00:00:00Z" }, { sha: "n", title: "new", message: "new", at: "2026-11-03T00:00:00Z" }, { sha: "m", title: "mid", message: "mid", at: "2026-11-02T00:00:00Z" });
+    expect((await host.baseCommits("2026-11-01T00:00:00Z")).map((c) => c.sha)).toEqual(["n", "m"]);
   });
 });

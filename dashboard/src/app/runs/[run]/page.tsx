@@ -52,7 +52,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
           </>
         )}
       </PageTitle>
-      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk }} state={item?.state} />
+      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} />
     </main>
   );
 }

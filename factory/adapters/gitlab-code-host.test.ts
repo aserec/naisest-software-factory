@@ -295,17 +295,18 @@ describe("merge, revert, comment, assign", () => {
       { author: "ann", byFactory: false, field: "title", at: "2026-11-04T12:00:00Z" },
       { author: "factory-bot", byFactory: true, field: "body", at: "2026-11-04T11:00:00Z" },
     ]);
+    expect((await host().changeEdits("5", "2026-11-04T11:30:00Z")).map((e) => e.field)).toEqual(["title"]);
     expect(last().url).toBe("/projects/7/merge_requests/5/notes?sort=desc&order_by=created_at&per_page=100");
   });
   test("changeCommits reads the change's commits and flags those with the factory's email", async () => {
     routes["/projects/7/merge_requests/5/commits"] = [{ id: "a1", author_email: FACTORY_GIT_EMAIL }, { id: "b2", author_email: "ann@x.io" }];
     expect(await host().changeCommits("5")).toEqual([{ sha: "a1", byFactory: true }, { sha: "b2", byFactory: false }]);
-    expect(last().url).toBe("/projects/7/merge_requests/5/commits?per_page=100");
+    expect(last().url).toBe("/projects/7/merge_requests/5/commits?per_page=100&page=1");
   });
   test("baseCommits reads the base branch's commits since a time", async () => {
     routes["/projects/7/repository/commits"] = [{ id: "c1", title: "Revert x", message: "Revert x\n\nbody", committed_date: "2026-11-02T10:00:00Z", author_name: "ann" }];
     expect(await host().baseCommits("2026-11-01T00:00:00Z")).toEqual([{ sha: "c1", title: "Revert x", message: "Revert x\n\nbody", at: "2026-11-02T10:00:00Z" }]);
-    expect(last().url).toBe("/projects/7/repository/commits?ref_name=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100");
+    expect(last().url).toBe("/projects/7/repository/commits?ref_name=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100&page=1");
   });
   test("recentChanges makes one call and keeps the open changes of the factory's branches from this project", async () => {
     routes["/projects/7/merge_requests"] = [

@@ -147,6 +147,7 @@ describe("history", async () => {
     expect((await get("target=h&since=yesterday")).status).toBe(400);
     expect((await get("target=h")).status).toBe(400);
     expect((await get(`target=h&since=${since}&type=nope`)).status).toBe(400);
+    expect((await get(`target=h&since=${since}`)).status).toBe(400);
   });
 
   it("returns only the asked target, types and times, oldest first", async () => {

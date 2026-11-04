@@ -127,5 +127,10 @@ export function makeTracker(token: string, target: Target, seamsPath?: string) {
   return pick(loadSeams(seamsPath), "tracker")(token, target);
 }
 
+// The shadow test reads the target's thresholds file through it.
+export function makeCodeHost(token: string, target: Target, env: NodeJS.ProcessEnv, seamsPath?: string) {
+  return pick(loadSeams(seamsPath), "codeHost")(token, target, env);
+}
+
 // The watcher's log source, as seams.yml names it. Only the watcher step needs one.
 export const makeLogSource = (seams: SeamsConfig) => pick(seams, "logSource")();

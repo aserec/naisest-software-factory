@@ -3,8 +3,8 @@ import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
 import { codeReviewLoop } from "../loops";
 import { proofPrompt, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
-import { agent, fix, install, isMain, modelRow, runStep, save, facts, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
+import { agent, fix, install, isMain, modelRow, runStep, save, facts, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 class ReviewerFailed extends Error {}

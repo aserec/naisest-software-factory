@@ -40,6 +40,10 @@ test("high triage risk and a merge risk above the limit take the warning pill, t
   expect(variants({ risk: "high", mergeRisk: 5 })).toEqual(["warning", "warning"]);
   expect(variants({ risk: "low", mergeRisk: 4 })).toEqual(["default", "default"]);
   expect(variants({})).toEqual([]);
+  // The target's own limit, when the run sent it.
+  expect(variants({ mergeRisk: 5, mergeRiskMax: 6 })).toEqual(["default"]);
+  render(<RiskPills mergeRisk={5} mergeRiskMax={6} />);
+  expect(screen.getByText("Merge risk 5/10, limit 6")).toBeTruthy();
 });
 
 test("a failed board load says so in plain words, keeps the last board with its time, and Retry loads it again", async () => {
