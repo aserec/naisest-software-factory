@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { INBOX_HOOK, factorySettings, HOOKS_DIR, TSX_IMPORT } from "./agents";
-import { fakeTracker } from "./fakes";
+import { fakeCodeHost, fakeTracker } from "./fakes";
 import { makeInbox, pumpInbox } from "./inbox";
 
 const SINCE = "2026-01-01T00:00:00.000Z";
@@ -171,4 +171,44 @@ test("the pump polls every 10 s by default", async () => {
 test("a closed check that says closed stops; one that throws does not", async () => {
   expect((await makeInbox(world(), "8", SINCE, undefined, async () => true).poll()).stop).toBe(true);
   expect((await makeInbox(world(), "8", SINCE, undefined, async () => { throw new Error("status 502"); }).poll()).stop).toBe(false);
+});
+
+// Part G: the comments on the run's change come with the ticket's.
+async function withChange() {
+  const t = world();
+  const host = fakeCodeHost();
+  const ref = (await host.openChange("b", "title", "body", "8")).ref;
+  const reads: string[] = [];
+  const poll = (since = SINCE) => makeInbox(t, "8", since, undefined, undefined, { changeComments: (s) => host.changeComments(ref, s), onRead: (u) => reads.push(u) });
+  return { t, host, ref, reads, poll };
+}
+test("a trusted comment on the change reaches the agent wrapped, merged with the ticket's, oldest first", async () => {
+  const { t, host, ref, poll } = await withChange();
+  t.say("8", "dev", "on the ticket", "2026-02-02T00:00:00.000Z");
+  host.sayOnChange(ref, "dev", "@factory also fix the 409", "2026-02-01T00:00:00.000Z");
+  host.sayOnChange(ref, "dev", "later on the change", "2026-02-03T00:00:00.000Z");
+  expect(await poll().poll()).toEqual({ comments: [WRAP("dev", "@factory also fix the 409"), WRAP("dev", "on the ticket"), WRAP("dev", "later on the change")], stop: false });
+});
+test("an untrusted comment and a factory comment on the change do not reach the agent", async () => {
+  const { host, ref, poll } = await withChange();
+  host.sayOnChange(ref, "stranger", "@factory stop", "2026-02-01T00:00:00.000Z");
+  host.sayOnChange(ref, "dev", "@factory stop", "2026-02-02T00:00:00.000Z", true);
+  expect(await poll().poll()).toEqual({ comments: [], stop: false });
+});
+test("@factory stop on the change stops", async () => {
+  const { host, ref, poll } = await withChange();
+  host.sayOnChange(ref, "dev", "@factory stop", "2026-02-01T00:00:00.000Z");
+  expect((await poll().poll()).stop).toBe(true);
+});
+test("onRead gets the newest time of both lists, compared as times, not as text", async () => {
+  const { t, host, ref, reads, poll } = await withChange();
+  t.say("8", "dev", "ticket", "2026-02-01T10:00:00.000Z");
+  host.sayOnChange(ref, "dev", "change", "2026-02-01T11:00:00.000+02:00"); // 09:00Z: later as text, earlier as a time
+  await poll().poll();
+  expect(reads).toEqual(["2026-02-01T10:00:00.000Z"]);
+});
+test("onRead is not called when nothing new came", async () => {
+  const { reads, poll } = await withChange();
+  await poll().poll();
+  expect(reads).toEqual([]);
 });

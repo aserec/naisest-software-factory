@@ -9,7 +9,7 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { prompt, runStep, save, ticketText } from "./context";
+import { inbox, prompt, runStep, save, ticketText } from "./context";
 import { previewLine } from "./prepare-patch";
 import { parseFactoryFile } from "../config";
 import { cancelNote, endIfClosed, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
@@ -18,7 +18,7 @@ import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type Mark } from "../seams";
-import { newRecord, saveRecord } from "../record";
+import { addStep, newRecord, runFacts, saveRecord } from "../record";
 import { loadRecord, type RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
 import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
@@ -1854,4 +1854,38 @@ test("a ticket whose old change a person closed runs again and is not blocked be
   expect(w.states).not.toContain("blocked");
   expect(w.mrOpened || w.host.changes.get("5")!.open).toBe(true);
   expect(w.finishTriggered).toBe(true);
+});
+
+// Part G: the author's inbox hears the comments on the run's change. No code starts a round yet,
+// so the record is built by hand: an event step with `round`, and the round's cursor.
+const CURSOR = "2020-01-01T00:00:00.000Z";
+async function roundWorld() {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  const change = runFacts(w.record).change!;
+  w.ctx.record = { ...addStep(w.record, "event", { start: true, ticket: "8", round: 1 }), requestRounds: [{ cursor: CURSOR, requests: [], costAtStart: 0, tokensAtStart: { input: 0, output: 0 } }] };
+  return { w, change };
+}
+test("a comment on the change reaches the author's inbox from the round's cursor, and the record remembers how far it read", async () => {
+  const { w, change } = await roundWorld();
+  const at = new Date(Date.now() + 1000).toISOString(); // after the factory's own comments on the change
+  w.host.sayOnChange(change, "dev", "@factory also fix the 409", at);
+  const r = await inbox(w.ctx).poll();
+  expect(r.comments).toEqual([expect.stringContaining("@factory also fix the 409")]);
+  expect(w.record.heardUntil).toBe(at);
+});
+test("a run with no change on the record reads no change comments", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.ci.vars = { ...w.ci.vars, ticket: "8" };
+  const { ref } = await w.host.openChange("b", "t", "body", "8"); // a change exists on the host, but the run has not pushed
+  w.host.sayOnChange(ref, "dev", "@factory stop");
+  expect(await inbox(w.ctx).poll()).toEqual({ comments: [], stop: false });
+  expect(w.record.heardUntil).toBeUndefined();
+});
+// Review Focus 4.
+test("a round resumed after @factory stop and @factory resume does not stop again on the old stop line", async () => {
+  const { w, change } = await roundWorld();
+  w.host.sayOnChange(change, "dev", "@factory stop", "2020-06-01T00:00:00.000Z");
+  expect((await inbox(w.ctx).poll()).stop).toBe(true);
+  w.ctx.record = addStep(w.record, "event", { start: true, ticket: "8", resume: true }); // the resume's event has no `round`: it starts after the old stop
+  expect((await inbox(w.ctx).poll()).stop).toBe(false);
 });
