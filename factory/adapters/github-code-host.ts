@@ -88,10 +88,11 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     // GitHub has no revert endpoint. verify reverts right after the merge, so sha is still the base tip:
     // the revert commit takes the tree of sha's parent.
     // ponytail: a base that moved past sha is left to a person; a git revert in a clone would handle it.
+    // A pull request from a fork can carry the same branch name, so the head repo must be ours.
     // ponytail: newest 100 pulls only, page further if a repo opens more between two polls
     async changeOfTicket(ticket) {
       const pulls: any[] = await gh.json("GET", `${r}/pulls?state=all&sort=created&direction=desc&per_page=100`);
-      const p = pulls.filter((x) => String(x.head?.ref).startsWith(changeBranchPrefix(ticket))).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      const p = pulls.filter((x) => String(x.head?.ref).startsWith(changeBranchPrefix(ticket)) && String(x.head?.repo?.full_name).toLowerCase() === repo.toLowerCase()).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
       return p && { ref: String(p.number), open: p.state === "open", merged: !!p.merged_at, url: p.html_url as string };
     },
     async revert(sha) {

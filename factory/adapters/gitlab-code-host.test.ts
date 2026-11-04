@@ -160,16 +160,20 @@ describe("readFile", () => {
 });
 
 describe("changeOfTicket", () => {
-  const related = (...o: object[]) => (routes["/projects/7/issues/12/related_merge_requests"] = o.map((x) => ({ iid: 1, state: "opened", source_branch: "factory/12-x", created_at: "2026-01-01T00:00:00Z", web_url: "u", ...x })));
+  const related = (...o: object[]) => (routes["/projects/7/issues/12/related_merge_requests"] = o.map((x) => ({ iid: 1, state: "opened", source_branch: "factory/12-x", source_project_id: 7, created_at: "2026-01-01T00:00:00Z", web_url: "u", ...x })));
   test("reads the merge requests that close the issue and returns the newest of its branch, in any state", async () => {
     related({ iid: 3, state: "closed", created_at: "2026-01-01T00:00:00Z" }, { iid: 6, state: "merged", created_at: "2026-01-03T00:00:00Z", web_url: "u6" }, { iid: 4, created_at: "2026-01-02T00:00:00Z" });
     expect(await host().changeOfTicket("12")).toEqual({ ref: "6", open: false, merged: true, url: "u6" });
-    expect(last()).toMatchObject({ method: "GET", url: "/projects/7/issues/12/related_merge_requests" });
+    expect(last()).toMatchObject({ method: "GET", url: "/projects/7/issues/12/related_merge_requests?per_page=100" });
   });
   test("a branch of ticket 123 or a person's branch is not a change of ticket 12", async () => {
     related({ iid: 9, source_branch: "factory/123-x" }, { iid: 8, source_branch: "feature/12-x" });
     expect(await host().changeOfTicket("12")).toBeUndefined();
     related();
+    expect(await host().changeOfTicket("12")).toBeUndefined();
+  });
+  test("a merge request from a fork with the same branch name is not a change of the ticket", async () => {
+    related({ iid: 9, source_project_id: 99 });
     expect(await host().changeOfTicket("12")).toBeUndefined();
   });
   test("an open merge request is open and not merged", async () => {

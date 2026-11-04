@@ -74,8 +74,10 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     },
     // Every factory change says `Closes #<ticket>`, so the issue lists its changes.
     async changeOfTicket(ticket) {
-      const mrs: any[] = await gitlab.getJson(`/projects/${await projectId()}/issues/${Number(ticket)}/related_merge_requests`);
-      const m = mrs.filter((x) => String(x.source_branch).startsWith(changeBranchPrefix(ticket))).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      const id = await projectId();
+      const mrs: any[] = await gitlab.getJson(`/projects/${id}/issues/${Number(ticket)}/related_merge_requests?per_page=100`);
+      // A merge request from a fork can carry the same branch name, so its source project must be ours.
+      const m = mrs.filter((x) => String(x.source_branch).startsWith(changeBranchPrefix(ticket)) && x.source_project_id === id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
       // locked: GitLab sets it while a merge is in flight, so the change is not closed
       return m && { ref: String(m.iid), open: m.state === "opened" || m.state === "locked", merged: m.state === "merged", url: m.web_url as string };
     },
