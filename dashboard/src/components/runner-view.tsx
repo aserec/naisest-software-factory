@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { HostStat, LogLine, LogSource } from "@/server/grafana";
+import type { HostStat, LogLine } from "@/server/seams";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
@@ -14,9 +14,9 @@ interface Runner {
   jobs: Part<{ job: string; name: string; run: string; startedAt: string; runner?: string }[]>;
   hosts: Part<HostStat[]>;
   logs: Part<LogLine[]>;
+  sources: string[]; // the log sources to switch between; none when host metrics are not set up
 }
 
-const SOURCES: LogSource[] = ["docker", "gitlab-runner", "system"];
 const FULL = 85; // used percent from which a disk or memory bar turns red
 const pct = (n: number) => (Number.isFinite(n) ? `${Math.round(n)}%` : "—");
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -52,7 +52,7 @@ function Used({ label, value }: { label: string; value: number }) {
 }
 
 export function RunnerView() {
-  const [source, setSource] = useState<LogSource>("docker");
+  const [source, setSource] = useState(""); // empty until a tab is picked: the first source
   const [host, setHost] = useState("");
   const runner = useQuery({
     queryKey: ["runner", source, host],
@@ -64,7 +64,9 @@ export function RunnerView() {
     },
   });
   const { data, error } = runner;
-  // No log source to switch between when Grafana is not set up.
+  const sources = data?.sources ?? [];
+  const active = sources.includes(source) ? source : sources[0];
+  // No log source to switch between when host metrics are not set up.
   const unset = !!data && "unset" in data.logs;
   return (
     <div className="flex flex-col gap-8">
@@ -150,10 +152,10 @@ export function RunnerView() {
             </button>
           )}
         </div>
-        {!unset && (
-          <Tabs value={source} onValueChange={(v) => setSource(v as LogSource)} className="mb-4">
+        {!unset && sources.length > 0 && (
+          <Tabs value={active} onValueChange={setSource} className="mb-4">
             <TabsList>
-              {SOURCES.map((s) => (
+              {sources.map((s) => (
                 <TabsTrigger key={s} value={s}>
                   {s}
                 </TabsTrigger>

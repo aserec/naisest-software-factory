@@ -1,32 +1,23 @@
-import { NotSetUp } from "./not-set-up";
+import { NotSetUp } from "../not-set-up";
+import type { HostMetrics, HostStat, LogLine } from "../seams";
 
 // Runner VM logs (Loki) and disk and memory (node metrics), read through Grafana with a Viewer service account token.
-export const SOURCES = ["docker", "gitlab-runner", "system"] as const;
-export type LogSource = (typeof SOURCES)[number];
-export interface LogLine {
-  at: string;
-  host: string;
-  line: string;
-}
-export interface HostStat {
-  host: string;
-  diskUsedPct: number;
-  memUsedPct: number;
-}
+export const SOURCES = ["docker", "gitlab-runner", "system"];
+export const NOT_SET_UP = "Grafana is not set up. Set GRAFANA_URL, METRICS_UID and LOKI_UID to see the hosts and their logs.";
 
 const LIMIT = 500;
 const SEL = 'job="factory-runner"';
 
 async function grafana<T>(uid: string | undefined, path: string, params: Record<string, string>, fetchFn: typeof fetch): Promise<T> {
   const base = (process.env.GRAFANA_URL ?? "").replace(/\/+$/, "");
-  if (!base || !uid) throw new NotSetUp("Grafana is not set up. Set GRAFANA_URL, METRICS_UID and LOKI_UID to see the hosts and their logs.");
+  if (!base || !uid) throw new NotSetUp(NOT_SET_UP);
   const r = await fetchFn(`${base}/api/datasources/proxy/uid/${uid}${path}?${new URLSearchParams(params)}`, { headers: { Authorization: `Bearer ${process.env.GRAFANA_TOKEN ?? ""}` } });
   if (!r.ok) throw new Error(`Grafana answered ${r.status}${r.status === 401 || r.status === 403 ? ", so check GRAFANA_TOKEN" : ""}.`);
   return ((await r.json()) as { data: T }).data;
 }
 
 // Newest first. JSON.stringify quotes the host, so a host from the URL cannot change the query.
-export async function runnerLogs(q: { host?: string; source: LogSource; minutes: number }, fetchFn: typeof fetch = fetch): Promise<LogLine[]> {
+async function runnerLogs(q: { host?: string; source: string; minutes: number }, fetchFn: typeof fetch): Promise<LogLine[]> {
   if (!SOURCES.includes(q.source)) throw new Error("unknown log source");
   const query = `{${SEL}, source="${q.source}"${q.host ? `, host=${JSON.stringify(q.host)}` : ""}}`;
   const endMs = Date.now();
@@ -41,7 +32,7 @@ export async function runnerLogs(q: { host?: string; source: LogSource; minutes:
 }
 
 // Used percent of the root disk and of memory, per runner host.
-export async function hostStats(fetchFn: typeof fetch = fetch): Promise<HostStat[]> {
+async function hostStats(fetchFn: typeof fetch): Promise<HostStat[]> {
   type Vector = { result: { metric: Record<string, string>; value: [number, string] }[] };
   const ask = (query: string) => grafana<Vector>(process.env.METRICS_UID, "/api/v1/query", { query }, fetchFn);
   const root = `${SEL}, mountpoint="/"`;
@@ -52,3 +43,9 @@ export async function hostStats(fetchFn: typeof fetch = fetch): Promise<HostStat
   const memBy = new Map(mem.result.map((r) => [r.metric.host, Number(r.value[1])]));
   return disk.result.map((r) => ({ host: r.metric.host ?? "", diskUsedPct: Number(r.value[1]), memUsedPct: memBy.get(r.metric.host) ?? Number.NaN }));
 }
+
+export const makeGrafana = (fetchFn: typeof fetch = fetch): HostMetrics => ({
+  sources: SOURCES,
+  hostStats: () => hostStats(fetchFn),
+  logs: (q) => runnerLogs(q, fetchFn),
+});

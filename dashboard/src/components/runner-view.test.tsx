@@ -32,7 +32,19 @@ test("without Grafana the log tabs are gone and the settings to set read in mono
 });
 
 test("with Grafana the log tabs show", async () => {
-  vi.stubGlobal("fetch", async () => json({ jobs: [], hosts: [], logs: [] }));
+  vi.stubGlobal("fetch", async () => json({ jobs: [], hosts: [], logs: [], sources: ["docker", "gitlab-runner", "system"] }));
   renderWithQuery(<RunnerView />);
   expect(await screen.findAllByRole("tab")).toHaveLength(3);
+});
+
+test("the log tabs are the sources the answer lists, and the first is asked for", async () => {
+  const urls: string[] = [];
+  vi.stubGlobal("fetch", async (url: string) => {
+    urls.push(url);
+    return json({ jobs: [], hosts: [], logs: [], sources: ["alpha", "beta"] });
+  });
+  renderWithQuery(<RunnerView />);
+  expect((await screen.findAllByRole("tab")).map((t) => t.textContent)).toEqual(["alpha", "beta"]);
+  expect(screen.getByRole("tab", { name: "alpha" }).getAttribute("aria-selected")).toBe("true");
+  expect(urls[0]).not.toContain("source=docker");
 });

@@ -79,3 +79,18 @@ it("FACTORY_CI=local picks the worker, and getCi is one instance", async () => {
   await expect(getCi().runningJobs()).rejects.toBeInstanceOf(NotSetUp);
   expect(getCi()).toBe(getCi());
 });
+
+it("no GRAFANA_URL gives no log sources and a not-set-up answer", async () => {
+  vi.stubEnv("GRAFANA_URL", "");
+  const { getHostMetrics } = await import("./compose");
+  const m = getHostMetrics();
+  expect(m.sources).toEqual([]);
+  await expect(m.hostStats()).rejects.toThrow("Grafana is not set up. Set GRAFANA_URL");
+  await expect(m.logs({ source: "docker", minutes: 5 })).rejects.toBeInstanceOf(NotSetUp);
+});
+
+it("GRAFANA_URL picks Grafana with its three log sources", async () => {
+  vi.stubEnv("GRAFANA_URL", "https://ops.example");
+  const { getHostMetrics } = await import("./compose");
+  expect(getHostMetrics().sources).toEqual(["docker", "gitlab-runner", "system"]);
+});

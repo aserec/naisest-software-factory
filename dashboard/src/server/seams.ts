@@ -43,3 +43,13 @@ export interface SignIn {
   canAct(user: SessionUser): Promise<true | { refused: string }>; // on every control action, read again each time
   messages: Record<string, string>; // the text for each `refused` key
 }
+
+export interface HostStat { host: string; diskUsedPct: number; memUsedPct: number }
+export interface LogLine { at: string; host: string; line: string }
+
+// Disk, memory and logs of the machines that run the factory's jobs. Grafana picks it when GRAFANA_URL is set.
+export interface HostMetrics {
+  readonly sources: string[]; // the log sources `logs` accepts, as tab names; empty when none is set up
+  hostStats(): Promise<HostStat[]>; // throws NotSetUp without its settings
+  logs(q: { source: string; host?: string; minutes: number }): Promise<LogLine[]>; // newest first; throws NotSetUp without its settings, and an Error for a source outside `sources`
+}

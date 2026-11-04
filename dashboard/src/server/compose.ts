@@ -2,9 +2,10 @@
 import { makeGitHubTracker } from "./adapters/github-tracker";
 import { makeGitLabCi } from "./adapters/gitlab-ci";
 import { makeGitLabTracker } from "./adapters/gitlab-tracker";
+import { makeGrafana, NOT_SET_UP } from "./adapters/grafana";
 import { makeLocalCi } from "./adapters/local-ci";
 import { NotSetUp } from "./not-set-up";
-import type { BoardRow, Ci, Tracker } from "./seams";
+import type { BoardRow, Ci, HostMetrics, Tracker } from "./seams";
 import { readTargets, type TargetInfo } from "./targets";
 
 const CACHE_MS = 15_000;
@@ -61,3 +62,13 @@ let ci: Ci | undefined;
 
 // What runs the factory: the factory's own worker with FACTORY_CI=local (seams.yml ci: local), else GitLab CI. One instance.
 export const getCi = () => (ci ??= process.env.FACTORY_CI === "local" ? makeLocalCi() : makeGitLabCi());
+
+// No host metrics: no log sources, and the same not-set-up answer for every call.
+export const makeNoHostMetrics = (): HostMetrics => ({
+  sources: [],
+  hostStats: async () => Promise.reject(new NotSetUp(NOT_SET_UP)),
+  logs: async () => Promise.reject(new NotSetUp(NOT_SET_UP)),
+});
+
+// Grafana when GRAFANA_URL is set, else nothing. Read on every call, so a new setting needs no restart.
+export const getHostMetrics = (): HostMetrics => (process.env.GRAFANA_URL ? makeGrafana() : makeNoHostMetrics());
