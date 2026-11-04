@@ -233,6 +233,7 @@ describe("parseEvent", () => {
   });
   test("a note on a factory change gives a request with the change", () => {
     expect(tracker().parseEvent(mrNote())).toEqual({ kind: "request", ticket: "8", actor: "devone", change: "5" });
+    expect(tracker().parseEvent(mrNote({ branch: "factory/ABC-12--x" }))).toEqual({ kind: "request", ticket: "ABC-12", actor: "devone", change: "5" });
   });
   test("a note on a fork's change, a non-factory branch or a command line on a change is ignored", () => {
     for (const p of [mrNote({ target: 9 }), mrNote({ branch: "feature/x" }), mrNote({ note: "@factory stop" }), mrNote({ note: "nice" })]) {

@@ -1,6 +1,6 @@
 import { isRequest } from "../requests";
 import { DEVELOPER, GitLab, type StateLabel } from "../gitlab";
-import type { FactoryEvent, FactoryState, Mark, Ticket, Tracker } from "../seams";
+import { ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
 const READY = "factory_ready";
 const MARK_LABELS: Record<Mark, string> = {
@@ -117,15 +117,15 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
       }
       // A request on a factory change (branch factory/<ticket>-<slug>). A fork's change never counts.
       if (p.object_kind === "note" && a?.noteable_type === "MergeRequest" && !a.system) {
-        const m = /^factory\/(\d+)-/.exec(String(p.merge_request?.source_branch ?? ""));
+        const ticket = ticketOfBranch(String(p.merge_request?.source_branch ?? ""));
         const mr = p.merge_request;
-        if (m && typeof mr.iid === "number" && mr.source_project_id === mr.target_project_id && isRequest(String(a.note ?? ""))) return { kind: "request", ticket: m[1], actor, change: String(mr.iid) };
+        if (ticket && typeof mr.iid === "number" && mr.source_project_id === mr.target_project_id && isRequest(String(a.note ?? ""))) return { kind: "request", ticket, actor, change: String(mr.iid) };
         return ignored("not-added");
       }
       // A merge of a factory change (branch factory/<ticket>-<slug>). An approval starts nothing.
       if (p.object_kind === "merge_request" && a?.action === "merge") {
-        const m = /^factory\/(\d+)-/.exec(String(a.source_branch ?? ""));
-        if (m && typeof a.iid === "number") return { kind: "merged", ticket: m[1], change: String(a.iid), actor };
+        const ticket = ticketOfBranch(String(a.source_branch ?? ""));
+        if (ticket && typeof a.iid === "number") return { kind: "merged", ticket, change: String(a.iid), actor };
       }
       return ignored("not-added");
     },

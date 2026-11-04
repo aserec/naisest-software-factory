@@ -82,6 +82,7 @@ describe("labels", () => {
     expect(t().parseEvent({ ...base, action: "labeled", label: { name: "factory_ready" }, issue: { number: 8 } })).toEqual({ kind: "ready", ticket: "8", actor: "ann" });
     expect(t().parseEvent({ ...base, action: "created", issue: { number: 8 }, comment: { body: "hi\n @Factory Stop " } })).toEqual({ kind: "command", ticket: "8", actor: "ann", command: "stop" });
     expect(t().parseEvent({ ...base, action: "closed", pull_request: { number: 3, merged: true, head: { ref: "factory/8-fix" } } })).toEqual({ kind: "merged", ticket: "8", change: "3", actor: "ann" });
+    expect(t().parseEvent({ ...base, action: "closed", pull_request: { number: 3, merged: true, head: { ref: "factory/ABC-12--fix" } } })).toEqual({ kind: "merged", ticket: "ABC-12", change: "3", actor: "ann" });
     expect(t().parseEvent({ ...base, repository: { full_name: "evil/web" }, action: "labeled", label: { name: "factory_ready" }, issue: { number: 8 } })).toEqual({ kind: "ignored", reason: "other-project" });
     expect(t().parseEvent({ ...base, action: "labeled", label: { name: "bug" }, issue: { number: 8 } })).toEqual({ kind: "ignored", reason: "not-added" });
   });

@@ -3,7 +3,7 @@
 import { AI_LINE } from "../gitlab";
 import type { GitHub } from "../github";
 import { findSecrets } from "../rules";
-import type { FactoryEvent, FactoryState, Mark, Ticket, Tracker } from "../seams";
+import { ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
 const READY = "factory_ready";
 const MARKS: Mark[] = ["watcher", "triaged", "risk_trivial", "risk_low", "risk_medium", "risk_high", "implemented", "reviewed", "checked", "risk_checked", "merged", "reverted"];
@@ -215,8 +215,8 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
         }
       }
       if (p.pull_request && p.action === "closed" && p.pull_request.merged) {
-        const m = /^factory\/(\d+)-/.exec(String(p.pull_request.head?.ref ?? ""));
-        if (m) return { kind: "merged", ticket: m[1], change: String(p.pull_request.number), actor };
+        const ticket = ticketOfBranch(String(p.pull_request.head?.ref ?? ""));
+        if (ticket) return { kind: "merged", ticket, change: String(p.pull_request.number), actor };
       }
       return ignored("not-added");
     },

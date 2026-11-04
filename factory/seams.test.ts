@@ -21,7 +21,10 @@ describe("changeBranchPrefix", () => {
     expect("factory/123-x".startsWith(changeBranchPrefix("12"))).toBe(false);
     expect("factory/ABC-120--x".startsWith(changeBranchPrefix("ABC-12"))).toBe(false);
   });
-  it.each(["a/b", "x--y", "a b", ""])("rejects %j", (ref) => {
+  it("no accepted non-numeric ref builds a branch under a numeric ref's prefix", () => {
+    for (const num of ["1", "12"]) for (const ref of ["ABC-1", "X-12"]) expect((changeBranchPrefix(ref) + "x").startsWith(changeBranchPrefix(num))).toBe(false);
+  });
+  it.each(["a/b", "x--y", "a b", "", "1-2", "ABC-", "-x"])("rejects %j", (ref) => {
     expect(() => changeBranchPrefix(ref)).toThrow();
   });
   it.each(["7", "PROJ-7"])("round trips %s", (ref) => {

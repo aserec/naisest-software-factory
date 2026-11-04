@@ -94,7 +94,7 @@ export interface CodeHost {
 // The factory's change branches are named factory/<ticket>-<slug> for a number, factory/<ticket>--<slug> for any other ref.
 // The trailing dash keeps ticket 12 apart from ticket 123, and the double dash keeps ABC-12 apart from ABC-12-fix.
 export const changeBranchPrefix = (ticket: TicketRef) => {
-  if (!/^[A-Za-z0-9._-]+$/.test(ticket) || ticket.includes("--")) throw new Error(`Ticket ref "${ticket}" cannot be part of a branch name.`);
+  if (!/^[A-Za-z0-9._-]+$/.test(ticket) || ticket.includes("--") || /^\d+-|^-|-$/.test(ticket)) throw new Error(`Ticket ref "${ticket}" cannot be part of a branch name.`);
   return /^\d+$/.test(ticket) ? `factory/${ticket}-` : `factory/${ticket}--`;
 };
 export const ticketOfBranch = (branch: string): TicketRef | undefined =>
