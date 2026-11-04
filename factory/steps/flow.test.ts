@@ -1984,11 +1984,22 @@ test("a judge that throws refuses nothing, writes no cursor and leaves the ticke
   expect(w.restored).toEqual([]);
   expect((await newRequests(w.ctx, "8")).requests).toHaveLength(2);
 });
-test("a request round of another ticket's record blocks instead of starting", async () => {
+test("a request round of another ticket's record (cannotContinue) blocks instead of starting", async () => {
   const { w } = await requestWorld();
   const record = await w.ci.buildRecord("41");
   w.ci.buildRecord = async () => ({ ...record, workItem: "other/project#9" });
   await eventJob(w).catch(() => {});
   expect(w.states).toEqual(["blocked"]);
   expect(w.restored).toEqual([]);
+});
+test("a request round whose open change is not the record's change replies, keeps the change waiting and moves the cursor", async () => {
+  const { first, w } = await requestWorld();
+  const steps = first.record.steps.map((s) => (s.step === "precommit-gate" ? { ...s, data: { ...(s.data as object), change: "99" } } : s));
+  w.ci.buildRecord = async () => ({ ...first.record, steps });
+  await eventJob(w);
+  expect(w.workItemComments).toEqual([`@dev The factory could not start a round: the open change 5 is not the change of pipeline 41. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.restored).toEqual([]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "change-mismatch" } });
+  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
 });

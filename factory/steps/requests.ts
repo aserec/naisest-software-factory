@@ -76,9 +76,13 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   // Requests wait for a change that is open. A quiet stop writes nothing: there is nothing to answer.
   const { requests, change } = await newRequests(ctx, ref);
   if (!change || requests.length === 0) return quiet("no-request");
-  if (change.ref !== facts(ctx).change) return block(ctx, `The factory could not start a round: the open change ${change.ref} is not the change of pipeline ${buildRun}. Add factory_ready to start again.`);
   const newest = requests.at(-1)!.at;
   const authors = [...new Set(requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
+  // The change stays open and waiting, so a person can still merge it. The cursor line stops the poller from asking again.
+  if (change.ref !== facts(ctx).change) {
+    await ctx.tracker.comment(ref, `${authors} The factory could not start a round: the open change ${change.ref} is not the change of pipeline ${buildRun}. The change still waits for a person.\n\n${cursorLine(newest)}`);
+    return quiet("change-mismatch");
+  }
   // From here the ticket either starts running or gets a cursor line, so the poller does not start the same round again.
   // A judge that fails refuses nothing and writes no cursor: the next poll tries again.
   try {
