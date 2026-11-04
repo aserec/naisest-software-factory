@@ -176,7 +176,8 @@ export async function waiting(ctx: StepContext, step: PausableStep, sessionId: s
 // A person (`@factory stop`) or a dashboard switch stopped the run. A stop the inbox saw because a person closed
 // the work item or the change ends the run here instead.
 export async function stopped(ctx: StepContext, step: PausableStep, o: { session?: string; reason: string; change?: ChangeRef; extra?: { commands?: FactoryCommands } }): Promise<StepResult> {
-  const end = await endIfClosed(ctx);
+  // A failed host read must not turn a person's stop into a step error: the stop goes on.
+  const end = await endIfClosed(ctx).catch((e) => void console.log(`Closed check before the stop failed: ${String(e).slice(0, 300)}`));
   if (end) return end;
   const ref = ticketRef(ctx);
   save(ctx, step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });

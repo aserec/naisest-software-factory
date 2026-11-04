@@ -74,11 +74,12 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const { title, body: scanned } = changeText(ctx, {}, [], commit);
   // Scan before anything leaves the runner. The raw manifest holds the test tails, which the section does not show.
   if (findSecrets((await ctx.repo.diff()).text + scanned + (readProof(ctx.repo.readFile).raw ?? "")).length > 0) return block(ctx, "The change contains a secret-looking value, so the factory did not push it.");
+  // Before attachAll: it uploads images, which is a write.
+  const end = await endIfClosed(ctx);
+  if (end) return end;
   const { links, failed } = await attachAll(ctx, readImages(ctx.repo.readBytes, facts(ctx).proof?.proof));
   const { body } = changeText(ctx, links, failed, commit);
   const branch = `factory/${ref}-${slug(withoutMarks(ctx.record.ticket!.title))}`;
-  const end = await endIfClosed(ctx);
-  if (end) return end;
   const sha = await ctx.repo.commitAndPush(branch, commit.message);
   const c = await ctx.codeHost.openChange(branch, title, body, ref);
   save(ctx, "precommit-gate", { passed: true, rounds: result.rounds, branch, sha, change: c.ref, changeUrl: c.url, images: links, uploadFailed: failed, commit });
