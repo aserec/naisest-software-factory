@@ -22,7 +22,7 @@ Each step is a GitLab CI job in this repo. A person's review can take days, so a
 Build pipeline:
 
 1. **Event.** Checks the event. The run stops quietly unless the label was just added, the person is a Developer or higher, and the work item has no active run.
-2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
+2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. When the injection check passes, a work item written by a person is compared with the newest 200 open work items. A sure duplicate (confidence 0.9 or more) is closed with a comment that links the original. A work item that looks close but may add something gets a question and `factory_needs_info`. Watcher and dispatch work items skip this. A work item with an earlier dedupe comment from the factory skips it too: the person decided. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
 3. **Prepare patch.** Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`, cut from `develop`. At the end the author writes `run/commit-message.md`: a conventional commit title and a full bullet list of what changed, where, why and which tests cover it. The router picks the model. If the target has a preview, the author also shoots the screens the change touches before and after, runs its new tests before and after, and writes `run/proof/proof.json`.
 4. **Code review.** A reviewer (DeepSeek through TensorX, in Pi with no tools) reads the diff and returns findings. The author fixes blocking findings. At most 5 rounds. The reviewer also judges each before and after screenshot. It also checks each changed hunk against a security checklist; a finding starts with `[SECURITY]`, and a likely exploitable one is blocking.
 5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures and takes the screenshots again if the change looks different. At most 5 rounds. A fix here is code no review saw, so code review runs again, and a review fix runs the gate again, until both pass with no fix between them (inside the same 5 review and 5 gate rounds). Then the script pushes the branch and opens a merge request.
@@ -47,7 +47,7 @@ A work item has at most one state label at a time.
 | --- | --- |
 | `factory_ready` | Start a run, or run again. Set by a person. |
 | `factory_running` | A run is active. |
-| `factory_needs_info` | The factory asked questions on the ticket. Answer them, then add `factory_ready` again. |
+| `factory_needs_info` | The factory asked questions on the ticket, or asked whether it repeats another open one. Answer them, then add `factory_ready` again. |
 | `factory_needs_approval` | The merge request waits for a person to review and merge it. |
 | `factory_waiting` | Claude's plan limit was hit. A scheduled job retries later. |
 | `factory_stopped` | A person commented `@factory stop`. The run keeps its session. Comment `@factory resume` to continue it. |

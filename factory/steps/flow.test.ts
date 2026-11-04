@@ -943,6 +943,70 @@ test("a watcher ticket set ready by the factory starts a run; another ticket set
   expect(polled.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
 });
 
+// Part F: dedupe for work items written by people.
+test("a sure duplicate is closed with a link and never built", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.95 } }));
+  expect(w.closed).toBe(true);
+  expect(w.tracker.cleared).toContain("8");
+  expect(w.workItemComments.at(-1)).toMatch(/same change as #9 .*https:\/\/tracker\.example\/9/s);
+  expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
+  expect(w.cloned).toEqual([]);
+  expect(w.tracker.tickets.get("8")!.marks).not.toContain("triaged");
+});
+test("an unsure same asks instead of closing", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.89 } }));
+  expect(w.closed).toBe(false);
+  expect(w.states).toEqual(["needs_info"]);
+});
+test("a work item that adds something gets the writer's question and needs_info, before the clarity questions", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, dedupe: { verdict: "adds" } }));
+  expect(w.states).toEqual(["needs_info"]);
+  expect(w.workItemComments.at(-1)).toContain("Does this belong in #9");
+  expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
+  const writer = w.claudeRuns.find((j) => j.role === "writer")!;
+  expect(writer.tools).toBe("none");
+  expect(writer.prompt).toContain("<ticket>");
+  expect(w.claudeRuns.some((j) => j.role === "author")).toBe(false);
+});
+test("an injection in the candidates skips the writer and asks the fixed question", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "adds", injectionYes: 0.4 } }));
+  expect(w.claudeRuns.some((j) => j.role === "writer")).toBe(false);
+  expect(w.workItemComments.at(-1)).toContain("Does it belong in #9, or is it a separate change?");
+});
+test("a writer text that does not name the original falls back to the fixed question", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "adds" }, writerText: "Is this new?" }));
+  expect(w.workItemComments.at(-1)).toContain("Does it belong in #9");
+});
+test("a person who answered a dedupe comment is not asked again", async () => {
+  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  await world.tracker.comment("8", `Looks close to #9.\n\n<!-- factory:dedupe -->`);
+  const w = await runBuildPipeline(world);
+  expect(w.dedupeAsked).toBe(0);
+  expect(w.tracker.tickets.get("8")!.marks).toContain("triaged");
+});
+test("a dedupe marker from a person does not skip the check", async () => {
+  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  world.tracker.say("8", "dev", "<!-- factory:dedupe -->");
+  const w = await runBuildPipeline(world);
+  expect(w.dedupeAsked).toBe(1);
+});
+test("watcher work items, blocked injections and lone work items skip the check", async () => {
+  const watcher = fakeWorld({ dedupe: { verdict: "same" } });
+  watcher.tracker.tickets.get("8")!.marks = ["watcher"];
+  expect((await runBuildPipeline(watcher)).dedupeAsked).toBe(0);
+  expect((await runBuildPipeline(fakeWorld({ jev1: { injectionYes: 0.4 }, dedupe: { verdict: "same" } }))).dedupeAsked).toBe(0);
+  const alone = fakeWorld({ dedupe: { verdict: "same" } });
+  alone.tracker.tickets.get("9")!.open = false;
+  const w = await runBuildPipeline(alone);
+  expect(w.dedupeAsked).toBe(0);
+  expect(w.closed).toBe(false);
+});
+test("a failed duplicate check blocks", async () => {
+  const w = await runBuildPipeline(fakeWorld({ dedupe: "throw" }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.join("\n")).toContain("The duplicate check failed");
+});
+
 // factory_ready on a blocked ticket. The factory's block comment names run 1, and `first` is that run.
 async function readyAgain(o: WorldOptions, first: { record: RunRecord; workItemComments: string[] }, marks: Mark[] = []) {
   const w = fakeWorld({ jev1: { risk: "trivial" }, ...o });
@@ -986,7 +1050,7 @@ test("factory_ready starts a new run when the newest block comment names no run,
   const w = await readyAgain({}, first);
   await w.tracker.comment("8", finish.workItemComments.at(-1)!);
   await runBuildJobs(w, tmp());
-  expect(w.jevAsked).toBe(2); // triage ran again
+  expect(w.jevAsked).toBe(3); // triage and the duplicate check ran again
   expect(w.restored).toEqual([]);
   expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
   expect(w.finishTriggered).toBe(true);
@@ -1019,7 +1083,7 @@ test("a crash block names no run, so factory_ready after it starts a new run wit
   w.ci.buildRecord = async () => { throw new Error("Pipeline 1 has no successful decision job"); };
   await runBuildJobs(w, tmp());
   expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
-  expect(w.jevAsked).toBe(2); // triage ran again
+  expect(w.jevAsked).toBe(3); // triage and the duplicate check ran again
   expect(w.finishTriggered).toBe(true);
 });
 // Only a crash blocks at risk-check, and a crash names no run, so this test writes the run line itself.
