@@ -2,7 +2,7 @@ import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
 import { later } from "./requests";
 import { findSecrets } from "./rules";
-import { SWITCHES } from "./run-events";
+import { SWITCHES, type EventType } from "./run-events";
 import { changeBranchPrefix, ticketOfBranch, NotFactoryRunError } from "./seams";
 import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, Dispatch, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
@@ -271,6 +271,10 @@ export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispat
     pending,
     dispatches: async (target: string) => dash.pending.filter((s) => s.target === target),
     dispatchDone: async (id: string) => void (dash.pending = dash.pending.filter((s) => s.id !== id)),
+    history: async (target: string, since: string, types: EventType[]) => {
+      if (dash.down) throw new Error("dashboard is down");
+      return dash.events.filter((e) => e.target === target && e.at >= since && types.includes(e.type));
+    },
     send: (e: RunEvent) => void (dash.down || dash.events.push(e)),
     flush: async () => {},
     control: async () => {

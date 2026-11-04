@@ -134,3 +134,27 @@ describe("dispatches", async () => {
     expect((await dispatch({ ...body, title: "" })).status).toBe(400);
   });
 });
+
+describe("history", async () => {
+  const { GET: getHistory } = await import("./history/route");
+  const at = (h: number) => new Date(Date.UTC(2026, 5, 1, h)).toISOString();
+  const get = (query: string, headers: Record<string, string> = auth) => getHistory(new Request(`http://x/api/factory/history?${query}`, { headers }));
+  const since = encodeURIComponent(at(2));
+
+  it("needs the factory token, a target, a date and known types", async () => {
+    expect((await get(`target=h&since=${since}`, {})).status).toBe(401);
+    expect((await get(`since=${since}`)).status).toBe(400);
+    expect((await get("target=h&since=yesterday")).status).toBe(400);
+    expect((await get("target=h")).status).toBe(400);
+    expect((await get(`target=h&since=${since}&type=nope`)).status).toBe(400);
+  });
+
+  it("returns only the asked target, types and times, oldest first", async () => {
+    const mk = (type: RunEvent["type"], h: number, target = "h"): RunEvent => ({ ...ev(type, {}), target, at: at(h) });
+    const [a, b, c] = [mk("decision", 3), mk("run_start", 2), mk("decision", 4)];
+    getDb().addEvents([mk("run_start", 1), a, b, c, mk("usage", 3), mk("decision", 3, "other")]);
+    const r = await get(`target=h&since=${since}&type=decision&type=run_start`);
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as RunEvent[]).map((e) => e.id)).toEqual([a.id, b.id, c.id]);
+  });
+});

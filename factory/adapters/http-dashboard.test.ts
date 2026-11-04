@@ -115,6 +115,19 @@ test("control throws when the dashboard cannot be reached or refuses", async () 
   await expect(refused.control("t")).rejects.toThrow("HTTP 401");
 });
 
+test("history repeats each type in the URL, returns the events, and throws on an error status or an unreachable dashboard", async () => {
+  const seen: string[] = [];
+  const events = [event(1), event(2)];
+  const fetchFn = (async (url: string) => (seen.push(url), new Response(JSON.stringify(events)))) as unknown as typeof fetch;
+  const dash = makeHttpDashboard("https://d.example", "tok", fetchFn);
+  expect(await dash.history("react_frontend", "2026-01-01T00:00:00.000Z", ["run_start", "decision"])).toEqual(events);
+  expect(seen).toEqual(["https://d.example/api/factory/history?target=react_frontend&since=2026-01-01T00%3A00%3A00.000Z&type=run_start&type=decision"]);
+  const failing = makeHttpDashboard("https://d.example", "tok", (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch);
+  await expect(failing.history("t", "2026-01-01", ["run_start"])).rejects.toThrow("HTTP 500");
+  const down = makeHttpDashboard("https://d.example", "tok", (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch);
+  await expect(down.history("t", "2026-01-01", ["run_start"])).rejects.toThrow("ECONNREFUSED");
+});
+
 test("with a slow dashboard, no new batch starts after flush returns", async () => {
   vi.useFakeTimers();
   try {
