@@ -85,15 +85,20 @@ export interface CodeHost {
   changeEdits(ref: ChangeRef, since?: string): Promise<{ author: PersonRef; byFactory: boolean; field: "title" | "body"; at: string }[]>; // edits of the title and the text after since, newest first, from the newest 100; byFactory: made by the token's own user
   changeCommits(ref: ChangeRef): Promise<{ sha: string; byFactory: boolean }[]>; // byFactory: the commit's author email is FACTORY_GIT_EMAIL
   baseCommits(since: string): Promise<{ sha: string; title: string; message: string; at: string }[]>; // the commits on the base branch since, newest first
-  recentChanges(since: string): Promise<{ ref: ChangeRef; ticket: TicketRef }[]>; // the open changes of this repo from branches factory/<n>-, updated after since, newest first, at most 100, from one listing call; forks left out
+  recentChanges(since: string): Promise<{ ref: ChangeRef; ticket: TicketRef }[]>; // the open changes of this repo from branches factory/<ticket>-, or factory/<ticket>-- for a ref that is not a number, updated after since, newest first, at most 100, from one listing call; forks left out
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
   closeChange(ref: ChangeRef): Promise<void>; // closes without merging
 }
 
-// The factory's change branches are named factory/<ticket>-<slug>. The dash keeps ticket 12 apart from ticket 123.
-export const changeBranchPrefix = (ticket: TicketRef) => `factory/${ticket}-`;
-export const ticketOfBranch = (branch: string): TicketRef | undefined => /^factory\/(\d+)-/.exec(branch)?.[1];
+// The factory's change branches are named factory/<ticket>-<slug> for a number, factory/<ticket>--<slug> for any other ref.
+// The trailing dash keeps ticket 12 apart from ticket 123, and the double dash keeps ABC-12 apart from ABC-12-fix.
+export const changeBranchPrefix = (ticket: TicketRef) => {
+  if (!/^[A-Za-z0-9._-]+$/.test(ticket) || ticket.includes("--")) throw new Error(`Ticket ref "${ticket}" cannot be part of a branch name.`);
+  return /^\d+$/.test(ticket) ? `factory/${ticket}-` : `factory/${ticket}--`;
+};
+export const ticketOfBranch = (branch: string): TicketRef | undefined =>
+  (/^factory\/(\d+)-(?!-)/.exec(branch) ?? /^factory\/([A-Za-z0-9._-]+?)--/.exec(branch))?.[1];
 
 // The run is not one the factory started. Never worth a retry.
 export class NotFactoryRunError extends Error {}
