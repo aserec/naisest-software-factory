@@ -117,10 +117,21 @@ function useOpenStep() {
   return [open, set] as const;
 }
 
+// The clock a live run counts against, ticking each second.
+function useNow() {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
 // limits: minutes per step for the run's target, read on the server.
 export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record<string, number> }) {
   const { data, error } = useRunEvents(run);
   const [openId, setOpenId] = useOpenStep();
+  const nowMs = useNow();
   if (error)
     return (
       <p role="alert" className="text-destructive">
@@ -132,10 +143,12 @@ export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record
   if (rows.length === 0) return <p className="text-muted-foreground">No steps yet.</p>;
   const times = data.map((e) => Date.parse(e.at));
   const from = Math.min(...times);
-  const span = Math.max(Math.max(...times) - from, 1);
-  const live = rows.find((l) => !l.end);
   const ended = data.find((e) => e.type === "run_end")?.data.outcome as string | undefined;
-  const now = new Date();
+  // Until the run ends, the line runs to now: a hung step keeps growing instead of reading as just started.
+  const over = data.some((e) => e.type === "run_end");
+  const span = Math.max(Math.max(...times, over ? 0 : nowMs) - from, 1);
+  const live = rows.find((l) => !l.end);
+  const now = new Date(nowMs);
   const stuck = (l: Lane) => !l.end && isStuck({ step: l.start.step ?? "", startedAt: l.start.at, ended: false }, limits, now);
   const open = rows.find((l) => l.start.id === openId);
   return (

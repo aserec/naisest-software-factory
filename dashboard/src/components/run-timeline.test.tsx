@@ -62,3 +62,11 @@ test("marks a running lane past its limit as Stuck, and not a recent one or an e
   expect(screen.getByRole("button", { name: /code-review/ }).textContent).not.toContain("Stuck");
   expect(screen.getByRole("button", { name: /triage/ }).textContent).not.toContain("Stuck");
 });
+
+test("a running step and the run's time count to now, not to the last event", async () => {
+  const at = new Date(Date.now() - 5 * 60_000).toISOString();
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events: [{ ...ev("run_start", "00"), at }, { ...ev("step_start", "00", { step: "code-review" }), at }], cursor: 2 })));
+  renderWithQuery(<RunTimeline run="r1" />);
+  expect((await screen.findByRole("button", { name: /code-review/ })).textContent).toContain("5 m");
+  expect(screen.getByText("Time").nextElementSibling?.textContent).toBe("5 m");
+});

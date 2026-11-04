@@ -85,3 +85,13 @@ test("shows the reason when the server refuses", async () => {
   fireEvent.click(screen.getAllByRole("button", { name: "Stop" }).at(-1)!);
   expect((await screen.findByRole("alert")).textContent).toBe("already requested");
 });
+
+test("says why there are no buttons, and that the state could not be read", async () => {
+  server({ label: "factory_done" });
+  renderWithQuery(<RunControls run="r1" />);
+  expect((await screen.findByText(/factory_done/)).closest("p")?.textContent).toBe("The state label is factory_done, so there is nothing to stop or resume.");
+  cleanup();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
+  renderWithQuery(<RunControls run="r1" />);
+  expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("Could not read the run state (500). Stop and Resume show once it loads.");
+});

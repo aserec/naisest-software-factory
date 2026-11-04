@@ -42,12 +42,12 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
 export function RunControls({ run }: { run: string }) {
   const client = useQueryClient();
   const key = ["run-state", run];
-  const { data } = useQuery({
+  const { data, error } = useQuery({
     queryKey: key,
     refetchInterval: 3000,
     queryFn: async () => {
       const r = await api(`/api/runs/${encodeURIComponent(run)}/state`);
-      if (!r.ok) throw new Error(`The run state answered ${r.status}`);
+      if (!r.ok) throw new Error(String(r.status));
       return (await r.json()) as RunState;
     },
   });
@@ -58,6 +58,13 @@ export function RunControls({ run }: { run: string }) {
     },
     onSettled: () => client.invalidateQueries({ queryKey: key }),
   });
+  // Without a state there is nothing safe to offer, so say why the buttons are missing.
+  if (!data && error)
+    return (
+      <p role="alert" className="text-destructive">
+        Could not read the run state ({error.message}). Stop and Resume show once it loads.
+      </p>
+    );
   if (!data) return null;
   // A cancel means the run is over even before the poller sets the stopped label, so only Restart is left (Ruling R18).
   // A done restart ended the run: a new run carries on, so this one shows no buttons.
@@ -67,6 +74,17 @@ export function RunControls({ run }: { run: string }) {
       {buttons.map((a) => (
         <Ask key={a} action={a} busy={send.isPending} onConfirm={() => send.mutate(a)} />
       ))}
+      {buttons.length === 0 && data.pending.length === 0 && !data.restarted && (
+        <p className="text-muted-foreground">
+          {data.label ? (
+            <>
+              The state label is <code className="font-mono text-xs">{data.label}</code>, so there is nothing to stop or resume.
+            </>
+          ) : (
+            "The work item has no state label, so there is nothing to stop or resume."
+          )}
+        </p>
+      )}
       {data.pending.map((a) => (
         <span key={a} className="text-muted-foreground">
           {a[0].toUpperCase() + a.slice(1)} requested. The factory picks it up within a minute.
