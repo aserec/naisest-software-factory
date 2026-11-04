@@ -8,6 +8,10 @@ The factory turns a labeled work item into a reviewed, checked and merged change
 A GitLab issue that a person labels `factory_ready` to ask the factory for a change.
 _Avoid_: Ticket, issue, task
 
+**Duplicate check**:
+The triage check that compares a work item a person wrote with the open work items. It closes a sure duplicate and asks on a near one. It runs on each new run until it closes the work item or asks once.
+_Avoid_: Dedup, similarity check
+
 **Repo-local instructions**:
 Optional files `.factory/author.md`, `.factory/review.md` and `.factory/writer.md` in a target repo. The factory appends each, cut to 8,000 characters, to the matching agent prompt. They cannot override the factory's rules.
 

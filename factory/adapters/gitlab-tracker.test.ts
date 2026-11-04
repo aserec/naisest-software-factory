@@ -65,6 +65,13 @@ describe("tickets", () => {
     expect(last().method).toBe("GET");
     expect(last().url).toContain("state=closed&order_by=updated_at&sort=desc&per_page=30");
   });
+  test("listOpen reads open tickets newest first, page by page, up to the limit", async () => {
+    routes["/projects/7/issues"] = { body: Array.from({ length: 100 }, (_, i) => issue({ iid: 300 - i })) };
+    const l = await tracker().listOpen(150);
+    expect(l).toHaveLength(150);
+    expect(calls.filter((c) => c.method === "GET" && c.url.includes("state=opened&order_by=created_at&sort=desc&per_page=100"))).toHaveLength(2);
+    expect(calls.some((c) => c.method !== "GET")).toBe(false);
+  });
   test("setState puts one state label and removes the others", async () => {
     await tracker().setState("8", "running");
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8", body: { add_labels: "factory_running", remove_labels: expect.stringContaining("factory_ready") } });

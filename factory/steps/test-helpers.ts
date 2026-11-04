@@ -69,6 +69,9 @@ export interface WorldOptions {
   diffs?: Record<string, Record<string, string>>; // the change's diff by sha; any other sha gets DIFF
   baseFiles?: Record<string, string>; // files at the base commit, for repo.readBase
   files?: Record<string, string>; // files at the head of the base branch, for codeHost.readFile
+  dedupe?: { verdict?: "same" | "adds" | "different"; confidence?: number; closest?: string; injectionYes?: number } | "throw"; // the duplicate check's answers; default different
+  writerText?: string; // the writer agent's reply
+  writerThrows?: boolean; // the writer agent's call throws
 }
 
 export const COMMIT: CommitMessage = {
@@ -79,13 +82,16 @@ export const BOT = FAKE_FACTORY;
 export const mrEvent = (actor: PersonRef = "dev"): FactoryEvent => ({ kind: "merged", ticket: "8", change: "5", actor });
 const READY: FactoryEvent = { kind: "ready", ticket: "8", actor: "dev" };
 const CHECKS: Record<Status, Checks> = { success: "green", failed: "red", running: "running", none: "none" };
+const DEDUPE = ["dedupe", "closest", "candidates_injection"];
 const TRIAGE = ["injection", "type", "risk", "clarity", "effort"];
 
 export function fakeWorld(o: WorldOptions = {}) {
   const reviews = [...(o.reviews ?? [[]])];
   const tracker = fakeTracker([
     { ref: "8", title: o.title ?? "Add a loading state", body: "Show a spinner while the list loads.", state: o.state === null ? undefined : (o.state ?? "ready") },
+    { ref: "7", title: "An older ticket" },
     { ref: "9", title: "Another ticket" },
+    { ref: "10", title: "A newer ticket" },
     ...Array.from({ length: o.otherRuns ?? 0 }, (_, i) => ({ ref: String(20 + i), state: "running" as const })),
   ]);
   tracker.startedBy = async () => "dev";
@@ -115,7 +121,15 @@ export function fakeWorld(o: WorldOptions = {}) {
   };
   const ci = fakeCi({ vars: { payload: o.payload ?? READY, run: "1", runUrl: "https://ci.example/runs/1" } });
   const chat = fakeChat();
+  let dedupeAsked = 0;
   const judge = fakeJudge((q): JevAnswer => {
+    if (DEDUPE.includes(q.id)) {
+      if (o.dedupe === "throw") throw new Error("Berget Jev call failed: HTTP 503");
+      const d = o.dedupe ?? {};
+      if (q.id === "dedupe") dedupeAsked++;
+      const v: Record<string, JevAnswer["value"]> = { dedupe: d.verdict ?? "different", closest: d.closest ?? "9", candidates_injection: (d.injectionYes ?? 0.05) >= 0.5 };
+      return { id: q.id, value: v[q.id], probability: q.id === "candidates_injection" ? (d.injectionYes ?? 0.05) : 0.9, confidence: q.id === "dedupe" ? (d.confidence ?? 0.95) : 0.9 };
+    }
     if (TRIAGE.includes(q.id)) {
       if (o.jev1 === "throw") throw new Error("Berget Jev call failed: HTTP 503");
       const t = o.jev1 ?? {};
@@ -132,6 +146,8 @@ export function fakeWorld(o: WorldOptions = {}) {
   const stop: Partial<HarnessResult> = { session: "sess-stop", ok: false, stopped: true, text: "" };
   const harness = fakeHarness((job) => {
     if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []), toolCalls: [{ name: "Read", input: "{}", result: "x", ms: 1, ok: true }] };
+    if (job.role === "writer" && o.writerThrows) throw new Error("writer harness crashed");
+    if (job.role === "writer") return { text: o.writerText ?? "Does this belong in #9, or is it a separate change? This one also asks for a spinner." };
     if (o.prepare === "limit" && !job.resume) return limit;
     if (o.fixLimit && job.resume) return limit;
     if (o.fixStop && job.resume) return stop;
@@ -198,6 +214,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     get claudeCalls() { return this.claudeRuns.length; },
     get reviewsRun() { return harness.jobs.filter((j) => j.role === "reviewer").length; },
     get jevAsked() { return judge.asked; },
+    get dedupeAsked() { return dedupeAsked; },
     get record() { return this.ctx.record; },
   };
   const p = o.payload as FactoryEvent | undefined;

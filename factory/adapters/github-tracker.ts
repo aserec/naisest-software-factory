@@ -170,6 +170,16 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       const page = await gh.json("GET", `${base}?state=closed&sort=updated&direction=desc&per_page=${Math.min(count, 100)}`);
       return page.filter((i: any) => !i.pull_request).map((i: any) => toTicket(fromRest(i))).slice(0, count);
     },
+    // gh.all would read every page; this stops at the limit. A short page is the last one (pull requests count in it).
+    async listOpen(limit) {
+      const out: Ticket[] = [];
+      for (let page = 1; out.length < limit; page++) {
+        const got: any[] = await gh.json("GET", `${base}?state=open&sort=created&direction=desc&per_page=100&page=${page}`);
+        out.push(...got.filter((i) => !i.pull_request).map((i) => toTicket(fromRest(i))));
+        if (got.length < 100) break;
+      }
+      return out.slice(0, limit);
+    },
     isFactory: async (actor) => actor === (await botName()),
     async trusted(actor) {
       if (actor === (await botName()) && !sharedAccount) return false;

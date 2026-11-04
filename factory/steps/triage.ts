@@ -1,7 +1,10 @@
+import { wrapTicket } from "../agents";
+import { CANDIDATE_BODY, DEDUPE_MARKER, MAX_CANDIDATES, askDedupe, decideDedupe } from "../dedupe";
 import { emit } from "../emit";
 import { need } from "../record";
 import { pickModels } from "../router";
-import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
+import type { Ticket } from "../seams";
+import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
 import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
@@ -26,6 +29,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // Agents only ever see this checked text, even if the work item changes later.
   ctx.record = { ...ctx.record, ticket: { title: state.title, description: state.description }, models: { author: `${row.author.harness}/${row.author.model}`, reviewer: `${row.reviewer.harness}/${row.reviewer.model}` } };
   save(ctx, "triage", { answers, outcome, row });
+  if (outcome.kind !== "blocked") {
+    const stopped = await dedupe(ctx, ticket);
+    if (stopped) return stopped;
+  }
   const a = answers;
   await ctx.tracker.comment(ref, [
     `Triage: type ${a.type.value}, risk ${a.risk.value} (confidence ${a.risk.confidence}), clarity ${a.clarity.value}, effort ${a.effort.value}.`,
@@ -43,6 +50,54 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
 
   return questions(ctx, row);
+}
+
+// A work item a person wrote may repeat an open one. A sure duplicate is closed, a near one gets a question.
+// Undefined means go on. The factory's own earlier dedupe comment means the person already decided.
+async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | undefined> {
+  const ref = ticketRef(ctx);
+  if (ticket.marks.includes("watcher")) return undefined;
+  if ((await ctx.tracker.comments(ref)).some((c) => c.byFactory && c.body.includes(DEDUPE_MARKER))) return undefined;
+  let answers;
+  let open;
+  try {
+    open = await ctx.tracker.listOpen(MAX_CANDIDATES + 1);
+    answers = await askDedupe(ctx.judge, { ref, ...ctx.record.ticket! }, open);
+  } catch (e) {
+    return block(ctx, `The duplicate check failed, so the factory did not guess: ${String(e)}`);
+  }
+  if (!answers) return undefined;
+  const verdict = decideDedupe(answers);
+  const o = open.find((t) => t.ref === answers.closest);
+  // Without the original the factory can neither link nor quote it, so it goes on.
+  if (verdict === "different" || !o) return undefined;
+  // Close only when the original is older. A newer one, or refs that are not numbers, get the question.
+  if (verdict === "same" && Number(o.ref) < Number(ref)) {
+    await ctx.tracker.comment(ref, `This work item asks for the same change as #${o.ref} (${o.url}), so the factory closed it as a duplicate. If it is a separate change, reopen it, say what is different, and add factory_ready again.\n\n${DEDUPE_MARKER}`);
+    await ctx.tracker.clearState(ref);
+    await ctx.tracker.close(ref);
+    endRun(ctx, "closed");
+    return "stop";
+  }
+  const text = await dedupeQuestion(ctx, o, answers.injectionYes);
+  await ctx.tracker.comment(ref, `${text}\n\n${DEDUPE_MARKER}`);
+  await ctx.tracker.setState(ref, "needs_info");
+  endRun(ctx, "needs_info");
+  await notify(ctx, "needs_info", ["The factory asked whether the work item repeats another one."], "");
+  return "stop";
+}
+
+// The writer agent words the question, unless the candidates look like an injection or it forgets to name the original.
+async function dedupeQuestion(ctx: StepContext, o: Ticket, injectionYes: number): Promise<string> {
+  const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds, then add factory_ready again.`;
+  if (!(injectionYes < INJECTION_LIMIT)) return fixed;
+  const text = `${prompt("dedupe-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
+  try {
+    const r = await agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, cwd: ctx.dir, prompt: text });
+    return r.ok && r.text.includes(`#${o.ref}`) ? r.text.trim() : fixed;
+  } catch {
+    return fixed;
+  }
 }
 
 // needs_info: an agent drafts questions from the ticket and the code. This step posts them.
