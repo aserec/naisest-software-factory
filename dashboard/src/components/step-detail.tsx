@@ -38,7 +38,7 @@ export const Fact = ({ label, children }: { label: string; children: React.React
   </>
 );
 
-// Everything about one step, for the side panel. It is mounted only while the panel is open, so GitLab is asked for the log only then.
+// Everything about one step, for the side panel. It is mounted only while the panel is open, so the CI is asked for the log only then.
 export function StepDetail({ start, end, tools = [], events }: { start: RunEvent; end?: RunEvent; tools?: RunEvent[]; events: RunEvent[] }) {
   const findings = ofType(events, "review_finding");
   const gates = ofType(events, "gate_check");

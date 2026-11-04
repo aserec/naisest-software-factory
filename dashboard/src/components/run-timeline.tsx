@@ -139,7 +139,7 @@ function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }
         <Fact label="Review">
           {last.length ? `Round ${round}, ${last.filter((f) => f.data.blocking).length} of ${last.length} ${last.length === 1 ? "finding" : "findings"} blocking` : none("review findings", "Read the diff yourself")}
         </Fact>
-        <Fact label="Checks">{gates.length ? passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length) : none("check results", "Look at the pipeline")}</Fact>
+        <Fact label="Checks">{gates.length ? passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length) : none("check results", "Look at the run's jobs")}</Fact>
         <Fact label="Rules">{rules.length ? passed(rules.filter((r) => r.data.passed).length, rules.length) : none("rule results", "Look at the changed files")}</Fact>
         {/* On an approval run the line under the title already says why it waits. */}
         {decision && !approving && (
@@ -154,7 +154,7 @@ function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }
 }
 
 // A step with no events in this run: its name and an empty track, so the whole line of ten steps shows.
-// before: a step ahead of the first recorded one, such as a run continued in a new pipeline. It ran, but sent no events here.
+// before: a step ahead of the first recorded one, such as a run continued in a new CI run. It ran, but sent no events here.
 function AheadRow({ step, before = false }: { step: string; before?: boolean }) {
   return (
     <li className="border-b border-rule text-muted-foreground last:border-0">

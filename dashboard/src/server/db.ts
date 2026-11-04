@@ -17,7 +17,7 @@ export interface RunSummary {
   round?: number; // the highest code-review round with a finding
   mergeRisk?: number; // Jev 2's diff_risk, from the decision event
   mergeRiskMax?: number; // the target's diffRiskMax, from the decision event
-  mrUrl?: string; // the merge request, from the decision event
+  changeUrl?: string; // the change to review, from the decision event
 }
 
 export interface Db {
@@ -178,7 +178,7 @@ export function openDb(path: string): Db {
         else if (r.type === "decision") {
           if (typeof data.risk === "number") s.mergeRisk = data.risk;
           if (typeof data.riskMax === "number") s.mergeRiskMax = data.riskMax;
-          if (typeof data.changeUrl === "string") s.mrUrl = data.changeUrl;
+          if (typeof data.changeUrl === "string") s.changeUrl = data.changeUrl;
         }
       }
       return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));

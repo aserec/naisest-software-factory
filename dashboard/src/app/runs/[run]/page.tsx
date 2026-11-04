@@ -15,9 +15,13 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   const summary = first && getDb().runs({ target: first.target, ticket: first.ticket }).find((r) => r.run === run);
   // The board is cached for 15 s; without it the page still shows the run, only the triage risk and the change link are missing.
   const item = first && (await getBoard().board().catch(() => [])).find((i) => i.target === first.target && i.ticket === first.ticket);
-  const changeUrl = item?.state === "needs_approval" ? summary?.mrUrl : undefined;
-  const tracker = target && trackerOf(target);
-  const ticketUrl = item?.url || (target && trackerOf(target).ticketUrl(target, first.ticket));
+  const changeUrl = item?.state === "needs_approval" ? summary?.changeUrl : undefined;
+  // A target whose tracker is unknown still gets its page, only without the work item link.
+  let tracker: ReturnType<typeof trackerOf> | undefined;
+  try {
+    tracker = target && trackerOf(target);
+  } catch {}
+  const ticketUrl = item?.url || (target && tracker?.ticketUrl(target, first.ticket));
   return (
     // From lg the open side panel sits beside the page instead of over it; see the panel width in ui/sheet.tsx.
     <main className="transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] lg:has-[[data-panel=open]]:pr-[min(624px,calc(100vw-624px))]">

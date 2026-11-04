@@ -21,7 +21,7 @@ const FULL = 85; // used percent from which a disk or memory bar turns red
 const pct = (n: number) => (Number.isFinite(n) ? `${Math.round(n)}%` : "—");
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-// Settings a person types, such as GRAFANA_URL, set in mono.
+// Settings a person types, such as METRICS_UID, set in mono.
 const withEnvNames = (s: string) => s.split(/\b([A-Z][A-Z0-9]*_[A-Z0-9_]+)\b/).map((t, i) => (i % 2 ? <code key={i} className="font-mono text-xs">{t}</code> : t));
 
 // A part that failed shows its error; the other parts still show.

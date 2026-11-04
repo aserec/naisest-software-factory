@@ -41,7 +41,7 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
 }
 
 // Stop while the last state is running. Resume and Restart while it is stopped.
-// After a pipeline cancel only Restart, because the cancelled job saved nothing to resume from (spec 6.1).
+// After a cancelled run only Restart, because the cancelled job saved nothing to resume from (spec 6.1).
 // state: the work item's state in its tracker. The run's own label_change events win; the tracker fills in when the run sent none.
 export function RunControls({ run, state }: { run: string; state?: FactoryState }) {
   const client = useQueryClient();

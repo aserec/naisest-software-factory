@@ -202,7 +202,7 @@ describe("runs", () => {
       finding(1),
       ev("decision", { auto: false, reasons: ["r"], risk: 6, riskMax: 7, changeUrl: "http://gl/mr/9" }),
     ]);
-    expect(db.runs({})[0]).toMatchObject({ round: 2, mergeRisk: 6, mergeRiskMax: 7, mrUrl: "http://gl/mr/9" });
+    expect(db.runs({})[0]).toMatchObject({ round: 2, mergeRisk: 6, mergeRiskMax: 7, changeUrl: "http://gl/mr/9" });
   });
 });
 
