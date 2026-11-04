@@ -77,8 +77,8 @@ test("a running step and the run's time count to now, not to the last event", as
 test("the Risk figure shows the triage and merge risk, and a dash before triage", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
   renderWithQuery(<RunTimeline run="r1" risk={{ risk: "medium", mergeRisk: 6 }} />);
-  expect(await screen.findByText("Medium risk")).toBeTruthy();
-  expect(screen.getByText("Merge risk 6/10").getAttribute("data-variant")).toBe("warning");
+  expect(await screen.findByText("Triage risk medium")).toBeTruthy();
+  expect(screen.getByText("Merge risk 6/10, limit 4").getAttribute("data-variant")).toBe("warning");
   cleanup();
   renderWithQuery(<RunTimeline run="r1" />);
   const figure = (await screen.findByText("Risk")).parentElement!;
@@ -103,7 +103,7 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
     ev("gate_check", "04", { step: "precommit-gate", data: { command: "pnpm test", exitCode: 0, outputTail: "" } }),
     ev("gate_check", "04", { step: "precommit-gate", data: { command: "pnpm lint", exitCode: 1, outputTail: "" } }),
     ev("step_start", "05", { step: "decision" }),
-    ev("decision", "06", { step: "decision", data: { auto: false, reasons: ["diff_risk 6 is above 4"] } }),
+    ev("decision", "06", { step: "decision", data: { auto: false, reasons: ["merge risk 6 is above the limit of 4"] } }),
     ev("step_end", "06", { step: "decision", data: { outcome: "waiting" } }),
   ];
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: proof, cursor: 9 })));
@@ -111,8 +111,16 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
   const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect(await fact("Review")).toBe("Round 2, 0 of 1 finding blocking");
   expect(await fact("Checks")).toBe("1 of 2 passed");
-  expect(await fact("Decision")).toBe("Waits for a person, because diff_risk 6 is above 4.");
+  expect(await fact("Decision")).toBe("Waits for a person, because merge risk 6 is above the limit of 4.");
   expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("Waits for you7 of 10");
+});
+
+test("Proof names the review, checks and rules the run did not send, so a missing proof is not hidden", async () => {
+  const only = [ev("run_start", "00"), ev("step_start", "01", { step: "decision" }), ev("decision", "01", { step: "decision", data: { auto: false, reasons: ["merge risk 6 is above the limit of 4"] } })];
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events: only, cursor: 2 })));
+  renderWithQuery(<RunTimeline run="r1" />);
+  const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
+  expect([await fact("Review"), await fact("Checks"), await fact("Rules")]).toEqual(["None sent", "None sent", "None sent"]);
 });
 
 test("a run with no proof events shows no Proof section", async () => {

@@ -124,17 +124,17 @@ function Proof({ events }: { events: SeqEvent[] }) {
   if (!findings.length && !gates.length && !rules.length && !decision) return null;
   const passed = (ok: number, all: number) => <span className={ok < all ? "text-destructive" : ""}>{ok} of {all} passed</span>;
   const reasons = (decision?.data.reasons as string[] | undefined) ?? [];
+  const none = <span className="text-muted-foreground">None sent</span>;
   return (
     <section className="mb-8">
       <SectionHeading>Proof</SectionHeading>
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
-        {last.length > 0 && (
-          <Fact label="Review">
-            Round {round}, {last.filter((f) => f.data.blocking).length} of {last.length} {last.length === 1 ? "finding" : "findings"} blocking
-          </Fact>
-        )}
-        {gates.length > 0 && <Fact label="Checks">{passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length)}</Fact>}
-        {rules.length > 0 && <Fact label="Rules">{passed(rules.filter((r) => r.data.passed).length, rules.length)}</Fact>}
+        {/* Every row shows, so a missing proof reads as missing and not as hidden. */}
+        <Fact label="Review">
+          {last.length ? `Round ${round}, ${last.filter((f) => f.data.blocking).length} of ${last.length} ${last.length === 1 ? "finding" : "findings"} blocking` : none}
+        </Fact>
+        <Fact label="Checks">{gates.length ? passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length) : none}</Fact>
+        <Fact label="Rules">{rules.length ? passed(rules.filter((r) => r.data.passed).length, rules.length) : none}</Fact>
         {decision && (
           <Fact label="Decision">
             {decision.data.auto ? "Merges without a person" : "Waits for a person"}
@@ -233,7 +233,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
           </Figure>
           <Figure label="Risk" className="col-span-2 border-t @3xl:col-span-1 @3xl:border-t-0 @3xl:border-l @3xl:pl-4">
             {risk.risk || risk.mergeRisk !== undefined ? (
-              <span className="flex h-8 items-center gap-2">
+              <span className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
                 <RiskPills {...risk} />
               </span>
             ) : (

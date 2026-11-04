@@ -28,15 +28,15 @@ export interface BoardItem {
   mrUrl?: string;
 }
 
-// Triage risk, then Jev 2's merge risk. High or above the merge limit takes the warning pill; nothing is green,
+// Triage risk (Jev 1, on the work item), then merge risk (Jev 2, on the diff), each named so they cannot be confused. High or above the merge limit takes the warning pill; nothing is green,
 // so a pill never makes a change look safer than its risk check says.
 export function RiskPills({ risk, mergeRisk }: { risk?: string; mergeRisk?: number }) {
   return (
     <>
-      {risk && <Badge variant={risk === "high" ? "warning" : "default"}>{risk[0].toUpperCase() + risk.slice(1)} risk</Badge>}
+      {risk && <Badge variant={risk === "high" ? "warning" : "default"}>Triage risk {risk}</Badge>}
       {mergeRisk !== undefined && (
-        <Badge variant={mergeRisk > DIFF_RISK_MAX ? "warning" : "default"} title={`Jev 2's diff risk. Above ${DIFF_RISK_MAX} never merges without a person.`}>
-          Merge risk {mergeRisk}/10
+        <Badge variant={mergeRisk > DIFF_RISK_MAX ? "warning" : "default"} title={`Jev 2's risk for the diff. Above ${DIFF_RISK_MAX} never merges without a person.`}>
+          Merge risk {mergeRisk}/10, limit {DIFF_RISK_MAX}
         </Badge>
       )}
     </>

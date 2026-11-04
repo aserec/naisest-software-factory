@@ -25,8 +25,8 @@ test("a card shows the live step, the round and both risks", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", step: "code-review", round: 2, risk: "low", mergeRisk: 3 })])));
   renderWithQuery(<Board />);
   expect(await screen.findByText(/code-review · round 2/)).toBeTruthy();
-  expect(screen.getByText("Low risk")).toBeTruthy();
-  expect(screen.getByText("Merge risk 3/10")).toBeTruthy();
+  expect(screen.getByText("Triage risk low")).toBeTruthy();
+  expect(screen.getByText("Merge risk 3/10, limit 4")).toBeTruthy();
 });
 
 test("high triage risk and a merge risk above the limit take the warning pill, the rest stay neutral", () => {

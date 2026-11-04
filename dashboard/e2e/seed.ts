@@ -56,7 +56,7 @@ function events() {
     // Ticket 8: a run that waits for a person after the decision.
     { id: randomUUID(), ...approve, at: at(20), type: "run_start", data: {} },
     { id: randomUUID(), ...approve, at: at(12), step: "decision", type: "step_start", data: {} },
-    { id: randomUUID(), ...approve, at: at(11), step: "decision", type: "decision", data: { auto: false, reasons: ["diff_risk 6 is above 4"], risk: 6, changeUrl: MR_URL } },
+    { id: randomUUID(), ...approve, at: at(11), step: "decision", type: "decision", data: { auto: false, reasons: ["merge risk 6 is above the limit of 4"], risk: 6, changeUrl: MR_URL } },
     { id: randomUUID(), ...approve, at: at(11), step: "decision", type: "step_end", data: { outcome: "waiting" } },
   ];
 }

@@ -6,13 +6,13 @@ import type { Risk } from "./types";
 const ok = { triageRisk: "low" as Risk, reviewPassed: true, gateGreen: true, rules: (["protected-path", "dependency-file", "size", "secret", "pipeline"] as const).map((rule) => ({ rule, passed: true, detail: "ok" })), risk: { diffRisk: { value: 4, confidence: 0.9 }, scopeYes: 0.9, sensitiveYes: 0.1 } };
 test("all four conditions met merges alone", () => expect(decideMerge(ok)).toEqual({ kind: "auto" }));
 test("medium triage risk always waits", () => expect(decideMerge({ ...ok, triageRisk: "medium" }).kind).toBe("needs_approval"));
-test("diff risk 5 waits and says why", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 5, confidence: 0.95 } } })).toEqual({ kind: "needs_approval", reasons: [expect.stringContaining("diff_risk")] }));
+test("diff risk 5 waits and says why", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 5, confidence: 0.95 } } })).toEqual({ kind: "needs_approval", reasons: ["merge risk 5 is above the limit of 4"] }));
 test("diff risk 4 at confidence 0.89 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 4, confidence: 0.89 } } }).kind).toBe("needs_approval"));
-test("sensitive at P(no) 0.89 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, sensitiveYes: 0.11 } }).kind).toBe("needs_approval"));
+test("sensitive at P(no) 0.89 waits and says why in percent", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, sensitiveYes: 0.11 } })).toEqual({ kind: "needs_approval", reasons: ["Jev 2 gives 11% that the diff touches user data, security or money, above 10%"] }));
 test("a failed hard rule is named in the reasons", () => expect(decideMerge({ ...ok, rules: [...ok.rules.filter((r) => r.rule !== "size"), { rule: "size", passed: false, detail: "412 lines" }] })).toMatchObject({ reasons: [expect.stringContaining("size")] }));
 test("every failed condition is listed", () => {
   const d = decideMerge({ ...ok, reviewPassed: false, gateGreen: false, risk: { ...ok.risk, scopeYes: 0.5 } });
-  expect(d).toMatchObject({ kind: "needs_approval", reasons: [expect.stringContaining("review"), expect.stringContaining("gate"), expect.stringContaining("scope")] });
+  expect(d).toMatchObject({ kind: "needs_approval", reasons: [expect.stringContaining("review"), expect.stringContaining("gate"), expect.stringContaining("only what the work item asks")] });
 });
 test("a NaN answer waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, scopeYes: NaN } }).kind).toBe("needs_approval"));
 test("diff risk 1 waits", () => expect(decideMerge({ ...ok, risk: { ...ok.risk, diffRisk: { value: 1, confidence: 0.95 } } }).kind).toBe("needs_approval"));
