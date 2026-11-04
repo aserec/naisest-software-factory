@@ -1,7 +1,7 @@
 // The weekly improve job: reads a week of corrections people made to the factory in one target, asks the writer for edits
 // to the target's .factory/ files, checks them in code, and opens at most one change and one fix for people to read.
 // Only a confirmed fix (a pure rename of a path that is gone) merges without a person.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { makeContext } from "../compose";
 import { collectEvidence } from "../improve/evidence";
@@ -20,7 +20,7 @@ interface Pushed { ref: ChangeRef; sha: string }
 
 // Writes the edits into the clone, checks what git sees, then pushes and opens the change. Nothing is pushed when a check throws.
 async function push(ctx: StepContext, branch: string, title: string, body: string, edits: Edit[]): Promise<Pushed> {
-  for (const e of edits) write(ctx, e.path, e.text);
+  writeAll(ctx, edits);
   const diff = await ctx.repo.diff();
   assertImprovePaths(diff.numstat);
   if (findSecrets(diff.text + body).length > 0) throw new Error("The improve job found a secret in its change, so it pushed nothing");
@@ -29,10 +29,30 @@ async function push(ctx: StepContext, branch: string, title: string, body: strin
   return { ref, sha };
 }
 
-const write = (ctx: StepContext, path: string, text: string) => {
-  mkdirSync(dirname(join(ctx.dir, path)), { recursive: true });
-  writeFileSync(join(ctx.dir, path), text);
+// A target repo may commit .factory, or one file in it, as a link that leads out of the clone. Every path of the set is
+// checked before the first one is written, so a link means nothing is written at all.
+function writeAll(ctx: StepContext, files: { path: string; text: string }[]): void {
+  const root = join(ctx.dir, ".factory");
+  const state = lstatOrUndefined(root);
+  if (state && !state.isDirectory()) throw new Error("The improve job found .factory is a link or not a folder, so it wrote nothing");
+  mkdirSync(root, { recursive: true });
+  const real = join(realpathSync(ctx.dir), ".factory");
+  for (const { path } of files) {
+    const full = join(ctx.dir, path);
+    if (realpathSync(dirname(full)) !== real || lstatOrUndefined(full)?.isSymbolicLink()) throw new Error(`The improve job found ${path} is a link out of the clone, so it wrote nothing`);
+  }
+  for (const { path, text } of files) writeFileSync(join(ctx.dir, path), text);
+}
+const lstatOrUndefined = (p: string) => {
+  try {
+    return lstatSync(p);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw e;
+  }
 };
+// "#12" in text the writer wrote would turn into an issue reference (and "Closes #12" into a closing line).
+const defuse = (text: string) => text.replace(/#(?=\d)/g, "#\u200b");
 
 // The fix merges only on green checks, when the change is still open and its head is the pushed commit. Else a person decides.
 async function mergeFix(ctx: StepContext, fix: Pushed): Promise<boolean> {
@@ -42,6 +62,10 @@ async function mergeFix(ctx: StepContext, fix: Pushed): Promise<boolean> {
     checks !== "green" ? `The pipeline is ${checks}, so the factory did not merge this fix.`
     : !now.open || now.head !== fix.sha ? "The change moved since the factory pushed it, so the factory did not merge this fix."
     : undefined;
+  // The merge is the one write that skips a person, so it waits for the same switches as any auto merge.
+  for (const name of ["improve", "auto_merge", "apply"] as const) {
+    if (!why && !(await switchOn(ctx, name))) why = `The ${name} switch is off, so the factory did not merge this fix.`;
+  }
   if (!why) {
     try {
       await ctx.codeHost.merge(fix.ref, fix.sha, FIX_TITLE);
@@ -87,12 +111,12 @@ export async function improve(ctx: StepContext, now: Date): Promise<{ change?: C
     fix = await push(ctx, improveBranch("fix", day), FIX_TITLE, body, checked.fixes);
     out.fix = fix.ref;
     // The change branch starts from the base again, so it holds only the changes.
-    for (const e of checked.fixes) write(ctx, e.path, current[e.path]!);
+    writeAll(ctx, checked.fixes.map((e) => ({ path: e.path, text: current[e.path]! })));
   }
   if (checked.changes.length) {
     const body = checked.changes.map((e) => {
-      const demoted = e.gone && edits.find((x) => x.path === e.path)?.kind === "fix" ? [`Proposed as a fix, but the factory could not confirm that ${e.gone} is gone.`] : [];
-      return [`## ${e.path}`, "", e.why, "", ...demoted, ...(demoted.length ? [""] : []), "Evidence:", ...e.evidence.map((l) => `- ${l}`)].join("\n");
+      const demoted = e.gone && edits.find((x) => x.path === e.path)?.kind === "fix" ? [`Proposed as a fix, but the factory could not confirm that it is only a rename of ${defuse(e.gone!)}.`] : [];
+      return [`## ${e.path}`, "", defuse(e.why), "", ...demoted, ...(demoted.length ? [""] : []), "Evidence:", ...e.evidence.map((l) => `- ${l}`)].join("\n");
     }).join("\n\n");
     const title = `chore(factory): weekly instruction changes ${day}`;
     const change = await push(ctx, improveBranch("change", day), title, body, checked.changes);

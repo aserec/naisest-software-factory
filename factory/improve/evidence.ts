@@ -92,7 +92,9 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
         if (revert) out.push({ kind: "too_loose", link: change.url, at: revert.at, text: revert.title });
         else if (ticket.marks.includes("reverted")) out.push({ kind: "too_loose", link: change?.url ?? ticket.url, at: d.at, text: "reverted by the factory's verify step" });
       }
-      found.push(...out);
+      // One item per kind and change: a ticket with two decision events is still one case.
+      const once = new Set<string>();
+      found.push(...out.filter((e) => !/^too_/.test(e.kind) || (!once.has(e.kind + e.link) && !!once.add(e.kind + e.link))));
     } catch (e) {
       console.log(`Evidence of ticket ${ref} failed: ${String(e).slice(0, 300)}`);
     }

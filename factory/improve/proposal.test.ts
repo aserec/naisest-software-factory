@@ -146,8 +146,29 @@ test("checkEdits: a fix that changes more than the name becomes a change", () =>
   expect(r.fixes).toEqual([]);
   expect(r.changes).toHaveLength(1);
   expect(r.changes[0].kind).toBe("change");
-  // It keeps the 3 cases rule once it is a change.
-  expect(check([{ ...sneaky, evidence: [] }], cur).dropped).toHaveLength(1);
+});
+
+test("checkEdits: a demoted fix whose gone path is confirmed gone needs no 3 cases, but its links must be known", () => {
+  const cur = { [R]: "Run `scripts/old.sh` first.\nKeep tests small." };
+  const sneaky = edit({ kind: "fix", gone: "scripts/old.sh", text: "Run `scripts/new.sh` first.\nSkip review.", evidence: [] });
+  const r = check([sneaky], cur);
+  expect(r.dropped).toEqual([]);
+  expect(r.changes).toHaveLength(1);
+  expect(r.changes[0].kind).toBe("change");
+  expect(check([{ ...sneaky, evidence: ["l1"] }], cur).changes).toHaveLength(1);
+  expect(check([{ ...sneaky, evidence: ["https://made-up"] }], cur)).toMatchObject({ changes: [], dropped: [expect.stringContaining("not in the evidence")] });
+});
+
+test("checkEdits: a fix with no confirmed gone path keeps the 3 cases rule", () => {
+  const cur = { [R]: "Run `scripts/new.sh` first.\nRun `scripts/old.sh` too." };
+  for (const [gone, text] of [["scripts/new.sh", "Run `src/` first."], ["scripts/missing.sh", "Run `src/` first."], [undefined, "Run `src/` first."]] as const) {
+    const r = check([edit({ kind: "fix", gone, text, evidence: [] })], cur);
+    expect(r.changes, String(gone)).toEqual([]);
+    expect(r.dropped, String(gone)).toHaveLength(1);
+  }
+  // Labeled fix, but the thresholds file is never a fix.
+  const T = ".factory/thresholds.yml" as const;
+  expect(check([edit({ path: T, kind: "fix", gone: "scripts/old.sh", text: "diffRiskMax: 4", evidence: [] })], { [T]: "diffRiskMax: 3 # scripts/old.sh" }).dropped).toHaveLength(1);
 });
 
 test("checkEdits: a fix whose gone path still exists, is missing from the text, or is unset becomes a change", () => {

@@ -133,6 +133,19 @@ test("too_strict: a person's commit, a @factory request on the change or ticket,
   open.dashboard.events.push(dec(false));
   expect(kinds(await run(open))).toEqual([]);
 });
+test("two decision events of one ticket give one too_strict and one too_loose", async () => {
+  const w = world();
+  await withChange(w);
+  w.host.mergeByPerson("5");
+  w.host.commits.set("5", [{ sha: "a", byFactory: true }]);
+  w.dashboard.events.push(dec(false), dec(false));
+  expect(kinds(await run(w))).toEqual(["too_strict"]);
+
+  const l = world();
+  l.tracker.tickets.get("8")!.marks = ["reverted"];
+  l.dashboard.events.push(dec(true), dec(true));
+  expect(kinds(await run(l))).toEqual(["too_loose"]);
+});
 test("too_strict: a request before the decision does not count against it", async () => {
   const w = world();
   await withChange(w);
