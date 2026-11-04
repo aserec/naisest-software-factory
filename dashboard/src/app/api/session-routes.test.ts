@@ -6,11 +6,10 @@ import type { RunEvent } from "software-factory/run-events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const session = vi.hoisted(() => ({ on: true }));
-const gitlab = vi.hoisted(() => ({ jobLog: vi.fn() }));
+const ci = vi.hoisted(() => ({ jobLog: vi.fn() }));
 const board = vi.hoisted(() => ({ board: vi.fn() }));
 vi.mock("@/server/auth", () => ({ auth: async () => (session.on ? { user: { name: "ann" } } : null), factoryAuthorized: () => true }));
-vi.mock("@/server/gitlab-instance", () => ({ getGitLab: () => gitlab }));
-vi.mock("@/server/compose", () => ({ getBoard: () => board }));
+vi.mock("@/server/compose", () => ({ getBoard: () => board, getCi: () => ci }));
 
 process.env.DASHBOARD_DB = ":memory:";
 const dir = mkdtempSync(join(tmpdir(), "targets-"));
@@ -38,7 +37,7 @@ describe("session-only routes", () => {
     expect((await getBoard()).status).toBe(401);
     expect((await getEvents(new Request("http://x/api/events?run=r"))).status).toBe(401);
     expect((await log("1")).status).toBe(401);
-    expect(gitlab.jobLog).not.toHaveBeenCalled();
+    expect(ci.jobLog).not.toHaveBeenCalled();
   });
 });
 
@@ -74,15 +73,20 @@ describe("GET /api/events", () => {
 });
 
 describe("GET /api/jobs/[job]/log", () => {
-  it("answers 400 for a bad id and never calls GitLab", async () => {
+  it("answers 400 for a bad id and never calls the CI", async () => {
     expect((await log("1/../2")).status).toBe(400);
-    expect(gitlab.jobLog).not.toHaveBeenCalled();
+    expect(ci.jobLog).not.toHaveBeenCalled();
+  });
+
+  it("lets any safe job id through, as the local worker names jobs by words", async () => {
+    ci.jobLog.mockResolvedValue("line");
+    expect((await log("a.b-c_1")).status).toBe(200);
   });
 
   it("returns the log text, or 502", async () => {
-    gitlab.jobLog.mockResolvedValue("line");
+    ci.jobLog.mockResolvedValue("line");
     expect(await (await log("12")).text()).toBe("line");
-    gitlab.jobLog.mockRejectedValue(new Error("GitLab 404"));
+    ci.jobLog.mockRejectedValue(new Error("GitLab 404"));
     expect((await log("12")).status).toBe(502);
   });
 });

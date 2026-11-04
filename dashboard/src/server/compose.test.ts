@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 import { codeHostName, makeBoard, trackerOf } from "./compose";
+import { NotSetUp } from "./not-set-up";
 import { readTargets } from "./targets";
 
 beforeEach(() => {
@@ -70,4 +71,11 @@ it("codeHostName gives the target's code host name", () => {
   const [a, b] = readTargets();
   expect(codeHostName({ ...b, codeHost: "github" })).toBe("GitHub");
   expect(codeHostName(a)).toBe("GitLab");
+});
+
+it("FACTORY_CI=local picks the worker, and getCi is one instance", async () => {
+  vi.stubEnv("FACTORY_CI", "local");
+  const { getCi } = await import("./compose");
+  await expect(getCi().runningJobs()).rejects.toBeInstanceOf(NotSetUp);
+  expect(getCi()).toBe(getCi());
 });

@@ -1,7 +1,7 @@
 import { dispatchInput } from "software-factory/run-events";
 import { factoryAuthorized } from "@/server/auth";
 import { getDb } from "@/server/db-instance";
-import { getCi } from "@/server/gitlab-instance";
+import { getCi } from "@/server/compose";
 import { startDispatches } from "@/server/loop";
 import { readTargets } from "@/server/targets";
 
@@ -16,6 +16,6 @@ export async function POST(req: Request) {
   const db = getDb();
   const { id } = db.addDispatch(r.data);
   // Saved first: if the start fails, the loop starts the run later. 202, because the ticket comes later.
-  await startDispatches({ db, gitlab: getCi(), now: new Date() });
+  await startDispatches({ db, ci: getCi(), now: new Date() });
   return Response.json({ id }, { status: 202 });
 }

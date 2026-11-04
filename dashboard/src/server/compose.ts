@@ -1,8 +1,10 @@
 // The one place that picks the dashboard's adapters. Mirrors factory/compose.ts.
 import { makeGitHubTracker } from "./adapters/github-tracker";
+import { makeGitLabCi } from "./adapters/gitlab-ci";
 import { makeGitLabTracker } from "./adapters/gitlab-tracker";
+import { makeLocalCi } from "./adapters/local-ci";
 import { NotSetUp } from "./not-set-up";
-import type { BoardRow, Tracker } from "./seams";
+import type { BoardRow, Ci, Tracker } from "./seams";
 import { readTargets, type TargetInfo } from "./targets";
 
 const CACHE_MS = 15_000;
@@ -54,3 +56,8 @@ let board: ReturnType<typeof makeBoard> | undefined;
 
 // One instance, so the 15 s board cache is shared by every request.
 export const getBoard = () => (board ??= makeBoard());
+
+let ci: Ci | undefined;
+
+// What runs the factory: the factory's own worker with FACTORY_CI=local (seams.yml ci: local), else GitLab CI. One instance.
+export const getCi = () => (ci ??= process.env.FACTORY_CI === "local" ? makeLocalCi() : makeGitLabCi());

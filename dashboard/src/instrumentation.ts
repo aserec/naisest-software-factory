@@ -2,13 +2,13 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   try {
-    const [{ tick }, { getDb }, { getCi }] = await Promise.all([import("./server/loop"), import("./server/db-instance"), import("./server/gitlab-instance")]);
+    const [{ tick }, { getDb }, { getCi }] = await Promise.all([import("./server/loop"), import("./server/db-instance"), import("./server/compose")]);
     let busy = false; // a slow tick must not overlap the next one
     setInterval(async () => {
       if (busy) return;
       busy = true;
       try {
-        await tick({ db: getDb(), gitlab: getCi(), now: new Date() });
+        await tick({ db: getDb(), ci: getCi(), now: new Date() });
       } catch (err) {
         console.error("loop failed", err);
       } finally {

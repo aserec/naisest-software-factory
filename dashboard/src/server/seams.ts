@@ -1,5 +1,6 @@
 // The dashboard's outside tools, in factory words. Pages and components use these types and never a tool's own words.
 import type { FactoryState } from "software-factory/run-events";
+import type { Db } from "./db";
 import type { TargetInfo } from "./targets";
 
 export type { FactoryState };
@@ -16,4 +17,15 @@ export interface Tracker {
   readonly name: string; // the display name
   rows(targets: TargetInfo[]): Promise<BoardRow[]>; // open work items in a factory state; throws NotSetUp without its address or read token
   ticketUrl(target: TargetInfo, ticket: string): string; // empty when the tracker is not set up
+}
+
+export interface Job { job: string; name: string; run: string; startedAt: string; runner?: string }
+
+// What runs the factory's steps. FACTORY_CI picks it.
+export interface Ci {
+  runningJobs(): Promise<Job[]>; // throws NotSetUp when this CI has no job list
+  jobLog(job: string): Promise<string>; // the end of the job's log; throws NotSetUp when this CI has no job log
+  cancel(run: string): Promise<void>; // `run` is the id the steps send in their events (step_start's pipeline field)
+  startDispatch(target: string): Promise<void>; // starts the factory's dispatch run for the target
+  importEvents(db: Db): Promise<number>; // adds the events of finished jobs to db, and gives how many were new
 }

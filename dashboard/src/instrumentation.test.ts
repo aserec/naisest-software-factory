@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 const tick = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("./server/loop", () => ({ tick }));
 vi.mock("./server/db-instance", () => ({ getDb: () => ({}) }));
-vi.mock("./server/gitlab-instance", () => ({ getCi: () => ({}) }));
+vi.mock("./server/compose", () => ({ getCi: () => ({}) }));
 
 afterEach(() => {
   vi.useRealTimers();

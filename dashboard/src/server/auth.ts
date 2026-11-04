@@ -3,8 +3,8 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import GitHub from "next-auth/providers/github";
 import GitLab from "next-auth/providers/gitlab";
+import { gitlabUrl } from "./adapters/gitlab-url";
 import { makeGitHub } from "./github";
-import { gitlab } from "./gitlab";
 import { readTargets } from "./targets";
 
 // Hash both sides so the compare has equal lengths and the token length does not leak.
@@ -33,6 +33,7 @@ type Role = { user: string; userId: number; level: number };
 // Pin the public origin: Auth.js then ignores the Host header for redirects (and trusts the host because of it).
 if (process.env.DASHBOARD_URL) process.env.AUTH_URL ??= process.env.DASHBOARD_URL;
 
+const gitlab = () => gitlabUrl() ?? "";
 const api = (path: string) => `${gitlab()}/api/v4${path}`;
 
 // Reads a user's level on the factory project with the server's read token (Ruling R22), so the user's own GitLab token

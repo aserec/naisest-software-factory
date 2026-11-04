@@ -11,7 +11,7 @@ import { LoadError, SectionHeading } from "./shell";
 
 type Part<T> = T | { error: string } | { unset: string };
 interface Runner {
-  jobs: Part<{ job: string; name: string; pipeline: string; startedAt: string; runner?: string }[]>;
+  jobs: Part<{ job: string; name: string; run: string; startedAt: string; runner?: string }[]>;
   hosts: Part<HostStat[]>;
   logs: Part<LogLine[]>;
 }
@@ -89,7 +89,7 @@ export function RunnerView() {
                         <TableCell className="py-2.5">
                           <div className="font-medium">{j.name}</div>
                           <div className="font-mono text-xs text-muted-foreground">
-                            job {j.job} · pipeline {j.pipeline}
+                            job {j.job} · run {j.run}
                           </div>
                         </TableCell>
                         <TableCell className={j.runner ? "" : "text-muted-foreground"}>{j.runner ?? "—"}</TableCell>

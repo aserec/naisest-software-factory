@@ -6,7 +6,7 @@ import { getDb } from "@/server/db-instance";
 type Ctx = { params: Promise<{ run: string; action: string }> };
 const KINDS = ["stop", "resume", "restart"] as const;
 
-// What the run page needs to pick its buttons: the last state, whether a pipeline cancel ended it, whether it was restarted, and what is waiting.
+// What the run page needs to pick its buttons: the last state, whether a CI cancel ended it, whether it was restarted, and what is waiting.
 export async function GET(_req: Request, { params }: Ctx) {
   const { run, action } = await params;
   if (action !== "state") return new Response("not found", { status: 404 });

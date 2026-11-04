@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 test("a failed part shows its error while the jobs still show", async () => {
-  vi.stubGlobal("fetch", async () => json({ jobs: [{ job: "1", name: "build", pipeline: "7", startedAt: "2026-10-29T10:00:00Z" }], hosts: [{ host: "vm1", diskUsedPct: 41.5, memUsedPct: 72 }], logs: { error: "Grafana 502" } }));
+  vi.stubGlobal("fetch", async () => json({ jobs: [{ job: "1", name: "build", run: "7", startedAt: "2026-10-29T10:00:00Z" }], hosts: [{ host: "vm1", diskUsedPct: 41.5, memUsedPct: 72 }], logs: { error: "Grafana 502" } }));
   renderWithQuery(<RunnerView />);
   expect(await screen.findByText("build")).toBeTruthy();
   expect(screen.getByText("42%")).toBeTruthy();

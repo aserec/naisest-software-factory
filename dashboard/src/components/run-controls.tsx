@@ -17,7 +17,7 @@ interface RunState {
 }
 
 const ASK: Record<Action, string> = {
-  stop: "The running step ends. If it does not stop within a minute, the factory cancels the pipeline.",
+  stop: "The running step ends. If it does not stop within a minute, the factory cancels its CI run.",
   resume: "The run continues at the stopped step with its saved record and session.",
   restart: "The run ends as blocked and a new run starts from the beginning.",
 };

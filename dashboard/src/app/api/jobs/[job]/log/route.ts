@@ -1,12 +1,13 @@
 import { auth } from "@/server/auth";
-import { getGitLab } from "@/server/gitlab-instance";
+import { getCi } from "@/server/compose";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ job: string }> }) {
   if (!(await auth())) return Response.json({ error: "unauthorized" }, { status: 401 });
   const { job } = await params;
-  if (!/^\d+$/.test(job)) return Response.json({ error: "job must be a number" }, { status: 400 });
+  // The GitLab adapter checks for a number itself.
+  if (!/^[\w.-]+$/.test(job)) return Response.json({ error: "job must be letters, digits, dot, dash or underscore" }, { status: 400 });
   try {
-    return new Response(await getGitLab().jobLog(job), { headers: { "content-type": "text/plain; charset=utf-8" } });
+    return new Response(await getCi().jobLog(job), { headers: { "content-type": "text/plain; charset=utf-8" } });
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "log failed" }, { status: 502 });
   }
