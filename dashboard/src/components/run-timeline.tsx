@@ -67,7 +67,7 @@ function Pills({ lane, stuck }: { lane: Lane; stuck: boolean }) {
   );
 }
 
-// On a phone: name and pills on the first line, the bar, duration and cost on the second. From sm: one line.
+// In a narrow column (a phone, or beside the open panel): name and pills on the first line, the bar, duration and cost on the second. From a 36rem column: one line.
 function LaneRow({ lane, from, span, stuck, selected, onSelect }: { lane: Lane; from: number; span: number; stuck: boolean; selected: boolean; onSelect: () => void }) {
   const start = Date.parse(lane.start.at);
   const end = lane.end ? Date.parse(lane.end.at) : from + span;
@@ -80,17 +80,17 @@ function LaneRow({ lane, from, span, stuck, selected, onSelect }: { lane: Lane; 
         aria-haspopup="dialog"
         aria-expanded={selected}
         onClick={onSelect}
-        className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] sm:flex"
+        className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] @xl:flex"
       >
-        <span className="col-span-2 truncate font-medium sm:order-1 sm:w-40 sm:flex-none">{lane.start.step}</span>
-        <span className="flex justify-end gap-1 sm:order-4 sm:w-32">
+        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{lane.start.step}</span>
+        <span className="flex justify-end gap-1 @xl:order-4 @xl:w-32">
           <Pills lane={lane} stuck={stuck} />
         </span>
-        <span className="relative h-2 rounded-full bg-raised sm:order-2 sm:flex-1">
+        <span className="relative h-2 rounded-full bg-raised @xl:order-2 @xl:flex-1">
           <span className={`absolute inset-y-0 rounded-full ${bar}`} style={{ left: `${((start - from) / span) * 100}%`, width: `${Math.max(((end - start) / span) * 100, 1)}%` }} />
         </span>
-        <span className="text-right text-muted-foreground sm:order-3 sm:w-16">{duration((end - start) / 1000)}</span>
-        <span className="text-right sm:order-5 sm:w-14">{usd(lane.costUsd)}</span>
+        <span className="text-right text-muted-foreground @xl:order-3 @xl:w-16">{duration((end - start) / 1000)}</span>
+        <span className="text-right @xl:order-5 @xl:w-14">{usd(lane.costUsd)}</span>
       </button>
     </li>
   );
@@ -140,23 +140,25 @@ export function RunTimeline({ run, limits = {} }: { run: string; limits?: Record
   const open = rows.find((l) => l.start.id === openId);
   return (
     <>
-      <div className="mb-8 grid grid-cols-2 border-y sm:w-fit sm:min-w-[32rem] sm:grid-cols-3">
-        <Figure label="Now" className="col-span-2 border-b pr-4 sm:col-span-1 sm:border-b-0">
-          {live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}
-        </Figure>
-        <Figure label="Time" className="pr-4 sm:border-l sm:pl-4">
-          {duration(span / 1000)}
-        </Figure>
-        <Figure label="Cost" className="border-l pl-4">
-          {usd(rows.reduce((sum, l) => sum + l.costUsd, 0))}
-        </Figure>
+      <div className={`@container transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${open ? "xl:pr-[624px]" : ""}`}>
+        <div className="mb-8 grid grid-cols-2 border-y @lg:w-fit @lg:min-w-[32rem] @lg:grid-cols-3">
+          <Figure label="Now" className="col-span-2 border-b pr-4 @lg:col-span-1 @lg:border-b-0">
+            {live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}
+          </Figure>
+          <Figure label="Time" className="pr-4 @lg:border-l @lg:pl-4">
+            {duration(span / 1000)}
+          </Figure>
+          <Figure label="Cost" className="border-l pl-4">
+            {usd(rows.reduce((sum, l) => sum + l.costUsd, 0))}
+          </Figure>
+        </div>
+        <SectionHeading className="mb-0">Steps</SectionHeading>
+        <ul>
+          {rows.map((l) => (
+            <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
+          ))}
+        </ul>
       </div>
-      <SectionHeading className="mb-0">Steps</SectionHeading>
-      <ul>
-        {rows.map((l) => (
-          <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
-        ))}
-      </ul>
       <Sheet
         open={!!open}
         onClose={() => setOpenId(undefined)}
