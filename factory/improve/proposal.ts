@@ -1,7 +1,7 @@
 // The edits the writer model proposes to a target's .factory/ files, parsed and checked in code.
 // The model's word is never enough: a fix must be proven a pure rename here, or it goes to a person.
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { z } from "zod";
 import { LOCAL_MAX } from "../local-instructions";
 import { parseNumstat } from "../rules";
@@ -109,15 +109,19 @@ function kindOf(t: string, dir: string): "file" | "dir" | undefined {
   }
 }
 
-// A file is replaced by a file, a folder (a path with a trailing "/") by a folder, a command by a command whose script exists.
+// The folder that holds a path, ignoring a leading "./" and trailing "/" ("docs/old/" is held by "docs").
+const parentOf = (p: string) => posix.dirname(posix.normalize(p).replace(/\/+$/, ""));
+
+// A file is replaced by a file, a folder (a path with a trailing "/") by a folder, in the same parent folder.
+// A command is replaced by a command whose script exists.
 function sameKind(gone: string, t: string, dir: string): boolean {
   if (COMMAND.test(gone)) return COMMAND.test(t) && exists(t, dir) === true;
-  return looksLikePath(t) && kindOf(t, dir) === (gone.endsWith("/") ? "dir" : "file");
+  return looksLikePath(t) && parentOf(t) === parentOf(gone) && kindOf(t, dir) === (gone.endsWith("/") ? "dir" : "file");
 }
 
 // True when the new text has the same lines as the old one, in the same places, and in each changed line only `gone`
 // written as `gone` (in backticks) is replaced by `t` (in backticks), the same t each time. t is a path or command of the
-// same kind that exists. `gone` may not stand anywhere else in a changed line. No line is deleted, added or blanked.
+// same kind that exists, and a path stays in the same parent folder. `gone` may not stand anywhere else in a changed line. No line is deleted, added or blanked.
 export function onlyRenames(oldText: string, newText: string, gone: string, dir: string): boolean {
   if (!COMMAND.test(gone) && !looksLikePath(gone)) return false;
   const [old, next] = [oldText.split("\n"), newText.split("\n")];

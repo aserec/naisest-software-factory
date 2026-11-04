@@ -13,6 +13,11 @@ beforeAll(() => {
   mkdirSync(join(dir, "scripts"));
   writeFileSync(join(dir, "scripts/new.sh"), "");
   mkdirSync(join(dir, "src"));
+  mkdirSync(join(dir, "scripts/sub"));
+  writeFileSync(join(dir, "scripts/sub/new.sh"), "");
+  mkdirSync(join(dir, "docs/new"), { recursive: true });
+  mkdirSync(join(dir, "auth"));
+  writeFileSync(join(dir, "auth/login.ts"), "");
 });
 
 test("confirmGone: only a path or script that is really missing", () => {
@@ -83,10 +88,32 @@ test("onlyRenames: a file is replaced by a file, a folder by a folder", () => {
   expect(onlyRenames("Run `scripts/old.sh` first.", "Run `src` first.", "scripts/old.sh", dir)).toBe(false); // a folder for a file
   expect(onlyRenames("Run `scripts/old.sh` first.", "Run `src/` first.", "scripts/old.sh", dir)).toBe(false);
   expect(onlyRenames("Only auto-merge `docs/old-guide.md` changes.", "Only auto-merge `src/` changes.", "docs/old-guide.md", dir)).toBe(false);
-  expect(onlyRenames("Keep out of `old/dir/`.", "Keep out of `src/`.", "old/dir/", dir)).toBe(true);
+  expect(onlyRenames("Keep out of `docs/old/`.", "Keep out of `docs/new/`.", "docs/old/", dir)).toBe(true);
   expect(onlyRenames("Keep out of `old/dir/`.", "Keep out of `scripts/new.sh`.", "old/dir/", dir)).toBe(false); // a file for a folder
   expect(onlyRenames("Use `pnpm run lint` now.", "Use `scripts/new.sh` now.", "pnpm run lint", dir)).toBe(false);
   expect(onlyRenames("Run `scripts/old.sh` first.", "Run `pnpm run test` first.", "scripts/old.sh", dir)).toBe(false);
+});
+
+test("onlyRenames: a rename stays in the folder of the old path", () => {
+  const swap = (gone: string, t: string) => onlyRenames(`Use \`${gone}\` here.`, `Use \`${t}\` here.`, gone, dir);
+  expect(swap("scripts/old.sh", "scripts/new.sh")).toBe(true);
+  expect(swap("./scripts/old.sh", "scripts/new.sh")).toBe(true);
+  expect(swap("docs/old/", "docs/new/")).toBe(true);
+  expect(swap("docs/old/", "./docs/new")).toBe(true);
+  expect(swap("scripts/old.sh", "src/")).toBe(false);
+  expect(swap("scripts/old.sh", "scripts/sub/new.sh")).toBe(false); // a deeper folder
+  expect(swap("docs/old.md", "auth/login.ts")).toBe(false); // an unrelated live file
+  expect(swap("docs/old/", "src/")).toBe(false);
+  expect(swap("docs/old/", "scripts/sub/")).toBe(false);
+  expect(onlyRenames("Only auto-merge `docs/old.md` changes.", "Only auto-merge `auth/login.ts` changes.", "docs/old.md", dir)).toBe(false);
+});
+
+test("checkEdits: a fix that moves a path to another folder is a change for a person", () => {
+  const cur = { [R]: "Only auto-merge `docs/old.md` changes." };
+  const r = check([edit({ kind: "fix", gone: "docs/old.md", text: "Only auto-merge `auth/login.ts` changes.", evidence: [] })], cur);
+  expect(r.fixes).toHaveLength(0);
+  expect(r.changes).toHaveLength(1);
+  expect(r.dropped).toHaveLength(0);
 });
 
 test("onlyRenames: two occurrences need the same t", () => {
