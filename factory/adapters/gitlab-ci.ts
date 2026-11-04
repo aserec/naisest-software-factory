@@ -4,6 +4,7 @@ import { join, resolve, sep } from "node:path";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { RUN_DIR, type RunRecord } from "../record";
 import { addKnownSecrets } from "../rules";
+import { FILE_SECRETS } from "../secrets";
 import type { CiRunner } from "../seams";
 import { sh } from "../repo";
 
@@ -42,14 +43,13 @@ export const need = (env: NodeJS.ProcessEnv, key: string): string => {
   return v;
 };
 
-// Steps may ask for these. The trigger token stays inside the adapter.
-export const SECRETS = ["FACTORY_GITLAB_TOKEN", "FACTORY_GITHUB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN"];
+// Steps may ask for FILE_SECRETS. The trigger token stays inside the adapter.
 
 export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn: typeof fetch = fetch): CiRunner {
   if (env.CI_SERVER_URL !== GITLAB_URL) throw new Error(`CI_SERVER_URL must be ${GITLAB_URL}`);
   checkVars(env, { CI_PROJECT_ID: /^[0-9]+$/, CI_JOB_ID: /^([0-9]+)?$/ }); // CI_JOB_ID is empty only outside CI
   const secrets = new Map<string, string>();
-  for (const k of SECRETS) {
+  for (const k of FILE_SECRETS) {
     const v = secretFile(env, k, secretDir);
     if (v) secrets.set(k, v);
   }

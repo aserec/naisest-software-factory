@@ -4,10 +4,11 @@
 // It only reads from the tracker. It never writes a state, comment or anything else.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { makeCodeHost, makeTracker } from "../compose";
-import { loadTarget } from "../config";
+import { loadSeams, loadTarget } from "../config";
 import type { JevClient } from "../jev";
 import { makeJevClient } from "../jev";
 import type { Ticket } from "../seams";
+import { ADAPTER_SECRETS } from "../secrets";
 import { DEFAULT_THRESHOLDS, THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { askTriage, buildTriageState, decideTriage } from "../triage";
 import { isMain } from "./context";
@@ -35,8 +36,9 @@ export async function main(env = process.env, argv = process.argv.slice(2)) {
   if (!targetName || !Number.isInteger(count) || count < 1 || count > 100) throw new Error("Usage: pnpm tsx factory/steps/jev-shadow.ts <target> <count> (count is at most 100)");
   // A shadow test with the mock would tell us nothing, so refuse it.
   if (!env.BERGET_API_KEY) throw new Error("BERGET_API_KEY is not set. The shadow test needs the real Jev, not the mock. Stopping.");
-  const token = env.FACTORY_GITHUB_TOKEN || env.FACTORY_GITLAB_TOKEN; // the token of the tracker seams.yml picks
-  if (!token) throw new Error("FACTORY_GITLAB_TOKEN (or FACTORY_GITHUB_TOKEN for a github tracker) is not set. It is needed to read closed tickets.");
+  const tokenName = ADAPTER_SECRETS.tracker[loadSeams().tracker]; // the token of the tracker seams.yml picks
+  const token = env[tokenName];
+  if (!token) throw new Error(`${tokenName} is not set. It is needed to read closed tickets.`);
   const jev = makeJevClient(env);
   const target = loadTarget(targetName);
   const tracker = makeTracker(token, target);

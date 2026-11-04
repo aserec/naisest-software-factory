@@ -17,12 +17,14 @@ import { QUEUE_DIR, RUNS_DIR, type QueuedRun } from "./adapters/local-ci";
 import { Hetzner, type Vm } from "./hetzner";
 import { loadSeams, providerKeys } from "./config";
 import { FACTORY_ROOT } from "./repo";
+import { FILE_SECRETS } from "./secrets";
 import { BUILD_STEPS, FINISH_STEPS } from "./steps/run";
 
 export type Exec = (cmd: string, args: string[], env?: Record<string, string>, cwd?: string) => Promise<{ code: number; out: string }>;
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 // File secrets: a step reads each file and deletes it before any agent runs. Values never go on a command line.
-const FILE_SECRETS = { FACTORY_GITLAB_TOKEN: "GL_TOKEN", FACTORY_GITHUB_TOKEN: "FACTORY_GITHUB_TOKEN", TEAMS_WEBHOOK_URL: "TEAMS_WEBHOOK_URL", FACTORY_DASHBOARD_TOKEN: "FACTORY_DASHBOARD_TOKEN" };
+// The worker keeps the GitLab token under GL_TOKEN.
+const WORKER_SECRETS = Object.fromEntries(FILE_SECRETS.map((n) => [n, n === "FACTORY_GITLAB_TOKEN" ? "GL_TOKEN" : n]));
 const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
 export const realExec: Exec = (cmd, args, env = {}, cwd) =>
@@ -54,7 +56,7 @@ export function stepEnv(base: NodeJS.ProcessEnv, v: { pipeline?: string; schedul
 function secretFiles(base: NodeJS.ProcessEnv, dir: string, seen: string): Record<string, string> {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const paths: Record<string, string> = {};
-  for (const [name, from] of Object.entries(FILE_SECRETS)) {
+  for (const [name, from] of Object.entries(WORKER_SECRETS)) {
     if (!base[from]) continue;
     writeFileSync(join(dir, name), base[from]!, { mode: 0o600 });
     paths[name] = join(seen, name);

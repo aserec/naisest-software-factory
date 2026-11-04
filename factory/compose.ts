@@ -20,6 +20,7 @@ import { GitLab, GITLAB_URL } from "./gitlab";
 import { makeJevClient } from "./jev";
 import { newRecord, RUN_DIR } from "./record";
 import { addKnownSecrets } from "./rules";
+import { ADAPTER_SECRETS, FILE_SECRETS } from "./secrets";
 import type { StepContext } from "./steps/context";
 import { FACTORY_ROOT } from "./repo";
 import type { Chat } from "./seams";
@@ -54,6 +55,8 @@ const ADAPTERS = {
   // The watcher's rules depend on the exact name "files": fake errors from this checkout.
   logSource: { files: () => makeFileLogs(resolve(FACTORY_ROOT, "watcher/fixtures")) },
 };
+// For the secrets test: which names seams.yml may pick for each seam.
+export const ADAPTER_NAMES = { tracker: Object.keys(ADAPTERS.tracker), codeHost: Object.keys(ADAPTERS.codeHost), chat: Object.keys(ADAPTERS.chat) };
 function needRepo(target: Target): string {
   if (!target.githubRepo) throw new Error(`Target ${target.name} needs githubRepo for a github tracker or code host`);
   return target.githubRepo;
@@ -88,28 +91,27 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   const make = { ci: pick(seams, "ci"), tracker: pick(seams, "tracker"), codeHost: pick(seams, "codeHost"), judge: pick(seams, "judge"), chat: pick(seams, "chat"), dashboard: pick(seams, "dashboard"), logSource: pick(seams, "logSource") };
   const router = loadRouter(undefined, seams);
   const ci = make.ci(env, secretDir);
-  const token = ci.secret("FACTORY_GITLAB_TOKEN");
-  const webhook = ci.secret("TEAMS_WEBHOOK_URL");
-  const dashboardToken = ci.secret("FACTORY_DASHBOARD_TOKEN");
-  const githubToken = ci.secret("FACTORY_GITHUB_TOKEN");
-  const usesGitLab = seams.tracker === "gitlab" || seams.codeHost === "gitlab";
-  if (usesGitLab && !token) throw new Error("FACTORY_GITLAB_TOKEN is not set");
-  if ((seams.tracker !== "gitlab" || seams.codeHost !== "gitlab") && !githubToken) throw new Error("FACTORY_GITHUB_TOKEN is not set");
-  const tokenFor = (adapter: string) => (adapter === "gitlab" ? token : githubToken)!;
-  if (seams.chat === "teams" && !webhook) throw new Error("TEAMS_WEBHOOK_URL is not set");
-  if (!dashboardToken) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
+  // Each picked adapter's secret, read once per distinct name. Reported in FILE_SECRETS order.
+  const picked = [ADAPTER_SECRETS.tracker[seams.tracker], ADAPTER_SECRETS.codeHost[seams.codeHost], ADAPTER_SECRETS.chat[seams.chat], "FACTORY_DASHBOARD_TOKEN"];
+  const secrets: Record<string, string> = {};
+  for (const n of FILE_SECRETS.filter((n) => picked.includes(n))) {
+    const v = ci.secret(n);
+    if (!v) throw new Error(`${n} is not set`);
+    secrets[n] = v;
+  }
+  const dashboardToken = secrets.FACTORY_DASHBOARD_TOKEN;
   const dashboardUrl = checkDashboardUrl(seams, env);
   // No comment, change text or pushed diff may carry any of these.
-  addKnownSecrets(token, githubToken, webhook, dashboardToken, ...providerKeys(seams).map((k) => env[k]));
+  addKnownSecrets(...Object.values(secrets), ...providerKeys(seams).map((k) => env[k]));
   if (env.CI_JOB_IMAGE && env.CI_JOB_IMAGE !== target.jobImage) throw new Error(`The job runs image ${env.CI_JOB_IMAGE}, but target ${name} names ${target.jobImage}`);
   const dir = resolve(RUN_DIR, "target");
-  const codeHost = make.codeHost(tokenFor(seams.codeHost), target, env);
+  const codeHost = make.codeHost(secrets[ADAPTER_SECRETS.codeHost[seams.codeHost]], target, env);
   return {
-    tracker: make.tracker(tokenFor(seams.tracker), target),
+    tracker: make.tracker(secrets[ADAPTER_SECRETS.tracker[seams.tracker]], target),
     codeHost,
     ci,
     judge: make.judge(env, seams),
-    chat: make.chat(webhook ?? ""),
+    chat: make.chat(secrets[ADAPTER_SECRETS.chat[seams.chat]] ?? ""),
     dashboard: make.dashboard(dashboardUrl, dashboardToken),
     harnesses: { "claude-code": claudeCode, pi },
     seams,

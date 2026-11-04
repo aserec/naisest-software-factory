@@ -5,7 +5,8 @@ import { loadRecord, RUN_DIR, type RunRecord } from "../record";
 import { FACTORY_ROOT } from "../repo";
 import { addKnownSecrets } from "../rules";
 import { NotFactoryRunError, type CiRunner, type RunKind, type ChangeRef, type TicketRef } from "../seams";
-import { checkVars, SECRETS, secretFile } from "./gitlab-ci";
+import { FILE_SECRETS } from "../secrets";
+import { checkVars, secretFile } from "./gitlab-ci";
 
 // The factory's own CI (seams.yml ci: local): factory/worker.ts runs each run, with each step in a new container.
 // start() leaves a request in the queue dir; the worker validates it and runs it.
@@ -18,7 +19,7 @@ export interface QueuedRun { kind: RunKind; target: string; ticket?: TicketRef; 
 export function makeLocalCi(env: NodeJS.ProcessEnv, secretDir: string, dirs = { queue: QUEUE_DIR, runs: RUNS_DIR }): CiRunner {
   checkVars(env, { FACTORY_RUN_ID: /^([0-9]+)?$/ }); // empty in poll, retry and dispatch, which are no run
   const secrets = new Map<string, string>();
-  for (const k of SECRETS) {
+  for (const k of FILE_SECRETS) {
     const v = secretFile(env, k, secretDir);
     if (v) secrets.set(k, v);
   }
