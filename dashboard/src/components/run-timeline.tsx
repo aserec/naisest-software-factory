@@ -6,7 +6,7 @@ import { STEPS, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd } from "@/lib/utils";
-import { StepDetail } from "./step-detail";
+import { Fact, StepDetail } from "./step-detail";
 import { RiskPills } from "./board";
 import { SectionHeading } from "./shell";
 import { isStuck } from "./stuck";
@@ -108,6 +108,43 @@ const Figure = ({ label, children, className = "" }: { label: string; children: 
   </div>
 );
 
+// The newest event per key: a gate or rule check that ran again counts once, with its last result.
+const latest = (events: SeqEvent[], key: string) => [...new Map(events.map((e) => [e.data[key], e])).values()];
+
+// What the change carries for the person who merges it: the review, the checks, and why the factory merges or waits.
+function Proof({ events }: { events: SeqEvent[] }) {
+  const of = (type: SeqEvent["type"]) => events.filter((e) => e.type === type);
+  const findings = of("review_finding");
+  const round = Math.max(0, ...findings.map((f) => f.data.round as number));
+  const last = findings.filter((f) => f.data.round === round);
+  const gates = latest(of("gate_check"), "command");
+  const rules = latest(of("rule_check"), "rule");
+  const decision = of("decision").at(-1);
+  if (!findings.length && !gates.length && !rules.length && !decision) return null;
+  const passed = (ok: number, all: number) => <span className={ok < all ? "text-destructive" : ""}>{ok} of {all} passed</span>;
+  const reasons = (decision?.data.reasons as string[] | undefined) ?? [];
+  return (
+    <section className="mb-8">
+      <SectionHeading>Proof</SectionHeading>
+      <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
+        {last.length > 0 && (
+          <Fact label="Review">
+            Round {round}, {last.filter((f) => f.data.blocking).length} of {last.length} findings blocking
+          </Fact>
+        )}
+        {gates.length > 0 && <Fact label="Checks">{passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length)}</Fact>}
+        {rules.length > 0 && <Fact label="Rules">{passed(rules.filter((r) => r.data.passed).length, rules.length)}</Fact>}
+        {decision && (
+          <Fact label="Decision">
+            {decision.data.auto ? "Merges without a person" : "Waits for a person"}
+            {reasons.length ? `, because ${reasons.join(", and ")}` : ""}.
+          </Fact>
+        )}
+      </dl>
+    </section>
+  );
+}
+
 // A step the run has not reached: its name and an empty track, so the whole line of ten steps shows.
 function AheadRow({ step }: { step: string }) {
   return (
@@ -151,7 +188,8 @@ function useNow() {
 
 // limits: minutes per step for the run's target, read on the server.
 // risk: the work item's triage risk and the run's merge risk, read on the server.
-export function RunTimeline({ run, limits = {}, risk = {} }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number } }) {
+// state: the work item's state label in GitLab, read on the server.
+export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number }; state?: string }) {
   const { data, error } = useRunEvents(run);
   const [openId, setOpenId] = useOpenStep();
   const nowMs = useNow();
@@ -182,7 +220,7 @@ export function RunTimeline({ run, limits = {}, risk = {} }: { run: string; limi
       <div className={`@container transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${open ? "lg:pr-[min(624px,calc(100vw-624px))]" : ""}`}>
         <div className="mb-8 grid grid-cols-2 border-y @lg:w-fit @lg:min-w-[40rem] @lg:grid-cols-4">
           <Figure label="Now" className="col-span-2 border-b pr-4 @lg:col-span-1 @lg:border-b-0">
-            {live ? live.start.step : (ended ?? rows.at(-1)?.outcome ?? "—")}
+            {live ? live.start.step : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—")}
             {at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>}
           </Figure>
           <Figure label="Time" className="pr-4 @lg:border-l @lg:pl-4">
@@ -201,6 +239,7 @@ export function RunTimeline({ run, limits = {}, risk = {} }: { run: string; limi
             )}
           </Figure>
         </div>
+        <Proof events={data} />
         <SectionHeading className="mb-0">Steps</SectionHeading>
         <ul>
           {rows.map((l) => (

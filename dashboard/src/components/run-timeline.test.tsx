@@ -93,3 +93,31 @@ test("the line shows all ten steps: the ones not reached are listed after the li
   expect(ahead).toEqual(["precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"].map((s) => `${s} not reached`));
   expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("code-review4 of 10");
 });
+
+test("a run that waits for approval says so in Now, and Proof shows the review, the last result of each check, and why it waits", async () => {
+  const proof = [
+    ev("run_start", "00"),
+    ev("review_finding", "01", { step: "code-review", data: { text: "a", blocking: true, round: 1 } }),
+    ev("review_finding", "02", { step: "code-review", data: { text: "b", blocking: false, round: 2 } }),
+    ev("gate_check", "03", { step: "precommit-gate", data: { command: "pnpm test", exitCode: 1, outputTail: "" } }),
+    ev("gate_check", "04", { step: "precommit-gate", data: { command: "pnpm test", exitCode: 0, outputTail: "" } }),
+    ev("gate_check", "04", { step: "precommit-gate", data: { command: "pnpm lint", exitCode: 1, outputTail: "" } }),
+    ev("step_start", "05", { step: "decision" }),
+    ev("decision", "06", { step: "decision", data: { auto: false, reasons: ["diff_risk 6 is above 4"] } }),
+    ev("step_end", "06", { step: "decision", data: { outcome: "waiting" } }),
+  ];
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events: proof, cursor: 9 })));
+  renderWithQuery(<RunTimeline run="r1" state="factory_needs_approval" />);
+  const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
+  expect(await fact("Review")).toBe("Round 2, 0 of 1 findings blocking");
+  expect(await fact("Checks")).toBe("1 of 2 passed");
+  expect(await fact("Decision")).toBe("Waits for a person, because diff_risk 6 is above 4.");
+  expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("Waits for you7 of 10");
+});
+
+test("a run with no proof events shows no Proof section", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events: [ev("step_start", "00", { step: "triage" })], cursor: 1 })));
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /triage/ });
+  expect(screen.queryByRole("heading", { name: "Proof" })).toBeNull();
+});

@@ -24,11 +24,11 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {mrUrl && (
-              <Button variant="outline" asChild>
-                <a href={mrUrl}>Open the merge request</a>
+              <Button asChild>
+                <a href={mrUrl}>Review and merge in GitLab</a>
               </Button>
             )}
-            <RunControls run={run} />
+            <RunControls run={run} state={item?.state} />
           </div>
         }
       >
@@ -42,7 +42,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
           </>
         )}
       </PageTitle>
-      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk }} />
+      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk }} state={item?.state} />
     </main>
   );
 }

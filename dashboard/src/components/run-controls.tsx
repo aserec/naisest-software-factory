@@ -39,7 +39,8 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
 
 // Stop while the last state label is factory_running. Resume and Restart while it is factory_stopped.
 // After a pipeline cancel only Restart, because the cancelled job saved nothing to resume from (spec 6.1).
-export function RunControls({ run }: { run: string }) {
+// state: the work item's label in GitLab. The run's own label_change events win; GitLab fills in when the run sent none.
+export function RunControls({ run, state }: { run: string; state?: string }) {
   const client = useQueryClient();
   const key = ["run-state", run];
   const { data, error } = useQuery({
@@ -68,17 +69,20 @@ export function RunControls({ run }: { run: string }) {
   if (!data) return null;
   // A cancel means the run is over even before the poller sets the stopped label, so only Restart is left (Ruling R18).
   // A done restart ended the run: a new run carries on, so this one shows no buttons.
-  const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : data.label === "factory_running" ? ["stop"] : data.label === "factory_stopped" ? ["resume", "restart"] : [];
+  const label = data.label ?? state;
+  const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : label === "factory_running" ? ["stop"] : label === "factory_stopped" ? ["resume", "restart"] : [];
+  // A run that waits for approval says so on the page; the person's action is the merge, not a control.
+  const quiet = label === "factory_needs_approval";
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {buttons.map((a) => (
         <Ask key={a} action={a} busy={send.isPending} onConfirm={() => send.mutate(a)} />
       ))}
-      {buttons.length === 0 && data.pending.length === 0 && !data.restarted && (
+      {buttons.length === 0 && data.pending.length === 0 && !data.restarted && !quiet && (
         <p className="text-muted-foreground">
-          {data.label ? (
+          {label ? (
             <>
-              The state label is <code className="font-mono text-xs">{data.label}</code>, so there is nothing to stop or resume.
+              The state label is <code className="font-mono text-xs">{label}</code>, so there is nothing to stop or resume.
             </>
           ) : (
             "The work item has no state label, so there is nothing to stop or resume."

@@ -95,3 +95,14 @@ test("says why there are no buttons, and that the state could not be read", asyn
   renderWithQuery(<RunControls run="r1" />);
   expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("Could not read the run state (500). Stop and Resume show once it loads.");
 });
+
+test("without a label_change the GitLab state picks the buttons, and a run waiting for approval shows no sentence", async () => {
+  server({});
+  renderWithQuery(<RunControls run="r1" state="factory_running" />);
+  expect(await screen.findByRole("button", { name: "Stop" })).toBeTruthy();
+  cleanup();
+  server({});
+  const { container } = renderWithQuery(<RunControls run="r1" state="factory_needs_approval" />);
+  await waitFor(() => expect(container.querySelector("div")).not.toBeNull());
+  expect(container.textContent).toBe("");
+});

@@ -35,7 +35,7 @@ const Section = ({ title, children }: { title: React.ReactNode; children: React.
   </section>
 );
 
-const Fact = ({ label, children }: { label: string; children: React.ReactNode }) => (
+export const Fact = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <>
     <dt className="text-muted-foreground">{label}</dt>
     <dd className="min-w-0">{children}</dd>
