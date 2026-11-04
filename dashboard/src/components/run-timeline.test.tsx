@@ -115,6 +115,8 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
   expect(await fact("Rules")).toBe("The run sent no rule results. Look at the changed files before you merge.");
   expect(screen.getByText(/^Waits for you because/).textContent).toBe("Waits for you because merge risk 6 is above the limit of 4.");
   expect(screen.queryByText("Decision", { selector: "dt" })).toBeNull(); // said once, under the title
+  // Time is the factory's six minutes; the wait for a person since the last event counts apart.
+  expect(screen.getByText("Time").nextElementSibling?.textContent).toMatch(/^6 mthen waiting \d/);
   expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("Waits for you7 of 10");
   // The factory ends the decision step with "stop"; the pill names what the run waits for.
   expect(screen.getByRole("button", { name: /Decision/ }).textContent).toContain("needs approval");

@@ -193,6 +193,9 @@ function useNow() {
   return now;
 }
 
+// The labels of a run that halted before a final state and waits to go on.
+const PAUSED = ["factory_needs_approval", "factory_needs_info", "factory_stopped", "factory_blocked", "factory_waiting"];
+
 // limits: minutes per step for the run's target, read on the server.
 // risk: the work item's triage risk and the run's merge risk, read on the server.
 // state: the work item's state label in GitLab, read on the server.
@@ -209,18 +212,28 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
   const from = Math.min(...times);
   const ended = data.find((e) => e.type === "run_end")?.data.outcome as string | undefined;
   // Until the run ends, the line runs to now: a hung step keeps growing instead of reading as just started.
-  const over = data.some((e) => e.type === "run_end");
-  const span = Math.max(Math.max(...times, over ? 0 : nowMs) - from, 1);
+  // A paused run (its label says it waits for a person or the usage limit) is not working either:
+  // its line ends at the last event, and the wait counts apart, so Time stays the factory's own time.
+  const paused = !!state && PAUSED.includes(state);
+  const over = paused || data.some((e) => e.type === "run_end");
+  const last = Math.max(...times);
+  const span = Math.max(Math.max(last, over ? 0 : nowMs) - from, 1);
   const live = rows.find((l) => !l.end);
   const now = new Date(nowMs);
-  const stuck = (l: Lane) => !l.end && isStuck({ step: l.start.step ?? "", startedAt: l.start.at, ended: false }, limits, now);
+  const stuck = (l: Lane) => !over && !l.end && isStuck({ step: l.start.step ?? "", startedAt: l.start.at, ended: false }, limits, now);
   const open = rows.find((l) => l.start.id === openId);
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")));
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
   const nowText = live ? words(live.start.step ?? "") : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
-  const time = duration(span / 1000);
+  const waited = paused && !data.some((e) => e.type === "run_end") && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
+  const time = (
+    <>
+      {duration(span / 1000)}
+      {waited}
+    </>
+  );
   const cost = usd(rows.reduce((sum, l) => sum + l.costUsd, 0));
   const pills = (risk.risk || risk.mergeRisk !== undefined) && <RiskPills {...risk} />;
   const figures: [string, React.ReactNode][] = [
