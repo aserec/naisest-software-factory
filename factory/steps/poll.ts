@@ -4,7 +4,7 @@
 import { makeContext } from "../compose";
 import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
-import { pollRequests } from "./requests";
+import { pollRequests, replyOnChanges } from "./requests";
 import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
 
 // `skip`: tickets this poll started already (handleRequests).
@@ -50,6 +50,11 @@ export async function main(ctx?: StepContext) {
     takeSnapshot(ctx); // handleRequests answered requests: pollReady must see the new outcomes, as before
     console.log(`Started runs the dashboard asked for: ${handled.join(", ") || "none"}`);
     console.log(`Started request rounds for tickets: ${(await pollRequests(ctx, handled)).join(", ") || "none"}`);
+    try {
+      console.log(`Replied to requests on changes of tickets: ${(await replyOnChanges(ctx)).join(", ") || "none"}`);
+    } catch (e) {
+      console.log(`Replies on changes failed: ${String(e).slice(0, 300)}`);
+    }
     console.log(`Started build runs for tickets: ${(await pollReady(ctx, handled)).join(", ") || "none"}`);
     console.log(`Resumed runs a switch stopped: ${(await resumeSwitchedOff(ctx, handled)).join(", ") || "none"}`);
   } finally {

@@ -3,7 +3,7 @@ import { AI_LINE, noQuickActions } from "../gitlab";
 import type { GitHub } from "../github";
 import { gitRepo } from "../repo";
 import { findSecrets } from "../rules";
-import { changeBranchPrefix, type Checks, type CodeHost } from "../seams";
+import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "../seams";
 
 const ASSETS = "factory-assets"; // the branch that holds attached images, so they never enter a change
 
@@ -120,6 +120,14 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
         .filter((c) => !since || Date.parse(c.created_at) > Date.parse(since))
         .reverse()
         .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && String(c.body ?? "").startsWith(AI_LINE), body: c.body ?? "", at: c.created_at }));
+    },
+    // ponytail: newest 100 pulls only, as in changeOfTicket
+    async recentChanges(since) {
+      const pulls: any[] = await gh.json("GET", `${r}/pulls?state=open&sort=updated&direction=desc&per_page=100`);
+      return pulls.flatMap((x) => {
+        const ticket = ticketOfBranch(String(x.head?.ref));
+        return ticket && Date.parse(x.updated_at) > Date.parse(since) && String(x.head?.repo?.full_name).toLowerCase() === repo.toLowerCase() ? [{ ref: String(x.number), ticket }] : [];
+      });
     },
     async assignChange(ref, person) {
       await gh.json("POST", `${r}/issues/${Number(ref)}/assignees`, { assignees: [person] });

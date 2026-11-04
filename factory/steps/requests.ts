@@ -7,6 +7,12 @@ import { facts, save, type StepContext, type StepResult } from "./context";
 import { buildRunOf } from "./merge";
 import { block, continueAt } from "./run";
 
+// One Tracker.trusted call per author.
+const trustCache = (ctx: StepContext) => {
+  const seen = new Map<string, Promise<boolean>>();
+  return (author: string) => seen.get(author) ?? seen.set(author, ctx.tracker.trusted(author)).get(author)!;
+};
+
 // The requests after the cursor, oldest first, from the work item and from its open change.
 export async function newRequests(ctx: StepContext, ref: TicketRef): Promise<{ requests: Request[]; change?: { ref: ChangeRef; url: string } }> {
   const c = await ctx.codeHost.changeOfTicket(ref);
@@ -16,12 +22,12 @@ export async function newRequests(ctx: StepContext, ref: TicketRef): Promise<{ r
   const cursor = readCursor([...onItem, ...onChange]) ?? onChange.filter((x) => x.byFactory).reduce<string | undefined>((t, x) => later(t, x.at), undefined);
   if (cursor === undefined) return { requests: [] };
   const open = c?.open ? { ref: c.ref, url: c.url } : undefined;
-  const trust = new Map<string, Promise<boolean>>();
+  const trusted = trustCache(ctx);
   const requests: Request[] = [];
   const take = async (list: Comment[], on: Request["on"]) => {
     for (const x of list) {
       if (x.byFactory || Date.parse(x.at) <= Date.parse(cursor) || !isRequest(x.body)) continue;
-      if (await (trust.get(x.author) ?? trust.set(x.author, ctx.tracker.trusted(x.author)).get(x.author)!)) requests.push({ author: x.author, body: x.body, at: x.at, on });
+      if (await trusted(x.author)) requests.push({ author: x.author, body: x.body, at: x.at, on });
     }
   };
   await take(onItem, "work item");
@@ -105,4 +111,32 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   const rounds = [...(ctx.record.requestRounds ?? []), { cursor: newest, requests, costAtStart: ctx.record.costUsd, tokensAtStart: ctx.record.tokens ?? { input: 0, output: 0 } }];
   ctx.record = { ...ctx.record, rounds: { review: 0, gate: 0 }, requestRounds: rounds };
   return continueAt(ctx, ref, "prepare-patch", { fromPipeline: buildRun, sessionId: facts(ctx).session, round: rounds.length });
+}
+
+export const REPLY_WINDOW_MS = 10 * 60_000;
+
+// One reply on the change of a work item in a state that has no other path (needs_approval, running, stopped and waiting have one).
+// ponytail: one listing call and at most 100 changes a minute; a request older than 10 minutes when the poller was down gets no reply. Widen REPLY_WINDOW_MS or page further if that bites.
+export async function replyOnChanges(ctx: StepContext): Promise<TicketRef[]> {
+  const since = new Date(Date.now() - REPLY_WINDOW_MS).toISOString();
+  const trusted = trustCache(ctx);
+  const replied: TicketRef[] = [];
+  for (const { ref, ticket } of await ctx.codeHost.recentChanges(since)) {
+    try {
+      const comments = await ctx.codeHost.changeComments(ref, since);
+      const cursor = readCursor(comments);
+      const requests: Comment[] = [];
+      for (const x of comments) if (!x.byFactory && isRequest(x.body) && (cursor === undefined || Date.parse(x.at) > Date.parse(cursor)) && (await trusted(x.author))) requests.push(x);
+      if (requests.length === 0) continue;
+      const t = await ctx.tracker.ticket(ticket);
+      if (t.state && ["needs_approval", "running", "stopped", "waiting"].includes(t.state)) continue;
+      const newest = requests.reduce<string | undefined>((a, x) => later(a, x.at), undefined)!;
+      const authors = [...new Set(requests.map((x) => x.author))];
+      await ctx.codeHost.commentChange(ref, [...authors.map((a) => stateReply(a, t.state)), cursorLine(newest)].join("\n\n"));
+      replied.push(ticket);
+    } catch (e) {
+      console.log(`Reply on change ${ref} failed: ${String(e).slice(0, 300)}`);
+    }
+  }
+  return replied;
 }

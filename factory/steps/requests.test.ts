@@ -1,8 +1,8 @@
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { main } from "./poll";
 import { cursorLine } from "../requests";
 import { fakeWorld, BOT } from "./test-helpers";
-import { pollRequests } from "./requests";
+import { pollRequests, replyOnChanges, REPLY_WINDOW_MS } from "./requests";
 import { askPerson } from "./decision";
 import { addStep } from "../record";
 import type { FactoryState } from "../seams";
@@ -179,4 +179,102 @@ test("a first run with no round writes the cursor, so a request written during i
   w.host.sayOnChange("5", "dev", ASK, T2); // written during the risk check: before the needs-a-person comment
   await askPerson(w.ctx, ["risk"]);
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
+});
+
+// Replies on the change of a work item in any other state. The clock stands two minutes after the request.
+const NOW = "2026-10-01T11:02:00Z";
+const T3 = "2026-10-01T11:03:00Z";
+afterEach(() => vi.useRealTimers());
+function other(state: FactoryState | null) {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+  const w = fakeWorld({ state });
+  w.openChange();
+  w.host.sayOnChange("5", "dev", ASK, T1);
+  return w;
+}
+const reply = (w: ReturnType<typeof other>) => w.host.changeComments("5").then((c) => c.filter((x) => x.byFactory));
+
+test("a trusted request on the change of a blocked ticket gets one reply that ends with the cursor line, and starts no build", async () => {
+  const w = other("blocked");
+  expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
+  expect(w.mrComments).toHaveLength(1);
+  expect(w.mrComments[0].startsWith("@dev ")).toBe(true);
+  expect(w.mrComments[0]).toContain("factory_ready");
+  expect(w.mrComments[0].endsWith(cursorLine(T1))).toBe(true);
+  expect(w.ci.started).toEqual([]);
+  expect(w.workItemComments).toEqual([]);
+});
+test.each([["needs_info", "Answer the factory's questions"], ["ready", "factory_ready"], ["done", "work is done"], [null, "has not started work"]] as const)("a request on the change of a ticket in state %s gets its own reply", async (state, sentence) => {
+  const w = other(state);
+  expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
+  expect(w.mrComments).toHaveLength(1);
+  expect(w.mrComments[0]).toContain(sentence);
+  expect(w.mrComments[0].endsWith(cursorLine(T1))).toBe(true);
+});
+test("the next call replies to nothing, and a second request after the reply gets its own reply", async () => {
+  const w = other("blocked");
+  await replyOnChanges(w.ctx);
+  expect(await replyOnChanges(w.ctx)).toEqual([]);
+  expect(await reply(w)).toHaveLength(1);
+  w.host.sayOnChange("5", "dev", ASK, T3);
+  vi.setSystemTime("2026-10-01T11:04:00Z");
+  expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
+  expect(w.mrComments).toHaveLength(2);
+  expect(w.mrComments[1].endsWith(cursorLine(T3))).toBe(true);
+});
+test("an untrusted author gets no reply", async () => {
+  const w = other("blocked");
+  w.tracker.trusted = async () => false;
+  expect(await replyOnChanges(w.ctx)).toEqual([]);
+  expect(w.mrComments).toEqual([]);
+});
+test("a factory comment that quotes @factory gets no reply, even from a tracker that trusts the factory", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+  const w = fakeWorld({ state: "blocked" });
+  w.openChange();
+  w.tracker.trusted = async () => true;
+  w.host.sayOnChange("5", BOT, `You wrote: ${ASK}`, T1, true);
+  expect(await replyOnChanges(w.ctx)).toEqual([]);
+  expect(w.mrComments).toEqual([]);
+});
+test.each(["@factory stop", "@factory resume", "looks good"])("the comment %j gets no reply", async (body) => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+  const w = fakeWorld({ state: "blocked" });
+  w.openChange();
+  w.host.sayOnChange("5", "dev", body, T1);
+  expect(await replyOnChanges(w.ctx)).toEqual([]);
+  expect(w.mrComments).toEqual([]);
+});
+test.each(["needs_approval", "running", "stopped", "waiting"] as const)("a ticket in %s is skipped here, since another path answers it", async (state) => {
+  const w = other(state);
+  expect(await replyOnChanges(w.ctx)).toEqual([]);
+  expect(w.mrComments).toEqual([]);
+});
+test("recentChanges is called once with since 10 minutes before now, and comments are read only for the changes it returns", async () => {
+  const w = other("blocked");
+  w.host.openChange("factory/9-other", "Other", "Factory run 42: https://ci.example/runs/42", "9");
+  w.host.sayOnChange("6", "dev", ASK, T0); // updated an hour before the window
+  const recent = vi.spyOn(w.host, "recentChanges");
+  const comments = vi.spyOn(w.host, "changeComments");
+  await replyOnChanges(w.ctx);
+  expect(recent.mock.calls).toEqual([[new Date(Date.parse(NOW) - REPLY_WINDOW_MS).toISOString()]]);
+  expect(comments.mock.calls.map((c) => c[0])).toEqual(["5"]);
+});
+test("a change that fails does not stop the next", async () => {
+  const w = other("blocked");
+  w.tracker.tickets.get("9")!.state = "blocked";
+  w.host.openChange("factory/9-other", "Other", "Factory run 42: https://ci.example/runs/42", "9");
+  w.host.sayOnChange("6", "dev", ASK, T1);
+  const commentChange = w.host.commentChange;
+  w.host.commentChange = async (ref, text) => { if (ref === "6") throw new Error("status 503"); return commentChange(ref, text); };
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
+    expect(log).toHaveBeenCalledWith("Reply on change 6 failed: Error: status 503");
+  } finally {
+    log.mockRestore();
+  }
 });

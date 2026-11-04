@@ -196,6 +196,19 @@ test("changeComments compares times as times: a comment at the same second plus 
   expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => c.body)).toEqual(["later"]);
 });
 
+test("recentChanges makes one call and keeps the changes updated after since, from the factory's branches of this repo", async () => {
+  const pull = (number: number, ref: string, updated_at: string, repo = "o/app") => ({ number, head: { ref, repo: { full_name: repo } }, updated_at });
+  routes[`${R}/pulls`] = [
+    pull(12, "factory/12-x", "2026-11-04T11:00:00Z"),
+    pull(13, "factory/13-y", "2026-11-04T11:00:00Z", "fork/app"),
+    pull(14, "feature/x", "2026-11-04T11:00:00Z"),
+    pull(15, "factory/15-z", "2026-11-04T09:00:00Z"),
+    pull(16, "factory/16-w", "2026-11-04T10:00:00.500Z", "O/App"),
+  ];
+  expect(await host().recentChanges("2026-11-04T10:00:00Z")).toEqual([{ ref: "12", ticket: "12" }, { ref: "16", ticket: "16" }]);
+  expect(calls.map((c) => c.path)).toEqual([`${R}/pulls?state=open&sort=updated&direction=desc&per_page=100`]);
+});
+
 test("attach puts the image on its own branch, made from the base the first time", async () => {
   routes[`${R}/git/ref/heads/develop`] = { object: { sha: "b" } };
   routes[`POST ${R}/git/refs`] = {};

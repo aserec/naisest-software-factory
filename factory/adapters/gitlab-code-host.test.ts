@@ -274,6 +274,17 @@ describe("merge, revert, comment, assign", () => {
     ];
     expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => c.body)).toEqual(["later"]);
   });
+  test("recentChanges makes one call and keeps the open changes of the factory's branches from this project", async () => {
+    routes["/projects/7/merge_requests"] = [
+      { iid: 12, source_branch: "factory/12-x", source_project_id: 7 },
+      { iid: 13, source_branch: "factory/13-y", source_project_id: 99 },
+      { iid: 14, source_branch: "feature/x", source_project_id: 7 },
+    ];
+    const since = "2026-11-04T10:00:00Z";
+    expect(await host().recentChanges(since)).toEqual([{ ref: "12", ticket: "12" }]);
+    const listing = calls.filter((c) => c.url.startsWith("/projects/7/merge_requests"));
+    expect(listing.map((c) => c.url)).toEqual([`/projects/7/merge_requests?state=opened&updated_after=${encodeURIComponent(since)}&order_by=updated_at&sort=desc&per_page=100`]);
+  });
   test("assign looks up the user and puts the id on the change", async () => {
     routes["/users"] = [{ id: 12 }];
     routes["PUT /projects/7/merge_requests/5"] = {};

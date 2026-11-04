@@ -81,6 +81,7 @@ export interface CodeHost {
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   changeComments(ref: ChangeRef, since?: string): Promise<Comment[]>; // people's and the factory's comments, newest first, only those created after since; system notes left out
+  recentChanges(since: string): Promise<{ ref: ChangeRef; ticket: TicketRef }[]>; // the open changes of this repo from branches factory/<n>-, updated after since, newest first, at most 100, from one listing call; forks left out
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
   closeChange(ref: ChangeRef): Promise<void>; // closes without merging
@@ -88,6 +89,7 @@ export interface CodeHost {
 
 // The factory's change branches are named factory/<ticket>-<slug>. The dash keeps ticket 12 apart from ticket 123.
 export const changeBranchPrefix = (ticket: TicketRef) => `factory/${ticket}-`;
+export const ticketOfBranch = (branch: string): TicketRef | undefined => /^factory\/(\d+)-/.exec(branch)?.[1];
 
 // The run is not one the factory started. Never worth a retry.
 export class NotFactoryRunError extends Error {}

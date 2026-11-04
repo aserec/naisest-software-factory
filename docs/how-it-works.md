@@ -94,7 +94,7 @@ A person asks for more work on a factory merge request by writing a comment with
 - **`factory_needs_approval`.** The request starts a round.
 - **`factory_running`.** Nothing starts. The author agent hears the comment through its inbox while it works, like any comment from a person, and the run notes how far the agent read.
 - **`factory_stopped` and `factory_waiting`.** One reply on the work item, with the cursor line, that says what to do (comment `@factory resume`, or wait for the usage limit to end). The next poll does not answer the same request again.
-- **Other states** (`blocked`, `needs_info`, `ready`, `done`, or none). The reply says that the factory takes requests only while the change waits for a person. Only the GitLab webhook sends it for now.
+- **Other states** (`blocked`, `needs_info`, `ready`, `done`, or none). The reply says that the factory takes requests only while the change waits for a person. The poller answers a request on the merge request of such a work item with one short reply on that merge request, with the cursor line. It finds them in one listing of the open merge requests updated in the last 10 minutes (at most 100), so a request older than 10 minutes when the poller was down gets no reply. A request on such a work item itself is answered only by the GitLab webhook.
 - **The injection check.** Before a round starts, the judge reads every new request with the triage injection question. If one of them is a likely injection (P(yes) 0.3 or more, or no number), the whole round is refused: the factory comments on the work item that a person must read it, moves the cursor, and the change keeps waiting for a person. If the judge fails, nothing is refused and the cursor does not move, so the next poll tries again.
 
 ### How a round runs
@@ -111,7 +111,7 @@ The cursor of that last comment is the newest of the round's cursor and the newe
 
 ### How the factory hears a request
 
-The deployed factory runs with `ci: local`, where no webhook starts a pipeline, so the poller is the main path. Every minute it reads the new comments of each `factory_needs_approval` work item and its merge request, and starts a round for the oldest item with a request (at most one round per minute). It also sends the replies above for `factory_stopped` and `factory_waiting`. A round does not check the `new_runs` switch; the `prepare_patch` switch stops it like any prepare-patch. With `ci: gitlab`, a GitLab comment webhook (a note on the work item, or on a merge request from the same project) starts the same round at once, and the poller stays the fallback.
+The deployed factory runs with `ci: local`, where no webhook starts a pipeline, so the poller is the main path. Every minute it reads the new comments of each `factory_needs_approval` work item and its merge request, and starts a round for the oldest item with a request (at most one round per minute). It also sends the replies above for `factory_stopped` and `factory_waiting`, and the reply for the merge request of an item in any other state. A round does not check the `new_runs` switch; the `prepare_patch` switch stops it like any prepare-patch. With `ci: gitlab`, a GitLab comment webhook (a note on the work item, or on a merge request from the same project) starts the same round at once, and the poller stays the fallback.
 
 ## The merge rule
 
@@ -142,7 +142,7 @@ The person is the first of these. After a round, it is the author of the newest 
 
 Two scheduled pipelines run for each target (see `docs/add-a-repo.md`).
 
-- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and answers requests on stopped and waiting items (see Requests on a merge request).
+- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and answers requests on stopped and waiting items and on the merge requests of items in any other state (see Requests on a merge request).
 - **Retry**, every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
 
 At most 2 runs at once per target, and one run per work item.
