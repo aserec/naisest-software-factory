@@ -9,7 +9,8 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { inbox, prompt, runStep, save, ticketText } from "./context";
+import { CONTINUE, inbox, prompt, runStep, save, ticketText } from "./context";
+import type { HarnessJob, HarnessResult } from "../seams";
 import { previewLine } from "./prepare-patch";
 import * as preparePatchStep from "./prepare-patch";
 import { cursorLine } from "../requests";
@@ -1941,6 +1942,51 @@ test("a request round restores the run, tells the work item, clears the marks an
   // The next job picks the saved session up.
   await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
   expect(w.claudeRuns[0]).toMatchObject({ resume: runFacts(first.record).session });
+});
+// The author works on the round's requests (Task 7).
+const REQUESTS = `<request author="dev">@factory add a screenshot</request>`;
+async function roundPrepare(o: WorldOptions = {}, script?: (job: HarnessJob) => Partial<HarnessResult> | undefined) {
+  const { first, w } = await requestWorld(o);
+  const dir = tmp();
+  await eventJob(w, dir);
+  if (script) { const run = w.harness.run; w.harness.run = async (job) => ({ ...(await run(job)), ...script(job) }); } // the world's harness records the job; the script changes its result
+  const start = w.claudeRuns.length;
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  return { first, w, dir, runs: w.claudeRuns.slice(start) };
+}
+test("a round resumes the saved session with the request prompt, the wrapped requests and no ticket block, and keeps the author's answer", async () => {
+  const { first, w, runs } = await roundPrepare({ factoryFile: "install: changed\nlint: x\ntest: x\nbuild: x\n" });
+  expect(runs).toHaveLength(1);
+  expect(runs[0].resume).toBe(runFacts(first.record).session);
+  expect(runs[0].prompt.startsWith(prompt("request"))).toBe(true);
+  expect(runs[0].prompt).toContain(REQUESTS);
+  expect(runs[0].prompt).toContain(`<request author="dev">@factory and rename the prop</request>`);
+  expect(runs[0].prompt).not.toContain("<ticket>");
+  expect(w.ran).toContain("pnpm install --frozen-lockfile"); // the saved commands, not the work tree's
+  expect(w.ran).not.toContain("changed");
+  expect(w.record.requestRounds!.at(-1)!.answer).toBe("1. Which list?");
+});
+test("a round whose saved session cannot be loaded runs the author again with a new session, the prepare prompt, the ticket and the requests", async () => {
+  const { w, runs } = await roundPrepare({}, (job) => (job.resume ? { ok: false, text: "No conversation found" } : undefined));
+  expect(runs).toHaveLength(2);
+  expect(runs[0].resume).toBeDefined();
+  expect(runs[1].resume).toBeUndefined();
+  expect(runs[1].prompt.startsWith(prompt("prepare"))).toBe(true);
+  expect(runs[1].prompt).toContain("<ticket>");
+  expect(runs[1].prompt).toContain(REQUESTS);
+  expect(w.record.requestRounds!.at(-1)!.answer).toBe("1. Which list?");
+  expect(w.states).toEqual(["running"]);
+});
+test("a round that hits the usage limit is resumed with CONTINUE, not the requests again", async () => {
+  const { first, w, dir } = await roundPrepare({}, (job) => (job.resume ? { session: "sess-limit", ok: false, limitHit: true, text: "usage limit reached" } : undefined));
+  expect(w.states).toEqual(["waiting"]);
+  expect(w.record.requestRounds!.at(-1)!.answer).toBeUndefined();
+  const retry = fakeWorld({ state: "waiting" });
+  retry.ci.vars = { ...retry.ci.vars, payload: undefined, ticket: "8", buildRun: "42" };
+  retry.ci.buildRecord = async () => w.record;
+  await runBuildJobs(retry, tmp());
+  expect(retry.claudeRuns[0]).toMatchObject({ resume: "sess-limit", prompt: CONTINUE });
+  expect(runFacts(first.record).roundStart).toBe(false);
 });
 // The GitLab webhook hears a request at once: the same answer the poller gives.
 const requestEvent = (actor = "dev", change?: string) => ({ kind: "request", ticket: "8", actor, ...(change ? { change } : {}) }) as const;
