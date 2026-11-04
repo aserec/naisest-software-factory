@@ -123,6 +123,16 @@ test("Proof names the review, checks and rules the run did not send, so a missin
   expect([await fact("Review"), await fact("Checks"), await fact("Rules")]).toEqual(["None sent", "None sent", "None sent"]);
 });
 
+test("a failed poll keeps the steps on screen under the error", async () => {
+  let fail = false;
+  vi.stubGlobal("fetch", vi.fn(async () => (fail ? new Response("", { status: 500 }) : json({ events, cursor: 9 }))));
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /prepare-patch/ });
+  fail = true;
+  expect((await screen.findByRole("alert", {}, { timeout: 3000 })).textContent).toMatch(/^Could not load the run\. Showing it as of /);
+  expect(screen.getByRole("button", { name: /prepare-patch/ })).toBeTruthy();
+});
+
 test("a run with no proof events shows no Proof section", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: [ev("step_start", "00", { step: "triage" })], cursor: 1 })));
   renderWithQuery(<RunTimeline run="r1" />);

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Confirm } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { STATE } from "./board";
+import { LoadError } from "./shell";
 
 type Action = "stop" | "resume" | "restart";
 interface RunState {
@@ -44,7 +45,7 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
 export function RunControls({ run, state }: { run: string; state?: string }) {
   const client = useQueryClient();
   const key = ["run-state", run];
-  const { data, error } = useQuery({
+  const runState = useQuery({
     queryKey: key,
     refetchInterval: 3000,
     queryFn: async () => {
@@ -56,17 +57,15 @@ export function RunControls({ run, state }: { run: string; state?: string }) {
   const send = useMutation({
     mutationFn: async (action: Action) => {
       const r = await api(`/api/runs/${encodeURIComponent(run)}/${action}`, { method: "POST" });
-      if (!r.ok) throw new Error(await r.text());
+      // 409: the same request already waits. 403: the server's sentence says which role is missing.
+      if (r.status === 409) throw new Error(`${action[0].toUpperCase() + action.slice(1)} is already requested.`);
+      if (!r.ok) throw new Error(`Could not send ${action}. ${r.status === 403 ? await r.text() : "Try again."}`);
     },
     onSettled: () => client.invalidateQueries({ queryKey: key }),
   });
   // Without a state there is nothing safe to offer, so say why the buttons are missing.
-  if (!data && error)
-    return (
-      <p role="alert" className="text-destructive">
-        Could not read the run state ({error.message}). Stop and Resume show once it loads.
-      </p>
-    );
+  const { data, error } = runState;
+  if (!data && error) return <LoadError what="the run state, so Stop and Resume are hidden" query={runState} />;
   if (!data) return null;
   // A cancel means the run is over even before the poller sets the stopped label, so only Restart is left (Ruling R18).
   // A done restart ended the run: a new run carries on, so this one shows no buttons.

@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { HostStat, LogLine, LogSource } from "@/server/grafana";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/utils";
-import { SectionHeading } from "./shell";
+import { LoadError, SectionHeading } from "./shell";
 
 type Part<T> = T | { error: string } | { unset: string };
 interface Runner {
@@ -54,7 +54,7 @@ function Used({ label, value }: { label: string; value: number }) {
 export function RunnerView() {
   const [source, setSource] = useState<LogSource>("docker");
   const [host, setHost] = useState("");
-  const { data, error } = useQuery({
+  const runner = useQuery({
     queryKey: ["runner", source, host],
     refetchInterval: 15_000,
     queryFn: async () => {
@@ -63,15 +63,12 @@ export function RunnerView() {
       return (await r.json()) as Runner;
     },
   });
+  const { data, error } = runner;
   // No log source to switch between when Grafana is not set up.
   const unset = !!data && "unset" in data.logs;
   return (
     <div className="flex flex-col gap-8">
-      {error && (
-        <p role="alert" className="text-destructive">
-          {error.message}
-        </p>
-      )}
+      {error && <LoadError what="the runner view" query={runner} />}
       <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <section>
           <SectionHeading>Running jobs</SectionHeading>

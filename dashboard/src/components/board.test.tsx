@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ago, duration } from "@/lib/utils";
 import { Board, emptyLine, finding, RiskPills, type BoardItem } from "./board";
@@ -41,10 +42,29 @@ test("high triage risk and a merge risk above the limit take the warning pill, t
   expect(variants({})).toEqual([]);
 });
 
-test("shows the error when the board fails", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 502 })));
-  renderWithQuery(<Board />);
-  expect((await screen.findByRole("alert")).textContent).toContain("502");
+test("a failed board load says so in plain words, keeps the last board with its time, and Retry loads it again", async () => {
+  let fail = false;
+  const fetchMock = vi.fn(async () => (fail ? new Response("", { status: 502 }) : json([item({ title: "Fix login" })])));
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = within(
+    render(
+      <QueryClientProvider client={client}>
+        <Board />
+      </QueryClientProvider>,
+    ).container,
+  );
+  await view.findByRole("link", { name: "Fix login" });
+  fail = true;
+  await client.refetchQueries();
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toMatch(/^Could not load the board\. Showing it as of \d\d:\d\d.*\.Retry$/);
+  expect(view.getByRole("link", { name: "Fix login" })).toBeTruthy();
+  fail = false;
+  const calls = fetchMock.mock.calls.length;
+  fireEvent.click(view.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(view.queryByRole("alert")).toBeNull());
+  expect(fetchMock.mock.calls.length).toBe(calls + 1);
 });
 
 test("the finding names what waits for a person, and says so when nothing does", () => {

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { ago, usd } from "@/lib/utils";
-import { SectionHeading } from "./shell";
+import { LoadError, SectionHeading } from "./shell";
 
 // One column per state label. Keep in step with STATES in server/gitlab.ts.
 export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"].map((s) => `factory_${s}`);
@@ -151,14 +151,11 @@ export function useBoard() {
 }
 
 export function Board() {
-  const { data, error } = useBoard();
+  const board = useBoard();
+  const { data, error } = board;
   return (
     <>
-      {error && (
-        <p role="alert" className="mb-6 text-destructive">
-          {error.message}
-        </p>
-      )}
+      {error && <LoadError what="the board" query={board} className="mb-6" />}
       {!data && !error && <p className="text-muted-foreground">Loading the board…</p>}
       {data && (
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">

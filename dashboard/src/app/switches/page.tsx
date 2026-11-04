@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { SWITCHES, type SwitchName } from "software-factory/run-events";
-import { PageTitle, SectionHeading } from "@/components/shell";
+import { LoadError, PageTitle, SectionHeading } from "@/components/shell";
 import { Confirm } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -40,7 +40,7 @@ const ASK_ON: Partial<Record<SwitchName, string>> = {
 
 export default function SwitchesPage() {
   const client = useQueryClient();
-  const { data, error } = useQuery({
+  const switches = useQuery({
     queryKey: ["switches"],
     queryFn: async () => {
       const r = await api("/api/switches");
@@ -51,11 +51,12 @@ export default function SwitchesPage() {
   const change = useMutation({
     mutationFn: async (v: { scope: string; name: SwitchName; on: boolean }) => {
       const r = await api("/api/switches", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(v) });
-      if (!r.ok) throw new Error(await r.text());
+      // 403: the server's sentence says which role is missing.
+      if (!r.ok) throw new Error(`Could not turn ${label(v.name)} ${v.on ? "on" : "off"} for ${where(v.scope)}. ${r.status === 403 ? await r.text() : "Try again."}`);
     },
     onSettled: () => client.invalidateQueries({ queryKey: ["switches"] }),
   });
-  const failure = error ?? change.error;
+  const { data, error } = switches;
   const [ask, setAsk] = useState<{ scope: string; name: SwitchName }>();
   const where = (scope: string) => (scope === "*" ? "all targets" : scope);
   const cell = (scope: string, name: SwitchName, on: boolean) => {
@@ -66,9 +67,10 @@ export default function SwitchesPage() {
   return (
     <main>
       <PageTitle title="Switches">A switch with no saved value is on. A target is off when the all-targets row is off. Current steps finish when you turn a switch off.</PageTitle>
-      {failure && (
+      {error && <LoadError what="the switches" query={switches} className="mb-6" />}
+      {change.error && (
         <p role="alert" className="mb-6 text-destructive">
-          {failure.message}
+          {change.error.message}
         </p>
       )}
       <p className="mb-2 text-muted-foreground md:hidden">Scroll the table sideways for all {SWITCHES.length} switches.</p>

@@ -4,6 +4,7 @@ import { LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -68,6 +69,22 @@ export function PageTitle({ title, children, actions }: { title: React.ReactNode
         {children && <p className="mt-1 text-muted-foreground">{children}</p>}
       </div>
       {actions}
+    </div>
+  );
+}
+
+// A load that failed: what failed in plain words, the time of the data still on screen, and Retry.
+// The server's status stays out; the server logs it.
+export function LoadError({ what, query, className = "" }: { what: string; query: { dataUpdatedAt: number; isFetching: boolean; refetch: () => unknown }; className?: string }) {
+  const asOf = query.dataUpdatedAt ? new Date(query.dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : undefined;
+  return (
+    <div role="alert" className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 text-destructive", className)}>
+      <p>
+        Could not load {what}.{asOf && ` Showing it as of ${asOf}.`}
+      </p>
+      <Button variant="outline" disabled={query.isFetching} onClick={() => query.refetch()}>
+        Retry
+      </Button>
     </div>
   );
 }

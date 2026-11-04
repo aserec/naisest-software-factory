@@ -83,7 +83,7 @@ test("shows the reason when the server refuses", async () => {
   renderWithQuery(<RunControls run="r1" />);
   fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
   fireEvent.click(screen.getAllByRole("button", { name: "Stop" }).at(-1)!);
-  expect((await screen.findByRole("alert")).textContent).toBe("already requested");
+  expect((await screen.findByRole("alert")).textContent).toBe("Stop is already requested.");
 });
 
 test("says why there are no buttons, and that the state could not be read", async () => {
@@ -93,7 +93,7 @@ test("says why there are no buttons, and that the state could not be read", asyn
   cleanup();
   vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
   renderWithQuery(<RunControls run="r1" />);
-  expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("Could not read the run state (500). Stop and Resume show once it loads.");
+  expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("Could not load the run state, so Stop and Resume are hidden.Retry");
 });
 
 test("without a label_change the GitLab state picks the buttons, and a run waiting for approval shows no sentence", async () => {

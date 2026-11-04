@@ -62,9 +62,9 @@ test("while a change is sent, only that switch is disabled", async () => {
   expect(screen.getByRole("switch", { name: "Watcher for all targets" }).hasAttribute("disabled")).toBe(false);
 });
 
-test("shows the reason when the change is refused", async () => {
-  vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response("no role", { status: 403 }) : json({ "*": all }))));
+test("a refused change names the switch and the missing role", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response("You need the Developer role on the factory project.", { status: 403 }) : json({ "*": all }))));
   renderWithQuery(<SwitchesPage />);
   fireEvent.click(await screen.findByRole("switch", { name: "Retry for all targets" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("no role");
+  expect((await screen.findByRole("alert")).textContent).toBe("Could not turn Retry off for all targets. You need the Developer role on the factory project.");
 });

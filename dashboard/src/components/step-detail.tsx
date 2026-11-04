@@ -1,10 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import type { RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { duration, usd } from "@/lib/utils";
-import { SectionHeading } from "./shell";
+import { LoadError, SectionHeading } from "./shell";
 
 const ofType = (events: RunEvent[], type: RunEvent["type"]) => events.filter((e) => e.type === type).map((e) => e.data as Record<string, any>);
 const count = (n: number) => n.toLocaleString("en");
@@ -12,19 +12,15 @@ const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-d
 const pre = "rounded-md bg-raised p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words";
 
 // A step that ran without CI (local-run.sh, the worker) sends its output with its step_end event instead.
-function JobLog({ job, end, log: { data, error, isLoading } }: { job?: string; end?: RunEvent; log: { data?: string; error: Error | null; isLoading: boolean } }) {
+function JobLog({ job, end, log }: { job?: string; end?: RunEvent; log: UseQueryResult<string> }) {
+  let { data } = log;
   const note = (text: string) => <p className="text-muted-foreground">{text}</p>;
   if (!job) {
     if (!end) return note("The log shows when the step ends.");
     if (typeof end.data.log !== "string") return note("This step has no CI job and sent no log.");
     data = end.data.log;
-  } else if (error)
-    return (
-      <p role="alert" className="text-destructive">
-        {error.message}
-      </p>
-    );
-  else if (isLoading) return note("Loading the job log…");
+  } else if (log.error) return <LoadError what="the job log" query={log} />;
+  else if (log.isLoading) return note("Loading the job log…");
   return <pre className={pre}>{data}</pre>;
 }
 

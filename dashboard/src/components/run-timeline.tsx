@@ -8,7 +8,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { duration, usd } from "@/lib/utils";
 import { Fact, StepDetail } from "./step-detail";
 import { RiskPills } from "./board";
-import { SectionHeading } from "./shell";
+import { LoadError, SectionHeading } from "./shell";
 import { isStuck } from "./stuck";
 
 export type SeqEvent = RunEvent & { seq: number };
@@ -191,16 +191,12 @@ function useNow() {
 // risk: the work item's triage risk and the run's merge risk, read on the server.
 // state: the work item's state label in GitLab, read on the server.
 export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number }; state?: string }) {
-  const { data, error } = useRunEvents(run);
+  const events = useRunEvents(run);
+  const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
   const nowMs = useNow();
-  if (error)
-    return (
-      <p role="alert" className="text-destructive">
-        {error.message}
-      </p>
-    );
-  if (!data) return <p className="text-muted-foreground">Loading the run…</p>;
+  const failed = error && <LoadError what="the run" query={events} className="mb-6" />;
+  if (!data) return failed || <p className="text-muted-foreground">Loading the run…</p>;
   const rows = lanes(data);
   if (rows.length === 0) return <p className="text-muted-foreground">No steps yet.</p>;
   const times = data.map((e) => Date.parse(e.at));
@@ -218,6 +214,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
   return (
     <>
+      {failed}
       {/* The page pads itself for the open panel (main in runs/[run]/page.tsx), so the title row moves too. */}
       <div className="@container" data-panel={open ? "open" : undefined}>
         <div className="mb-8 grid grid-cols-2 border-y @3xl:grid-cols-4">
