@@ -1,5 +1,5 @@
 // Part G: a `@factory` request from a trusted person starts a round on a ticket that waits for a person, or gets a reply.
-import { cursorLine, isRequest, later, newestByFactory, readCursor, stateReply } from "../requests";
+import { cursorLine, isRequest, later, newestByFactory, readCursor, readyForLine, stateReply } from "../requests";
 import type { Request } from "../record";
 import type { ChangeRef, Comment, FactoryState, Ticket, TicketRef } from "../seams";
 import { INJECTION_LIMIT, buildTriageState, injectionQuestion } from "../triage";
@@ -36,7 +36,8 @@ export async function newRequests(ctx: StepContext, ref: TicketRef, forReply = f
   return { requests: requests.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)), ...(open ? { change: open } : {}) };
 }
 
-// needs_approval: start a round. running: nothing, the inbox has it. Any other state: one reply on the work item.
+// needs_approval: start a round. blocked, needs_info: ready again, as if the newest author added factory_ready.
+// running: nothing, the inbox has it. Any other state: one reply on the work item.
 export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"started" | "replied" | "none"> {
   if (t.state === "running") return "none";
   const { requests, change } = await newRequests(ctx, t.ref, t.state !== "needs_approval");
@@ -49,6 +50,13 @@ export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"star
     await ctx.ci.start({ kind: "build", ticket: t.ref, buildRun, change: change.ref });
     return "started";
   }
+  if (t.state === "blocked" || t.state === "needs_info") {
+    // The poller starts the ready ticket; readyActor takes the factory's ready as this person's.
+    const last = requests.at(-1)!;
+    await ctx.tracker.comment(t.ref, `The factory starts again for the request of @${last.author}.\n\n${readyForLine(last.author)}\n\n${cursorLine(last.at)}`);
+    await ctx.tracker.setState(t.ref, "ready");
+    return "started";
+  }
   const authors = [...new Set(requests.map((r) => r.author))];
   await ctx.tracker.comment(t.ref, [...authors.map((a) => stateReply(a, t.state)), cursorLine(requests.at(-1)!.at)].join("\n\n"));
   return "replied";
@@ -58,7 +66,7 @@ export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"star
 // `skip`: tickets this poll started already.
 export async function pollRequests(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
   const started: TicketRef[] = [];
-  for (const state of ["needs_approval", "stopped", "waiting"] as FactoryState[]) {
+  for (const state of ["needs_approval", "stopped", "waiting", "blocked", "needs_info"] as FactoryState[]) {
     for (const t of await ctx.tracker.list(state)) {
       if (skip.includes(t.ref) || (state === "needs_approval" && started.length > 0)) continue;
       // One failed ticket must not stop the poller: it is logged and tried again next minute.
@@ -119,13 +127,15 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
 
 export const REPLY_WINDOW_MS = 10 * 60_000;
 
-// One reply on the change of a work item in a state that has no other path (needs_approval, running, stopped and waiting have one).
+// One reply on the change of a work item in a state that has no other path (pollRequests answers the states it lists, the inbox running).
 // ponytail: one listing call and at most 100 changes a minute; a request older than 10 minutes when the poller was down gets no reply. Widen REPLY_WINDOW_MS or page further if that bites.
-export async function replyOnChanges(ctx: StepContext): Promise<TicketRef[]> {
+// `skip`: tickets pollRequests answered in this poll. A ticket it set ready must not also get the ready reply.
+export async function replyOnChanges(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
   const since = new Date(Date.now() - REPLY_WINDOW_MS).toISOString();
   const trusted = trustCache(ctx);
   const replied: TicketRef[] = [];
   for (const { ref, ticket } of await ctx.codeHost.recentChanges(since)) {
+    if (skip.includes(ticket)) continue;
     try {
       const comments = await ctx.codeHost.changeComments(ref, since);
       const cursor = readCursor(comments);
@@ -133,7 +143,7 @@ export async function replyOnChanges(ctx: StepContext): Promise<TicketRef[]> {
       for (const x of comments) if (!x.byFactory && isRequest(x.body) && (cursor === undefined || Date.parse(x.at) > Date.parse(cursor)) && (await trusted(x.author))) requests.push(x);
       if (requests.length === 0) continue;
       const t = await ctx.tracker.ticket(ticket);
-      if (t.state && ["needs_approval", "running", "stopped", "waiting"].includes(t.state)) continue;
+      if (t.state && ["needs_approval", "running", "stopped", "waiting", "blocked", "needs_info"].includes(t.state)) continue;
       // The webhook answers on the work item, with its own cursor line: that counts for the change too.
       // No cursor line: the factory's newest comment on the change, else on the work item. With none, every request in the window.
       const onItem = await ctx.tracker.comments(ticket);

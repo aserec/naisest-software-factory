@@ -21,7 +21,7 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
     // One failed ticket must not stop the poller: it is logged and tried again next minute.
     try {
       // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every minute.
-      const actor = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
+      const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
       if (!(await mayStart(ctx, actor, t))) continue;
       await ctx.ci.start({ kind: "build", ticket: t.ref });
       start.push(t.ref);
@@ -49,9 +49,10 @@ export async function main(ctx?: StepContext) {
     const handled = await handleRequests(ctx);
     takeSnapshot(ctx); // handleRequests answered requests: pollReady must see the new outcomes, as before
     console.log(`Started runs the dashboard asked for: ${handled.join(", ") || "none"}`);
-    console.log(`Started request rounds for tickets: ${(await pollRequests(ctx, handled)).join(", ") || "none"}`);
+    const answered = await pollRequests(ctx, handled);
+    console.log(`Started request rounds or set ready for tickets: ${answered.join(", ") || "none"}`);
     try {
-      console.log(`Replied to requests on changes of tickets: ${(await replyOnChanges(ctx)).join(", ") || "none"}`);
+      console.log(`Replied to requests on changes of tickets: ${(await replyOnChanges(ctx, answered)).join(", ") || "none"}`);
     } catch (e) {
       console.log(`Replies on changes failed: ${String(e).slice(0, 300)}`);
     }

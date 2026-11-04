@@ -366,12 +366,28 @@ test("a closed waiting ticket ends, and one failed ticket does not stop the othe
 });
 
 // Part G: the poller answers a request on the change of a ticket in any other state.
-test("the poller replies to a request on the change of a blocked ticket and logs it", async () => {
+test("in one poll, a request on the change of a blocked ticket sets it ready and gets no reply on the change", async () => {
   vi.stubEnv("FACTORY_SCHEDULE", "poll");
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   try {
     const ctx = fakeCtx({ running: 0 });
     ctx.world.tracker.tickets.get("8")!.state = "blocked";
+    ctx.world.openChange();
+    ctx.world.host.sayOnChange("5", "dev", "@factory fix the 409");
+    await main(ctx);
+    expect(ctx.world.tracker.tickets.get("8")!.state).toBe("ready");
+    expect(ctx.world.mrComments).toEqual([]);
+  } finally {
+    vi.unstubAllEnvs();
+    log.mockRestore();
+  }
+});
+test("the poller replies to a request on the change of a done ticket and logs it", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const ctx = fakeCtx({ running: 0 });
+    ctx.world.tracker.tickets.get("8")!.state = "done";
     ctx.world.openChange();
     ctx.world.host.sayOnChange("5", "dev", "@factory fix the 409");
     await main(ctx);

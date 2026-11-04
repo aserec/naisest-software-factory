@@ -11,6 +11,10 @@ export function isRequest(body: string): boolean {
 
 export const cursorLine = (at: string) => `Requests read up to: ${at}`;
 
+// The line on the factory's comment that set a blocked or needs_info work item ready for a person's request.
+export const readyForLine = (person: string) => `Ready for the request of: ${person}`;
+export const readyForOf = (body: string): string | undefined => /^Ready for the request of: (\S+)$/m.exec(body)?.[1];
+
 // The cursor of the newest factory comment that has the line. Comments by people are ignored.
 export function readCursor(comments: Comment[]): string | undefined {
   const withLine = comments.filter((c) => c.byFactory).map((c) => ({ at: c.at, cursor: /^Requests read up to: (\S+)/m.exec(c.body)?.[1] }));
@@ -27,8 +31,6 @@ const WHAT: Partial<Record<FactoryState, string>> = {
   stopped: "Comment `@factory resume` to continue the run. The factory takes up this request once its change waits for a person.",
   waiting: "The run waits for the author agent's usage limit. The factory continues it within the hour and takes up this request once its change waits for a person.",
   ready: "The run starts soon. Write the request again once the change waits for a person.",
-  blocked: "Add factory_ready to continue the run.",
-  needs_info: "Answer the factory's questions, then add factory_ready.",
   done: "This work is done. Open a new work item for more.",
 };
 

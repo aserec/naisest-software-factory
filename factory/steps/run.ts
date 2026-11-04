@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { emit, emitFor, runIds, type RunIds } from "../emit";
 import type { PausableStep } from "../record";
+import { readyForOf } from "../requests";
 import { STEPS, SWITCHES, type ControlRequest } from "../run-events";
 import type { ChangeRef, FactoryEvent, FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import type { FactoryCommands } from "../types";
@@ -49,14 +50,17 @@ export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket):
   return ticket.marks.includes("watcher") && (await ctx.tracker.isFactory(actor));
 }
 
-// Who set the ticket ready. A ready the factory set for a dashboard restart of this ticket, pending or done
-// in the last 15 minutes, is that request's user's. mayStart still checks that person.
-export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<string> {
-  if (!(await ctx.tracker.isFactory(actor))) return actor;
+// Who set the ticket ready. A ready the factory set in the last 15 minutes is the person's it set it for: a dashboard
+// restart of this ticket, pending or done, else the newest `@factory` request its comment names. mayStart still checks that person.
+// `restart`: a dashboard restart, which starts a new run instead of continuing a blocked one.
+export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<{ actor: string; restart: boolean }> {
+  if (!(await ctx.tracker.isFactory(actor))) return { actor, restart: false };
   const control = await controls(ctx);
-  const age = (at: string) => Date.now() - Date.parse(at); // a future `at` (NaN or below 0) never counts
-  const restart = control.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && age(r.at) >= 0 && age(r.at) <= RESTART_MS);
-  return restart?.user ?? actor;
+  const recent = (at: string) => Date.now() - Date.parse(at) >= 0 && Date.now() - Date.parse(at) <= RESTART_MS; // a future or bad `at` never counts
+  const restart = control.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && recent(r.at));
+  if (restart) return { actor: restart.user, restart: true };
+  const asked = (await ctx.tracker.comments(ref)).filter((c) => c.byFactory && recent(c.at) && readyForOf(c.body)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+  return { actor: asked ? readyForOf(asked.body)! : actor, restart: false };
 }
 
 // A new run gets its ID here, then the event step's start (runStep leaves it to that step).

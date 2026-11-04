@@ -65,8 +65,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     save(ctx, "event", { start: false, reason: "switch-off" });
     return "stop";
   }
-  const setBy = e.actor;
-  e = { ...e, actor: await readyActor(ctx, e.ticket, e.actor) };
+  const ready = await readyActor(ctx, e.ticket, e.actor);
+  e = { ...e, actor: ready.actor };
   const t = await ctx.tracker.ticket(e.ticket);
   const decision = decideStart(e, {
     actorTrusted: await mayStart(ctx, e.actor, t),
@@ -74,7 +74,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     runningInRepo: await activeRuns(ctx),
   });
   // A dashboard restart asks for a new run, so it never continues an older blocked run.
-  if (decision.start && t.ended === "blocked" && e.actor === setBy) {
+  if (decision.start && t.ended === "blocked" && !ready.restart) {
     const r = await continueBlocked(ctx, e);
     if (r) return r;
   }

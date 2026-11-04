@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { main } from "./poll";
-import { cursorLine } from "../requests";
+import { cursorLine, readyForLine } from "../requests";
 import { fakeWorld, BOT } from "./test-helpers";
 import { answerRequests, pollRequests, replyOnChanges, REPLY_WINDOW_MS } from "./requests";
 import { askPerson } from "./decision";
@@ -109,7 +109,7 @@ test("the stopped reply says the request waits for the change to wait for a pers
   expect(w.workItemComments[0]).toContain("Comment `@factory resume` to continue the run. The factory takes up this request once its change waits for a person.");
 });
 // A reply needs a cursor too: with no cursor line and no factory comment on the change, the factory's newest comment on the work item.
-test.each(["needs_info", "stopped"] as const)("a %s ticket whose only factory comment is on the work item gets one reply to a newer request, and none to an older one", async (state) => {
+test.each(["waiting", "stopped"] as const)("a %s ticket whose only factory comment is on the work item gets one reply to a newer request, and none to an older one", async (state) => {
   const w = world({ state, cursor: false });
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(T1);
@@ -120,6 +120,23 @@ test.each(["needs_info", "stopped"] as const)("a %s ticket whose only factory co
   expect(await answerRequests(w.ctx, await w.tracker.ticket("8"))).toBe("replied");
   expect(w.workItemComments).toHaveLength(2);
   expect(w.workItemComments[1].endsWith(cursorLine(T2))).toBe(true);
+});
+// A @factory comment counts as factory_ready on a blocked or needs_info ticket.
+test.each(["blocked", "needs_info"] as const)("a trusted request on a %s ticket sets it ready for the request's author, with the cursor line", async (state) => {
+  const w = world({ state });
+  w.host.sayOnChange("5", "ana", ASK, T1);
+  w.tracker.say("8", "dev", "@factory the list is the user list", T2);
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
+  expect(w.tracker.tickets.get("8")!.state).toBe("ready");
+  expect(w.workItemComments).toEqual([`The factory starts again for the request of @dev.\n\n${readyForLine("dev")}\n\n${cursorLine(T2)}`]);
+  expect(w.ci.started).toEqual([]); // the poller starts the ready ticket
+});
+test("an untrusted person's request on a blocked ticket changes nothing", async () => {
+  const w = world({ state: "blocked", actorLevel: 20 });
+  w.tracker.say("8", "dev", ASK, T1);
+  expect(await pollRequests(w.ctx)).toEqual([]);
+  expect(w.tracker.tickets.get("8")!.state).toBe("blocked");
+  expect(w.workItemComments).toEqual([]);
 });
 test("a round keeps the rule: a factory comment only on the work item starts no round", async () => {
   const w = world({ cursor: false });
@@ -177,7 +194,7 @@ test("the poller starts the round for a request", async () => {
     w.host.sayOnChange("5", "dev", ASK, T1);
     await main(w.ctx);
     expect(w.ci.started).toEqual([BUILD]);
-    expect(log).toHaveBeenCalledWith("Started request rounds for tickets: 8");
+    expect(log).toHaveBeenCalledWith("Started request rounds or set ready for tickets: 8");
   } finally {
     vi.unstubAllEnvs();
     log.mockRestore();
@@ -255,8 +272,8 @@ function other(state: FactoryState | null) {
 }
 const reply = (w: ReturnType<typeof other>) => w.host.changeComments("5").then((c) => c.filter((x) => x.byFactory));
 
-test("a trusted request on the change of a blocked ticket gets one reply that ends with the cursor line, and starts no build", async () => {
-  const w = other("blocked");
+test("a trusted request on the change of a ticket the factory has not started gets one reply that ends with the cursor line, and starts no build", async () => {
+  const w = other(null);
   expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
   expect(w.mrComments).toHaveLength(1);
   expect(w.mrComments[0].startsWith("@dev ")).toBe(true);
@@ -265,7 +282,7 @@ test("a trusted request on the change of a blocked ticket gets one reply that en
   expect(w.ci.started).toEqual([]);
   expect(w.workItemComments).toEqual([]);
 });
-test.each([["needs_info", "Answer the factory's questions"], ["ready", "The run starts soon. Write the request again once the change waits for a person."], ["done", "work is done"], [null, "has not started work"]] as const)("a request on the change of a ticket in state %s gets its own reply", async (state, sentence) => {
+test.each([["ready", "The run starts soon. Write the request again once the change waits for a person."], ["done", "work is done"], [null, "has not started work"]] as const)("a request on the change of a ticket in state %s gets its own reply", async (state, sentence) => {
   const w = other(state);
   expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
   expect(w.mrComments).toHaveLength(1);
@@ -273,7 +290,7 @@ test.each([["needs_info", "Answer the factory's questions"], ["ready", "The run 
   expect(w.mrComments[0].endsWith(cursorLine(T1))).toBe(true);
 });
 test("the next call replies to nothing, and a second request after the reply gets its own reply", async () => {
-  const w = other("blocked");
+  const w = other("done");
   await replyOnChanges(w.ctx);
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(await reply(w)).toHaveLength(1);
@@ -284,7 +301,7 @@ test("the next call replies to nothing, and a second request after the reply get
   expect(w.mrComments[1].endsWith(cursorLine(T3))).toBe(true);
 });
 test("an untrusted author gets no reply", async () => {
-  const w = other("blocked");
+  const w = other("done");
   w.tracker.trusted = async () => false;
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);
@@ -292,7 +309,7 @@ test("an untrusted author gets no reply", async () => {
 test("a factory comment that quotes @factory gets no reply, even from a tracker that trusts the factory", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
-  const w = fakeWorld({ state: "blocked" });
+  const w = fakeWorld({ state: "done" });
   w.openChange();
   w.tracker.trusted = async () => true;
   w.host.sayOnChange("5", BOT, `You wrote: ${ASK}`, T1, true);
@@ -302,19 +319,19 @@ test("a factory comment that quotes @factory gets no reply, even from a tracker 
 test.each(["@factory stop", "@factory resume", "looks good"])("the comment %j gets no reply", async (body) => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
-  const w = fakeWorld({ state: "blocked" });
+  const w = fakeWorld({ state: "done" });
   w.openChange();
   w.host.sayOnChange("5", "dev", body, T1);
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);
 });
-test.each(["needs_approval", "running", "stopped", "waiting"] as const)("a ticket in %s is skipped here, since another path answers it", async (state) => {
+test.each(["needs_approval", "running", "stopped", "waiting", "blocked", "needs_info"] as const)("a ticket in %s is skipped here, since another path answers it", async (state) => {
   const w = other(state);
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);
 });
 test("recentChanges is called once with since 10 minutes before now, and comments are read only for the changes it returns", async () => {
-  const w = other("blocked");
+  const w = other("done");
   w.host.openChange("factory/9-other", "Other", "Factory run 42: https://ci.example/runs/42", "9");
   w.host.sayOnChange("6", "dev", ASK, T0); // updated an hour before the window
   const recent = vi.spyOn(w.host, "recentChanges");
@@ -324,8 +341,8 @@ test("recentChanges is called once with since 10 minutes before now, and comment
   expect(comments.mock.calls.map((c) => c[0])).toEqual(["5"]);
 });
 test("a change that fails does not stop the next", async () => {
-  const w = other("blocked");
-  w.tracker.tickets.get("9")!.state = "blocked";
+  const w = other("done");
+  w.tracker.tickets.get("9")!.state = "done";
   w.host.openChange("factory/9-other", "Other", "Factory run 42: https://ci.example/runs/42", "9");
   w.host.sayOnChange("6", "dev", ASK, T1);
   const commentChange = w.host.commentChange;
@@ -339,7 +356,7 @@ test("a change that fails does not stop the next", async () => {
   }
 });
 test("with no cursor line and no factory comment on the change, the factory's newest comment on the work item is the cursor", async () => {
-  const w = other("needs_info");
+  const w = other("done");
   vi.setSystemTime("2026-10-01T11:01:00Z");
   await w.tracker.comment("8", "The factory has questions."); // after the request at T1
   vi.setSystemTime(NOW);
@@ -350,7 +367,7 @@ test("with no cursor line and no factory comment on the change, the factory's ne
   expect(w.mrComments[0].endsWith(cursorLine("2026-10-01T11:01:30Z"))).toBe(true);
 });
 test("a reply on the work item with a cursor line newer than the request counts for the change: no second reply", async () => {
-  const w = other("blocked");
+  const w = other("done");
   await w.tracker.comment("8", `@dev The factory takes requests only while its change waits.\n\n${cursorLine(T1)}`); // the webhook's reply
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);
@@ -359,7 +376,7 @@ test("a reply on the work item with a cursor line newer than the request counts 
   expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
 });
 test.each(["close", "mergeByPerson"] as const)("a request on a change after %s gets no reply", async (how) => {
-  const w = other("blocked");
+  const w = other("done");
   w.host[how]("5");
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);

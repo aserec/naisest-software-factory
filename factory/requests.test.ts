@@ -30,7 +30,7 @@ test("the state reply names the author and says what the state allows", () => {
   const r = stateReply("ana", "stopped");
   expect(r.startsWith("@ana The factory takes @factory requests only while its change waits for a person (factory_needs_approval).")).toBe(true);
   expect(r).toContain("@factory resume");
-  expect(stateReply("ana", "blocked")).toContain("Add factory_ready to continue the run.");
+  expect(stateReply("ana", "done")).toContain("This work is done.");
   expect(stateReply("ana", undefined)).toContain("The factory has not started work here.");
 });
 test("runFacts reports an open round and a round start", () => {

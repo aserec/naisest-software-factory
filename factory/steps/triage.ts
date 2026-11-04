@@ -8,6 +8,7 @@ import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type Triage
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
+import { isRequest } from "../requests";
 import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, endRun, stopReason, stopped, waiting } from "./run";
 
@@ -18,7 +19,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const f = facts(ctx);
   if (f.resumeAt === "triage") return questions(ctx, need(f.row, "triage router row"), f.resumeSession("triage"));
   const ticket = await ctx.tracker.ticket(ref);
-  const state = buildTriageState(ticket.title, ticket.body, ticket.tags);
+  const state = buildTriageState(ticket.title, `${ticket.body}${await requestText(ctx, ticket)}`, ticket.tags);
   let answers: TriageAnswers;
   try {
     answers = await askTriage(ctx.judge, state);
@@ -52,6 +53,21 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
 
   return questions(ctx, row);
+}
+
+// Trusted people's `@factory` comments on the work item, oldest first, such as answers to the factory's questions.
+// Triage checks them for injection with the description, and the agents read them as part of it.
+// ponytail: buildTriageState cuts the description at MAX_DESCRIPTION, so a long body hides the comments. Summarise them if that bites.
+async function requestText(ctx: StepContext, ticket: Ticket): Promise<string> {
+  const trust = new Map<string, Promise<boolean>>();
+  const out: string[] = [];
+  const list = (await ctx.tracker.comments(ticket.ref)).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  for (const c of list) {
+    if (c.byFactory || !isRequest(c.body)) continue;
+    if (!trust.has(c.author)) trust.set(c.author, ctx.tracker.trusted(c.author));
+    if (await trust.get(c.author)) out.push(`\n\nComment by ${c.author}:\n${c.body}`);
+  }
+  return out.join("");
 }
 
 // A work item a person wrote may repeat an open one. A sure duplicate is closed, a near one gets a question.
@@ -91,7 +107,7 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
 
 // The writer agent words the question, unless the candidates look like an injection or it forgets to name the original.
 async function dedupeQuestion(ctx: StepContext, o: Ticket, injectionYes: number): Promise<string> {
-  const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds, then add factory_ready again.`;
+  const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds in a comment that mentions @factory.`;
   if (!(injectionYes < INJECTION_LIMIT)) return fixed;
   const text = `${prompt("dedupe-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
   try {
@@ -112,7 +128,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
   if (r.limitHit) return waiting(ctx, "questions", r.session);
   if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
-  await ctx.tracker.comment(ref, `This ticket is not clear enough to build yet. Please answer these questions, then add factory_ready again.\n\n${r.text}`);
+  await ctx.tracker.comment(ref, `This ticket is not clear enough to build yet. Please answer these questions in a comment that mentions @factory, or edit the ticket and add factory_ready again.\n\n${r.text}`);
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked questions on the ticket."], "");
