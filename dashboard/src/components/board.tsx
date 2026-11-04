@@ -88,7 +88,7 @@ function Row({ item: i }: { item: BoardItem }) {
           {when && ` · ${when}`}
         </div>
       </div>
-      <div className="ml-auto flex flex-none items-center gap-2 pt-px">
+      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 pt-px">
         {i.stuck && <Badge variant="destructive">Stuck</Badge>}
         <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} />
         <span className={`w-14 text-right ${i.costUsd === undefined ? "text-muted-foreground" : ""}`}>{i.costUsd === undefined ? "—" : usd(i.costUsd)}</span>
