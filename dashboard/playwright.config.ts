@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { defineConfig } from "@playwright/test";
 
 // The app and a stub GitLab (started by e2e/seed.ts) both run on localhost.
-export const APP = "http://localhost:3100";
-export const STUB_PORT = 3101;
+export const APP = "http://localhost:3190"; // not 3100, which Loki takes by default
+export const STUB_PORT = 3191;
 const db = join(tmpdir(), "factory-e2e.db");
 
 // Set here, so the workers (which load this file again) see the same values.
@@ -21,7 +21,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: {
     // A fresh database on every run. The seed then posts events to the real collector route.
-    command: `node -e "for (const s of ['', '-wal', '-shm']) require('fs').rmSync(process.env.DASHBOARD_DB + s, { force: true })" && pnpm exec next build && pnpm exec next start -p 3100`,
+    command: `node -e "for (const s of ['', '-wal', '-shm']) require('fs').rmSync(process.env.DASHBOARD_DB + s, { force: true })" && pnpm exec next build && pnpm exec next start -p 3190`,
     url: `${APP}/sign-in`,
     timeout: 300_000,
     reuseExistingServer: false,
