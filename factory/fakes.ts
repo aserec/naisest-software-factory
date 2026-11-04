@@ -95,10 +95,13 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
   const changes = new Map<ChangeRef, Omit<Change, "behind"> & { branch: string; title: string; updatedAt?: string }>();
   const byBranch = new Map<string, ChangeRef>();
   const changeNotes = new Map<ChangeRef, Comment[]>(); // newest first
+  const edits = new Map<ChangeRef, Awaited<ReturnType<CodeHost["changeEdits"]>>>(); // newest first; tests fill it
+  const commits = new Map<ChangeRef, Awaited<ReturnType<CodeHost["changeCommits"]>>>();
+  const baseLog: Awaited<ReturnType<CodeHost["baseCommits"]>> = [];
   const attached: { name: string; size: number }[] = [];
   let attachCalls = 0;
-  const open = (branch: string, title: string, body: string, ticket: TicketRef) => {
-    const text = noQuickActions([AI_LINE, `Closes #${ticket}`, body].join("\n\n"));
+  const open = (branch: string, title: string, body: string, ticket?: TicketRef) => {
+    const text = noQuickActions([AI_LINE, ...(ticket ? [`Closes #${ticket}`] : []), body].join("\n\n"));
     const ref = byBranch.get(branch) ?? String(changes.size + 5);
     byBranch.set(branch, ref);
     const was = changes.get(ref);
@@ -112,6 +115,9 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
   };
   const host = {
     changes, // every change by ref, the newest last
+    edits,
+    commits,
+    baseLog, // the base branch's commits, newest first; tests fill it
     // A person closes the change on the host, without the factory.
     close: (ref: ChangeRef) => void Object.assign(get(ref), { open: false, merged: false }),
     // A person merges the change on the host, without the factory.
@@ -133,7 +139,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       if (!o.repo) throw new Error("This fake code host has no repo");
       return o.repo;
     },
-    openChange: async (branch: string, title: string, body: string, ticket: TicketRef) => {
+    openChange: async (branch: string, title: string, body: string, ticket?: TicketRef) => {
       if (o.existing && !byBranch.has(branch)) open(branch, title, "", ticket);
       const { ref, was } = open(branch, title, body, ticket);
       const c = get(ref);
@@ -192,6 +198,9 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       c.updatedAt = later(c.updatedAt, at); // a comment updates the change, as on the host
     },
     changeComments: async (ref: ChangeRef, since?: string): Promise<Comment[]> => (get(ref), (changeNotes.get(ref) ?? []).filter((c) => !since || Date.parse(c.at) > Date.parse(since))),
+    changeEdits: async (ref: ChangeRef) => (get(ref), edits.get(ref) ?? []),
+    changeCommits: async (ref: ChangeRef) => (get(ref), commits.get(ref) ?? []),
+    baseCommits: async (since: string) => baseLog.filter((c) => Date.parse(c.at) > Date.parse(since)),
     // The open changes of factory branches updated after since, newest first.
     recentChanges: async (since: string) =>
       [...changes.values()]

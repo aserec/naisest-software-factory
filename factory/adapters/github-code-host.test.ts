@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { AI_LINE } from "../gitlab";
 import { GitHub } from "../github";
+import { FACTORY_GIT_EMAIL } from "../repo";
 import { makeGitHubCodeHost } from "./github-code-host";
 
 const R = "/repos/o/app";
@@ -39,6 +40,12 @@ describe("openChange", () => {
     expect(body.body.startsWith([AI_LINE, "Closes #8"].join("\n\n"))).toBe(true);
     expect(body.body).not.toMatch(/^\s*\//m);
   });
+  test("with no ticket the text has the AI line and no closing line", async () => {
+    routes[`GET ${R}/pulls`] = [];
+    routes[`POST ${R}/pulls`] = { number: 5, html_url: "u5" };
+    await host().openChange("factory/weekly-1", "Weekly", "Report");
+    expect(sent("POST", `${R}/pulls`).body).toBe([AI_LINE, "Report"].join("\n\n"));
+  });
   test("a re-run reuses the open pull request of the branch and updates its text", async () => {
     routes[`GET ${R}/pulls`] = [{ number: 4, base: { ref: "develop" } }];
     routes[`PATCH ${R}/pulls/4`] = { number: 4, html_url: "u4" };
@@ -53,6 +60,14 @@ describe("change", () => {
     routes[`${R}/pulls/5`] = { state: "open", merged: false, head: { sha: "h" }, base: { ref: "develop" }, html_url: "u", body: "B", merge_commit_sha: null };
     routes[`${R}/compare/develop...h`] = { behind_by: 2 };
     expect(await host().change("5")).toMatchObject({ open: true, merged: false, head: "h", target: "develop", body: "B", behind: true });
+  });
+});
+
+describe("change", () => {
+  test("gives the pull request's title", async () => {
+    routes[`${R}/pulls/5`] = { title: "Add a spinner", state: "open", head: { sha: "h" }, base: { ref: "develop" }, html_url: "u" };
+    routes[`${R}/compare/develop...h`] = { behind_by: 0 };
+    expect((await host().change("5")).title).toBe("Add a spinner");
   });
 });
 
@@ -194,6 +209,35 @@ test("changeComments compares times as times: a comment at the same second plus 
     { user: { login: "ann" }, body: "later", created_at: "2026-11-04T10:00:00.500Z" },
   ];
   expect((await host().changeComments("5", "2026-11-04T10:00:00Z")).map((c) => c.body)).toEqual(["later"]);
+});
+
+test("changeEdits reads body edits and title renames in one query, newest first, and flags the token user's", async () => {
+  routes["/user"] = { login: "bot" };
+  routes["/graphql"] = { data: { repository: { pullRequest: {
+    userContentEdits: { nodes: [{ editor: { login: "bot" }, editedAt: "2026-11-04T10:00:00Z" }, { editor: null, editedAt: "2026-11-04T09:00:00Z" }] },
+    timelineItems: { nodes: [{ actor: { login: "ann" }, createdAt: "2026-11-04T11:00:00Z" }] },
+  } } } };
+  expect(await host().changeEdits("5")).toEqual([
+    { author: "ann", byFactory: false, field: "title", at: "2026-11-04T11:00:00Z" },
+    { author: "bot", byFactory: true, field: "body", at: "2026-11-04T10:00:00Z" },
+    { author: "ghost", byFactory: false, field: "body", at: "2026-11-04T09:00:00Z" },
+  ]);
+  const q = calls.find((c) => c.path === "/graphql")!.body;
+  expect(q.query).toMatch(/userContentEdits/);
+  expect(q.query).toMatch(/RENAMED_TITLE_EVENT/);
+  expect(q.variables).toMatchObject({ owner: "o", name: "app", number: 5 });
+});
+
+test("changeCommits reads the pull request's commits and flags those with the factory's email", async () => {
+  routes[`${R}/pulls/5/commits`] = [{ sha: "a1", commit: { author: { email: FACTORY_GIT_EMAIL } } }, { sha: "b2", commit: { author: { email: "ann@x.io" } } }];
+  expect(await host().changeCommits("5")).toEqual([{ sha: "a1", byFactory: true }, { sha: "b2", byFactory: false }]);
+  expect(calls[0].path).toBe(`${R}/pulls/5/commits?per_page=100`);
+});
+
+test("baseCommits reads the base branch's commits since a time; the title is the first line", async () => {
+  routes[`${R}/commits`] = [{ sha: "c1", commit: { message: "Revert x\n\nbody", committer: { date: "2026-11-02T10:00:00Z" } } }];
+  expect(await host().baseCommits("2026-11-01T00:00:00Z")).toEqual([{ sha: "c1", title: "Revert x", message: "Revert x\n\nbody", at: "2026-11-02T10:00:00Z" }]);
+  expect(calls[0].path).toBe(`${R}/commits?sha=develop&since=2026-11-01T00%3A00%3A00Z&per_page=100`);
 });
 
 test("recentChanges makes one call and keeps the changes updated after since, from the factory's branches of this repo", async () => {

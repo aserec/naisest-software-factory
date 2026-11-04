@@ -31,3 +31,22 @@ describe("fake code host: changeOfTicket", () => {
     expect(host.changes.get(a.ref)).toMatchObject({ open: false, merged: true });
   });
 });
+
+describe("fake code host: reads for the week", () => {
+  test("a change without a ticket has no closing line and keeps its title; edits and commits come from what a test filled", async () => {
+    const host = fakeCodeHost();
+    const { ref } = await host.openChange("factory/weekly-1", "Weekly", "Report");
+    expect((await host.change(ref)).body).not.toContain("Closes #");
+    expect((await host.change(ref)).title).toBe("Weekly");
+    expect(await host.changeEdits(ref)).toEqual([]);
+    host.edits.set(ref, [{ author: "ann", byFactory: false, field: "title", at: "2026-11-04T10:00:00Z" }]);
+    host.commits.set(ref, [{ sha: "a1", byFactory: true }]);
+    expect(await host.changeEdits(ref)).toHaveLength(1);
+    expect(await host.changeCommits(ref)).toEqual([{ sha: "a1", byFactory: true }]);
+  });
+  test("baseCommits gives the commits of baseLog after since", async () => {
+    const host = fakeCodeHost();
+    host.baseLog.push({ sha: "n", title: "new", message: "new", at: "2026-11-03T00:00:00Z" }, { sha: "o", title: "old", message: "old", at: "2026-10-01T00:00:00Z" });
+    expect((await host.baseCommits("2026-11-01T00:00:00Z")).map((c) => c.sha)).toEqual(["n"]);
+  });
+});

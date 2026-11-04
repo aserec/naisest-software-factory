@@ -1,5 +1,5 @@
 import { AI_LINE, GitLab, GITLAB_URL } from "../gitlab";
-import { gitRepo } from "../repo";
+import { FACTORY_GIT_EMAIL, gitRepo } from "../repo";
 import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "../seams";
 
 export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
@@ -10,19 +10,20 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
   const opened = (m: { iid: number; webUrl: string }) => ({ ref: String(m.iid), url: m.webUrl });
   let bot: Promise<string> | undefined;
   const botName = () => (bot ??= gitlab.getJson("/user").then((u: { username: string }) => u.username));
+  const notesOf = async (ref: string): Promise<any[]> => gitlab.getJson(`${await mrUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
   const put = async (endpoint: string, body?: unknown) => gitlab.call("PUT", endpoint, body);
 
   return {
     baseBranch: async () => baseBranch,
     cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `${GITLAB_URL}/${projectPath}.git`, token, env),
     async openChange(branch, title, body, ticket) {
-      const text = [AI_LINE, `Closes #${ticket}`, body].join("\n\n");
+      const text = [AI_LINE, ...(ticket ? [`Closes #${ticket}`] : []), body].join("\n\n");
       return opened(await gitlab.upsertMergeRequest(await projectId(), branch, baseBranch, title, text));
     },
     async change(ref) {
       const m = await gitlab.getJson(`${await mrUrl(ref)}?include_diverged_commits_count=true`);
       return {
-        ref, open: m.state === "opened", merged: m.state === "merged", head: m.sha, url: m.web_url, body: m.description ?? "", target: m.target_branch,
+        ref, open: m.state === "opened", merged: m.state === "merged", head: m.sha, url: m.web_url, title: m.title ?? "", body: m.description ?? "", target: m.target_branch,
         landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha, behind: (m.diverged_commits_count ?? 0) > 0,
       };
     },
@@ -91,10 +92,28 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     },
     async changeComments(ref, since) {
       const name = await botName();
-      const notes = await gitlab.getJson(`${await mrUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
+      const notes = await notesOf(ref);
       return notes
         .filter((n: any) => !n.system && (!since || Date.parse(n.created_at) > Date.parse(since)))
         .map((n: any) => ({ author: n.author.username, byFactory: n.author.username === name, body: n.body, at: n.created_at }));
+    },
+    // GitLab writes an edit as a system note: "changed title from ..." or "changed the description".
+    async changeEdits(ref) {
+      const name = await botName();
+      return (await notesOf(ref)).flatMap((n: any) => {
+        const field = n.system ? (String(n.body).startsWith("changed title") ? "title" : String(n.body).startsWith("changed the description") ? "body" : undefined) : undefined;
+        return field ? [{ author: n.author.username, byFactory: n.author.username === name, field, at: n.created_at }] : [];
+      });
+    },
+    async changeCommits(ref) {
+      const commits: any[] = await gitlab.getJson(`${await mrUrl(ref)}/commits?per_page=100`);
+      return commits.map((c) => ({ sha: c.id, byFactory: c.author_email === FACTORY_GIT_EMAIL }));
+    },
+    // Every revert that reached the base branch is a commit here: a revert commit, a merged revert change, or a Revert button.
+    // ponytail: newest 100 base commits per week; page further if a target merges more
+    async baseCommits(since) {
+      const commits: any[] = await gitlab.getJson(`/projects/${await projectId()}/repository/commits?ref_name=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
+      return commits.map((c) => ({ sha: c.id, title: c.title, message: c.message, at: c.committed_date }));
     },
     async recentChanges(since) {
       const id = await projectId();
