@@ -98,34 +98,42 @@ export function confirmGone(gone: string, dir: string): boolean {
   return exists(gone, dir) === false;
 }
 
-const TOKEN_CHAR = /[\w./:-]/;
-// Every place `gone` stands in the line is a whole token, not a piece of a longer word or path. At least one place.
-function wholeToken(line: string, gone: string): boolean {
-  let found = false;
-  for (let at = line.indexOf(gone); at >= 0; at = line.indexOf(gone, at + gone.length)) {
-    const after = line.slice(at + gone.length);
-    if ((at > 0 && TOKEN_CHAR.test(line[at - 1])) || /^[\w/-]/.test(after) || /^[.:][\w/-]/.test(after)) return false;
-    found = true;
+// "file" or "dir" when the path exists in the clone as that and nothing else (a link is neither); else undefined.
+function kindOf(t: string, dir: string): "file" | "dir" | undefined {
+  if (pathState(t, dir) !== "exists") return undefined;
+  try {
+    const st = lstatSync(resolve(dir, t));
+    return st.isFile() ? "file" : st.isDirectory() ? "dir" : undefined;
+  } catch {
+    return undefined;
   }
-  return found;
+}
+
+// A file is replaced by a file, a folder (a path with a trailing "/") by a folder, a command by a command whose script exists.
+function sameKind(gone: string, t: string, dir: string): boolean {
+  if (COMMAND.test(gone)) return COMMAND.test(t) && exists(t, dir) === true;
+  return looksLikePath(t) && kindOf(t, dir) === (gone.endsWith("/") ? "dir" : "file");
 }
 
 // True when the new text has the same lines as the old one, in the same places, and in each changed line only `gone`
-// is replaced, by nothing or by a path or command that exists. No line is deleted or added. `gone` must be a whole token.
+// written as `gone` (in backticks) is replaced by `t` (in backticks), the same t each time. t is a path or command of the
+// same kind that exists. `gone` may not stand anywhere else in a changed line. No line is deleted, added or blanked.
 export function onlyRenames(oldText: string, newText: string, gone: string, dir: string): boolean {
   if (!COMMAND.test(gone) && !looksLikePath(gone)) return false;
   const [old, next] = [oldText.split("\n"), newText.split("\n")];
+  const span = `\`${gone}\``;
   return (
     old.length === next.length &&
     old.every((r, i) => {
       const a = next[i];
       if (a === r) return true;
-      if (!wholeToken(r, gone)) return false;
-      const at = r.indexOf(gone);
-      const [p, s] = [r.slice(0, at), r.slice(at + gone.length)];
-      if (a.length < p.length + s.length || !a.startsWith(p) || !a.endsWith(s)) return false;
-      const t = a.slice(p.length, a.length - s.length);
-      return r.replaceAll(gone, () => t) === a && (t === "" || exists(t, dir) === true);
+      const parts = r.split(span);
+      // Every gone is a whole span (not in a double-backtick span), and none is left outside one.
+      if (parts.length < 2 || parts.join("").includes(gone) || parts.slice(1).some((x, k) => parts[k].endsWith("`") || x.startsWith("`"))) return false;
+      const start = parts[0].length + 1;
+      if (!a.startsWith(`${parts[0]}\``)) return false;
+      const t = a.slice(start, a.indexOf("`", start));
+      return t !== "" && sameKind(gone, t, dir) && parts.join(`\`${t}\``) === a;
     })
   );
 }
