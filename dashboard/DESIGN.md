@@ -258,8 +258,8 @@ Tactile and calm: flat, compact, and pressed to 0.96 scale on click.
 
 ### Side panel
 Detail lives in a panel that slides in from the right edge, never in a centred modal.
-- **Shape:** full height, up to 640px wide (full width on a phone), white with a 1px left border and the panel shadow.
-- **Header:** the title (16px, 600) with its pills, an optional muted line, and a 32px ghost close button at the top right, over a 1px rule. 24px side padding.
+- **Shape:** full height, up to 640px wide (full width on a phone), white with a 1px left border and the panel shadow. From 1024px the page behind moves left by the panel's width, and the panel narrows (`min(640px, 100vw - 608px)`) so the step list keeps about 340px.
+- **Header:** the title (16px, 600) with its pills, an optional muted line, and a ghost close button at the top right (44px on a phone, 32px from 640px), over a 1px rule. 24px side padding.
 - **Body:** one scrolling column, 24px padding, sections 32px apart, each with the shared heading at 14px.
 - **Behaviour:** non-modal. No overlay; the page behind stays live, and a click on another row swaps the content. Esc and the close button close it. It slides in over 300ms with the control ease and respects reduced motion. The open item is in the URL (`?step=<id>`).
 
@@ -269,7 +269,7 @@ The only centred dialog, for a yes-or-no decision such as Stop, Resume or Restar
 - Title (16px, 600), one muted sentence, then Cancel (outline) and the action on the right. Focus starts on Cancel.
 
 ### Run timeline (signature)
-The production line on the run page. One row per step: name in a 160px column, an 8px bar on a Raised track placed by start time and length, then duration, pills and cost in fixed right-aligned slots. A finished step's bar is ink at 70%, the live one is Signal Teal, a failed or stuck one is red. A click on the row opens the step in the side panel; the open row keeps an Active fill. On a phone the row takes two lines: name and pills, then bar, duration and cost.
+The production line on the run page. One row per step: name in a 160px column, an 8px bar on a Raised track placed by start time and length, then duration, pills and cost in fixed right-aligned slots. A finished step's bar is ink at 70%, the live one is Signal Teal, a failed or stuck one is red. A click on the row opens the step in the side panel; the open row keeps an Active fill. On a phone the row takes two lines: name and pills, then bar, duration and cost. A step not reached shows its name in Muted Ink on an empty track, at the same row height. A live step shows its cost as a muted dash until it reports usage.
 
 ## Do's and Don'ts
 

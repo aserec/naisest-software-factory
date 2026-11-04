@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-03T00:00:00Z",
+  "generatedAt": "2026-11-04T10:47:47Z",
   "title": "Design System: Factory dashboard",
   "extensions": {
     "colorMeta": {
@@ -77,6 +77,21 @@
           "#f3b6b0",
           "#ffedea",
           "#fff7f6"
+        ]
+      },
+      "switch-off": {
+        "role": "neutral",
+        "displayName": "Switch Off",
+        "canonical": "#8b8d90",
+        "tonalRamp": [
+          "#2a2b2c",
+          "#3f4042",
+          "#55575a",
+          "#6e7073",
+          "#8b8d90",
+          "#a9abad",
+          "#c8c9cb",
+          "#e6e7e8"
         ]
       }
     },
@@ -219,6 +234,22 @@
       "description": "The production line: one step per row, the live bar in Signal Teal.",
       "html": "<div class=\"ds-lane\"><span class=\"ds-lane-name\">code review</span><span class=\"ds-lane-track\"><span class=\"ds-lane-bar\" style=\"left:30%;width:45%\"></span></span><span class=\"ds-lane-num\">4m 12s</span><span class=\"ds-lane-num\">$0.31</span></div>",
       "css": ".ds-lane { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid #f0f1f2; font: 400 14px/20px 'IBM Plex Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #131416; } .ds-lane-name { width: 160px; font-weight: 500; } .ds-lane-track { position: relative; flex: 1; height: 8px; border-radius: 9999px; background: #f4f6f8; } .ds-lane-bar { position: absolute; top: 0; bottom: 0; border-radius: 9999px; background: #1b6c80; } .ds-lane-num { width: 64px; text-align: right; }"
+    },
+    {
+      "name": "Switch",
+      "kind": "custom",
+      "refersTo": "switch",
+      "description": "32 by 18px switch: Ink Button when on, Switch Off when off, white thumb.",
+      "html": "<span style=\"display:flex;gap:12px\"><button class=\"ds-switch\" role=\"switch\" aria-checked=\"true\"><span></span></button><button class=\"ds-switch\" role=\"switch\" aria-checked=\"false\"><span></span></button></span>",
+      "css": ".ds-switch { position: relative; width: 32px; height: 18px; padding: 0; border: none; border-radius: 9999px; background: #8b8d90; cursor: pointer; transition: background 120ms; } .ds-switch[aria-checked=true] { background: #1d1f20; } .ds-switch span { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 9999px; background: #fff; transition: transform 120ms; } .ds-switch[aria-checked=true] span { transform: translateX(14px); } .ds-switch:focus-visible { outline: 2px solid #1b6c80; outline-offset: 2px; } .ds-switch:active { transform: scale(0.96); }"
+    },
+    {
+      "name": "Side Panel",
+      "kind": "custom",
+      "refersTo": "side-panel",
+      "description": "Non-modal panel from the right edge that holds a step's detail.",
+      "html": "<aside class=\"ds-panel\"><header><strong>prepare-patch</strong><span class=\"ds-pill\">passed</span><button aria-label=\"Close\">&#215;</button></header><div class=\"ds-panel-body\"><dl><dt>Duration</dt><dd>3 m</dd><dt>Cost</dt><dd>$0.25</dd></dl></div></aside>",
+      "css": ".ds-panel { width: 360px; background: #fff; border-left: 1px solid #e8eaec; box-shadow: -12px 0 32px -12px rgb(19 20 22 / 0.16); font: 400 14px/20px 'IBM Plex Sans', system-ui, sans-serif; color: #131416; } .ds-panel header { display: flex; align-items: center; gap: 8px; padding: 16px 24px; border-bottom: 1px solid #e8eaec; } .ds-panel header strong { font-size: 16px; line-height: 24px; } .ds-panel header button { margin-left: auto; width: 32px; height: 32px; border: none; border-radius: 6px; background: none; color: #5d5f60; cursor: pointer; } .ds-panel header button:hover { background: #f4f6f8; color: #131416; } .ds-panel header button:focus-visible { outline: 2px solid #1b6c80; } .ds-pill { padding: 2px 8px; border-radius: 9999px; background: #ebedee; color: #353736; font: 500 12px/16px 'IBM Plex Sans', system-ui, sans-serif; } .ds-panel-body { padding: 24px; } .ds-panel dl { display: grid; grid-template-columns: 7rem 1fr; gap: 8px 16px; margin: 0; } .ds-panel dt { color: #5d5f60; } .ds-panel dd { margin: 0; font-variant-numeric: tabular-nums; }"
     }
   ],
   "narrative": {
@@ -273,7 +304,7 @@
     "donts": [
       "Don't add a dark theme or a second hue without updating this file; the system is light only.",
       "Don't use solid red fills; red is text, a stroke, a bar or a pale pill.",
-      "Don't add shadows beyond shadow-xs on cards, or use shadow on hover.",
+      "Don't add shadows beyond `shadow-xs` on cards, or use shadow on hover.",
       "Don't put cards on tinted panels inside the sheet; there are two planes.",
       "Don't open detail in a centred modal; use the side panel. Centred dialogs are only for yes-or-no confirms."
     ]
