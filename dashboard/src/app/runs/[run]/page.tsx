@@ -18,7 +18,8 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   const item = first && (await getGitLab().board().catch(() => [])).find((i) => i.target === first.target && i.ticket === first.ticket);
   const mrUrl = item?.state === "factory_needs_approval" ? summary?.mrUrl : undefined;
   return (
-    <main>
+    // From lg the open side panel sits beside the page instead of over it; see the panel width in ui/sheet.tsx.
+    <main className="transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] lg:has-[[data-panel=open]]:pr-[min(624px,calc(100vw-624px))]">
       <PageTitle
         // The work item's title, as on its board card; without GitLab, its number.
         title={item?.title ?? (first ? `${first.target} #${first.ticket}` : `Run ${run}`)}
@@ -33,7 +34,14 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
           </div>
         }
       >
-        {first && <span className="font-mono">{first.target} #{first.ticket} · </span>}
+        {first && (
+          <>
+            <span className="font-mono">
+              {first.target} #{first.ticket}
+            </span>
+            {" · "}
+          </>
+        )}
         <span className="font-mono">{run}</span>
         {target && (
           <>

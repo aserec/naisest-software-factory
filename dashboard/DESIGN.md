@@ -186,7 +186,7 @@ A near-greyscale palette with one signal hue and three soft state pills.
 
 ### Hierarchy
 - **Headline** (600, 22px, 32px): the page title, once per screen, in the page title row. The 32px line matches the 32px buttons beside it.
-- **Stat** (400, 24px, 32px): the run page's three readouts.
+- **Stat** (400, 24px, 32px): the run page's four readouts (Now, Time, Cost, Risk): one row of four from a 768px column, two by two below it.
 - **Title** (600, 16px, 24px): section headings on a page (h2), over a 1px rule. Inside a panel and for board labels the same heading drops to 14px (h3).
 - **Side heading** (600, 18px, 28px): the two board sides, "Waiting on you" and "With the factory".
 - **Body** (400, 14px, 20px): everything else. Set on `body` with tabular numbers.
@@ -258,7 +258,7 @@ Tactile and calm: flat, compact, and pressed to 0.96 scale on click.
 
 ### Side panel
 Detail lives in a panel that slides in from the right edge, never in a centred modal.
-- **Shape:** full height, up to 640px wide (full width on a phone), white with a 1px left border and the panel shadow. From 1024px the page behind moves left by the panel's width, and the panel narrows (`min(640px, 100vw - 608px)`) so the step list keeps about 340px.
+- **Shape:** full height, up to 640px wide (full width on a phone), white with a 1px left border and the panel shadow. From 1024px the whole run page, title row included, moves left by the panel's width, and the panel narrows (`min(640px, 100vw - 608px)`) so the step list keeps about 340px.
 - **Header:** the title (16px, 600) with its pills, an optional muted line, and a ghost close button at the top right (44px on a phone, 32px from 640px), over a 1px rule. 24px side padding.
 - **Body:** one scrolling column, 24px padding, sections 32px apart, each with the shared heading at 14px.
 - **Behaviour:** non-modal. No overlay; the page behind stays live, and a click on another row swaps the content. Esc and the close button close it. It slides in over 300ms with the control ease and respects reduced motion. The open item is in the URL (`?step=<id>`).

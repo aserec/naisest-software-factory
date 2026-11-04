@@ -217,19 +217,20 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
   return (
     <>
-      <div className={`@container transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${open ? "lg:pr-[min(624px,calc(100vw-624px))]" : ""}`}>
-        <div className="mb-8 grid grid-cols-2 border-y @lg:w-fit @lg:min-w-[40rem] @lg:grid-cols-4">
-          <Figure label="Now" className="col-span-2 border-b pr-4 @lg:col-span-1 @lg:border-b-0">
+      {/* The page pads itself for the open panel (main in runs/[run]/page.tsx), so the title row moves too. */}
+      <div className="@container" data-panel={open ? "open" : undefined}>
+        <div className="mb-8 grid grid-cols-2 border-y @3xl:grid-cols-4">
+          <Figure label="Now" className="col-span-2 border-b pr-4 @3xl:col-span-1 @3xl:border-b-0">
             {live ? live.start.step : state === "factory_needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—")}
             {at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>}
           </Figure>
-          <Figure label="Time" className="pr-4 @lg:border-l @lg:pl-4">
+          <Figure label="Time" className="pr-4 @3xl:border-l @3xl:pl-4">
             {duration(span / 1000)}
           </Figure>
-          <Figure label="Cost" className="border-l pl-4 @lg:pr-4">
+          <Figure label="Cost" className="border-l pl-4 @3xl:pr-4">
             {usd(rows.reduce((sum, l) => sum + l.costUsd, 0))}
           </Figure>
-          <Figure label="Risk" className="col-span-2 border-t @lg:col-span-1 @lg:border-t-0 @lg:border-l @lg:pl-4">
+          <Figure label="Risk" className="col-span-2 border-t @3xl:col-span-1 @3xl:border-t-0 @3xl:border-l @3xl:pl-4">
             {risk.risk || risk.mergeRisk !== undefined ? (
               <span className="flex h-8 items-center gap-2">
                 <RiskPills {...risk} />

@@ -20,6 +20,11 @@ test("open the board, a run, and the prepare-patch step in the side panel", asyn
   await expect(panel.getByText("Fix the login bug")).toBeVisible();
   await expect(panel.locator("summary", { hasText: "Edit" })).toBeVisible();
   await expect(panel.getByText("log line from the stub")).toBeVisible();
+  // From 1024px the page moves aside: the title row, the figures and the steps all end left of the panel.
+  await page.waitForTimeout(400); // the 300ms slide and padding transition
+  const edge = (await panel.boundingBox())!.x;
+  for (const box of [page.getByRole("heading", { level: 1 }), page.getByText("Risk", { exact: true }), page.getByRole("button", { name: /prepare-patch/ }), page.locator("main p").first(), page.getByRole("button", { name: "Stop" })])
+    expect(await box.evaluate((e) => e.getBoundingClientRect().right)).toBeLessThanOrEqual(edge);
   await panel.getByRole("button", { name: "Close" }).click();
   await expect(panel).toBeHidden();
 });
