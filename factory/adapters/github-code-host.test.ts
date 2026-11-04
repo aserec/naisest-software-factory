@@ -171,6 +171,22 @@ test("a comment with a secret is refused", async () => {
   expect(calls).toHaveLength(0);
 });
 
+test("changeComments lists the comments created after since, newest first, and flags only the bot's own AI-line ones", async () => {
+  routes["/user"] = { login: "bot" };
+  routes[`${R}/issues/5/comments`] = [
+    { user: { login: "bob" }, body: "edited old", created_at: "2026-11-04T09:00:00Z" },
+    { user: { login: "bot" }, body: `${AI_LINE}\n\ndone`, created_at: "2026-11-04T11:00:00Z" },
+    { user: { login: "bot" }, body: "typed by a person on the shared account", created_at: "2026-11-04T11:30:00Z" },
+    { user: { login: "ann" }, body: "@factory fix it", created_at: "2026-11-04T12:00:00Z" },
+  ];
+  expect(await host().changeComments("5", "2026-11-04T10:00:00Z")).toEqual([
+    { author: "ann", byFactory: false, body: "@factory fix it", at: "2026-11-04T12:00:00Z" },
+    { author: "bot", byFactory: false, body: "typed by a person on the shared account", at: "2026-11-04T11:30:00Z" },
+    { author: "bot", byFactory: true, body: `${AI_LINE}\n\ndone`, at: "2026-11-04T11:00:00Z" },
+  ]);
+  expect(calls.find((c) => c.path.startsWith(`${R}/issues/5/comments`))!.path).toBe(`${R}/issues/5/comments?per_page=100&since=${encodeURIComponent("2026-11-04T10:00:00Z")}&page=1`);
+});
+
 test("attach puts the image on its own branch, made from the base the first time", async () => {
   routes[`${R}/git/ref/heads/develop`] = { object: { sha: "b" } };
   routes[`POST ${R}/git/refs`] = {};

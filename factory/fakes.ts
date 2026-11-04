@@ -93,6 +93,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
   let behind = o.behind ?? 0;
   const changes = new Map<ChangeRef, Omit<Change, "behind"> & { branch: string; title: string }>();
   const byBranch = new Map<string, ChangeRef>();
+  const changeNotes = new Map<ChangeRef, Comment[]>(); // newest first
   const attached: { name: string; size: number }[] = [];
   let attachCalls = 0;
   const open = (branch: string, title: string, body: string, ticket: TicketRef) => {
@@ -180,7 +181,14 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
       get(ref);
       if (findSecrets(text).length > 0) throw new Error("Comment refused: it contains a secret");
       host.mrComments.push(text);
+      host.sayOnChange(ref, FAKE_FACTORY, text, undefined, true);
     },
+    // A person (or, with byFactory, the factory) comments on the change on the host.
+    sayOnChange: (ref: ChangeRef, author: PersonRef, body: string, at = new Date().toISOString(), byFactory = false) => {
+      get(ref);
+      changeNotes.set(ref, [{ author, byFactory, body, at }, ...(changeNotes.get(ref) ?? [])]);
+    },
+    changeComments: async (ref: ChangeRef, since?: string): Promise<Comment[]> => (get(ref), (changeNotes.get(ref) ?? []).filter((c) => !since || c.at > since)),
     assignChange: async (ref: ChangeRef, person: PersonRef) => void host.assigned.push({ ref, person }),
     attach: async (name: string, data: Buffer) => {
       if (++attachCalls <= (o.attachFails ?? 0)) throw new Error("GitLab POST /projects/1/uploads failed with status 500");

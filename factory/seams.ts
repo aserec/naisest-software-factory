@@ -79,6 +79,7 @@ export interface CodeHost {
   changeOfTicket(ticket: TicketRef): Promise<{ ref: ChangeRef; open: boolean; merged: boolean; url: string } | undefined>; // the newest change, in any state, whose branch starts with changeBranchPrefix(ticket)
   revert(sha: string): Promise<{ ref: ChangeRef; url: string }>;
   commentChange(ref: ChangeRef, text: string): Promise<void>;
+  changeComments(ref: ChangeRef, since?: string): Promise<Comment[]>; // people's and the factory's comments, newest first, only those created after since; system notes left out
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;
   attach(name: string, data: Buffer): Promise<string>; // uploads a PNG; returns a link the change text can use in Markdown
   closeChange(ref: ChangeRef): Promise<void>; // closes without merging

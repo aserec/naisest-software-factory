@@ -254,6 +254,19 @@ describe("merge, revert, comment, assign", () => {
     await expect(host().commentChange("5", "glpat-abcdefghijklmnopqrst")).rejects.toThrow(/secret/);
     expect(calls.slice(before).filter((c) => c.method === "POST")).toHaveLength(0);
   });
+  test("changeComments lists the people's and the factory's notes after since, newest first, and flags the factory's", async () => {
+    routes["/projects/7/merge_requests/5/notes"] = [
+      { system: false, author: { username: "ann" }, body: "@factory fix it", created_at: "2026-11-04T12:00:00Z" },
+      { system: true, author: { username: "ann" }, body: "added 1 commit", created_at: "2026-11-04T11:30:00Z" },
+      { system: false, author: { username: "factory-bot" }, body: "done", created_at: "2026-11-04T11:00:00Z" },
+      { system: false, author: { username: "bob" }, body: "old", created_at: "2026-11-04T09:00:00Z" },
+    ];
+    expect(await host().changeComments("5", "2026-11-04T10:00:00Z")).toEqual([
+      { author: "ann", byFactory: false, body: "@factory fix it", at: "2026-11-04T12:00:00Z" },
+      { author: "factory-bot", byFactory: true, body: "done", at: "2026-11-04T11:00:00Z" },
+    ]);
+    expect(last().url).toBe("/projects/7/merge_requests/5/notes?sort=desc&order_by=created_at&per_page=100");
+  });
   test("assign looks up the user and puts the id on the change", async () => {
     routes["/users"] = [{ id: 12 }];
     routes["PUT /projects/7/merge_requests/5"] = {};

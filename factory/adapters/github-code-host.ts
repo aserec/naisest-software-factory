@@ -10,6 +10,8 @@ const ASSETS = "factory-assets"; // the branch that holds attached images, so th
 export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
   const r = `/repos/${repo}`;
   const pr = (ref: string) => `${r}/pulls/${Number(ref)}`;
+  let bot: Promise<string> | undefined;
+  const botName = () => (bot ??= gh.json("GET", "/user").then((u) => u.login as string));
   const opened = (p: any) => ({ ref: String(p.number), url: p.html_url as string });
   const head = async (ref: string) => (await gh.json("GET", pr(ref))).head.sha as string;
   const branchSha = async (branch: string) => (await gh.json("GET", `${r}/git/ref/heads/${branch}`)).object.sha as string;
@@ -108,6 +110,16 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       const body = `${AI_LINE}\n\n${text}`;
       if (findSecrets(body).length > 0) throw new Error("Comment refused: it contains a secret");
       await gh.json("POST", `${r}/issues/${Number(ref)}/comments`, { body });
+    },
+    // Without a shared account the code host cannot tell the factory's comments from its token user's own, so it asks for both: the token user and the AI line.
+    async changeComments(ref, since) {
+      const name = await botName();
+      // GitHub's since filters on the edit time; keep only comments created after it, newest first.
+      const all = await gh.all(`${r}/issues/${Number(ref)}/comments?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`);
+      return all
+        .filter((c) => !since || c.created_at > since)
+        .reverse()
+        .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && String(c.body ?? "").startsWith(AI_LINE), body: c.body ?? "", at: c.created_at }));
     },
     async assignChange(ref, person) {
       await gh.json("POST", `${r}/issues/${Number(ref)}/assignees`, { assignees: [person] });
