@@ -23,6 +23,14 @@ export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"star
   if (t.state === "blocked" || t.state === "needs_info") {
     // The poller starts the ready ticket; readyActor takes the factory's ready as this person's.
     const last = requests.at(-1)!;
+    // Like a round: one flagged request refuses all, with the cursor line so the next poll does not ask the judge again.
+    // A judge that fails throws: pollRequests logs it and the next poll tries again.
+    for (const r of requests) {
+      if (await conv.isInjection(r)) {
+        await conv.write(t.ref, refusal(requests.map((x) => x.author), last.at));
+        return "replied";
+      }
+    }
     await conv.write(t.ref, { kind: "readyFor", text: `The factory starts again for the request of @${last.author}.`, person: last.author, cursor: last.at });
     await ctx.tracker.setState(t.ref, "ready");
     return "started";

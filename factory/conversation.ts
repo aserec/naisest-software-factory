@@ -187,7 +187,7 @@ const trustOf = new WeakMap<Tracker, Map<string, Promise<boolean>>>();
 export interface Conversation {
   // The requests after the cursor, oldest first, from the work item and from its open change. `change` is that change when it is open.
   // forReply: the requests only get a reply, so with no cursor at all the factory's newest comment on the work item counts too.
-  // It does not run the injection check: a caller that acts on a request must (requestRound does, the inbox does through `news`).
+  // It does not run the injection check: a caller that acts on a request must (requestRound and answerRequests do, the inbox does through `news`).
   requests(ref: TicketRef, forReply?: boolean): Promise<{ requests: Request[]; change?: { ref: ChangeRef; url: string } }>;
   // Every request on the work item, oldest first, whatever the cursor.
   itemRequests(ref: TicketRef): Promise<Comment[]>;

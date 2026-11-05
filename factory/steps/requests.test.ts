@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { main } from "./poll";
-import { noteText } from "../conversation";
+import { noteText, refusal } from "../conversation";
 import { fakeWorld, BOT, cursorOf } from "./test-helpers";
 import { answerRequests, pollRequests, replyOnChanges, REPLY_WINDOW_MS } from "./requests";
 import { askPerson } from "./decision";
@@ -14,8 +14,8 @@ const ASK = "@factory add a screenshot";
 const BUILD = { kind: "build", ticket: "8", buildRun: "41", change: "5" };
 
 // Ticket 8 and its open change 5 (build run 41); the factory read up to T0.
-function world(o: { state?: FactoryState; cursor?: boolean; actorLevel?: number } = {}) {
-  const w = fakeWorld({ state: o.state ?? "needs_approval", actorLevel: o.actorLevel });
+function world(o: { state?: FactoryState; cursor?: boolean; actorLevel?: number; injectionYes?: number } = {}) {
+  const w = fakeWorld({ state: o.state ?? "needs_approval", actorLevel: o.actorLevel, jev1: { injectionYes: o.injectionYes } });
   w.openChange();
   if (o.cursor !== false) w.host.sayOnChange("5", BOT, noteText({ kind: "cursor", text: `The factory waits.`, at: T0 }), T0, true);
   return w;
@@ -130,6 +130,13 @@ test.each(["blocked", "needs_info"] as const)("a trusted request on a %s ticket 
   expect(w.tracker.tickets.get("8")!.state).toBe("ready");
   expect(w.workItemComments).toEqual([noteText({ kind: "readyFor", text: "The factory starts again for the request of @dev.", person: "dev", cursor: T2 })]);
   expect(w.ci.started).toEqual([]); // the poller starts the ready ticket
+});
+test.each(["blocked", "needs_info"] as const)("a flagged request on a %s ticket gets the refusal with the cursor line and does not set it ready", async (state) => {
+  const w = world({ state, injectionYes: 0.9 });
+  w.tracker.say("8", "dev", ASK, T1);
+  expect(await pollRequests(w.ctx)).toEqual([]);
+  expect(w.tracker.tickets.get("8")!.state).toBe(state);
+  expect(w.workItemComments).toEqual([noteText(refusal(["dev"], T1))]);
 });
 test("an untrusted person's request on a blocked ticket changes nothing", async () => {
   const w = world({ state: "blocked", actorLevel: 20 });
