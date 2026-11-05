@@ -77,7 +77,7 @@ describe("POST /api/runs/[run]/[action]", () => {
 
 describe("GET /api/runs/[run]/state", () => {
   it("gives the state, the allowed actions and the pending requests, and a cancelled stop is not pending", async () => {
-    expect(await (await state(run)).json()).toEqual({ state: "running", actions: ["stop"], restarted: false, pending: [] });
+    expect(await (await state(run)).json()).toEqual({ state: "running", actions: ["stop"], restarted: false, pending: [], refusals: { resume: "run is not stopped", restart: "run is not stopped", ready: "work item is not blocked or waiting for info" } });
     await post(run, "stop");
     expect(await (await state(run)).json()).toMatchObject({ actions: [], pending: ["stop"] });
     getDb().finish(getDb().requests({ target: "demo" }).find((r) => r.run === run)!.id, "cancelled");

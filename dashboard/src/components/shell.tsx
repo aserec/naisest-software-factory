@@ -33,8 +33,8 @@ export function Mark() {
 }
 
 function crumbs(path: string): { label: string; href?: string }[] {
-  // The run id is already under the page title in mono; repeating it here reads as "Run run-…".
-  if (path.startsWith("/runs/")) return [{ label: "Board", href: "/" }, { label: "Run" }];
+  // The run id's first 8 characters, as git shortens a hash; the full id is under the page title.
+  if (path.startsWith("/runs/")) return [{ label: "Board", href: "/" }, { label: `Run ${decodeURIComponent(path.slice(6)).slice(0, 8)}` }];
   if (path === "/preferences") return [{ label: "Preferences" }];
   return [{ label: NAV.find((n) => n.href === path)?.label ?? "Factory" }];
 }

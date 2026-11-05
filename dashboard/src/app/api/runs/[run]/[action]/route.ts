@@ -4,7 +4,7 @@ import { controlUser } from "@/server/control-user";
 import { getDb } from "@/server/db-instance";
 
 type Ctx = { params: Promise<{ run: string; action: string }> };
-const KINDS = ["stop", "resume", "restart"] as const;
+const KINDS = ["stop", "resume", "restart", "ready"] as const;
 
 // What the run page needs to pick its buttons: the run view's state, the actions it allows, whether it was restarted, and what is waiting.
 export async function GET(_req: Request, { params }: Ctx) {
@@ -14,8 +14,8 @@ export async function GET(_req: Request, { params }: Ctx) {
   const db = getDb();
   const view = db.view(run);
   if (!view) return new Response("run not found", { status: 404 });
-  const { state, actions, restarted, pending } = view;
-  return Response.json({ state, actions, restarted, pending });
+  const { state, actions, restarted, pending, refusals } = view;
+  return Response.json({ state, actions, restarted, pending, refusals });
 }
 
 export async function POST(req: Request, { params }: Ctx) {

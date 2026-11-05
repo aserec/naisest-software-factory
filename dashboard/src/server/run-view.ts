@@ -3,7 +3,7 @@ import { STATES, type ControlRequest, type FactoryState, type RunEvent } from "s
 // The one place that reads a run's state: what it is in, what a person may do, and whether it is stuck.
 // Pure, so the server (db.request, the routes) and the run page read the same answer.
 
-export type Action = ControlRequest["kind"]; // stop | resume | restart
+export type Action = ControlRequest["kind"]; // stop | resume | restart | ready
 export interface LastStep { step: string; startedAt: string; ended: boolean }
 
 export interface RunView {
@@ -30,7 +30,7 @@ export interface RunViewInput {
 
 // The states of a run that halted before a final state and waits to go on.
 const PAUSED: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked", "waiting"];
-const ACTIONS: Action[] = ["stop", "resume", "restart"];
+const ACTIONS: Action[] = ["stop", "resume", "restart", "ready"];
 
 /** The last step after one more event. A patch runs inside code review or the gate, and a code review inside the gate, so the outer step stays the last step. */
 export function trackStep(last: LastStep | undefined, e: { type: string; step?: string; at: string }): LastStep | undefined {
@@ -60,6 +60,13 @@ export function runView({ events, requests = [], newer = false, limits = {}, now
   const pending = requests.filter((r) => !r.doneAt && r.outcome !== "cancelled").map((r) => r.kind);
   const refusal = (kind: Action): string | undefined => {
     if (requests.some((r) => r.kind === kind && !r.doneAt)) return "already requested";
+    // Ready continues a blocked run or answers a question, both after run_end, so it skips the ended check.
+    if (kind === "ready") {
+      if (restarted) return "run already restarted";
+      if (pending.length) return "a request is already waiting";
+      if (newer) return "run is not the ticket's newest run";
+      return state === "blocked" || state === "needs_info" ? undefined : "work item is not blocked or waiting for info";
+    }
     if (ended) return "run already ended";
     if (restarted) return "run already restarted"; // a done restart ended this run: a new run carries on
     if (pending.length) return "a request is already waiting";

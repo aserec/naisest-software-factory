@@ -18,7 +18,11 @@ describe("actions", () => {
     ["no label and no fallback", { events: [] }, []],
     ["no label, the tracker state fills in", { events: [], fallback: "running" }, ["stop"]],
     ["needs_approval", { events: [label("needs_approval")] }, []],
-    ["blocked", { events: [label("blocked")] }, []],
+    ["blocked", { events: [label("blocked")] }, ["ready"]],
+    ["blocked and ended", { events: [label("blocked"), ev("run_end", { outcome: "blocked" })] }, ["ready"]],
+    ["needs info", { events: [label("needs_info")] }, ["ready"]],
+    ["blocked, a newer run exists", { events: [label("blocked")], newer: true }, []],
+    ["blocked, a ready waits", { events: [label("blocked")], requests: [req("ready")] }, []],
     ["waiting", { events: [label("waiting")] }, []],
     ["done", { events: [label("done")] }, []],
     ["an unknown label", { events: [label("running"), label("foo")] }, []],
@@ -39,11 +43,11 @@ describe("actions", () => {
 
   it("gives a reason for every refused action", () => {
     const refused = (i: Partial<RunViewInput>) => view(i).refusals;
-    expect(refused({ events: [label("needs_approval")] })).toEqual({ stop: "run is not running", resume: "run is not stopped", restart: "run is not stopped" });
-    expect(refused({ events: [label("stopped")] })).toEqual({ stop: "run is not running" });
+    expect(refused({ events: [label("needs_approval")] })).toEqual({ stop: "run is not running", resume: "run is not stopped", restart: "run is not stopped", ready: "work item is not blocked or waiting for info" });
+    expect(refused({ events: [label("stopped")] })).toEqual({ stop: "run is not running", ready: "work item is not blocked or waiting for info" });
     expect(refused({ events: [label("running")], requests: [req("stop")] })).toMatchObject({ stop: "already requested", resume: "a request is already waiting" });
-    expect(refused({ events: [label("running")], requests: [req("stop", { outcome: "cancelled" })] })).toEqual({ stop: "already requested", resume: "the run was cancelled, use Restart" });
-    expect(refused({ events: [label("stopped"), ev("run_end")] })).toEqual({ stop: "run already ended", resume: "run already ended", restart: "run already ended" });
+    expect(refused({ events: [label("running")], requests: [req("stop", { outcome: "cancelled" })] })).toEqual({ stop: "already requested", resume: "the run was cancelled, use Restart", ready: "work item is not blocked or waiting for info" });
+    expect(refused({ events: [label("stopped"), ev("run_end")] })).toEqual({ stop: "run already ended", resume: "run already ended", restart: "run already ended", ready: "work item is not blocked or waiting for info" });
     expect(refused({ events: [label("stopped")], requests: [req("restart", { outcome: "done", doneAt: ago(1) })] }).restart).toBe("run already restarted");
     expect(refused({ events: [label("stopped")], newer: true })).toMatchObject({ resume: "run is not the ticket's newest run", restart: "run is not the ticket's newest run" });
   });

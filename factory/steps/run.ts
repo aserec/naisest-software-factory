@@ -60,6 +60,9 @@ export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string
   const recent = (at: string) => Date.now() - Date.parse(at) >= 0 && Date.now() - Date.parse(at) <= RESTART_MS; // a future or bad `at` never counts
   const restart = control.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && recent(r.at));
   if (restart) return { actor: restart.user, restart: true };
+  // A dashboard Set to Ready the poller did: the person who pressed it set the ticket ready.
+  const ready = control.requests.find((r) => r.kind === "ready" && r.ticket === ref && r.outcome === "done" && recent(r.at));
+  if (ready) return { actor: ready.user, restart: false };
   const asked = await conversation(ctx).newest(ref, "readyFor");
   return { actor: asked && recent(asked.at) ? asked.person : actor, restart: false };
 }
@@ -359,12 +362,17 @@ export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
   const control = await controls(ctx);
   const started: TicketRef[] = [];
   for (const r of control.requests) {
-    if (r.outcome || (r.kind !== "resume" && r.kind !== "restart")) continue;
+    if (r.outcome || r.kind === "stop") continue;
     try {
       const t = await ctx.tracker.ticket(r.ticket).catch((e) => {
         if (/status 404|No ticket/.test(String(e))) return undefined; // the ticket is gone
         throw e;
       });
+      if (r.kind === "ready") {
+        // Not a start: the ready ticket starts like any other, in pollReady below or by the webhook.
+        await ctx.dashboard.requestDone(r.id, (await setReady(ctx, r, t?.state)) ? "done" : "refused");
+        continue;
+      }
       // A restart whose start failed set the ticket ready already: only the start is left.
       const retry = r.kind === "restart" && t?.state === "ready" && (await ctx.tracker.isFactory((await ctx.tracker.startedBy(r.ticket)) ?? ""));
       const ok = retry ? await retryRestart(ctx, r) : t?.state === "stopped" && (r.kind === "resume" ? await resumeRequest(ctx, r) : await restart(ctx, r));
@@ -375,6 +383,14 @@ export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
     }
   }
   return started;
+}
+
+// Dashboard Set to Ready: the factory sets the label for a person the target trusts, as the Ready they would set themselves.
+async function setReady(ctx: StepContext, r: ControlRequest, state: FactoryState | undefined): Promise<boolean> {
+  if ((state !== "blocked" && state !== "needs_info") || !(await ctx.tracker.trusted(r.user))) return false;
+  await ctx.tracker.comment(r.ticket, md("▶️", "Set to Ready", `@${r.user} set the work item to Ready from the dashboard.`));
+  await ctx.tracker.setState(r.ticket, "ready");
+  return true;
 }
 
 // A cancelled pipeline saved nothing after the stop before it, so only a restart helps.

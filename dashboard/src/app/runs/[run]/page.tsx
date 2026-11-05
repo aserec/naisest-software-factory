@@ -17,7 +17,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   const summary = runs.find((r) => r.run === run);
   // The board is cached for 15 s; without it the page still shows the run, only the triage risk and the change link are missing.
   const item = first && (await getBoard().board().catch(() => [])).find((i) => i.target === first.target && i.ticket === first.ticket);
-  const changeUrl = item?.state === "needs_approval" ? summary?.changeUrl : undefined;
+  const changeUrl = summary?.changeUrl;
   // Review findings link their file into the change's diff once the change exists.
   const fileLink = target && summary?.changeUrl ? fileLinkOf(target, summary.changeUrl) : undefined;
   // A target whose tracker is unknown still gets its page, only without the work item link.
@@ -33,10 +33,22 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         // The work item's title, as on its board card; without the board, its number.
         title={item?.title ?? (first ? `${first.target} #${first.ticket}` : `Run ${run}`)}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          // basis-full: the buttons always take their own line under the title, whatever fits beside it.
+          <div className="flex basis-full flex-wrap items-center gap-2">
+            {/* Open PR is the main button while the change waits for a person's merge. */}
             {changeUrl && target && (
-              <Button asChild>
-                <a href={changeUrl}>Review and merge in {codeHostName(target)}</a>
+              <Button asChild variant={item?.state === "needs_approval" ? "default" : "outline"}>
+                <a href={changeUrl} title={`Review and merge in ${codeHostName(target)}`}>Open PR</a>
+              </Button>
+            )}
+            {tracker && ticketUrl && (
+              <Button asChild variant="outline">
+                <a href={ticketUrl} title={`Open the work item in ${tracker.name}`}>Open issue</a>
+              </Button>
+            )}
+            {item?.boardUrl && (
+              <Button asChild variant="outline">
+                <a href={item.boardUrl} title={`Open the board in ${tracker?.name ?? "the tracker"}`}>Open board</a>
               </Button>
             )}
             <RunControls run={run} />
@@ -52,14 +64,6 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
           </>
         )}
         <span className="font-mono">{run}</span>
-        {tracker && ticketUrl && (
-          <>
-            {" · "}
-            <a href={ticketUrl} className="underline decoration-input underline-offset-4 hover:text-foreground hover:decoration-current">
-              Open the work item in {tracker.name}
-            </a>
-          </>
-        )}
       </PageTitle>
       <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} earlier={runs.filter((r) => r.run !== run)} />
     </main>

@@ -8,8 +8,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const state = (o: object) => ({ actions: [], restarted: false, pending: [], ...o });
+const state = (o: object) => ({ actions: [], restarted: false, pending: [], refusals: {}, ...o });
 const names = () => screen.queryAllByRole("button").map((b) => b.textContent);
+// The buttons a person can press now; the others are disabled.
+const enabled = () => screen.queryAllByRole("button").filter((b) => !(b as HTMLButtonElement).disabled).map((b) => b.textContent);
 
 // A fake server: GET state returns `s`, a POST answers `post`.
 function server(s: object, post = new Response("{}")) {
@@ -38,30 +40,36 @@ test("Cancel closes the confirm, starts with focus, and posts nothing", async ()
   expect(f.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
 });
 
-test("shows the actions the server allows, in its order", async () => {
+test("shows every action, and enables only the ones the server allows", async () => {
   server({ state: "stopped", actions: ["resume", "restart"] });
   renderWithQuery(<RunControls run="r1" />);
   await screen.findByRole("button", { name: "Resume" });
-  expect(names()).toEqual(["Resume", "Restart"]);
-  cleanup();
-  server({ state: "running", actions: ["restart"] });
-  renderWithQuery(<RunControls run="r1" />);
-  await screen.findByRole("button", { name: "Restart" });
-  expect(names()).toEqual(["Restart"]);
+  expect(names()).toEqual(["Stop", "Resume", "Restart", "Set to Ready"]);
+  expect(enabled()).toEqual(["Resume", "Restart"]);
 });
 
-test("a waiting request shows in place of the buttons", async () => {
+test("a disabled button says why on hover", async () => {
+  server({ state: "blocked", actions: ["ready"], refusals: { stop: "run is not running" } });
+  renderWithQuery(<RunControls run="r1" />);
+  const stop = await screen.findByRole("button", { name: "Stop" });
+  fireEvent.pointerMove(stop.parentElement!);
+  fireEvent.focus(stop.parentElement!);
+  expect((await screen.findByRole("tooltip")).textContent).toBe("Disabled: run is not running.");
+});
+
+test("Set to Ready asks first, then posts ready for the run", async () => {
+  const f = server({ state: "blocked", actions: ["ready"] });
+  renderWithQuery(<RunControls run="r1" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Set to Ready" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Set to Ready" }).at(-1)!);
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/runs/r1/ready", { method: "POST" }));
+});
+
+test("a waiting request shows beside the disabled buttons", async () => {
   server({ state: "running", pending: ["stop"] });
   renderWithQuery(<RunControls run="r1" />);
   expect((await screen.findByText(/Stop requested/)).textContent).toBeTruthy();
-  expect(names()).toEqual([]);
-});
-
-test("a run with a done restart shows nothing, not even the sentence", async () => {
-  server({ state: "stopped", restarted: true });
-  const { container } = renderWithQuery(<RunControls run="r1" />);
-  await waitFor(() => expect(container.firstChild).not.toBeNull()); // the state arrived
-  expect(container.textContent).toBe("");
+  expect(enabled()).toEqual([]);
 });
 
 test("shows the reason when the server refuses", async () => {
@@ -72,20 +80,8 @@ test("shows the reason when the server refuses", async () => {
   expect((await screen.findByRole("alert")).textContent).toBe("Stop is already requested.");
 });
 
-test("says why there are no buttons, and that the state could not be read", async () => {
-  server({ state: "done" });
-  renderWithQuery(<RunControls run="r1" />);
-  expect((await screen.findByText(/nothing to stop/)).textContent).toBe("The work item is Done, so there is nothing to stop or resume.");
-  cleanup();
+test("says the buttons are hidden when the state could not be read", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 500 })));
   renderWithQuery(<RunControls run="r1" />);
-  expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("Could not load the run state, so Stop and Resume are hidden.Retry");
-});
-
-test("a run waiting for approval shows no buttons and no sentence", async () => {
-  const f = server({ state: "needs_approval" });
-  const { container } = renderWithQuery(<RunControls run="r1" />);
-  await waitFor(() => expect(f).toHaveBeenCalled());
-  await new Promise((r) => setTimeout(r, 50)); // let the state answer render
-  expect(container.innerHTML).toBe("");
+  expect((await screen.findByRole("alert", {}, { timeout: 5000 })).textContent).toBe("Could not load the run state, so the run buttons are hidden.Retry");
 });

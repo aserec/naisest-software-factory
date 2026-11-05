@@ -8,7 +8,7 @@ const web = () => (process.env.GITHUB_URL || "https://github.com").replace(/\/+$
 // "Needs approval" -> needs_approval; undefined for a column that is no factory state.
 const columnState = (name: string) => STATES.find((s) => s === name.trim().toLowerCase().replace(/\s+/g, "_"));
 
-type Card = { state: FactoryState; repo: string; number: number; title: string; url: string; updatedAt: string; risk?: BoardRow["risk"] };
+type Card = { state: FactoryState; repo: string; number: number; title: string; url: string; updatedAt: string; risk?: BoardRow["risk"]; boardUrl: string };
 
 export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
   const headers = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" });
@@ -30,15 +30,16 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
     for (let after: string | null = null; ;) {
       const d = await graphql(
         token,
-        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url state repository { nameWithOwner } labels(first: 50) { nodes { name } } } } } } } } } }`,
+        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { url items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url state repository { nameWithOwner } labels(first: 50) { nodes { name } } } } } } } } } }`,
         { owner, n: number, after },
       );
-      const items = d.repositoryOwner?.projectV2?.items;
+      const project = d.repositoryOwner?.projectV2;
+      const items = project?.items;
       if (!items) throw new Error(`GitHub project ${owner}/${number} not found`);
       for (const n of items.nodes) {
         const c = n.content;
         const state = n.fieldValueByName && columnState(n.fieldValueByName.name);
-        if (c?.state === "OPEN" && state) cards.push({ state, repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt, risk: triageRisk((c.labels?.nodes ?? []).map((l: { name: string }) => l.name)) });
+        if (c?.state === "OPEN" && state) cards.push({ state, repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt, risk: triageRisk((c.labels?.nodes ?? []).map((l: { name: string }) => l.name)), boardUrl: project.url });
       }
       if (!items.pageInfo.hasNextPage) return cards;
       after = items.pageInfo.endCursor;
@@ -57,7 +58,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
         if (t.githubProject === undefined) {
           const per = await Promise.all(STATES.map(async (state) => ((await rest(token, `/repos/${repo}/issues?labels=factory_${state}&state=open&per_page=100`)) as any[])
             .filter((i) => !i.pull_request)
-            .map((i) => ({ target: t.name, ticket: String(i.number), title: i.title, state, url: i.html_url, updatedAt: i.updated_at, risk: triageRisk(i.labels.map((l: { name: string }) => l.name)) }))));
+            .map((i) => ({ target: t.name, ticket: String(i.number), title: i.title, state, url: i.html_url, updatedAt: i.updated_at, risk: triageRisk(i.labels.map((l: { name: string }) => l.name)), boardUrl: `${web()}/${repo}/issues` }))));
           return per.flat();
         }
         const owner = repo.split("/")[0];
@@ -65,7 +66,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
         if (!boards.has(key)) boards.set(key, boardCards(token, owner, t.githubProject));
         return (await boards.get(key)!)
           .filter((c) => c.repo === repo)
-          .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: c.state, url: c.url, updatedAt: c.updatedAt, risk: c.risk }));
+          .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: c.state, url: c.url, updatedAt: c.updatedAt, risk: c.risk, boardUrl: c.boardUrl }));
       });
       return (await Promise.all(lists)).flat();
     },

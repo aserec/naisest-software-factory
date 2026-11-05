@@ -21,7 +21,7 @@ export function makeGitLabTracker(fetchFn: typeof fetch = fetch): Tracker {
           const path = `/projects/${encodeURIComponent(t.projectPath)}/issues?labels=factory_${state}&per_page=100`;
           const r = await fetchFn(`${base()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": token } });
           if (!r.ok) throw new Error(`GitLab ${r.status} for ${path}`);
-          return ((await r.json()) as Issue[]).map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at, risk: triageRisk(i.labels) }));
+          return ((await r.json()) as Issue[]).map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at, risk: triageRisk(i.labels), boardUrl: `${base()}/${t.projectPath}/-/boards` }));
         }),
       );
       return (await Promise.all(lists)).flat();

@@ -10,7 +10,7 @@ const card = (repo: string, number: number, status: string | null, state = "OPEN
   updatedAt: "2026-11-03T10:00:00Z", fieldValueByName: status ? { name: status } : null,
   content: { number, title, url: `https://github.com/${repo}/issues/${number}`, state, repository: { nameWithOwner: repo }, labels: { nodes: labels.map((name) => ({ name })) } },
 });
-const graphql = (nodes: unknown[]) => Response.json({ data: { repositoryOwner: { projectV2: { items: { pageInfo: { hasNextPage: false }, nodes } } } } });
+const graphql = (nodes: unknown[]) => Response.json({ data: { repositoryOwner: { projectV2: { url: "https://github.com/users/o/projects/1", items: { pageInfo: { hasNextPage: false }, nodes } } } } });
 const riskLabels = (s: Seed) => (s.risk ? [`factory_risk_${s.risk}`] : []);
 
 // A fake GitHub holding `seed` in o/r: as labeled issues, and as cards in board columns ("needs_approval" -> "Needs approval").
@@ -42,6 +42,7 @@ it("reads a shared GitHub board once and gives each target its open cards in fac
   const rows = await makeGitHubTracker(f).rows([target("web", "o/web", 2), target("api", "o/api", 2)]);
   expect(reads).toBe(1);
   expect(rows.map((r) => [r.target, r.ticket, r.state, r.risk])).toEqual([["web", "1", "ready", undefined], ["web", "2", "needs_approval", "medium"], ["api", "5", "running", undefined]]);
+  expect(rows.find((r) => r.target === "api")?.boardUrl).toBe("https://github.com/users/o/projects/1");
 });
 
 it("leaves pull requests out of the issue lists", async () => {

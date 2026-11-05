@@ -1,7 +1,7 @@
 // Event schema shared by the factory (sender) and the dashboard (receiver).
 import { z } from "zod";
 
-export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "label_change", "usage", "stop", "resume", "restart", "switch_change", "error"] as const;
+export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "error"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // The state of a work item, in factory words. factory/seams.ts re-exports it.
@@ -9,7 +9,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
 export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"] as const;
 export type FactoryState = (typeof STATES)[number];
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
-export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "switch_change"]);
+export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "ready", "switch_change"]);
 
 // The steps of a run in order. The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
 export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"] as const;
@@ -74,6 +74,7 @@ export const EVENT_DATA = {
   stop: user,
   resume: user,
   restart: user,
+  ready: user,
   switch_change: z.object({ user: z.string(), name: z.enum(SWITCHES), scope: z.string(), on: z.boolean() }),
   error: z.object({ message: z.string() }),
 } satisfies Record<EventType, z.ZodTypeAny>;
@@ -127,7 +128,7 @@ export const dropUnknownKeys = (e: RunEvent): RunEvent => ({ ...e, data: EVENT_D
 
 export interface ControlRequest {
   id: string;
-  kind: "stop" | "resume" | "restart";
+  kind: "stop" | "resume" | "restart" | "ready";
   run: string;
   target: string;
   ticket: string;

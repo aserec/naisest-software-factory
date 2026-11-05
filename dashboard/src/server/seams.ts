@@ -8,7 +8,7 @@ export { STATES, type FactoryState }; // STATES: one board column per state, in 
 
 export type Risk = "trivial" | "low" | "medium" | "high";
 
-export interface BoardRow { target: string; ticket: string; title: string; state: FactoryState; url: string; updatedAt: string; risk?: Risk }
+export interface BoardRow { target: string; ticket: string; title: string; state: FactoryState; url: string; updatedAt: string; risk?: Risk; boardUrl?: string } // boardUrl: the tracker's own board the work item sits on
 
 // Where a target's work items live. A target's `tracker` key picks it.
 export interface Tracker {

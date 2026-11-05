@@ -97,7 +97,7 @@ test("finishing cancelled stops does nothing while the dashboard is down", async
 });
 
 // Task B6: resume and restart requests from the dashboard. The poller serves them before it starts new runs.
-const request = (kind: "resume" | "restart", ticket: string, o: object = {}) => ({ id: `q${ticket}`, kind, run: "run-1", target: "react_frontend", ticket, user: "ana", at: new Date().toISOString(), ...o });
+const request = (kind: "resume" | "restart" | "ready", ticket: string, o: object = {}) => ({ id: `q${ticket}`, kind, run: "run-1", target: "react_frontend", ticket, user: "ana", at: new Date().toISOString(), ...o });
 const stoppedCtx = (notes: string[]) => {
   const ctx = fakeCtx({ running: 1 });
   ctx.world.tracker.tickets.set("7", { ...ctx.world.tracker.tickets.get("9")!, ref: "7", state: "stopped" });
@@ -160,6 +160,22 @@ test("poller starts a ticket the factory set ready only for a recent restart req
   const old = new Date(Date.now() - 16 * 60_000).toISOString();
   ctx.dashboard = fakeDashboard({ requests: [request("restart", "3", { outcome: "done" }), request("restart", "4", { at: old, outcome: "done" }), request("restart", "5", { user: "eve" })] });
   expect(await pollReady(ctx)).toEqual(["3"]);
+});
+// Dashboard Set to Ready: the factory sets a blocked ticket ready for a trusted person, and that ready counts as theirs.
+test("a ready request sets a blocked ticket ready for a trusted person, and the poller starts it as theirs", async () => {
+  const ctx = stoppedCtx([]);
+  ctx.world.tracker.tickets.get("7")!.state = "blocked";
+  ctx.tracker.trusted = async (actor) => actor === "ana";
+  const dash = fakeDashboard({ requests: [request("ready", "7"), request("ready", "r0"), request("ready", "8", { user: "eve" })] });
+  ctx.world.tracker.tickets.set("8", { ...ctx.world.tracker.tickets.get("7")!, ref: "8", state: "blocked" });
+  ctx.dashboard = dash;
+  expect(await handleRequests(ctx)).toEqual([]); // it sets the state only; pollReady starts the run
+  expect(ctx.world.tracker.tickets.get("7")!.state).toBe("ready");
+  expect(ctx.world.tracker.tickets.get("8")!.state).toBe("blocked");
+  expect(dash.done).toEqual([["q7", "done"], ["qr0", "refused"], ["q8", "refused"]]);
+  ctx.tracker.startedBy = async () => BOT;
+  ctx.dashboard = fakeDashboard({ requests: [request("ready", "7", { outcome: "done" })] });
+  expect(await pollReady(ctx)).toEqual(["7"]);
 });
 // R41: the comment first, so a lost comment never leaves a stopped ticket whose newest note is an older stop.
 test("a cancelled stop posts its comment before it sets the ticket stopped", async () => {

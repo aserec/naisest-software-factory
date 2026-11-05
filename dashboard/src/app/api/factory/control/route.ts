@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   // A cancelled stop stays pending (Ruling R4), so a pending stop only means "stop" when it is not cancelled.
   const stop = all.some((r) => r.kind === "stop" && !r.doneAt && r.run === q.get("run") && r.outcome !== "cancelled");
   const requests = all.filter((r) =>
-    r.doneAt ? r.kind === "restart" && Date.parse(r.doneAt) > since : r.kind !== "stop" || r.outcome === "cancelled",
+    r.doneAt ? (r.kind === "restart" || r.kind === "ready") && Date.parse(r.doneAt) > since : r.kind !== "stop" || r.outcome === "cancelled",
   );
   return Response.json({ switches: db.switches(target), stop, requests } satisfies ControlState);
 }
