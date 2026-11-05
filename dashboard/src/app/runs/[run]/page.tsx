@@ -37,7 +37,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
                 <a href={changeUrl}>Review and merge in {codeHostName(target)}</a>
               </Button>
             )}
-            <RunControls run={run} state={item?.state} />
+            <RunControls run={run} />
           </div>
         }
       >

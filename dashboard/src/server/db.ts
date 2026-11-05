@@ -3,7 +3,8 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
-import { STATES, type FactoryState } from "./seams";
+import { runView, trackStep, type RunView } from "./run-view";
+import type { FactoryState } from "./seams";
 
 export interface RunSummary {
   run: string;
@@ -31,12 +32,10 @@ export interface Db {
   /** Saves the request and its audit event (type = kind) in one transaction. */
   request(r: Omit<ControlRequest, "id" | "at">): ControlRequest | { refused: string };
   requests(q: { target?: string; pending?: boolean; sinceMinutes?: number }): ControlRequest[];
-  /** True when a restart of this run is done. */
-  restarted(run: string): boolean;
   /** True when the run has a run_end event. */
   ended(run: string): boolean;
-  /** The factory state of the run's newest label_change; undefined for none or an unknown value. */
-  state(run: string): FactoryState | undefined;
+  /** What state the run is in and what may be done to it (see run-view.ts); undefined for a run with no events. fallback: the work item's tracker state, for a run that sent no label_change. */
+  view(run: string, o?: { limits?: Record<string, number>; now?: Date; fallback?: FactoryState }): RunView | undefined;
   finish(id: string, outcome: NonNullable<ControlRequest["outcome"]>): void;
   addDispatch(s: DispatchInput): Dispatch;
   /** Pending dispatches of the target, oldest first. */
@@ -104,13 +103,23 @@ export function openDb(path: string): Db {
   // A pending request is one with no done_at. "cancelled" keeps it pending (Ruling R4) and is never overwritten.
   const finishStmt = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE ? END WHERE id = ?");
   const cancelStmt = db.prepare("UPDATE requests SET outcome = 'cancelled' WHERE id = ?");
-  const restarted = (run: string) => db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'restart' AND outcome = 'done'").get(run) !== undefined;
   const ended = (run: string) => db.prepare("SELECT 1 FROM events WHERE run = ? AND type = 'run_end'").get(run) !== undefined;
+  // Only the events the run view reads, so a run with thousands of tool calls stays cheap.
+  const viewEvents = db.prepare("SELECT * FROM events WHERE run = ? AND type IN ('step_start', 'step_end', 'label_change', 'run_end') ORDER BY seq");
   const finishStops = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE 'stopped' END WHERE run = ? AND kind = 'stop' AND done_at IS NULL");
 
   // Prepared once per distinct SQL. Optional filters are added to the SQL, not tested with `? IS NULL`, so SQLite can pick an index.
   const cache = new Map<string, ReturnType<typeof db.prepare>>();
   const stmt = (sql: string) => cache.get(sql) ?? (cache.set(sql, db.prepare(sql)), cache.get(sql)!);
+
+  function view(run: string, o: { limits?: Record<string, number>; now?: Date; fallback?: FactoryState } = {}): RunView | undefined {
+    const first = db.prepare("SELECT target, ticket FROM events WHERE run = ? ORDER BY seq LIMIT 1").get(run) as Row | undefined;
+    if (!first) return undefined;
+    // The poller acts on the work item, so a run must be its newest (Ruling R46).
+    const newer = db.prepare("SELECT 1 FROM events WHERE type = 'run_start' AND target = ? AND ticket = ? AND run != ? AND seq > (SELECT MIN(seq) FROM events WHERE run = ? AND type = 'run_start')").get(first.target as string, first.ticket as string, run, run) !== undefined;
+    const requests = (db.prepare("SELECT * FROM requests WHERE run = ? ORDER BY at, rowid").all(run) as Row[]).map(toRequest);
+    return runView({ events: (viewEvents.all(run) as Row[]).map(toEvent), requests, newer, ...o });
+  }
 
   function inTransaction<T>(fn: () => T): T {
     db.exec("BEGIN IMMEDIATE");
@@ -172,9 +181,7 @@ export function openDb(path: string): Db {
           s.endedAt = r.at as string;
           s.outcome = data.outcome as string;
         } else if (r.type === "usage") s.costUsd += data.costUsd as number;
-        // A patch step runs inside code review or the gate, so the outer step stays the last step.
-        else if (r.type === "step_start" && r.step !== "patch") s.lastStep = { step: text(r.step) ?? "", startedAt: r.at as string, ended: false };
-        else if (r.type === "step_end" && s.lastStep && s.lastStep.step === (text(r.step) ?? "")) s.lastStep.ended = true;
+        else if (r.type === "step_start" || r.type === "step_end") s.lastStep = trackStep(s.lastStep, { type: r.type, step: text(r.step), at: r.at as string });
         else if (r.type === "review_finding") s.round = Math.max(s.round ?? 0, data.round as number);
         else if (r.type === "decision") {
           if (typeof data.risk === "number") s.mergeRisk = data.risk;
@@ -203,21 +210,10 @@ export function openDb(path: string): Db {
 
     request(r) {
       return inTransaction(() => {
-        const pending = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = ? AND done_at IS NULL").get(r.run, r.kind);
-        if (pending) return { refused: "already requested" };
-        if (ended(r.run)) return { refused: "run already ended" };
-        if (r.kind !== "stop") {
-          // A restart ends the run, so a second one would start a second new run.
-          if (r.kind === "restart" && restarted(r.run)) return { refused: "run already restarted" };
-          // The poller acts on the ticket, so the run must be the ticket's newest (Ruling R46).
-          const newer = db.prepare("SELECT 1 FROM events WHERE type = 'run_start' AND target = ? AND ticket = ? AND run != ? AND seq > (SELECT MIN(seq) FROM events WHERE run = ? AND type = 'run_start')").get(r.target, r.ticket, r.run, r.run);
-          if (newer) return { refused: "run is not the ticket's newest run" };
-          // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted (spec 6.1, Ruling R18).
-          const cancelled = db.prepare("SELECT 1 FROM requests WHERE run = ? AND kind = 'stop' AND outcome = 'cancelled'").get(r.run);
-          if (cancelled && r.kind === "resume") return { refused: "the run was cancelled, use Restart" };
-          const last = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'step_end' ORDER BY seq DESC LIMIT 1").get(r.run) as Row | undefined;
-          if (!cancelled && (!last || JSON.parse(last.data as string).outcome !== "stopped")) return { refused: "run is not stopped" };
-        }
+        const v = view(r.run);
+        if (!v) return { refused: "run not found" };
+        const why = v.refusals[r.kind];
+        if (why) return { refused: why };
         const row: ControlRequest = { id: randomUUID(), at: new Date().toISOString(), kind: r.kind, run: r.run, target: r.target, ticket: r.ticket, user: r.user };
         db.prepare("INSERT INTO requests (id, kind, run, target, ticket, user, at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(row.id, row.kind, row.run, row.target, row.ticket, row.user, row.at);
         insertEvents([{ id: randomUUID(), run: r.run, at: row.at, target: r.target, ticket: r.ticket, type: r.kind, data: { user: r.user } }]);
@@ -225,15 +221,8 @@ export function openDb(path: string): Db {
       });
     },
 
-    restarted,
     ended,
-
-    state(run) {
-      const r = db.prepare("SELECT data FROM events WHERE run = ? AND type = 'label_change' ORDER BY seq DESC LIMIT 1").get(run) as Row | undefined;
-      // Events saved before the seams hold the factory_* label name.
-      const to = r && String(JSON.parse(r.data as string).to).replace(/^factory_/, "");
-      return STATES.find((s) => s === to);
-    },
+    view,
 
     requests({ target, pending, sinceMinutes }) {
       const since = sinceMinutes == null ? null : new Date(Date.now() - sinceMinutes * 60_000).toISOString();

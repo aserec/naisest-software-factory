@@ -50,6 +50,15 @@ describe("GET /api/board", () => {
     expect(rows[1].run).toBeUndefined();
   });
 
+  // D-P5: a stopped or waiting run is not working, so a long step is not stuck.
+  it("does not mark a paused run stuck, however long its last step ran", async () => {
+    const of9 = (e: RunEvent): RunEvent => ({ ...e, ticket: "9" });
+    board.board.mockResolvedValue([item("9")]);
+    getDb().addEvents([of9(ev("run_start", 300, "paused")), of9(ev("step_start", 200, "paused", {}, "prepare-patch")), of9(ev("label_change", 100, "paused", { to: "stopped" }))]);
+    const rows = (await (await getBoard()).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ ticket: "9", run: "paused", stuck: false });
+  });
+
   it("answers 502 when the tracker fails", async () => {
     board.board.mockRejectedValue(new Error("GitLab 500"));
     expect((await getBoard()).status).toBe(502);

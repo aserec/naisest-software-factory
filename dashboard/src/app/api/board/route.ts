@@ -1,4 +1,3 @@
-import { isStuck } from "@/components/stuck";
 import { auth } from "@/server/auth";
 import type { RunSummary } from "@/server/db";
 import { getDb } from "@/server/db-instance";
@@ -20,8 +19,10 @@ export async function GET() {
       items.map((i) => {
         const r = latest.get(`${i.target}/${i.ticket}`);
         const open = !!r && !r.endedAt;
+        // The run's own events say whether it is stuck; the work item's state fills in for a run that sent no label_change.
+        const stuck = !!r && !!getDb().view(r.run, { limits: limits.get(i.target) ?? {}, now, fallback: i.state })?.stuck;
         return {
-          ...i, run: r?.run, costUsd: r?.costUsd, stuck: open && isStuck(r.lastStep, limits.get(i.target) ?? {}, now),
+          ...i, run: r?.run, costUsd: r?.costUsd, stuck,
           step: open ? r.lastStep?.step : undefined, round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, changeUrl: r?.changeUrl,
         };
       }),

@@ -18,7 +18,7 @@ beforeEach(() => {
   db = openDb(":memory:");
   ci = { cancel: vi.fn(async () => {}), importEvents: vi.fn(async () => 0), startDispatch: vi.fn(async () => {}) };
   state = { ...newLoopState(), lastImport: Date.now() + 1e9, backupDay: "done" }; // no import or backup unless a test wants one
-  db.addEvents([ev("run_start", "r1"), ev("step_start", "r1", { pipeline: "6" }), ev("step_start", "r1", { pipeline: "7" })]);
+  db.addEvents([ev("run_start", "r1"), ev("label_change", "r1", { data: { to: "running" } }), ev("step_start", "r1", { pipeline: "6" }), ev("step_start", "r1", { pipeline: "7" })]);
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => vi.restoreAllMocks());
@@ -54,7 +54,7 @@ describe("tick: stop fallback", () => {
   });
 
   it("leaves the stop pending when the run has no pipeline yet, and cancels once one arrives", async () => {
-    db.addEvents([ev("run_start", "r2")]);
+    db.addEvents([ev("run_start", "r2"), ev("label_change", "r2", { data: { to: "running" } })]);
     db.request({ kind: "stop", run: "r2", target: "demo", ticket: "7", user: "ann" });
     await tick({ db, ci, now: later(120) }, state);
     expect(ci.cancel).not.toHaveBeenCalled();

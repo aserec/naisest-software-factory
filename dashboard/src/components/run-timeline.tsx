@@ -8,10 +8,10 @@ import { Sheet } from "@/components/ui/sheet";
 import { duration, usd, words } from "@/lib/utils";
 import { Fact, StepDetail, Verdict } from "./step-detail";
 import type { FileLink } from "@/server/compose";
+import { runView } from "@/server/run-view";
 import type { FactoryState } from "@/server/seams";
 import { RiskPills, STATE } from "./board";
 import { LoadError, SectionHeading } from "./shell";
-import { isStuck } from "./stuck";
 
 export type SeqEvent = RunEvent & { seq: number };
 
@@ -198,9 +198,6 @@ function useNow() {
   return now;
 }
 
-// The states of a run that halted before a final state and waits to go on.
-const PAUSED: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked", "waiting"];
-
 // limits: minutes per step for the run's target, read on the server.
 // risk: the work item's triage risk and the run's merge risk, read on the server.
 // state: the work item's state in its tracker, read on the server.
@@ -220,13 +217,14 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
   // Until the run ends, the line runs to now: a hung step keeps growing instead of reading as just started.
   // A paused run (its label says it waits for a person or the usage limit) is not working either:
   // its line ends at the last event, and the wait counts apart, so Time stays the factory's own time.
-  const paused = !!state && PAUSED.includes(state);
-  const over = paused || data.some((e) => e.type === "run_end");
+  const now = new Date(nowMs);
+  const view = runView({ events: data, limits, now, fallback: state });
+  const { paused } = view;
+  const over = paused || view.ended;
   const last = Math.max(...times);
   const span = Math.max(Math.max(last, over ? 0 : nowMs) - from, 1);
   const live = rows.find((l) => !l.end);
-  const now = new Date(nowMs);
-  const stuck = (l: Lane) => !over && !l.end && isStuck({ step: l.start.step ?? "", startedAt: l.start.at, ended: false }, limits, now);
+  const stuck = (l: Lane) => view.stuck && l === live;
   const open = rows.find((l) => l.start.id === openId);
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")));
@@ -234,7 +232,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
   const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
   const nowText = live ? words(live.start.step ?? "") : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
-  const waited = paused && !data.some((e) => e.type === "run_end") && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
+  const waited = paused && !view.ended && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
   const time = (
     <>
       {duration(span / 1000)}
