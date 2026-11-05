@@ -2,18 +2,32 @@ export const GITHUB_API = "https://api.github.com";
 
 // A small GitHub REST and GraphQL client. A failed call names the status and endpoint, never the token.
 // A GET retries 429/502/503/504 a few times. A write fails at once: it may have gone through already.
+// A request that never reached GitHub (no DNS, no connection) is tried again for any method, for a few minutes:
+// a laptop's Wi-Fi drop must not end a run that took half an hour.
+const NOT_SENT = ["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"];
+const notSent = (e: unknown) => e instanceof TypeError && NOT_SENT.includes((e.cause as { code?: string } | undefined)?.code ?? "");
+const NET_TRIES = 8; // waits 5, 10, ... 35 s between tries: 140 s in all, plus each connect timeout
+
 export class GitHub {
   constructor(private token: string, private fetchFn: typeof fetch = fetch, private sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))) {}
 
   // once: GraphQL does its own retries, so a 502 is not tried 3 × 3 times.
   async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, once = false): Promise<Response> {
-    for (let attempt = 1; ; attempt++) {
-      const res = await this.fetchFn(`${GITHUB_API}${path}`, {
-        method,
-        headers: { Authorization: `Bearer ${this.token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json", ...headers },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(60_000),
-      });
+    for (let attempt = 1, net = 1; ; attempt++) {
+      let res: Response;
+      try {
+        res = await this.fetchFn(`${GITHUB_API}${path}`, {
+          method,
+          headers: { Authorization: `Bearer ${this.token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json", ...headers },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: AbortSignal.timeout(60_000),
+        });
+      } catch (e) {
+        if (!notSent(e) || net === NET_TRIES) throw e;
+        await this.sleep(5000 * net++);
+        attempt--;
+        continue;
+      }
       if (res.ok) return res;
       if (method !== "GET" || once || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) throw new Error(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}`);
       await this.sleep(1000 * attempt);
