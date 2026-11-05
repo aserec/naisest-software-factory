@@ -61,7 +61,10 @@ async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
 }
 
 // gitDir is ours. The clone at dir is only used as a work tree.
-export function gitRepo(dir: string, gitDir: string, url: string, token: string, env: NodeJS.ProcessEnv): Repo {
+// The server's own trouble, not a refused push: worth a second try.
+const TRANSIENT_PUSH = /fatal error in|Internal Server Error|RPC failed|remote end hung up|early EOF|Could not resolve host|Connection (timed out|reset)|\b50[234]\b/;
+
+export function gitRepo(dir: string, gitDir: string, url: string, token: string, env: NodeJS.ProcessEnv, retryMs = 5000): Repo {
   // The token goes in a header through env, so it is never written to any config file.
   const auth = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "http.extraHeader", GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`oauth2:${token}`).toString("base64")}` };
   const base = { PATH: env.PATH, HOME: env.HOME, LANG: env.LANG, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
@@ -105,8 +108,17 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
       const who = { GIT_AUTHOR_NAME: "Software Factory", GIT_AUTHOR_EMAIL: FACTORY_GIT_EMAIL, GIT_COMMITTER_NAME: "Software Factory", GIT_COMMITTER_EMAIL: FACTORY_GIT_EMAIL };
       const sha = (await git([...ours, "commit-tree", tree, "-p", "HEAD", "-m", message], who)).trim();
       // Force: a re-run replaces the earlier factory attempt on this factory-owned branch.
-      await git(["--git-dir", gitDir, "push", "--force", url, `${sha}:refs/heads/${branch}`], auth);
-      return sha;
+      // A force push of the same commit can run twice, so GitHub's passing server errors are tried again (ticket 451 lost
+      // its run to "remote: fatal error in commit_refs_rules").
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await git(["--git-dir", gitDir, "push", "--force", url, `${sha}:refs/heads/${branch}`], auth);
+          return sha;
+        } catch (e) {
+          if (attempt === 3 || !TRANSIENT_PUSH.test(String(e))) throw e;
+          await new Promise((r) => setTimeout(r, retryMs * attempt));
+        }
+      }
     },
     // Reads from our git dir, so nothing the agent wrote in the work tree can change the answer.
     async readBase(path) {

@@ -6,6 +6,7 @@ export const GITHUB_API = "https://api.github.com";
 // a laptop's Wi-Fi drop must not end a run that took half an hour.
 const NOT_SENT = ["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"];
 const notSent = (e: unknown) => e instanceof TypeError && NOT_SENT.includes((e.cause as { code?: string } | undefined)?.code ?? "");
+const GQL_TRIES = 5;
 const NET_TRIES = 8; // waits 5, 10, ... 35 s between tries: 140 s in all, plus each connect timeout
 
 export class GitHub {
@@ -49,7 +50,8 @@ export class GitHub {
     }
   }
 
-  // GitHub's own failures (a 502/503/504, or "Something went wrong while executing your query") are tried 3 times.
+  // GitHub's own failures (a 502/503/504, or "Something went wrong while executing your query") are tried GQL_TRIES times,
+  // waiting 2, 4, 8, 16 s: three tries a second apart all failed in one GitHub incident and ended ticket 453's run.
   // That is safe only because every query and mutation the factory sends is a read or can run twice: adding a card
   // that exists returns it, and setting or clearing a field again changes nothing. A new mutation must be too.
   async graphql(query: string, variables: Record<string, unknown>) {
@@ -58,14 +60,14 @@ export class GitHub {
       try {
         r = await (await this.call("POST", "/graphql", { query, variables }, {}, true)).json();
       } catch (e) {
-        if (attempt === 3 || !/failed with status (502|503|504)$/.test(String(e))) throw e;
-        await this.sleep(1000 * attempt);
+        if (attempt === GQL_TRIES || !/failed with status (502|503|504)$/.test(String(e))) throw e;
+        await this.sleep(1000 * 2 ** attempt);
         continue;
       }
       if (!r.errors?.length) return r.data;
       const message = String(r.errors[0].message);
-      if (attempt === 3 || !message.startsWith("Something went wrong")) throw new Error(`GitHub GraphQL failed: ${message.slice(0, 200)}`);
-      await this.sleep(1000 * attempt);
+      if (attempt === GQL_TRIES || !message.startsWith("Something went wrong")) throw new Error(`GitHub GraphQL failed: ${message.slice(0, 200)}`);
+      await this.sleep(1000 * 2 ** attempt);
     }
   }
 }

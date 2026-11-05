@@ -16,19 +16,19 @@ test("graphql tries GitHub's 'Something went wrong' error again and returns the 
   expect(calls()).toBe(3);
 });
 
-test("graphql gives up after 3 tries", async () => {
-  const { gh, calls } = client([wentWrong, wentWrong, wentWrong, ok]);
+test("graphql gives up after 5 tries", async () => {
+  const { gh, calls } = client([wentWrong, wentWrong, wentWrong, wentWrong, wentWrong, ok]);
   await expect(gh.graphql("{ viewer { login } }", {})).rejects.toThrow("Something went wrong");
-  expect(calls()).toBe(3);
+  expect(calls()).toBe(5);
 });
 
-test("graphql tries a 502 again, 3 times in all", async () => {
+test("graphql tries a 502 again, 5 times in all", async () => {
   const { gh, calls } = client([new Response("", { status: 502 }), ok]);
   expect(await gh.graphql("{ viewer { login } }", {})).toEqual({ viewer: { login: "bot" } });
   expect(calls()).toBe(2);
-  const down = client(Array(4).fill(new Response("", { status: 502 })));
+  const down = client(Array(6).fill(new Response("", { status: 502 })));
   await expect(down.gh.graphql("{ viewer { login } }", {})).rejects.toThrow("status 502");
-  expect(down.calls()).toBe(3);
+  expect(down.calls()).toBe(5);
 });
 
 test("graphql does not try a query error again", async () => {

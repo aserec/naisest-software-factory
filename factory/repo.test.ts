@@ -230,3 +230,28 @@ test("readBase says undefined for a missing file whatever the language of git", 
   const repo = gitRepo(bin, join(bin, "t.git"), "file:///none", "tok", { PATH: `${bin}:${process.env.PATH}`, LANG: "de_DE.UTF-8" });
   expect(await repo.readBase("x")).toBeUndefined();
 });
+
+// GitHub sometimes answers a push with its own server error. The same force push is safe to send again.
+test("a push the server failed with its own error is tried again; a refused push is not", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-push-"));
+  const seed = join(root, "seed");
+  git(root, "init", "-q", "-b", "master", seed);
+  writeFileSync(join(seed, "a.txt"), "one\n");
+  git(seed, "add", ".");
+  git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
+  const server = join(root, "server.git");
+  git(root, "clone", "-q", "--bare", seed, server);
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  const real = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  // Each push fails while a "fail-N" file is left: the first N pushes fail with the message in it.
+  writeFileSync(join(bin, "git"), `#!/bin/sh\ncase "$*" in *" push "*) for f in "${root}"/fail-*; do [ -e "$f" ] && { cat "$f" >&2; rm "$f"; exit 1; }; done ;; esac\nexec "${real}" "$@"\n`, { mode: 0o755 });
+  const repo = gitRepo(join(root, "run/target"), join(root, "run/target.git"), `file://${server}`, "tok", { ...process.env, PATH: `${bin}:${process.env.PATH}` }, 0);
+  await repo.clone("master");
+  writeFileSync(join(root, "run/target/a.txt"), "two\n");
+  writeFileSync(join(root, "fail-1"), "remote: fatal error in commit_refs_rules\n");
+  const sha = await repo.commitAndPush("factory/8-test", "change");
+  expect(git(server, "rev-parse", "refs/heads/factory/8-test")).toBe(sha);
+  writeFileSync(join(root, "fail-2"), "! [remote rejected] (protected branch hook declined)\n");
+  await expect(repo.commitAndPush("factory/8-test", "again")).rejects.toThrow("protected branch");
+});
