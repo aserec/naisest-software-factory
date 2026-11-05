@@ -193,6 +193,17 @@ describe("runs", () => {
     expect(db.runs({})).toHaveLength(2);
   });
 
+  it("keeps code review as the last step while a patch step inside it runs and ends", () => {
+    const db = openDb(":memory:");
+    db.addEvents([
+      ev("run_start", {}, { at: at(1) }),
+      ev("step_start", {}, { step: "code-review", at: at(1, 1) }),
+      ev("step_start", { prompt: "fix it" }, { step: "patch", at: at(1, 2) }),
+      ev("step_end", { outcome: "next" }, { step: "patch", at: at(1, 3) }),
+    ]);
+    expect(db.runs({ ticket: "T-1" })[0].lastStep).toEqual({ step: "code-review", startedAt: at(1, 1), ended: false });
+  });
+
   it("keeps the highest review round and the decision's merge risk and merge request", () => {
     const db = openDb(":memory:");
     const finding = (round: number) => ev("review_finding", { text: "x", blocking: true, round });

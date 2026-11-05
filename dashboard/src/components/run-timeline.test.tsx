@@ -22,7 +22,7 @@ const events = [
 test("shows a lane per step, and a click opens that step in the side panel", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: [...events].reverse(), cursor: 9 })));
   renderWithQuery(<RunTimeline run="r1" />);
-  const lane = await screen.findByRole("button", { name: /Prepare patch/ });
+  const lane = await screen.findByRole("button", { name: /Implement/ });
   const live = screen.getByRole("button", { name: /Code review/ });
   expect(live.textContent).toContain("running");
   expect(live.textContent).toContain("—"); // no usage yet, so no cost yet
@@ -32,7 +32,7 @@ test("shows a lane per step, and a click opens that step in the side panel", asy
   expect(screen.queryByText("Edit")).toBeNull();
   fireEvent.click(lane);
   const panel = await screen.findByRole("dialog");
-  expect(panel.textContent).toContain("Prepare patch");
+  expect(panel.textContent).toContain("Implement");
   expect(panel.textContent).toContain("Edit");
   expect(window.location.search).toBe("?step=s1");
   fireEvent.click(screen.getByRole("button", { name: /Code review/ })); // the panel stays open and swaps to the other step
@@ -61,7 +61,7 @@ test("marks a running lane past its limit as Stuck, and not a recent one or an e
   const lane = (step: string, at: string) => ({ ...ev("step_start", "00", { step }), at });
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: [lane("prepare-patch", old), lane("code-review", recent), lane("triage", old), { ...ev("step_end", "00", { step: "triage", data: { outcome: "next" } }), at: recent }], cursor: 4 })));
   renderWithQuery(<RunTimeline run="r1" limits={{ "prepare-patch": 120, "code-review": 20, triage: 5 }} />);
-  expect((await screen.findByRole("button", { name: /Prepare patch/ })).textContent).toContain("Stuck");
+  expect((await screen.findByRole("button", { name: /Implement/ })).textContent).toContain("Stuck");
   expect(screen.getByRole("button", { name: /Code review/ }).textContent).not.toContain("Stuck");
   expect(screen.getByRole("button", { name: /Triage/ }).textContent).not.toContain("Stuck");
 });
@@ -113,14 +113,14 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
   expect(await fact("Checks")).toBe("1 of 2 passed");
   // Waiting for a merge, a missing proof is a warning with what to do instead.
   expect(await fact("Rules")).toBe("The run sent no rule results. Look at the changed files before you merge.");
-  expect(screen.getByText(/^Waits for you because/).textContent).toBe("Waits for you because merge risk 6 is above the limit of 4.");
+  expect(screen.getByRole("heading", { name: "Waits for you because" }).nextElementSibling?.textContent).toBe("Merge risk 6 is above the limit of 4");
   expect(screen.queryByText("Decision", { selector: "dt" })).toBeNull(); // said once, under the title
   // Time is the factory's six minutes; the wait for a person since the last event counts apart.
   expect(screen.getByText("Time").nextElementSibling?.textContent).toMatch(/^6 mthen waiting \d/);
   expect(screen.getByText("Now").nextElementSibling?.textContent).toBe("Waits for you7 of 10");
   // The run's record starts at decision; the six steps before it still show, marked as having no events here.
   expect(screen.getAllByText(/, no events in this run$/).map((e) => e.parentElement?.textContent)).toEqual(
-    ["Event", "Triage", "Prepare patch", "Code review", "Precommit gate", "Risk check"].map((s) => `${s}, no events in this run`),
+    ["Event", "Triage", "Implement", "Code review", "Precommit gate", "Risk check"].map((s) => `${s}, no events in this run`),
   );
   // The factory ends the decision step with "stop"; the pill names what the run waits for.
   expect(screen.getByRole("button", { name: /Decision/ }).textContent).toContain("needs approval");
@@ -139,10 +139,10 @@ test("a failed poll keeps the steps on screen under the error", async () => {
   let fail = false;
   vi.stubGlobal("fetch", vi.fn(async () => (fail ? new Response("", { status: 500 }) : json({ events, cursor: 9 }))));
   renderWithQuery(<RunTimeline run="r1" />);
-  await screen.findByRole("button", { name: /Prepare patch/ });
+  await screen.findByRole("button", { name: /Implement/ });
   fail = true;
   expect((await screen.findByRole("alert", {}, { timeout: 3000 })).textContent).toMatch(/^Could not load the run\. Showing it as of /);
-  expect(screen.getByRole("button", { name: /Prepare patch/ })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Implement/ })).toBeTruthy();
 });
 
 test("with a step open, the figures sit in one line of label and value pairs", async () => {
@@ -150,7 +150,7 @@ test("with a step open, the figures sit in one line of label and value pairs", a
   renderWithQuery(<RunTimeline run="r1" />);
   const fig = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect(screen.queryByText("Time", { selector: "dt" })).toBeNull();
-  fireEvent.click(await screen.findByRole("button", { name: /Prepare patch/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Implement/ }));
   expect([await fig("Now"), await fig("Risk")]).toEqual(["Code review4 of 10", "—"]);
   window.history.replaceState(null, "", "/"); // the open step lives in the URL
 });
@@ -165,7 +165,7 @@ test("a run with no proof events shows no Proof section", async () => {
 test("opening a step moves focus to the panel title, and Esc brings it back to that step's row", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
   renderWithQuery(<RunTimeline run="r1" />);
-  const lane = await screen.findByRole("button", { name: /Prepare patch/ });
+  const lane = await screen.findByRole("button", { name: /Implement/ });
   lane.focus();
   fireEvent.click(lane);
   const panel = await screen.findByRole("dialog");

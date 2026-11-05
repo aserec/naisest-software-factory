@@ -172,7 +172,8 @@ export function openDb(path: string): Db {
           s.endedAt = r.at as string;
           s.outcome = data.outcome as string;
         } else if (r.type === "usage") s.costUsd += data.costUsd as number;
-        else if (r.type === "step_start") s.lastStep = { step: text(r.step) ?? "", startedAt: r.at as string, ended: false };
+        // A patch step runs inside code review or the gate, so the outer step stays the last step.
+        else if (r.type === "step_start" && r.step !== "patch") s.lastStep = { step: text(r.step) ?? "", startedAt: r.at as string, ended: false };
         else if (r.type === "step_end" && s.lastStep && s.lastStep.step === (text(r.step) ?? "")) s.lastStep.ended = true;
         else if (r.type === "review_finding") s.round = Math.max(s.round ?? 0, data.round as number);
         else if (r.type === "decision") {

@@ -6,7 +6,8 @@ import { STEPS, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd, words } from "@/lib/utils";
-import { Fact, StepDetail } from "./step-detail";
+import { Fact, StepDetail, Verdict } from "./step-detail";
+import type { FileLink } from "@/server/compose";
 import type { FactoryState } from "@/server/seams";
 import { RiskPills, STATE } from "./board";
 import { LoadError, SectionHeading } from "./shell";
@@ -58,7 +59,7 @@ export function lanes(events: SeqEvent[]): Lane[] {
   return out;
 }
 
-const PILL: Record<string, "destructive" | "warning" | "secondary"> = { error: "destructive", stop: "warning", stopped: "warning", waiting: "warning" };
+const PILL: Record<string, "destructive" | "warning" | "secondary" | "positive"> = { next: "positive", error: "destructive", stop: "warning", stopped: "warning", waiting: "warning" };
 
 // The step_end outcome in the words docs/how-it-works.md uses.
 const OUTCOME: Record<string, string> = { next: "passed" };
@@ -203,7 +204,8 @@ const PAUSED: FactoryState[] = ["needs_approval", "needs_info", "stopped", "bloc
 // limits: minutes per step for the run's target, read on the server.
 // risk: the work item's triage risk and the run's merge risk, read on the server.
 // state: the work item's state in its tracker, read on the server.
-export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState }) {
+// fileLink: how a review finding links its file into the change's diff; none until the change exists.
+export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink }) {
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
@@ -250,10 +252,24 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
   const approving = state === "needs_approval";
   // Why the run waits, said once at the top, so the person reads it before the merge button's consequences.
   const why = approving ? ((data.filter((e) => e.type === "decision").at(-1)?.data.reasons as string[] | undefined) ?? []) : [];
+  // A run that triage stopped or held says so at the top. A go needs no box: the steps after it show the run.
+  const triage = data.filter((e) => e.type === "triage_outcome").at(-1)?.data as Record<string, any> | undefined;
   return (
     <>
       {failed}
-      {why.length > 0 && <p className="-mt-6 mb-6 text-pretty">Waits for you because {why.join(", and ")}.</p>}
+      {triage && triage.kind !== "go" && <Verdict outcome={triage} className="-mt-6 mb-6" />}
+      {why.length > 0 && (
+        <section className="-mt-6 mb-6 rounded-lg border border-pill-warning-ink/20 bg-pill-warning px-4 py-3">
+          <h2 className="font-medium text-pill-warning-ink">Waits for you because</h2>
+          <ul className="divide-y divide-pill-warning-ink/10">
+            {why.map((reason) => (
+              <li key={reason} className="py-2 text-pretty">
+                {reason[0].toUpperCase() + reason.slice(1)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {/* The page pads itself for the open panel (main in runs/[run]/page.tsx), so the title row moves too. */}
       <div className="@container" data-panel={open ? "open" : undefined}>
         {open ? (
@@ -313,7 +329,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state }: { run: strin
           )
         }
       >
-        {open && <StepDetail key={open.start.id} start={open.start} end={open.end} tools={open.tools} events={open.events} />}
+        {open && <StepDetail key={open.start.id} start={open.start} end={open.end} tools={open.tools} events={open.events} fileLink={fileLink} />}
       </Sheet>
     </>
   );

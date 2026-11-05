@@ -1,9 +1,9 @@
-import { screen } from "@testing-library/react";
+import { cleanup, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { StepDetail } from "./step-detail";
 import { ev, renderWithQuery } from "./test-utils";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => (cleanup(), vi.unstubAllGlobals()));
 
 const start = ev("step_start", "00", { step: "precommit-gate", job: "42", data: { prompt: "Fix the bug" } });
 const events = [
@@ -36,6 +36,22 @@ test("a step without a CI job shows the log its step_end event sent, and asks no
   expect(fetchFn).not.toHaveBeenCalled();
 });
 
+test("groups findings by round, splits the file from the text, and links the file into the change's diff", async () => {
+  vi.stubGlobal("fetch", vi.fn());
+  const found = [
+    ev("review_finding", "01", { data: { text: "src/a.ts: Misses a test", blocking: true, round: 1 } }),
+    ev("review_finding", "02", { data: { text: "src/b.ts: Checks the empty name", blocking: false, round: 2, title: "Empty name checked", file: "src/b.ts" } }),
+  ];
+  renderWithQuery(<StepDetail start={start} events={found} fileLink={{ base: "https://host/change/1/diffs#", hash: "SHA-1" }} />);
+  expect(screen.getAllByText(/^Round \d/).map((e) => e.textContent)).toEqual(["Round 1 1 of 1 blocking", "Round 2 0 of 1 blocking"]);
+  expect(screen.getByText("Misses a test")).toBeTruthy(); // an older event: the file comes from the text
+  expect(screen.getByText("Empty name checked")).toBeTruthy();
+  // sha1("src/b.ts")
+  const { createHash } = await import("node:crypto");
+  expect((await screen.findByRole("link", { name: "src/b.ts" })).getAttribute("href")).toBe(`https://host/change/1/diffs#${createHash("sha1").update("src/b.ts").digest("hex")}`);
+  expect(screen.getByRole("link", { name: "src/a.ts" })).toBeTruthy();
+});
+
 test("a decision shows its reasons as a list, the merge risk and the change, and keeps the log closed", async () => {
   vi.stubGlobal("fetch", vi.fn());
   const step = ev("step_start", "00", { step: "decision", data: {} });
@@ -55,4 +71,19 @@ test("a model with no price shows its cost is missing, not just $0.00", () => {
   const usage = ev("usage", "02", { data: { model: "glm-flash", input: 900, output: 40, costUsd: 0 } });
   renderWithQuery(<StepDetail start={start} events={[usage]} />);
   expect(document.body.textContent).toContain("Without glm-flash: seams.yml sets no price for it");
+});
+
+test("a triage stop shows its final decision first, in its own color, with the reasons and the original", async () => {
+  vi.stubGlobal("fetch", vi.fn());
+  const step = ev("step_start", "00", { step: "triage", data: {} });
+  const outcome = ev("triage_outcome", "01", { step: "triage", data: { kind: "stop", title: "Stopped: a duplicate of #328, so the factory closed it", reasons: ['Jev compared it with #328 "Marcar" and answered "same" with 0.95 confidence.'], url: "https://github.com/o/r/issues/328" } });
+  const answer = ev("jev_answer", "01", { step: "triage", data: { question: "Which candidate is closest?", answer: "328", confidence: "0.9" } });
+  renderWithQuery(<StepDetail start={step} events={[outcome, answer]} />);
+  const box = screen.getByRole("region", { name: "Final decision" });
+  expect(box.textContent).toContain("Stop");
+  expect(box.textContent).toContain('answered "same" with 0.95 confidence');
+  expect(box.className).toContain("bg-pill-negative");
+  expect(screen.getByRole("link", { name: "https://github.com/o/r/issues/328" })).toBeTruthy();
+  // The decision comes before the step facts and the Jev answers.
+  expect(document.body.textContent!.indexOf("Stopped: a duplicate")).toBeLessThan(document.body.textContent!.indexOf("Started"));
 });

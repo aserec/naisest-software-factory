@@ -24,6 +24,11 @@ function pick(all: Record<string, Tracker>, t: TargetInfo) {
 
 export const trackerOf = (t: TargetInfo): Tracker => pick(defaultTrackers, t);
 
+// Where one file of the change shows in the code host's diff: base, then the hex hash of the file's path.
+export type FileLink = { base: string; hash: "SHA-256" | "SHA-1" };
+export const fileLinkOf = (t: TargetInfo, changeUrl: string): FileLink | undefined =>
+  ({ github: { base: `${changeUrl}/files#diff-`, hash: "SHA-256" }, gitlab: { base: `${changeUrl}/diffs#`, hash: "SHA-1" } } as Record<string, FileLink>)[t.codeHost];
+
 export const codeHostName = (t: TargetInfo): string => ({ gitlab: "GitLab", github: "GitHub" } as Record<string, string>)[t.codeHost] ?? t.codeHost;
 
 // Every target's open work items, each from its own tracker. A tracker that is not set up leaves its targets out; any other error fails the board.

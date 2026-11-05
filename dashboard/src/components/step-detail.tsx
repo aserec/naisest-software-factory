@@ -1,9 +1,11 @@
 "use client";
 
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import type { RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { duration, usd } from "@/lib/utils";
+import type { FileLink } from "@/server/compose";
 import { LoadError, SectionHeading } from "./shell";
 
 const ofType = (events: RunEvent[], type: RunEvent["type"]) => events.filter((e) => e.type === type).map((e) => e.data as Record<string, any>);
@@ -31,6 +33,60 @@ const Section = ({ title, children }: { title: React.ReactNode; children: React.
   </section>
 );
 
+// A finding's file: from the event, or for an older event from the "file: " its text starts with.
+export function splitFinding(f: Record<string, any>): { file?: string; text: string } {
+  const file: string | undefined = f.file ?? (f.text as string).match(/^([\w.@/-]+\.\w+): /)?.[1];
+  return { file, text: file && f.text.startsWith(`${file}: `) ? f.text.slice(file.length + 2) : f.text };
+}
+
+// The file links into the change's diff once the hash of its path is known; until then, and without a change, it is plain text.
+function FileName({ path, link }: { path: string; link?: FileLink }) {
+  const [href, setHref] = useState<string>();
+  useEffect(() => {
+    if (!link || !globalThis.crypto?.subtle) return;
+    crypto.subtle.digest(link.hash, new TextEncoder().encode(path)).then((d) => setHref(link.base + [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("")));
+  }, [path, link]);
+  const cls = "font-mono text-xs break-all text-data";
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" className={`${cls} underline underline-offset-4 hover:decoration-2`}>
+      {path}
+    </a>
+  ) : (
+    <span className={cls}>{path}</span>
+  );
+}
+
+// Triage's outcome in one colored box: green builds, amber waits for a person, red stopped.
+const VERDICT = {
+  go: { box: "border-pill-positive-ink/20 bg-pill-positive", ink: "text-pill-positive-ink", badge: "positive", label: "Go" },
+  ask: { box: "border-pill-warning-ink/20 bg-pill-warning", ink: "text-pill-warning-ink", badge: "warning", label: "Waits for a person" },
+  stop: { box: "border-pill-negative-ink/20 bg-pill-negative", ink: "text-pill-negative-ink", badge: "destructive", label: "Stop" },
+} as const;
+
+export function Verdict({ outcome, className = "" }: { outcome: Record<string, any>; className?: string }) {
+  const v = VERDICT[outcome.kind as keyof typeof VERDICT] ?? VERDICT.stop;
+  return (
+    <section aria-label="Final decision" className={`rounded-lg border px-4 py-3 ${v.box} ${className}`}>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className={`font-medium text-pretty ${v.ink}`}>{outcome.title}</h2>
+        <Badge variant={v.badge}>{v.label}</Badge>
+      </div>
+      <ul className="mt-2 flex flex-col gap-1.5">
+        {(outcome.reasons as string[]).map((r) => (
+          <li key={r} className="text-pretty">
+            {r}
+          </li>
+        ))}
+      </ul>
+      {outcome.url && (
+        <a href={outcome.url} target="_blank" rel="noreferrer" className="mt-2 inline-block break-all underline underline-offset-4 hover:decoration-2">
+          {outcome.url}
+        </a>
+      )}
+    </section>
+  );
+}
+
 export const Fact = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <>
     <dt className="text-muted-foreground">{label}</dt>
@@ -39,12 +95,14 @@ export const Fact = ({ label, children }: { label: string; children: React.React
 );
 
 // Everything about one step, for the side panel. It is mounted only while the panel is open, so the CI is asked for the log only then.
-export function StepDetail({ start, end, tools = [], events }: { start: RunEvent; end?: RunEvent; tools?: RunEvent[]; events: RunEvent[] }) {
+export function StepDetail({ start, end, tools = [], events, fileLink }: { start: RunEvent; end?: RunEvent; tools?: RunEvent[]; events: RunEvent[]; fileLink?: FileLink }) {
   const findings = ofType(events, "review_finding");
+  const rounds = [...new Set(findings.map((f) => f.round as number))].sort((a, b) => a - b);
   const gates = ofType(events, "gate_check");
   const rules = ofType(events, "rule_check");
   const answers = ofType(events, "jev_answer");
   const decision = ofType(events, "decision").at(-1);
+  const outcome = ofType(events, "triage_outcome").at(-1);
   const usage = ofType(events, "usage");
   const cost = usage.reduce((sum, u) => sum + (u.costUsd as number), 0);
   // A model with no price in seams.yml reports its tokens and $0.
@@ -63,10 +121,17 @@ export function StepDetail({ start, end, tools = [], events }: { start: RunEvent
   });
   return (
     <div className="flex flex-col gap-8">
+      {outcome && <Verdict outcome={outcome} />}
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
         <Fact label="Started">{clock(start.at)}</Fact>
         <Fact label="Duration">{end ? duration((Date.parse(end.at) - Date.parse(start.at)) / 1000) : "Still running"}</Fact>
-        {models.length > 0 && <Fact label="Model">{models.join(", ")}</Fact>}
+        {models.length > 0 && (
+          <Fact label="Model">
+            {models.map((m) => (
+              <div key={m}>{m}</div>
+            ))}
+          </Fact>
+        )}
         {usage.length > 0 && (
           <Fact label="Tokens">
             {count(tokens("input"))} in · {count(tokens("output"))} out
@@ -124,21 +189,38 @@ export function StepDetail({ start, end, tools = [], events }: { start: RunEvent
 
       {findings.length > 0 && (
         <Section title="Review findings">
-          <ul className="flex flex-col gap-3">
-            {findings.map((f, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <Badge variant="secondary" className="mt-0.5">
-                  Round {f.round}
-                </Badge>
-                <span className="min-w-0 flex-1">{f.text}</span>
-                {f.blocking && (
-                  <Badge variant="destructive" className="mt-0.5">
-                    Blocking
-                  </Badge>
-                )}
-              </li>
-            ))}
-          </ul>
+          <p className="mb-4 text-muted-foreground">Each round, the reviewer reads the change. The author fixes the blocking findings, and the next round reads it again.</p>
+          <div className="flex flex-col gap-4">
+            {rounds.map((round) => {
+              const mine = findings.filter((f) => f.round === round);
+              return (
+                <details key={round} open className="group">
+                  <summary className="mb-3 cursor-pointer font-medium">
+                    Round {round} <span className="font-normal text-muted-foreground">{mine.filter((f) => f.blocking).length} of {mine.length} blocking</span>
+                  </summary>
+                  <ul className="flex flex-col gap-3">
+                    {mine.map((f, i) => {
+                      const { file, text } = splitFinding(f);
+                      return (
+                        <li key={i} className={`rounded-lg border px-4 py-3 ${f.blocking ? "border-destructive/30 bg-destructive/5" : "border-pill-warning-ink/20 bg-pill-warning"}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <span className="min-w-0 font-medium">{f.title}</span>
+                            <Badge variant={f.blocking ? "destructive" : "warning"}>{f.blocking ? "Blocking" : "Not blocking"}</Badge>
+                          </div>
+                          {file && (
+                            <div className="mt-1">
+                              <FileName path={file} link={fileLink} />
+                            </div>
+                          )}
+                          <p className="mt-3 text-pretty">{text}</p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </details>
+              );
+            })}
+          </div>
         </Section>
       )}
 

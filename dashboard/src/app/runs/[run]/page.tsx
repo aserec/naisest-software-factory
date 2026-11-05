@@ -3,7 +3,7 @@ import { RunTimeline } from "@/components/run-timeline";
 import { PageTitle } from "@/components/shell";
 import { getDb } from "@/server/db-instance";
 import { Button } from "@/components/ui/button";
-import { codeHostName, getBoard, trackerOf } from "@/server/compose";
+import { codeHostName, fileLinkOf, getBoard, trackerOf } from "@/server/compose";
 import { readTargets } from "@/server/targets";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,8 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   // The board is cached for 15 s; without it the page still shows the run, only the triage risk and the change link are missing.
   const item = first && (await getBoard().board().catch(() => [])).find((i) => i.target === first.target && i.ticket === first.ticket);
   const changeUrl = item?.state === "needs_approval" ? summary?.changeUrl : undefined;
+  // Review findings link their file into the change's diff once the change exists.
+  const fileLink = target && summary?.changeUrl ? fileLinkOf(target, summary.changeUrl) : undefined;
   // A target whose tracker is unknown still gets its page, only without the work item link.
   let tracker: ReturnType<typeof trackerOf> | undefined;
   try {
@@ -57,7 +59,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
           </>
         )}
       </PageTitle>
-      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} />
+      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} />
     </main>
   );
 }
