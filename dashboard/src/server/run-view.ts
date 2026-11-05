@@ -32,9 +32,10 @@ export interface RunViewInput {
 const PAUSED: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked", "waiting"];
 const ACTIONS: Action[] = ["stop", "resume", "restart"];
 
-/** The last step after one more event. A patch step runs inside code review or the gate, so the outer step stays the last step. */
+/** The last step after one more event. A patch runs inside code review or the gate, and a code review inside the gate, so the outer step stays the last step. */
 export function trackStep(last: LastStep | undefined, e: { type: string; step?: string; at: string }): LastStep | undefined {
-  if (e.type === "step_start" && e.step !== "patch") return { step: e.step ?? "", startedAt: e.at, ended: false };
+  const nested = e.step === "patch" || (e.step === "code-review" && last?.step === "precommit-gate" && !last.ended);
+  if (e.type === "step_start" && !nested) return { step: e.step ?? "", startedAt: e.at, ended: false };
   if (e.type === "step_end" && last && last.step === (e.step ?? "")) return { ...last, ended: true };
   return last;
 }

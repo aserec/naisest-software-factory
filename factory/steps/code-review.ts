@@ -56,7 +56,7 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
   ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, review: result.rounds } };
   if (result.kind === "limit") return waiting(ctx, job, result.sessionId);
   if (result.kind === "stopped") return stopped(ctx, job, { session: result.sessionId, reason: stopReason(ctx) });
-  if (result.kind === "blocked") return block(ctx, `Code review did not pass after ${result.rounds} rounds. Open findings:\n\n${result.open.map((t) => `- ${t}`).join("\n")}`);
+  if (result.kind === "blocked") return block(ctx, `Code review did not pass after ${result.rounds} rounds.\n\n**Open findings**\n\n${result.open.map((t) => `- ${t}`).join("\n")}`);
   const proof: ProofRecord = {
     proof: last?.proof.proof,
     error: last?.proof.error,

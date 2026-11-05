@@ -33,7 +33,8 @@ export interface StepContext {
   dir: string; // the target clone, cwd for agents
   repo: Repo;
   sleep(ms: number): Promise<void>;
-  step?: string; // the CI job, set by withStep; a block saves it
+  step?: string; // the step now running, set by withStep
+  job?: string; // the CI job, set by runStep; a block saves it, since a step can run inside another
   stepEvent?: string; // the ID of its step_start event, the parent of what the step sends (withStep sets both)
   dashboardStop?: boolean; // the dashboard asked this run to stop (seen by the inbox)
   snapshot?: () => Promise<Controls>; // set by takeSnapshot: the dashboard's controls for this step or poll tick
@@ -207,7 +208,7 @@ function copyOutput(): () => string {
 
 const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN/;
 // A stop saved by stopped() or waiting() ends the step as "stopped" or "waiting".
-function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
+export function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
   if (result === "next") return "next";
   const p = facts(ctx).paused;
   return p?.stopped ? "stopped" : p?.limit ? "waiting" : "stop";
@@ -253,13 +254,13 @@ export async function runStep(
   // Without a CI job there is no job log to read, so the step's output goes with its step_end event.
   const output = ctx.ci.vars.job ? undefined : copyOutput();
   const log = () => (output ? { log: output() } : {});
-  ctx.step = name;
+  ctx.job = ctx.step = name;
   ctx.stepEvent = undefined;
   takeSnapshot(ctx);
   // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
   const fail = async (e: unknown) => {
     emit(ctx, "error", { message: String(e).slice(0, 500) });
-    await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`, false).catch(() => {});
+    await block(ctx, `The \`${name}\` step failed:\n\n\`\`\`\n${String(e).slice(0, 500)}\n\`\`\``, false).catch(() => {});
   };
   let result: StepResult;
   try {

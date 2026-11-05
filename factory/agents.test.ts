@@ -7,7 +7,7 @@ test("findings come from the last JSON array in the output", () => {
   const out = 'thinking [1,2]\n[{"blocking":true,"file":"a.ts","text":"bug"}]\n';
   expect(parseFindings(out)).toEqual([{ blocking: true, file: "a.ts", text: "bug" }]);
 });
-test("output with no findings array throws", () => expect(() => parseFindings("all good")).toThrow());
+test("output with no findings array throws with the answer", () => expect(() => parseFindings("all good")).toThrow(/all good/));
 test("guardReady throws when the hook, the patterns file or jq is missing", () => {
   expect(() => guardReady("/no/such/dir")).toThrow(/deny-dangerous\.sh/);
   expect(() => guardReady(HOOKS_DIR, "/nonexistent-bin")).toThrow(/jq/);

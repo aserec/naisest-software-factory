@@ -22,22 +22,27 @@ const read = async (w: Awaited<ReturnType<typeof world>>, note: Note, kind: Para
   return w.conv.newest("8", kind);
 };
 
-// What people see on the tracker must not change, and work items paused before a deploy carry these texts.
-test("each note's text is the text people already see", () => {
-  const text: [Note, string][] = [
-    [{ kind: "blocked", reason: "The tests failed.", run: "7" }, "The factory stopped. A person must look at this.\n\nThe tests failed.\n\nBlocked run: pipeline 7"],
-    [{ kind: "blocked", reason: "The tests failed." }, "The factory stopped. A person must look at this.\n\nThe tests failed."],
-    [{ kind: "waiting", run: "8" }, "The author agent reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline 8"],
-    [{ kind: "waiting", run: undefined }, "The author agent reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline unknown"],
-    [{ kind: "stopped", run: "9", step: "prepare-patch", reason: "stopped by @factory stop" }, "A person stopped this run. Comment the line @factory resume to continue it.\n\nStopped run: pipeline 9\nStopped step: prepare-patch\nReason: stopped by @factory stop"],
-    [{ kind: "stopped", run: "9", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" }, "A dashboard switch stopped this run. The factory continues it when the switch is on again.\n\nStopped run: pipeline 9\nStopped step: apply\nReason: switch off apply\nChange: 5\nBuild run: 41"],
-    [{ kind: "cancelled", user: "dev" }, "The run was stopped from the dashboard by @dev. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\nReason: pipeline cancelled from the dashboard"],
-    [{ kind: "readyFor", text: "The factory starts again for the request of @dev.", person: "dev", cursor: T2 }, `The factory starts again for the request of @dev.\n\nReady for the request of: dev\n\nRequests read up to: ${T2}`],
-    [{ kind: "cursor", text: "Done.", at: T2 }, `Done.\n\nRequests read up to: ${T2}`],
-    [{ kind: "cursor", text: "Done." }, "Done."],
-    [{ kind: "duplicate_close", text: "Closed." }, "Closed.\n\n<!-- factory:dedupe -->"],
+// Work items paused before a deploy carry the old plain texts: each still reads back as its kind.
+test("an old note text still reads back", () => {
+  const old: [string, Parameters<typeof newestNote>[1], object][] = [
+    ["The factory stopped. A person must look at this.\n\nThe tests failed.\n\nBlocked run: pipeline 7", "blocked", { kind: "blocked", run: "7" }],
+    ["The factory stopped. A person must look at this.\n\nThe tests failed.", "blocked", { kind: "blocked", run: undefined }],
+    ["The author agent reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline 8", "waiting", { kind: "waiting", run: "8" }],
+    ["A dashboard switch stopped this run. The factory continues it when the switch is on again.\n\nStopped run: pipeline 9\nStopped step: apply\nReason: switch off apply\nChange: 5\nBuild run: 41", "stopped", { kind: "stopped", run: "9", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" }],
+    ["The run was stopped from the dashboard by @dev. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\nReason: pipeline cancelled from the dashboard", "stopped", { kind: "cancelled" }],
+    [`Again.\n\nReady for the request of: dev\n\nRequests read up to: ${T2}`, "readyFor", { kind: "readyFor", person: "dev" }],
+    [`Done.\n\nRequests read up to: ${T2}`, "cursor", { kind: "cursor", cursor: T2 }],
   ];
-  for (const [note, expected] of text) expect(noteText(note)).toBe(expected);
+  for (const [body, kind, expected] of old) expect(newestNote([{ author: "factory", byFactory: true, body, at: T0 }], kind)).toMatchObject(expected);
+});
+
+// People see a heading and the sentence; the lines the factory reads back sit in an HTML comment the hosts do not show.
+test("a note shows a heading and hides the lines the factory reads back", () => {
+  expect(noteText({ kind: "blocked", reason: "The tests failed.", run: "7" })).toBe("### 🛑 Blocked\n\n**The factory stopped. A person must look at this.**\n\nThe tests failed.\n\n<!--\nBlocked run: pipeline 7\n-->");
+  expect(noteText({ kind: "blocked", reason: "The tests failed." })).toBe("### 🛑 Blocked\n\n**The factory stopped. A person must look at this.**\n\nThe tests failed.");
+  expect(noteText({ kind: "cursor", text: "Done.", at: T2 })).toBe(`Done.\n\n<!--\nRequests read up to: ${T2}\n-->`);
+  expect(noteText({ kind: "cursor", text: "Done." })).toBe("Done.");
+  expect(noteText({ kind: "duplicate_close", text: "Closed." })).toBe("Closed.\n\n<!-- factory:dedupe -->");
 });
 
 test("a note written through the tracker reads back, per kind", async () => {
@@ -117,7 +122,7 @@ test("later compares times, not text", () => {
 });
 test("the state reply names the author and says what the state allows", () => {
   const r = stateReply("ana", "stopped");
-  expect(r.startsWith("@ana The factory takes @factory requests only while its change waits for a person (factory_needs_approval).")).toBe(true);
+  expect(r.startsWith("@ana The factory takes `@factory` requests only while its change waits for a person (`factory_needs_approval`).")).toBe(true);
   expect(r).toContain("@factory resume");
   expect(stateReply("ana", "done")).toContain("This work is done.");
   expect(stateReply("ana", undefined)).toContain("The factory has not started work here.");

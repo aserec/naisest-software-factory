@@ -82,4 +82,9 @@ describe("stuck", () => {
     const events = [step(130, { step: "code-review" }), ev("step_start", {}, { step: "patch", at: ago(10) })];
     expect(view({ events, limits: { "code-review": 120 } })).toMatchObject({ lastStep: { step: "code-review", ended: false }, stuck: true });
   });
+
+  it("keeps the gate as the last step while the review inside it runs", () => {
+    const events = [step(130, { step: "precommit-gate" }), ev("step_start", {}, { step: "code-review", at: ago(10) }), ev("step_end", { outcome: "next" }, { step: "code-review", at: ago(5) })];
+    expect(view({ events, limits: { "precommit-gate": 120 } })).toMatchObject({ lastStep: { step: "precommit-gate", ended: false }, stuck: true });
+  });
 });

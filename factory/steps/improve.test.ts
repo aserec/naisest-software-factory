@@ -1,3 +1,4 @@
+import { md } from "../conversation";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -153,7 +154,7 @@ test("a fix with red checks is not merged: it is commented and assigned to the a
   const { w, out } = await run({ reply: proposal(authorFix), checks: "red" });
   expect(out).toEqual({ fix: "8", fixMerged: false });
   expect(w.host.merged).toBe(false);
-  expect(w.host.mrComments).toEqual(["The pipeline is red, so the factory did not merge this fix."]);
+  expect(w.host.mrComments).toEqual([md("👀", "Needs a person", "The pipeline is red, so the factory did not merge this fix.")]);
   expect(w.host.assigned).toEqual([{ ref: "8", person: "approver" }]);
 });
 
@@ -161,7 +162,7 @@ test("a fix whose head moved is not merged", async () => {
   const { w, out } = await run({ reply: proposal(authorFix), moved: true });
   expect(out.fixMerged).toBe(false);
   expect(w.host.merged).toBe(false);
-  expect(w.host.mrComments).toEqual(["The change moved since the factory pushed it, so the factory did not merge this fix."]);
+  expect(w.host.mrComments).toEqual([md("👀", "Needs a person", "The change moved since the factory pushed it, so the factory did not merge this fix.")]);
   expect(w.host.assigned).toEqual([{ ref: "8", person: "approver" }]);
 });
 
@@ -194,7 +195,7 @@ test("a fix waits for a person when the auto_merge or apply switch is off", asyn
     const { w, out } = await run({ reply: proposal(authorFix), off });
     expect(out, off).toEqual({ fix: "8", fixMerged: false });
     expect(w.host.merged, off).toBe(false);
-    expect(w.host.mrComments, off).toEqual([`The ${off} switch is off, so the factory did not merge this fix.`]);
+    expect(w.host.mrComments, off).toEqual([md("👀", "Needs a person", `The ${off} switch is off, so the factory did not merge this fix.`)]);
     expect(w.host.assigned, off).toEqual([{ ref: "8", person: "approver" }]);
   }
 });
@@ -319,7 +320,7 @@ test("a dashboard that goes down during the fix's pipeline wait means no merge",
   const out = await improve(w.ctx, NOW);
   expect(out.fixMerged).toBe(false);
   expect(w.host.merged).toBe(false);
-  expect(w.host.mrComments).toEqual(["The factory could not reach the dashboard to read the switches, so it did not merge this fix."]);
+  expect(w.host.mrComments).toEqual([md("👀", "Needs a person", "The factory could not reach the dashboard to read the switches, so it did not merge this fix.")]);
   expect(w.host.assigned).toEqual([{ ref: "8", person: "approver" }]);
 });
 

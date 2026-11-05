@@ -66,7 +66,8 @@ export function parseFindings(out: string): Finding[] {
       } catch { /* try an earlier "[" */ }
     }
   }
-  throw new Error("Reviewer output holds no JSON array of findings");
+  // The end of the answer goes in the error, so a person can see what the reviewer said instead.
+  throw new Error(`Reviewer output holds no JSON array of findings. The end of its answer:\n${out.slice(-2000).trim() || "(empty)"}`);
 }
 
 const reviewPrompt = readFileSync(fileURLToPath(new URL("../prompts/review.md", import.meta.url)), "utf8");

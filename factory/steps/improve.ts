@@ -4,6 +4,7 @@
 import { lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { makeContext } from "../compose";
+import { md } from "../conversation";
 import { collectEvidence } from "../improve/evidence";
 import { assertImprovePaths, checkEdits, type Edit, IMPROVE_PATHS, type ImprovePath, improvePrompt, parseProposal } from "../improve/proposal";
 import { findSecrets } from "../rules";
@@ -91,7 +92,7 @@ async function mergeFix(ctx: StepContext, fix: Pushed): Promise<boolean> {
       why = `The merge failed, so the factory did not merge this fix. The code host said: ${String(e).slice(0, 300)}`;
     }
   }
-  await ctx.codeHost.commentChange(fix.ref, why);
+  await ctx.codeHost.commentChange(fix.ref, md("👀", "Needs a person", why));
   await ctx.codeHost.assignChange(fix.ref, ctx.target.defaultApprover);
   return false;
 }

@@ -6,7 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { HOOKS_DIR, TSX_IMPORT } from "../agents";
 import { sandboxSettings } from "../repo";
 import type { HarnessJob, Provider } from "../seams";
-import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, factorySettings, parseStream, toolCalls } from "./claude-code";
+import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, claudeInput, factorySettings, parseStream, toolCalls } from "./claude-code";
 
 const load = (f: string) => readFileSync(new URL(`../fixtures/${f}`, import.meta.url), "utf8");
 const teamPlan: Provider = { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { "claude-sonnet-5-5": "claude" } };
@@ -17,9 +17,20 @@ test("every run carries the fixed flags and never --bare", () => {
   expect(a).not.toContain("--bare");
   expect(a).not.toContain("--tools");
 });
-test("the prompt starts with the effort command", () => {
+test("the prompt follows -p as it is, and the effort is a flag", () => {
   const a = buildClaudeArgs({ prompt: "do it", model: "m", effort: "high", maxTurns: 1, cwd: "/w" });
-  expect(a[a.indexOf("-p") + 1]).toBe("/effort high\ndo it");
+  expect(a[a.indexOf("-p") + 1]).toBe("do it");
+  expect(a.slice(a.indexOf("--effort"), a.indexOf("--effort") + 2)).toEqual(["--effort", "high"]);
+});
+test("with images the prompt and the PNGs go on stdin as one stream-json user message", () => {
+  const a = buildClaudeArgs({ prompt: "do it", model: "m", effort: "high", maxTurns: 1, cwd: "/w", images: true });
+  expect(a.slice(a.indexOf("-p"), a.indexOf("-p") + 3)).toEqual(["-p", "--input-format", "stream-json"]);
+  expect(a).not.toContain("do it");
+  expect(JSON.parse(claudeInput("do it", [{ data: Buffer.from("a") }, { data: Buffer.from("b") }]))).toEqual({ type: "user", message: { role: "user", content: [
+    { type: "text", text: "do it" },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "YQ==" } },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: "Yg==" } },
+  ] } });
 });
 test("resume passes the session id", () => expect(buildClaudeArgs({ prompt: "p", model: "m", effort: "high", maxTurns: 1, cwd: "/w", resumeSessionId: "s1" })).toEqual(expect.arrayContaining(["--resume", "s1"])));
 test("no tools turns every built-in tool off", () => {
@@ -76,7 +87,7 @@ afterEach(() => { process.env.PATH = origPath; vi.unstubAllEnvs(); });
 function fakeClaude(fixture: string, lines?: number) {
   const bin = realpathSync(mkdtempSync(join(tmpdir(), "fake-claude-")));
   const script = join(bin, "claude");
-  writeFileSync(script, `#!/bin/sh\nprintf '%s\\n' "$@" > "${bin}/args"\npwd > "${bin}/cwd"\nenv > "${bin}/env"\nhead -n ${lines ?? 1000} "${new URL(`../fixtures/${fixture}`, import.meta.url).pathname}"\n`);
+  writeFileSync(script, `#!/bin/sh\nprintf '%s\\n' "$@" > "${bin}/args"\npwd > "${bin}/cwd"\nenv > "${bin}/env"\n[ -t 0 ] || cat > "${bin}/stdin"\nhead -n ${lines ?? 1000} "${new URL(`../fixtures/${fixture}`, import.meta.url).pathname}"\n`);
   chmodSync(script, 0o755);
   process.env.PATH = `${bin}:${origPath}`;
   return bin;
@@ -103,6 +114,12 @@ test("a no-tools job passes --tools '' and runs in an empty dir, not the job cwd
   const args = readFileSync(join(bin, "args"), "utf8").split("\n");
   expect(args.slice(args.indexOf("--tools"), args.indexOf("--tools") + 2)).toEqual(["--tools", ""]);
   expect(readFileSync(join(bin, "cwd"), "utf8").trim()).not.toBe(realpathSync(tmpdir()));
+});
+
+test("a job with images writes them to claude's stdin", async () => {
+  const bin = fakeClaude("stream-ok.jsonl");
+  await claudeCode.run(job({ role: "reviewer", tools: "none", images: [{ name: "a.png", data: Buffer.from("png") }] }));
+  expect(JSON.parse(readFileSync(join(bin, "stdin"), "utf8")).message.content[1].source.data).toBe("cG5n");
 });
 
 test("a stream cut before the result event is a failed run, not a throw", async () => {
@@ -177,7 +194,13 @@ test("a job with onToolCall gets each tool call while claude runs; a job without
 // The fixture was written from the code before the Claude settings moved here. <ROOT> is the factory checkout.
 const pinned = () => JSON.parse(load("claude-settings.json").replaceAll("<INBOX_HOOK>", INBOX_HOOK).replaceAll("<TSX_IMPORT>", TSX_IMPORT).replaceAll("<ROOT>", fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "")));
 test("the Claude settings stay exactly as before the split", () => {
-  expect(factorySettings({ CLAUDE_CONFIG_DIR: "/cfg", HOME: "/home/a" }, "/opt/hooks", "/w/run/target", "/w/run/inbox.jsonl", true)).toEqual(pinned());
+  expect(factorySettings({ CLAUDE_CONFIG_DIR: "/cfg", HOME: "/home/a" }, "/opt/hooks", "/w/run/target", "/w/run/inbox.jsonl", true, "darwin")).toEqual(pinned());
+});
+test("tsx can open its IPC pipe: macOS allows the sandbox TMPDIR, Linux allows every unix socket", () => {
+  const mac = factorySettings({}, "/opt/hooks", "/w/run/target", undefined, false, "darwin").sandbox.network;
+  expect(mac.allowUnixSockets).toEqual(["/tmp/claude", "/private/tmp/claude"]);
+  expect(mac.allowAllUnixSockets).toBeUndefined();
+  expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, false, "linux").sandbox.network.allowAllUnixSockets).toBe(true);
 });
 test("repo sandbox settings keep the same allowed domains", () => {
   expect(sandboxSettings("/w/run/target", "/h").network.allowedDomains).toEqual(pinned().sandbox.network.allowedDomains);

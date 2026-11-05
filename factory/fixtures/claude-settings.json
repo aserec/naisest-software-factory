@@ -53,6 +53,7 @@
     },
     "network": {
       "strictAllowlist": true,
+      "allowUnixSockets": ["/tmp/claude", "/private/tmp/claude"],
       "allowedDomains": [
         "gitlab.example.com",
         "registry.npmjs.org",
