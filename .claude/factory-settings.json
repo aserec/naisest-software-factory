@@ -41,7 +41,8 @@
     "allowUnsandboxedCommands": false,
     "autoAllowBashIfSandboxed": false,
     "network": {
-      "strictAllowlist": true
+      "strictAllowlist": true,
+      "allowUnixSockets": ["/tmp/claude", "/private/tmp/claude"]
     }
   }
 }
