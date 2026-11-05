@@ -5,7 +5,7 @@ import { makeContext } from "../compose";
 import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
 import { pollRequests, replyOnChanges } from "./requests";
-import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
+import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleReadyRequests, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
@@ -39,6 +39,12 @@ export async function main(ctx?: StepContext) {
   takeSnapshot(ctx); // one read of the dashboard for the whole tick
   // local-factory.sh: print the tickets to start, start no pipeline. The script runs them on this machine.
   if (process.argv.includes("--list")) {
+    // Set to Ready only changes a label, so it runs here too; takeSnapshot again so pollReady sees it as done.
+    try {
+      if ((await handleReadyRequests(ctx)).length) takeSnapshot(ctx);
+    } finally {
+      await ctx.dashboard.flush();
+    }
     console.log((await pollReady({ ...ctx, ci: { ...ctx.ci, start: async () => "" } })).join(" "));
     return;
   }
@@ -46,6 +52,7 @@ export async function main(ctx?: StepContext) {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
     console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx)).join(", ") || "none"}`);
     console.log(`Ended runs whose work item or change a person closed: ${(await endClosedRuns(ctx)).join(", ") || "none"}`);
+    console.log(`Set ready the tickets the dashboard asked for: ${(await handleReadyRequests(ctx)).join(", ") || "none"}`);
     const handled = await handleRequests(ctx);
     takeSnapshot(ctx); // handleRequests answered requests: pollReady must see the new outcomes, as before
     console.log(`Started runs the dashboard asked for: ${handled.join(", ") || "none"}`);

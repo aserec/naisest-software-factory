@@ -294,6 +294,9 @@ export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispat
     requestDone: async (id: string, outcome: "done" | "refused") => {
       if (dash.down) throw new Error("dashboard is down");
       dash.done.push([id, outcome]);
+      // As the dashboard does: the next control read shows the outcome.
+      const r = state.requests?.find((q) => q.id === id);
+      if (r) Object.assign(r, { outcome, doneAt: new Date().toISOString() });
     },
   };
   return dash;

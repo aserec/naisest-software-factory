@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ago, duration } from "@/lib/utils";
-import { Board, emptyLine, finding, newlyWaiting, RiskPills, type BoardItem } from "./board";
+import { Board, newlyWaiting, RiskPills, type BoardItem } from "./board";
 import { json, renderWithQuery } from "./test-utils";
 
 afterEach(() => {
@@ -14,13 +14,13 @@ afterEach(() => {
 
 const item = (o: Partial<BoardItem>): BoardItem => ({ target: "demo", ticket: "7", title: "Fix login", state: "running", url: "http://gl/7", updatedAt: "", stuck: false, ...o });
 
-test("renders a section per label that has tickets, one line for the empty ones, and a Stuck badge", async () => {
+test("renders a section per label, empty ones with 0, and a Stuck badge", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", costUsd: 1.5, stuck: true }), item({ ticket: "8", title: "Add docs", state: "done" })])));
   renderWithQuery(<Board />);
   expect(await screen.findByText("Fix login")).toBeTruthy();
   expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Waiting on you", "With the factory"]);
-  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Running 1", "Done 1"]); // only labels with tickets
-  expect(screen.getByText("Needs approval, Needs info, Stopped and Blocked are empty.")).toBeTruthy();
+  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Needs approval 0", "Needs info 0", "Stopped 0", "Blocked 0", "Running 1", "Waiting 0", "Ready 0", "Done 1"]);
+  expect(screen.queryByText(/are empty/)).toBeNull();
   expect(screen.getAllByText("Stuck")).toHaveLength(1);
   expect(screen.getByText("$1.50")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Fix login" }).getAttribute("href")).toBe("/runs/r1");
@@ -76,21 +76,16 @@ test("a failed board load says so in plain words, keeps the last board with its 
   expect(fetchMock.mock.calls.length).toBe(calls + 1);
 });
 
-test("the finding names what waits for a person, and says so when nothing does", () => {
-  expect(finding([item({ state: "needs_approval" }), item({ state: "needs_info" }), item({ state: "needs_info" }), item({ stuck: true })])).toBe("1 to approve, 2 need an answer, 1 run stuck.");
-  expect(finding([item({ state: "done" })])).toBe("Nothing waits for you.");
+test("every state keeps its section, an empty one with 0", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([])));
+  renderWithQuery(<Board />);
+  for (const name of ["Needs approval", "Waiting", "Done"]) expect((await screen.findByRole("heading", { name: `${name} 0` })).tagName).toBe("H3");
 });
 
 test("durations and ages read as people say them", () => {
   expect([0.25, 42, 540, 545, 8400].map(duration)).toEqual(["250 ms", "42 s", "9 m", "9 m 5 s", "2 h 20 m"]);
   const now = Date.parse("2026-11-01T12:00:00Z");
   expect([ago("2026-11-01T11:59:40Z", now), ago("2026-11-01T11:12:00Z", now), ago("2026-10-30T12:00:00Z", now), ago("", now)]).toEqual(["just now", "48 m ago", "2 d ago", undefined]);
-});
-
-test("the empty line names one or many labels, and nothing when none is empty", () => {
-  expect(emptyLine(["done"])).toBe("Done is empty.");
-  expect(emptyLine(["ready", "done"])).toBe("Ready and Done are empty.");
-  expect(emptyLine([])).toBeUndefined();
 });
 
 test("Done shows its ten newest tickets, and Show older shows the rest", async () => {
@@ -155,7 +150,6 @@ test("the search and target chips filter the cards, live in the URL, and leave t
   expect(screen.queryByText("Add docs")).toBeNull();
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nothing like it" } });
   expect(screen.getByText("No work item matches the filter.")).toBeTruthy();
-  expect(finding(items)).toBe("2 to approve.");
 });
 
 test("one target shows no chips", async () => {

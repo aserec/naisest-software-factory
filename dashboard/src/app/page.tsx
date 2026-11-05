@@ -1,12 +1,10 @@
-import { Board, BoardFinding } from "@/components/board";
-import { PageTitle } from "@/components/shell";
+import { Board } from "@/components/board";
 
 export default function Home() {
   return (
     <main>
-      <PageTitle title="Board">
-        <BoardFinding />
-      </PageTitle>
+      {/* The breadcrumb names the page; the heading stays for screen readers. */}
+      <h1 className="sr-only">Board</h1>
       <Board />
     </main>
   );

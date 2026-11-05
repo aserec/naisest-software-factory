@@ -38,17 +38,17 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
             {/* Open PR is the main button while the change waits for a person's merge. */}
             {changeUrl && target && (
               <Button asChild variant={item?.state === "needs_approval" ? "default" : "outline"}>
-                <a href={changeUrl} title={`Review and merge in ${codeHostName(target)}`}>Open PR</a>
+                <a href={changeUrl} target="_blank" rel="noreferrer" title={`Review and merge in ${codeHostName(target)}`}>Open PR</a>
               </Button>
             )}
             {tracker && ticketUrl && (
               <Button asChild variant="outline">
-                <a href={ticketUrl} title={`Open the work item in ${tracker.name}`}>Open issue</a>
+                <a href={ticketUrl} target="_blank" rel="noreferrer" title={`Open the work item in ${tracker.name}`}>Open issue</a>
               </Button>
             )}
             {item?.boardUrl && (
               <Button asChild variant="outline">
-                <a href={item.boardUrl} title={`Open the board in ${tracker?.name ?? "the tracker"}`}>Open board</a>
+                <a href={item.boardUrl} target="_blank" rel="noreferrer" title={`Open the board in ${tracker?.name ?? "the tracker"}`}>Open board</a>
               </Button>
             )}
             <RunControls run={run} />

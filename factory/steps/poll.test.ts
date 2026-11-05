@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { main, pollReady } from "./poll";
 import { md, noteText } from "../conversation";
-import { endClosedRuns, finishCancelledStops, handleRequests } from "./run";
+import { endClosedRuns, finishCancelledStops, handleReadyRequests, handleRequests } from "./run";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx, noteIn } from "./test-helpers";
 import { fakeDashboard } from "../fakes";
@@ -169,13 +169,36 @@ test("a ready request sets a blocked ticket ready for a trusted person, and the 
   const dash = fakeDashboard({ requests: [request("ready", "7"), request("ready", "r0"), request("ready", "8", { user: "eve" })] });
   ctx.world.tracker.tickets.set("8", { ...ctx.world.tracker.tickets.get("7")!, ref: "8", state: "blocked" });
   ctx.dashboard = dash;
-  expect(await handleRequests(ctx)).toEqual([]); // it sets the state only; pollReady starts the run
+  expect(await handleReadyRequests(ctx)).toEqual(["7"]); // it sets the state only; pollReady starts the run
   expect(ctx.world.tracker.tickets.get("7")!.state).toBe("ready");
   expect(ctx.world.tracker.tickets.get("8")!.state).toBe("blocked");
   expect(dash.done).toEqual([["q7", "done"], ["qr0", "refused"], ["q8", "refused"]]);
   ctx.tracker.startedBy = async () => BOT;
   ctx.dashboard = fakeDashboard({ requests: [request("ready", "7", { outcome: "done" })] });
   expect(await pollReady(ctx)).toEqual(["7"]);
+});
+// The local factory polls with --list only. Set to Ready must still reach the tracker there, and print just the ticket.
+test("the --list poll sets a requested ticket ready and lists it to run", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const argv = process.argv;
+  process.argv = [...argv, "--list"];
+  try {
+    const ctx = stoppedCtx([]);
+    ctx.world.tracker.tickets.get("7")!.state = "blocked";
+    ctx.tracker.trusted = async (actor) => actor === "ana";
+    ctx.tracker.startedBy = async () => BOT;
+    const dash = fakeDashboard({ requests: [request("ready", "7")] });
+    ctx.dashboard = dash;
+    await main(ctx);
+    expect(ctx.world.tracker.tickets.get("7")!.state).toBe("ready");
+    expect(dash.done).toEqual([["q7", "done"]]);
+    expect(log.mock.calls.map((c) => c[0])).toEqual(["7"]);
+  } finally {
+    process.argv = argv;
+    log.mockRestore();
+    vi.unstubAllEnvs();
+  }
 });
 // R41: the comment first, so a lost comment never leaves a stopped ticket whose newest note is an older stop.
 test("a cancelled stop posts its comment before it sets the ticket stopped", async () => {

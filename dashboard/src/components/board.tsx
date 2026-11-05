@@ -158,27 +158,6 @@ function Column({ state, items, now }: { state: FactoryState; items: BoardItem[]
   );
 }
 
-// "Stopped and Blocked are empty." One quiet line for every empty state on a side, instead of a heading each.
-export function emptyLine(states: FactoryState[]) {
-  const names = states.map((s) => STATE[s]);
-  if (names.length === 0) return undefined;
-  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-  return `${list} ${names.length === 1 ? "is" : "are"} empty.`;
-}
-
-// "1 to approve, 2 need an answer, 1 run stuck." The finding that goes under the title.
-export function finding(items: BoardItem[]) {
-  const n = (s: FactoryState) => items.filter((i) => i.state === s).length;
-  const stuck = items.filter((i) => i.stuck).length;
-  const parts = [
-    n("needs_approval") && `${n("needs_approval")} to approve`,
-    n("needs_info") && `${n("needs_info")} ${n("needs_info") === 1 ? "needs" : "need"} an answer`,
-    n("stopped") && `${n("stopped")} stopped`,
-    stuck && `${stuck} ${stuck === 1 ? "run" : "runs"} stuck`,
-  ].filter(Boolean);
-  return parts.length ? `${parts.join(", ")}.` : "Nothing waits for you.";
-}
-
 export function useBoard() {
   return useQuery({
     queryKey: ["board"],
@@ -315,16 +294,13 @@ export function Board() {
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
           {SIDES.map(([side, states]) => {
             const of = (s: FactoryState) => data.filter((i) => i.state === s);
-            const empty = emptyLine(states.filter((s) => of(s).length === 0));
             return (
               <div key={side} className="flex flex-col gap-6">
                 <h2 className="text-lg leading-7 font-semibold">{side}</h2>
-                {states
-                  .filter((s) => of(s).length > 0)
-                  .map((s) => (
-                    <Column key={s} state={s} items={of(s)} now={now} />
-                  ))}
-                {empty && <p className="text-muted-foreground">{empty}</p>}
+                {/* Every state keeps its section, an empty one with its 0, so the columns never move. */}
+                {states.map((s) => (
+                  <Column key={s} state={s} items={of(s)} now={now} />
+                ))}
               </div>
             );
           })}
@@ -332,9 +308,4 @@ export function Board() {
       )}
     </>
   );
-}
-
-export function BoardFinding() {
-  const { data } = useBoard();
-  return data ? finding(data) : null;
 }
