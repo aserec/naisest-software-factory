@@ -39,6 +39,8 @@ for step in "${steps[@]}"; do
   [ -z "${GL_TOKEN:-}" ] || { printf %s "$GL_TOKEN" > "$secrets/gl"; tokens+=(FACTORY_GITLAB_TOKEN="$secrets/gl"); }
   [ -z "${FACTORY_GITHUB_TOKEN:-}" ] || { printf %s "$FACTORY_GITHUB_TOKEN" > "$secrets/gh"; tokens+=(FACTORY_GITHUB_TOKEN="$secrets/gh"); }
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
+  # env -i drops the shell's variables, so Claude Code authors need the Team plan token passed on by name.
+  [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || tokens+=(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN")
   # Chromium for the screenshots, installed once with: (cd react_frontend/apps/web && pnpm exec playwright install chromium)
   env -i PATH="$PATH" HOME="$HOME" PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/Library/Caches/ms-playwright}" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID=1 FACTORY_PIPELINE=build FACTORY_TARGET="$target" \
