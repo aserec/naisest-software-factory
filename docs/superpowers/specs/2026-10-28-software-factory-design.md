@@ -160,7 +160,7 @@ Every comment the factory posts starts with a line saying that AI wrote it. This
 ### 6.4 Code review loop
 
 - The reviewer runs OpenCode without a person attached, on the reviewer model from the router.
-- It reads the diff, the work item, and the target repo's own rules such as `CLAUDE.md` or `AGENTS.md`.
+- It reads the diff, the work item, and the target repo's review rules in `.factory/review.md`. (Changed 2026-11-05: the reviewer does not read `CLAUDE.md` or `AGENTS.md`. Those files are written for the author, and the swappable-modules spec loads no agent config from the target.)
 - It uses the review criteria of the agent-config `code-review` skill, which checks the standards and the spec. That skill runs sub-agents in Claude Code. The builder may need a factory version of the review prompt for OpenCode that keeps the same criteria.
 - It returns findings as JSON. Each finding is marked blocking or not blocking.
 - When there are blocking findings, the author's session resumes and fixes them. It may also make the improvements the reviewer suggests. Then the reviewer reviews again.
@@ -190,7 +190,7 @@ Hard rules run first. They are code in the factory repo, with settings per targe
 
 - Touches a protected path. First list: database migrations, auth, billing and payment code, CI config such as `.gitlab-ci.yml`, Dockerfiles and deploy files, `.factory.yml`, and agent config such as `CLAUDE.md`, `AGENTS.md`, `.claude/` and `.agents/`.
 - Changes dependency files: package manifests and lock files.
-- Changes more than 300 lines.
+- Changes more lines than the target's `maxChangedLines`. (Changed 2026-11-05, commit `7dd6195`: the key is optional and no target sets it, so diff size does not block a merge.)
 - Contains anything a secret scanner flags.
 - Has a merge request pipeline that is not green.
 
@@ -202,7 +202,7 @@ Then Jev 2 reads the diff and the ticket:
 | `scope` | Does this diff do only what the ticket asks? | yes/no |
 | `sensitive` | Does this diff touch user data, security or money? | yes/no |
 
-First thresholds for a pass: `diff_risk` at 4 or below with confidence 0.9 or above, `scope` yes at 0.9 or above, and `sensitive` no at 0.9 or above.
+First thresholds for a pass: `diff_risk` at 4 or below with confidence 0.9 or above, `scope` yes at 0.9 or above, and `sensitive` no at 0.9 or above. (Changed 2026-11-05, commit `7dd6195`: the default `autoMergeConfidenceMin` is 0.8, and a target can change it in `.factory/thresholds.yml`.)
 
 ### 6.7 Decision
 
