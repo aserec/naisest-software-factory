@@ -1,7 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { main } from "./poll";
-import { cursorLine, readyForLine } from "../requests";
-import { fakeWorld, BOT } from "./test-helpers";
+import { noteText } from "../conversation";
+import { fakeWorld, BOT, cursorOf } from "./test-helpers";
 import { answerRequests, pollRequests, replyOnChanges, REPLY_WINDOW_MS } from "./requests";
 import { askPerson } from "./decision";
 import { addStep } from "../record";
@@ -17,7 +17,7 @@ const BUILD = { kind: "build", ticket: "8", buildRun: "41", change: "5" };
 function world(o: { state?: FactoryState; cursor?: boolean; actorLevel?: number } = {}) {
   const w = fakeWorld({ state: o.state ?? "needs_approval", actorLevel: o.actorLevel });
   w.openChange();
-  if (o.cursor !== false) w.host.sayOnChange("5", BOT, `The factory waits.\n\n${cursorLine(T0)}`, T0, true);
+  if (o.cursor !== false) w.host.sayOnChange("5", BOT, noteText({ kind: "cursor", text: `The factory waits.`, at: T0 }), T0, true);
   return w;
 }
 
@@ -76,7 +76,7 @@ test("two tickets that wait for a person: one poll starts only the older one", a
   const w = world();
   w.tracker.tickets.get("9")!.state = "needs_approval";
   w.host.openChange("factory/9-other", "Other", "Factory run 42: https://ci.example/runs/42", "9");
-  w.host.sayOnChange("6", BOT, cursorLine(T0), T0, true);
+  w.host.sayOnChange("6", BOT, noteText({ kind: "cursor", text: "The factory waits.", at: T0 }), T0, true);
   w.host.sayOnChange("5", "dev", ASK, T1);
   w.host.sayOnChange("6", "dev", ASK, T1);
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
@@ -90,7 +90,7 @@ test("a stopped ticket gets one reply with the cursor line, and the next poll po
   expect(await pollRequests(w.ctx)).toEqual([]);
   expect(w.workItemComments).toHaveLength(1);
   expect(w.workItemComments[0]).toContain("@factory resume");
-  expect(w.workItemComments[0]).toContain(cursorLine(T2));
+  expect(cursorOf(w.workItemComments[0])).toBe(T2);
   expect(w.ci.started).toEqual([]);
   await pollRequests(w.ctx);
   expect(w.workItemComments).toHaveLength(1);
@@ -119,7 +119,7 @@ test.each(["waiting", "stopped"] as const)("a %s ticket whose only factory comme
   w.tracker.say("8", "dev", ASK, T2);
   expect(await answerRequests(w.ctx, await w.tracker.ticket("8"))).toBe("replied");
   expect(w.workItemComments).toHaveLength(2);
-  expect(w.workItemComments[1].endsWith(cursorLine(T2))).toBe(true);
+  expect(cursorOf(w.workItemComments[1])).toBe(T2);
 });
 // A @factory comment counts as factory_ready on a blocked or needs_info ticket.
 test.each(["blocked", "needs_info"] as const)("a trusted request on a %s ticket sets it ready for the request's author, with the cursor line", async (state) => {
@@ -128,7 +128,7 @@ test.each(["blocked", "needs_info"] as const)("a trusted request on a %s ticket 
   w.tracker.say("8", "dev", "@factory the list is the user list", T2);
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
   expect(w.tracker.tickets.get("8")!.state).toBe("ready");
-  expect(w.workItemComments).toEqual([`The factory starts again for the request of @dev.\n\n${readyForLine("dev")}\n\n${cursorLine(T2)}`]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "readyFor", text: "The factory starts again for the request of @dev.", person: "dev", cursor: T2 })]);
   expect(w.ci.started).toEqual([]); // the poller starts the ready ticket
 });
 test("an untrusted person's request on a blocked ticket changes nothing", async () => {
@@ -173,7 +173,7 @@ test("one ticket that fails does not stop the next", async () => {
   const w = world();
   w.tracker.tickets.get("9")!.state = "stopped";
   w.host.sayOnChange("5", "dev", ASK, T1);
-  await w.tracker.comment("9", cursorLine(T0));
+  await w.tracker.comment("9", noteText({ kind: "cursor", text: "The factory waits.", at: T0 }));
   w.tracker.say("9", "dev", ASK, T1);
   w.ci.start = async () => { throw new Error("status 503"); };
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -233,7 +233,7 @@ test("a run resumed after a pause writes the cursor of its first event, so a req
   w.ctx.record = { ...w.ctx.record, steps: [{ step: "event", at: T1, data: { start: true, ticket: "8" } }, { step: "precommit-gate", at: T1, data: gate }, { step: "event", at: resumed, data: { start: true, ticket: "8", resume: true } }] };
   w.host.sayOnChange("5", "dev", ASK, T2); // written while the run was stopped
   await askPerson(w.ctx, ["risk"]);
-  expect(w.mrComments.at(-1)!.endsWith(cursorLine(T1))).toBe(true);
+  expect(cursorOf(w.mrComments.at(-1)!)).toBe(T1);
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
 });
 
@@ -278,7 +278,7 @@ test("a trusted request on the change of a ticket the factory has not started ge
   expect(w.mrComments).toHaveLength(1);
   expect(w.mrComments[0].startsWith("@dev ")).toBe(true);
   expect(w.mrComments[0]).toContain("factory_ready");
-  expect(w.mrComments[0].endsWith(cursorLine(T1))).toBe(true);
+  expect(cursorOf(w.mrComments[0])).toBe(T1);
   expect(w.ci.started).toEqual([]);
   expect(w.workItemComments).toEqual([]);
 });
@@ -287,7 +287,7 @@ test.each([["ready", "The run starts soon. Write the request again once the chan
   expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
   expect(w.mrComments).toHaveLength(1);
   expect(w.mrComments[0]).toContain(sentence);
-  expect(w.mrComments[0].endsWith(cursorLine(T1))).toBe(true);
+  expect(cursorOf(w.mrComments[0])).toBe(T1);
 });
 test("the next call replies to nothing, and a second request after the reply gets its own reply", async () => {
   const w = other("done");
@@ -298,7 +298,7 @@ test("the next call replies to nothing, and a second request after the reply get
   vi.setSystemTime("2026-10-01T11:04:00Z");
   expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
   expect(w.mrComments).toHaveLength(2);
-  expect(w.mrComments[1].endsWith(cursorLine(T3))).toBe(true);
+  expect(cursorOf(w.mrComments[1])).toBe(T3);
 });
 test("an untrusted author gets no reply", async () => {
   const w = other("done");
@@ -364,11 +364,11 @@ test("with no cursor line and no factory comment on the change, the factory's ne
   w.host.sayOnChange("5", "dev", ASK, "2026-10-01T11:01:30Z");
   expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
   expect(w.mrComments).toHaveLength(1);
-  expect(w.mrComments[0].endsWith(cursorLine("2026-10-01T11:01:30Z"))).toBe(true);
+  expect(cursorOf(w.mrComments[0])).toBe("2026-10-01T11:01:30Z");
 });
 test("a reply on the work item with a cursor line newer than the request counts for the change: no second reply", async () => {
   const w = other("done");
-  await w.tracker.comment("8", `@dev The factory takes requests only while its change waits.\n\n${cursorLine(T1)}`); // the webhook's reply
+  await w.tracker.comment("8", noteText({ kind: "cursor", text: `@dev The factory takes requests only while its change waits.`, at: T1 })); // the webhook's reply
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);
   w.host.sayOnChange("5", "dev", ASK, T3); // a newer request still gets its reply

@@ -1,6 +1,6 @@
 import { emit } from "../emit";
 import { need } from "../record";
-import { cursorLine, later } from "../requests";
+import { conversation, later } from "../conversation";
 import { proofReasons } from "../proof";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { PersonRef, Ticket } from "../seams";
@@ -114,7 +114,7 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
   // After a resume the agent never saw what was written during the pause, so the cursor stays where this run or its round started reading.
   const first = ctx.record.steps.find((s) => s.step === "event")?.at;
   const read = f.resumed ? (ctx.record.requestRounds?.at(-1)?.cursor ?? first) : (later(ctx.record.heardUntil, round?.cursor) ?? first);
-  await ctx.codeHost.commentChange(change, [`This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`, ...(read ? [cursorLine(read)] : [])].join("\n\n"));
+  await conversation(ctx).writeOnChange(change, { kind: "cursor", text: `This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`, at: read });
   if (round) {
     const t = ctx.record.tokens ?? { input: 0, output: 0 };
     const closed = { ...round, endedAt: new Date().toISOString(), ...ctx.record.rounds, costUsd: ctx.record.costUsd - round.costAtStart, tokens: { input: t.input - round.tokensAtStart.input, output: t.output - round.tokensAtStart.output } };

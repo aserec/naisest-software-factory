@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { wrapTicket } from "../agents";
 import { makeInbox } from "../inbox";
-import { later } from "../requests";
+import { conversation, later } from "../conversation";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
@@ -114,12 +114,12 @@ export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<bool
 export const inbox = (ctx: StepContext) => {
   const f = facts(ctx);
   const change = f.change;
-  return makeInbox(ctx.tracker, ticketRef(ctx), (f.roundStart ? f.openRound?.cursor : undefined) ?? f.eventAt ?? new Date().toISOString(), async () => {
+  return makeInbox(conversation(ctx), ticketRef(ctx), (f.roundStart ? f.openRound?.cursor : undefined) ?? f.eventAt ?? new Date().toISOString(), async () => {
     const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
     if (stop) ctx.dashboardStop = true;
     return stop;
   }, () => closedByPerson(ctx), {
-    ...(change ? { changeComments: (since: string) => ctx.codeHost.changeComments(change, since) } : {}),
+    change,
     onRead: (t) => void (ctx.record = { ...ctx.record, heardUntil: later(ctx.record.heardUntil, t) }),
   });
 };

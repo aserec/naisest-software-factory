@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { DEDUPE_MARKER } from "../dedupe";
+import { noteText } from "../conversation";
 import { fakeCodeHost, fakeDashboard, fakeJudge, fakeTracker } from "../fakes";
 import type { JevAnswer, RunEvent } from "../seams";
 import type { Target } from "../types";
@@ -228,14 +228,27 @@ test("isRevertOf", () => {
 test("a ticket the factory closed as a duplicate and a person reopened gives reopened_duplicate", async () => {
   const w = world();
   w.dashboard.events.push(ev("run_start", {}));
-  await factorySays(w, `This asks for the same change as #3.\n\n${DEDUPE_MARKER}`, ago(1));
+  await factorySays(w, noteText({ kind: "duplicate_close", text: "This asks for the same change as #3." }), ago(1));
   const r = await run(w);
   expect(r.evidence).toEqual([{ kind: "reopened_duplicate", link: "https://tracker.example/8", at: ago(1), text: "Show a spinner" }]);
+});
+// F-P3: the factory's question about a possible duplicate is not a wrong close.
+test("a duplicate question on an open work item gives nothing", async () => {
+  const w = world();
+  w.dashboard.events.push(ev("run_start", {}));
+  await factorySays(w, noteText({ kind: "duplicate_question", text: "Does this belong in #3?" }), ago(1));
+  expect(kinds(await run(w))).toEqual([]);
+});
+test("a close with the marker posted before the question had its own still gives reopened_duplicate", async () => {
+  const w = world();
+  w.dashboard.events.push(ev("run_start", {}));
+  await factorySays(w, "This asks for the same change as #3.\n\n<!-- factory:dedupe -->", ago(1));
+  expect(kinds(await run(w))).toEqual(["reopened_duplicate"]);
 });
 test("a duplicate that is still closed gives nothing", async () => {
   const w = world();
   w.dashboard.events.push(ev("run_start", {}));
-  await factorySays(w, `Same as #3.\n\n${DEDUPE_MARKER}`, ago(1));
+  await factorySays(w, noteText({ kind: "duplicate_close", text: "Same as #3." }), ago(1));
   await w.tracker.close("8");
   expect(kinds(await run(w))).toEqual([]);
 });
@@ -270,7 +283,7 @@ test("the reverted mark counts only for an auto decision of this week", async ()
 test("a reply or a duplicate marker from before the week gives nothing", async () => {
   const w = world();
   w.dashboard.events.push(ev("run_start", {}));
-  await factorySays(w, `Same as #3.\n\n${DEDUPE_MARKER}`, ago(9));
+  await factorySays(w, noteText({ kind: "duplicate_close", text: "Same as #3." }), ago(9));
   w.tracker.say("8", "dev", "Like the login page", ago(8));
   expect(kinds(await run(w))).toEqual([]);
 });

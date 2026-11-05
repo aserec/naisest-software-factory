@@ -11,7 +11,8 @@ import type { Checks, FactoryEvent, FactoryState, Harness, HarnessResult, JevAns
 import { HARNESS_NAMES, type HarnessName } from "../harnesses";
 import type { Risk } from "../types";
 import { runStep, type StepContext } from "./context";
-import { BUILD_STEPS, FINISH_STEPS, waitingNote } from "./run";
+import { noteText, newestNote, type Read, type ReadKind } from "../conversation";
+import { BUILD_STEPS, FINISH_STEPS } from "./run";
 import * as event from "./event";
 import * as triage from "./triage";
 import * as preparePatch from "./prepare-patch";
@@ -257,7 +258,7 @@ export function fakeCtx(o: { ready?: number[]; waiting?: { iid: number; sessionI
   // Person user-<ticket> set the ticket ready. Tickets in nonDeveloper were set ready by a Reporter.
   t.startedBy = async (ref) => `user-${ref}`;
   t.trusted = async (actor) => !(o.nonDeveloper ?? []).some((n) => actor === `user-${n}`);
-  t.comments = async (ref) => [{ author: o.noteAuthor ?? FAKE_FACTORY, byFactory: !o.noteAuthor, body: waitingNote(String(100 + Number(ref))), at: "2026-10-29T00:00:00Z" }];
+  t.comments = async (ref) => [{ author: o.noteAuthor ?? FAKE_FACTORY, byFactory: !o.noteAuthor, body: noteText({ kind: "waiting", run: String(100 + Number(ref)) }), at: "2026-10-29T00:00:00Z" }];
   const resumed: string[] = [];
   const start = world.ci.start;
   world.ci.start = async (run) => {
@@ -285,3 +286,7 @@ export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_appr
   w.ctx.record = r;
   return runSteps(w, FINISH);
 }
+
+// What a comment the factory wrote says, read back through the conversation module.
+export const noteIn = <K extends ReadKind>(body: string, kind: K): Read<K> | undefined => newestNote([{ author: FAKE_FACTORY, byFactory: true, body, at: "" }], kind);
+export const cursorOf = (body: string) => noteIn(body, "cursor")?.cursor;

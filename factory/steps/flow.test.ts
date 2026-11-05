@@ -13,10 +13,10 @@ import { CONTINUE, inbox, prompt, runStep, save, ticketText } from "./context";
 import type { HarnessJob, HarnessResult } from "../seams";
 import { previewLine } from "./prepare-patch";
 import * as preparePatchStep from "./prepare-patch";
-import { cursorLine, readyForLine } from "../requests";
-import { newRequests, pollRequests } from "./requests";
+import { conversation, noteText } from "../conversation";
+import { pollRequests } from "./requests";
 import { parseFactoryFile } from "../config";
-import { cancelNote, endIfClosed, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
+import { endIfClosed, handleRequests, resumeSwitchedOff } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GitLab, GITLAB_URL } from "../gitlab";
@@ -39,7 +39,7 @@ import * as riskCheckStep from "./risk-check";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
-import { BOT, B, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, COMMIT } from "./test-helpers";
+import { BOT, B, noteIn, cursorOf, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, COMMIT } from "./test-helpers";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -958,7 +958,7 @@ test("a stop from the dashboard stops the author run and keeps its session", asy
   await runBuildPipeline(w);
   expect(w.states).toEqual(["stopped"]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: "sess-d", stopped: true } });
-  expect(parseStoppedNote(w.workItemComments.at(-1)!)?.reason).toBe("stopped from the dashboard");
+  expect(noteIn(w.workItemComments.at(-1)!, "stopped")).toMatchObject({ reason: "stopped from the dashboard" });
 });
 test("a stop still stops the run when the host read for the closed check fails", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
@@ -993,7 +993,7 @@ test("a sure duplicate of an older work item is closed with a link and never bui
   expect(w.closed).toBe(true);
   expect(w.tracker.cleared).toContain("8");
   expect(w.workItemComments.at(-1)).toMatch(/same change as #7 .*https:\/\/tracker\.example\/7/s);
-  expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
+  expect(noteIn(w.workItemComments.at(-1)!, "duplicate")?.kind).toBe("duplicate_close");
   expect(w.cloned).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).not.toContain("triaged");
   const [outcome] = dash(w).events.filter((e) => e.type === "triage_outcome");
@@ -1010,7 +1010,7 @@ test("a work item that adds something gets the writer's question and needs_info,
   const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, dedupe: { verdict: "adds" } }));
   expect(w.states).toEqual(["needs_info"]);
   expect(w.workItemComments.at(-1)).toContain("Does this belong in #9");
-  expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
+  expect(noteIn(w.workItemComments.at(-1)!, "duplicate")?.kind).toBe("duplicate_question"); // F-P3: a question is not a close
   const writer = w.claudeRuns.find((j) => j.role === "writer")!;
   expect(writer.tools).toBe("none");
   expect(writer.prompt).toContain("<ticket>\n#9 Another ticket");
@@ -1046,14 +1046,19 @@ test("a writer that throws falls back to the fixed question", async () => {
 });
 test("a person who answered a dedupe comment is not asked again", async () => {
   const world = fakeWorld({ dedupe: { verdict: "adds" } });
-  await world.tracker.comment("8", `Looks close to #9.\n\n<!-- factory:dedupe -->`);
+  await world.tracker.comment("8", noteText({ kind: "duplicate_question", text: "Looks close to #9." }));
   const w = await runBuildPipeline(world);
   expect(w.dedupeAsked).toBe(0);
   expect(w.tracker.tickets.get("8")!.marks).toContain("triaged");
 });
+test("a dedupe comment posted with the old marker still counts as answered", async () => {
+  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  await world.tracker.comment("8", "Looks close to #9.\n\n<!-- factory:dedupe -->");
+  expect((await runBuildPipeline(world)).dedupeAsked).toBe(0);
+});
 test("a dedupe marker from a person does not skip the check", async () => {
   const world = fakeWorld({ dedupe: { verdict: "adds" } });
-  world.tracker.say("8", "dev", "<!-- factory:dedupe -->");
+  world.tracker.say("8", "dev", noteText({ kind: "duplicate_question", text: "x" }));
   const w = await runBuildPipeline(world);
   expect(w.dedupeAsked).toBe(1);
 });
@@ -1109,7 +1114,7 @@ test("a ready the factory set for a request more than 15 minutes ago starts no r
   vi.useFakeTimers({ toFake: ["Date"] });
   try {
     vi.setSystemTime(Date.now() - 16 * 60_000);
-    await w.tracker.comment("8", `The factory starts again.\n\n${readyForLine("dev")}`);
+    await w.tracker.comment("8", noteText({ kind: "readyFor", text: "The factory starts again.", person: "dev", cursor: T0 }));
   } finally {
     vi.useRealTimers();
   }
@@ -1685,12 +1690,6 @@ test("a resumed apply sends label_change factory_running to the stopped run, and
   expect(w.merged).toBe(true);
   expect(dash(w).events.filter((e) => e.type === "label_change").map((e) => [e.run, e.data])).toEqual([["run-41", { to: "factory_running" }]]);
 });
-test("parseStoppedNote reads back the note stopped() writes", () => {
-  const body = stoppedNote({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
-  expect(parseStoppedNote(body)).toEqual({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
-  expect(parseStoppedNote("hello")).toBeUndefined();
-});
-
 // Task B6: resume and restart from the dashboard, and the open item of B4.
 const restartRequest = (run: string, o: Partial<ControlRequest> = {}): ControlRequest => ({ id: "q1", kind: "restart", run, target: "react_frontend", ticket: "8", user: "ana", at: new Date().toISOString(), ...o });
 test("a restart ends the old run as blocked, sets ready, and that build's event step starts a new run for the request's user", async () => {
@@ -1762,7 +1761,7 @@ test("@factory resume or a dashboard resume of a run the apply switch stopped st
 test("@factory resume after a cancel from the dashboard starts nothing", async () => {
   const w = fakeWorld({ state: "stopped", payload: command("resume") });
   await w.tracker.comment("8", "Stopped run: pipeline 1");
-  await w.tracker.comment("8", cancelNote("dev"));
+  await w.tracker.comment("8", noteText({ kind: "cancelled", user: "dev" }));
   w.ci.buildRecord = async () => (await stopRecord()).record;
   await runBuildJobs(w, tmp());
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "cancelled" } });
@@ -1935,7 +1934,7 @@ test("the factory's own close never ends a run: result-saved ends done, and a me
 test("a new run after a dashboard restart closed the old change is not blocked", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped" });
   w.openChange();
-  await w.tracker.comment("8", stoppedNote({ run: "1", step: "apply", reason: "switch off apply", change: "5", buildRun: "1" }));
+  await w.tracker.comment("8", noteText({ kind: "stopped", run: "1", step: "apply", reason: "switch off apply", change: "5", buildRun: "1" }));
   const request = restartRequest("run-1");
   w.ctx.dashboard = fakeDashboard({ requests: [request] });
   await handleRequests(w.ctx);
@@ -2021,7 +2020,7 @@ async function requestWorld(o: WorldOptions = {}, risk: "medium" | "trivial" = "
   w.ci.buildRecord = async () => first.record;
   w.openChange();
   w.tracker.tickets.get("8")!.marks = ["triaged", "implemented", "reviewed", "checked", "risk_checked"];
-  w.host.sayOnChange("5", BOT, cursorLine(T0), T0, true);
+  w.host.sayOnChange("5", BOT, noteText({ kind: "cursor", text: "The factory waits.", at: T0 }), T0, true);
   w.host.sayOnChange("5", "dev", "@factory add a screenshot", T1);
   w.tracker.say("8", "dev", "@factory and rename the prop", T2);
   return { first, w };
@@ -2032,7 +2031,7 @@ test("a request round restores the run, tells the work item, clears the marks an
   const dir = tmp();
   await eventJob(w, dir);
   expect(w.restored).toEqual(["41"]);
-  expect(w.workItemComments).toEqual([`The factory started another round for the requests of @dev.\n\n${cursorLine(T2)}`]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `The factory started another round for the requests of @dev.`, at: T2 })]);
   expect(w.tracker.tickets.get("8")!.marks).toEqual(["triaged"]);
   expect(w.states).toEqual(["running"]);
   expect(w.record.rounds).toEqual({ review: 0, gate: 0 });
@@ -2132,13 +2131,13 @@ test("a request event on a stopped work item posts the reply with the cursor lin
   const w = await hearRequest("stopped", requestEvent());
   expect(w.ci.started).toEqual([]);
   expect(w.workItemComments).toHaveLength(1);
-  expect(w.workItemComments[0]).toContain(cursorLine(T2));
+  expect(cursorOf(w.workItemComments[0])).toBe(T2);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "replied" } });
 });
 test("a request event on a blocked work item sets it ready for the person", async () => {
   const w = await hearRequest("blocked", requestEvent());
   expect(w.states).toEqual(["ready"]);
-  expect(w.workItemComments[0]).toContain(readyForLine("dev"));
+  expect(noteIn(w.workItemComments[0], "readyFor")).toMatchObject({ person: "dev" });
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "started" } });
 });
 test("a request event from the factory, an untrusted person, or for another change does nothing", async () => {
@@ -2156,7 +2155,7 @@ test("a request event from the factory, an untrusted person, or for another chan
 test("a request round stops quietly when the ticket no longer waits, there is no new request, or the change is closed", async () => {
   const cases: [string, (w: ReturnType<typeof fakeWorld>) => void][] = [
     ["state", (w) => void (w.tracker.tickets.get("8")!.state = "running")],
-    ["request", (w) => w.host.sayOnChange("5", BOT, cursorLine(T2), "2026-10-01T13:00:00Z", true)],
+    ["request", (w) => w.host.sayOnChange("5", BOT, noteText({ kind: "cursor", text: "The factory waits.", at: T2 }), "2026-10-01T13:00:00Z", true)],
     ["change", (w) => w.host.close("5")],
   ];
   for (const [, change] of cases) {
@@ -2187,14 +2186,14 @@ test("a round build whose build run is no longer the change's stops quietly as s
 test.each([["a judge that suspects injection", { injectionYes: 0.9 }], ["a judge that answers NaN", { injectionYes: NaN }]])("%s refuses the whole round and moves the cursor", async (_n, jev1) => {
   const { w } = await requestWorld({ jev1 });
   await eventJob(w);
-  expect(w.workItemComments).toEqual([`@dev The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `@dev The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.`, at: T2 })]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).toContain("implemented");
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "injection" } });
   expect(w.record.requestRounds).toBeUndefined();
   // Nothing is left to answer: the poller starts no round again.
-  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+  expect((await conversation(w.ctx).requests("8")).requests).toEqual([]);
 });
 test("a judge that throws refuses nothing, writes no cursor and leaves the ticket waiting for the next poll", async () => {
   const { w } = await requestWorld({ jev1: "throw" });
@@ -2208,7 +2207,7 @@ test("a judge that throws refuses nothing, writes no cursor and leaves the ticke
   expect(w.workItemComments).toEqual([]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
-  expect((await newRequests(w.ctx, "8")).requests).toHaveLength(2);
+  expect((await conversation(w.ctx).requests("8")).requests).toHaveLength(2);
 });
 test("a request round of another ticket's record (cannotContinue) blocks instead of starting", async () => {
   const { w } = await requestWorld();
@@ -2223,11 +2222,11 @@ test("a request round whose open change is not the record's change replies, keep
   const steps = first.record.steps.map((s) => (s.step === "precommit-gate" ? { ...s, data: { ...(s.data as object), change: "99" } } : s));
   w.ci.buildRecord = async () => ({ ...first.record, steps });
   await eventJob(w);
-  expect(w.workItemComments).toEqual([`@dev The factory could not start a round: the open change 5 is not the change of pipeline 41. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `@dev The factory could not start a round: the open change 5 is not the change of pipeline 41. The change still waits for a person.`, at: T2 })]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "change-mismatch" } });
-  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+  expect((await conversation(w.ctx).requests("8")).requests).toEqual([]);
 });
 
 // The end of a round (Task 8): a ticket that would merge alone still goes back to the person who asked.
@@ -2262,7 +2261,7 @@ test("the round comment comes before the needs-a-person comment, which ends with
   const { w } = await finishedRound("x".repeat(5000));
   const [round, ask] = w.mrComments.slice(-2);
   expect(round).toBe(`The factory finished the round for the requests of @dev @lead.\n\n${"x".repeat(4000)}`);
-  expect(ask).toBe(`This change needs a person to review and merge it:\n\n- ${decision.ASKED}\n\n${cursorLine(T3)}`);
+  expect(ask).toBe(noteText({ kind: "cursor", text: `This change needs a person to review and merge it:\n\n- ${decision.ASKED}`, at: T3 }));
   expect(w.host.assigned.at(-1)).toEqual({ ref: "5", person: "lead" }); // not the work item's assignee "owner"
 });
 test("the round closes with its own review rounds, gate rounds, cost and tokens", async () => {
@@ -2280,7 +2279,7 @@ test("the cursor line is the time the agent read up to, when that is later than 
   const at = "2026-10-01T14:00:00Z";
   w.ctx.record = { ...w.record, heardUntil: at, requestRounds: w.record.requestRounds!.map((r) => ({ ...r, endedAt: undefined })) }; // the round is open again
   await decision.askPerson(w.ctx, ["x"]);
-  expect(w.mrComments.at(-1)).toBe(`This change needs a person to review and merge it:\n\n- x\n\n${cursorLine(at)}`);
+  expect(w.mrComments.at(-1)).toBe(noteText({ kind: "cursor", text: `This change needs a person to review and merge it:\n\n- x`, at: at }));
 });
 test("a later resume of the requested run still goes to a person", async () => {
   const { w } = await finishedRound();
@@ -2294,5 +2293,5 @@ test("a later resume of the requested run still goes to a person", async () => {
 test("a first run with no round writes the cursor line too", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" } }));
   expect(w.mrComments.at(-1)).toMatch(/\n\nRequests read up to: \S+$/);
-  expect(w.mrComments.at(-1)!.endsWith(`\n\n${cursorLine(runFacts(w.record).eventAt!)}`)).toBe(true);
+  expect(w.mrComments.at(-1)!.endsWith(noteText({ kind: "cursor", text: ``, at: runFacts(w.record).eventAt! }))).toBe(true);
 });

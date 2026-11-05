@@ -1,4 +1,4 @@
-import { isRequest } from "../requests";
+import { fingerprintMarker, isRequest } from "../conversation";
 import { DEVELOPER, GitLab, type StateLabel } from "../gitlab";
 import { ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
@@ -9,7 +9,6 @@ const MARK_LABELS: Record<Mark, string> = {
   merged: "factory_merged", reverted: "factory_reverted",
 };
 const labelOf = (state: FactoryState) => `factory_${state}` as StateLabel;
-const fingerprintMarker = (fp: string) => `<!-- factory:fingerprint ${fp} -->`;
 const titles = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap((l) => (typeof l?.title === "string" ? [l.title] : [])) : []);
 // A person can add factory_ready next to another state label. An active run wins over ready, ready wins over an ended run.
 const ENDED = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];

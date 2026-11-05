@@ -1,7 +1,6 @@
 // A week of corrections people made to the factory in one target: the evidence for the weekly improve job.
 // Text written by people reaches models as data, after scrub and the injection check.
-import { DEDUPE_MARKER } from "../dedupe";
-import { isRequest } from "../requests";
+import { isRequest, newestNote } from "../conversation";
 import { HISTORY_LIMIT } from "../run-events";
 import type { RunEvent } from "../seams";
 import type { StepContext } from "../steps/context";
@@ -78,8 +77,9 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
         const line = c.body.trim();
         if (ms(c.at) >= ms(since) && ms(c.at) > firstFactory && line !== "@factory stop" && line !== "@factory resume") out.push({ kind: "ticket_reply", link: ticket.url, at: c.at, text: c.body });
       }
-      const dupe = comments.find((c) => c.byFactory && c.body.includes(DEDUPE_MARKER) && ms(c.at) >= ms(since));
-      if (dupe && ticket.open) out.push({ kind: "reopened_duplicate", link: ticket.url, at: dupe.at, text: ticket.title });
+      // Only the close: the factory's question about a possible duplicate says nothing about a wrong close.
+      const dupe = newestNote(comments, "duplicate");
+      if (dupe?.kind === "duplicate_close" && ms(dupe.at) >= ms(since) && ticket.open) out.push({ kind: "reopened_duplicate", link: ticket.url, at: dupe.at, text: ticket.title });
 
       const ofTicket = await codeHost.changeOfTicket(ref);
       const change = ofTicket && (await codeHost.change(ofTicket.ref));

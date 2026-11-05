@@ -1,9 +1,10 @@
 // Every hour: resume runs that stopped at the agent's usage limit (state waiting). It starts a build run
 // with the run that hit the limit. That build's event step loads the record, checks it and resumes.
 import { makeContext } from "../compose";
+import { conversation } from "../conversation";
 import type { TicketRef } from "../seams";
 import { isMain, switchOn, type StepContext } from "./context";
-import { activeRuns, block, MAX_RUNS_PER_REPO, pauseNote } from "./run";
+import { activeRuns, block, MAX_RUNS_PER_REPO } from "./run";
 
 export async function retryWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if (!(await switchOn(ctx, "retry"))) return [];
@@ -11,7 +12,7 @@ export async function retryWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if ((await activeRuns(ctx)) - 1 >= MAX_RUNS_PER_REPO) return [];
   const started: TicketRef[] = [];
   for (const { ref } of await ctx.tracker.list("waiting")) {
-    const run = (await pauseNote(ctx, ref, "waiting"))?.run;
+    const run = (await conversation(ctx).newest(ref, "waiting"))?.run;
     if (!run) {
       await block({ ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } }, "The factory could not resume this run: it found no waiting-run comment from the factory. Add factory_ready to start again.");
       continue;
