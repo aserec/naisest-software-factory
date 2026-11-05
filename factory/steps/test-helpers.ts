@@ -1,5 +1,5 @@
 // Fake world for the step flow tests. Every outside tool is an in-memory fake that records what the steps did.
-import { existsSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Finding } from "../agents";
@@ -239,23 +239,20 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
   for (const s of steps) if ((await s.run(w.ctx)) === "stop") break;
   return w;
 }
-// A pipeline that ends leaves its record with the CI, under its run ID, for the pipeline that continues it.
+// A build pipeline whose decision job ended well (no job failed; a stopped or waiting run counts, its jobs skip) leaves
+// its record with the CI, under its run ID, for the pipeline that continues it. A pipeline that threw leaves none,
+// and a finish pipeline never does: the real CIs refuse both (gitlab: no successful decision job; local-ci: no `ok` file).
 const keep = (w: World, record: RunRecord) => void (w.ci.vars.run && w.ci.save(w.ci.vars.run, record));
 export async function runBuildPipeline(w: World) {
-  try {
-    return await runSteps(w, BUILD);
-  } finally {
-    keep(w, w.ctx.record);
-  }
+  await runSteps(w, BUILD);
+  keep(w, w.ctx.record);
+  return w;
 }
 // The build pipeline as CI runs it: one runStep per job, with the record passed through dir.
 export async function runBuildJobs(w: World, dir = mkdtempSync(join(tmpdir(), "jobs-"))) {
-  try {
-    for (const [i, s] of BUILD.entries()) await runStep(BUILD_STEPS[i], s.run, { dir, make: () => w.ctx });
-    return w;
-  } finally {
-    if (existsSync(join(dir, "record.json"))) keep(w, loadRecord(dir));
-  }
+  for (const [i, s] of BUILD.entries()) await runStep(BUILD_STEPS[i], s.run, { dir, make: () => w.ctx });
+  keep(w, loadRecord(dir));
+  return w;
 }
 
 // Runs the pipelines the steps and the pollers started, oldest first, as CI would: each gets its own variables (as the
@@ -271,11 +268,8 @@ export async function drain(w: World, only?: RunKind) {
     w.ci.vars = { skipApply: !!q.skipApply, runUrl: `https://ci.example/runs/${q.run}`, run: q.run, ticket: q.ticket, change: q.change, buildRun: q.buildRun };
     w.ctx.dashboardStop = undefined; // a new process has not seen the dashboard's stop
     const dir = mkdtempSync(join(tmpdir(), "pipeline-"));
-    try {
-      for (const name of q.kind === "build" ? BUILD_STEPS : FINISH_STEPS) await runStep(name, MODULES[name].run, { dir, make: () => w.ctx });
-    } finally {
-      if (existsSync(join(dir, "record.json"))) keep(w, loadRecord(dir));
-    }
+    for (const name of q.kind === "build" ? BUILD_STEPS : FINISH_STEPS) await runStep(name, MODULES[name].run, { dir, make: () => w.ctx });
+    if (q.kind === "build") keep(w, loadRecord(dir));
   }
   return w;
 }

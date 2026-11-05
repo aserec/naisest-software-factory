@@ -1204,7 +1204,7 @@ test("a crash block names no run, so factory_ready after it starts a new run wit
   await expect(runBuildJobs(crashed, tmp())).rejects.toThrow("reviewer crashed");
   expect(crashed.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nThe code-review step failed: Error: reviewer crashed");
   const w = await readyAgain({}, crashed);
-  w.ci.buildRecord = async () => { throw new Error("Pipeline 1 has no successful decision job"); };
+  expect(w.ci.runs.has("1")).toBe(false); // the crashed run saved no record
   await runBuildJobs(w, tmp());
   expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
   expect(w.jevAsked).toBe(3); // triage and the duplicate check ran again
@@ -1215,6 +1215,7 @@ test("a run continued at risk-check puts its own run on the change, so a person'
   const first = fakeWorld({ jev1: { risk: "medium" } });
   first.host.checks = async () => { throw new Error("GitLab GET failed with status 500"); };
   await runBuildJobs(first, tmp()).catch(() => {});
+  first.ci.save("1", first.record); // a record the factory would not produce: a crashed run saves none
   const w = await readyAgain({ jev1: { risk: "medium" } }, { ci: first.ci, workItemComments: ["The factory stopped. A person must look at this.\n\nThe risk-check step failed.\n\nBlocked run: pipeline 1"] });
   w.openChange("Factory run 1: https://ci.example/runs/1");
   w.ci.vars = { ...w.ci.vars, run: "2", runUrl: "https://ci.example/runs/2" };
@@ -2364,6 +2365,7 @@ test("the finish pipeline loads the record its build pipeline saved, and a recor
   expect(w.record.steps.map((s) => s.step).slice(-4)).toEqual(["decision", "apply", "verify", "result-saved"]);
   expect(w.record.steps.filter((s) => s.step === "event")).toHaveLength(1);
   expect(runEnded(w)).toEqual([["done"], true, true]);
+  expect([...w.ci.runs.keys()]).toEqual(["1"]); // the build run is on record, its finish run (2) is not: the real CIs refuse both a finish run and a crashed one
   await w.ci.start({ kind: "finish", ticket: "8", change: "5", buildRun: "41" }); // nothing saved a run 41
   await expect(drain(w)).rejects.toThrow(/Run 41 is not a factory build run/);
 });
