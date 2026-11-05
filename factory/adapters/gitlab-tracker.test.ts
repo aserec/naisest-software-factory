@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "vitest";
-import { AI_LINE, GitLab } from "../gitlab";
+import { AI_LINE } from "../conversation";
+import { GitLab } from "../gitlab";
 import { makeGitLabTracker } from "./gitlab-tracker";
 
 const PATH = "acme/web/react_frontend";
@@ -81,7 +82,7 @@ describe("tickets", () => {
     await tracker().clearState("8");
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8" });
     expect(last().body.add_labels).toBeUndefined();
-    expect(last().body.remove_labels.split(",")).toEqual(["factory_ready", "factory_running", "factory_needs_info", "factory_needs_approval", "factory_waiting", "factory_stopped", "factory_blocked", "factory_done"]);
+    expect(last().body.remove_labels.split(",").sort()).toEqual(["factory_ready", "factory_running", "factory_needs_info", "factory_needs_approval", "factory_waiting", "factory_stopped", "factory_blocked", "factory_done"].sort());
     expect(last().body.remove_labels).not.toContain("factory_implemented");
   });
   test("mark adds its label and removes no other label", async () => {
@@ -174,6 +175,22 @@ describe("people", () => {
     expect(await tracker().startedBy("8")).toBe("bob");
     routes["/projects/7/issues/8/resource_label_events"] = { body: [] };
     expect(await tracker().startedBy("8")).toBeUndefined();
+  });
+  test("startedBy reads every page of the label history, so the newest event counts", async () => {
+    const pages: Record<string, unknown[]> = {
+      "1": [{ action: "add", label: { name: "factory_ready" }, user: { id: 5 } }],
+      "2": [{ action: "add", label: { name: "factory_ready" }, user: { id: 8 } }, { action: "add", label: { name: "bug" }, user: { id: 6 } }, { action: "remove", label: { name: "factory_ready" }, user: { id: 7 } }],
+    };
+    const paged = (async (url: string) => {
+      const u = new URL(url);
+      if (u.pathname.endsWith("/resource_label_events")) {
+        const page = u.searchParams.get("page") ?? "1";
+        return new Response(JSON.stringify(pages[page]), { headers: { "X-Next-Page": page === "1" ? "2" : "" } });
+      }
+      return fakeFetch(url, { method: "GET" });
+    }) as unknown as typeof fetch;
+    routes["/users/8"] = { body: { username: "bob" } };
+    expect(await makeGitLabTracker(new GitLab("https://gl.example", "tok", paged), PATH).startedBy("8")).toBe("bob");
   });
 });
 

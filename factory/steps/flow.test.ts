@@ -19,7 +19,8 @@ import { parseFactoryFile } from "../config";
 import { endIfClosed, handleRequests, resumeSwitchedOff } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
-import { GitLab, GITLAB_URL } from "../gitlab";
+import { GITLAB_URL } from "../gitlab";
+import { makeGitLabCi } from "../adapters/gitlab-ci";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type FactoryState, type Mark } from "../seams";
 import { addStep, newRecord, runFacts, saveRecord } from "../record";
@@ -491,7 +492,7 @@ test("finish waits while the decision job is still running, then loads the recor
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", change: "5", buildRun: "41" };
   let jobPolls = 0;
   const fetchFn = (async (url: string) => {
-    const path = url.replace("https://gl.example/api/v4", "");
+    const path = url.replace(`${GITLAB_URL}/api/v4`, "");
     const body =
       path === "/projects/3/pipelines/41" ? { id: 41, source: "trigger", ref: "main", user: { id: 1 } } :
       path === "/projects/3" ? { id: 3, default_branch: "main" } :
@@ -500,8 +501,10 @@ test("finish waits while the decision job is still running, then loads the recor
       path === "/projects/3/jobs/12/artifacts/run/record.json" ? { ...w.ctx.record, workItem: "from-build" } : undefined;
     return new Response(JSON.stringify(body ?? {}), { status: body ? 200 : 404 });
   }) as unknown as typeof fetch;
-  const real = new GitLab("https://gl.example", "tok", fetchFn);
-  w.ci.buildRecord = async (run) => (await real.buildRecord(3, Number(run))) as RunRecord;
+  const secrets = tmp();
+  writeFileSync(join(secrets, "gl"), "gitlab-token-0123456789\n");
+  const real = makeGitLabCi({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(secrets, "gl") }, secrets, fetchFn);
+  w.ci.buildRecord = real.buildRecord;
   let seen = "";
   await runStep("apply", async (ctx) => ((seen = ctx.record.workItem), "next"), { dir: tmp(), make: () => w.ctx });
   expect(jobPolls).toBe(3);

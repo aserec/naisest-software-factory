@@ -1,7 +1,6 @@
 import { describe } from "vitest";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
-import { GitLab } from "../gitlab";
-import { GITLAB_URL } from "../gitlab";
+import { GitLab, GITLAB_URL } from "../gitlab";
 import { trackerContract } from "./tracker.contract";
 
 // Manual job only (contract-real in .gitlab-ci.yml): it talks to a real GitLab test project.

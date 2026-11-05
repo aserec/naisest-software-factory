@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { AI_LINE } from "../gitlab";
+import { AI_LINE } from "../conversation";
 import { GitHub } from "../github";
 import { makeGitHubTracker } from "./github-tracker";
 

@@ -1,7 +1,6 @@
 // Tickets are GitHub issues. Marks are always labels. The state is a factory_* label, or, with a board,
 // the issue's Status column on a GitHub Projects board (column "Needs info" is state needs_info).
-import { fingerprintMarker } from "../conversation";
-import { AI_LINE } from "../gitlab";
+import { AI_LINE, fingerprintMarker } from "../conversation";
 import type { GitHub } from "../github";
 import { findSecrets } from "../rules";
 import { ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";

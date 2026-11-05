@@ -1,6 +1,5 @@
-import { AI_LINE, noQuickActions } from "./gitlab";
 import type { RunRecord } from "./record";
-import { later } from "./conversation";
+import { AI_LINE, later, noQuickActions } from "./conversation";
 import { findSecrets } from "./rules";
 import { SWITCHES, type EventType } from "./run-events";
 import { changeBranchPrefix, ticketOfBranch, NotFactoryRunError } from "./seams";

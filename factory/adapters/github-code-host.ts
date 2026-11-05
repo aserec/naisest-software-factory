@@ -1,5 +1,5 @@
 // Changes are GitHub pull requests. Checks are the commit's check runs and commit statuses (GitHub Actions and others).
-import { AI_LINE, noQuickActions } from "../gitlab";
+import { AI_LINE, noQuickActions } from "../conversation";
 import type { GitHub } from "../github";
 import { FACTORY_GIT_EMAIL, gitRepo } from "../repo";
 import { findSecrets } from "../rules";

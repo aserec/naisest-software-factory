@@ -1,47 +1,40 @@
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { join } from "node:path";
+import { checkVars, secretFile } from "../ci-vars";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { RUN_DIR, type RunRecord } from "../record";
 import { addKnownSecrets } from "../rules";
 import { FILE_SECRETS } from "../secrets";
-import type { CiRunner } from "../seams";
+import { NotFactoryRunError, type CiRunner } from "../seams";
 import { sh } from "../repo";
 
-
-// Trigger callers can set any variable, so each value must match its pattern before a step starts.
-const PATTERNS: Record<string, RegExp> = {
-  FACTORY_PIPELINE: /^(build|finish|dispatch)?$/, // empty only in a scheduled pipeline
-  FACTORY_SCHEDULE: /^(poll|retry|watch|improve)?$/,
-  FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
-  FACTORY_MR_IID: /^([0-9]+)?$/,
-  FACTORY_BUILD_PIPELINE_ID: /^([0-9]+)?$/,
-  FACTORY_SKIP_APPLY: /^1?$/,
-};
-// The FACTORY_* checks every CI adapter shares; more holds the CI's own variables.
-export function checkVars(env: NodeJS.ProcessEnv, more: Record<string, RegExp> = {}) {
-  for (const [k, re] of Object.entries({ ...more, ...PATTERNS })) if (!re.test(env[k] ?? "")) throw new Error(`${k} has a value the factory does not accept`);
-  if (!env.FACTORY_PIPELINE === !env.FACTORY_SCHEDULE) throw new Error("Set exactly one of FACTORY_PIPELINE and FACTORY_SCHEDULE");
-}
-
-// GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
-// before any agent, install or gate command runs, so the environment only holds a path to nothing.
-// Only paths inside the runner's temp dir count, so no other file is ever read or deleted.
-export function secretFile(env: NodeJS.ProcessEnv, key: string, secretDir: string): string | undefined {
-  const raw = env[key];
-  if (!raw) return undefined;
-  const path = resolve(raw);
-  if (!path.startsWith(resolve(secretDir) + sep) || !existsSync(path)) throw new Error(`${key} must be a File type CI variable`); // never print the value
-  const value = readFileSync(path, "utf8").trim();
-  rmSync(path, { force: true });
-  return value;
-}
 
 export const need = (env: NodeJS.ProcessEnv, key: string): string => {
   const v = env[key];
   if (!v) throw new Error(`${key} is not set`);
   return v;
 };
+
+// The newest successful decision job of a build pipeline. That job's artifacts hold run/ at the end of the
+// build: the record, the target clone and the Claude session.
+// Only a pipeline the bot's trigger started on the factory's default branch counts: anyone who can run
+// a pipeline in the factory project could otherwise upload a record that says "auto".
+async function decisionJob(gitlab: GitLab, projectId: number, pipelineId: number): Promise<number> {
+  const p = await gitlab.getJson(`/projects/${projectId}/pipelines/${pipelineId}`);
+  const { default_branch: defaultBranch } = await gitlab.getJson(`/projects/${projectId}`);
+  const bot = (await gitlab.getJson("/user")).id;
+  if (p.source !== "trigger" || p.ref !== defaultBranch || p.user?.id !== bot) {
+    throw new NotFactoryRunError(`Pipeline ${pipelineId} is not a factory build pipeline (source ${p.source}, ref ${p.ref}, user ${p.user?.id})`);
+  }
+  const jobs = await gitlab.getJson(`/projects/${projectId}/pipelines/${pipelineId}/jobs?per_page=100`);
+  // A retried job leaves older ones behind. Take the newest successful one.
+  const job = jobs
+    .filter((j: { name: string; status: string }) => j.name === "decision" && j.status === "success")
+    .sort((a: { id: number }, b: { id: number }) => b.id - a.id)[0];
+  if (!job) throw new Error(`Pipeline ${pipelineId} has no successful decision job`);
+  return job.id;
+}
 
 // Steps may ask for FILE_SECRETS. The trigger token stays inside the adapter.
 
@@ -98,11 +91,16 @@ export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn:
       return ((await res.json().catch(() => ({}))) as { web_url?: string }).web_url ?? "";
     },
     async buildRecord(run) {
-      return (await gitlab().buildRecord(Number(need(env, "CI_PROJECT_ID")), Number(run))) as RunRecord;
+      const gl = gitlab();
+      const project = Number(need(env, "CI_PROJECT_ID"));
+      return (await gl.getJson(`/projects/${project}/jobs/${await decisionJob(gl, project, Number(run))}/artifacts/run/record.json`)) as RunRecord;
     },
     // A resumed run: puts back run/ (clone, git dir, Claude session) from an earlier build run.
     async restoreRun(run) {
-      await extractRun(Buffer.from(await gitlab().runArtifacts(Number(need(env, "CI_PROJECT_ID")), Number(run))), process.cwd(), env.PATH);
+      const gl = gitlab();
+      const project = Number(need(env, "CI_PROJECT_ID"));
+      const zip = await (await gl.call("GET", `/projects/${project}/jobs/${await decisionJob(gl, project, Number(run))}/artifacts`)).arrayBuffer();
+      await extractRun(Buffer.from(zip), process.cwd(), env.PATH);
     },
   };
 }

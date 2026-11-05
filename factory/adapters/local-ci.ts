@@ -6,7 +6,7 @@ import { FACTORY_ROOT } from "../repo";
 import { addKnownSecrets } from "../rules";
 import { NotFactoryRunError, type CiRunner, type RunKind, type ChangeRef, type TicketRef } from "../seams";
 import { FILE_SECRETS } from "../secrets";
-import { checkVars, secretFile } from "./gitlab-ci";
+import { checkVars, secretFile } from "../ci-vars";
 
 // The factory's own CI (seams.yml ci: local): factory/worker.ts runs each run, with each step in a new container.
 // start() leaves a request in the queue dir; the worker validates it and runs it.

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { AI_LINE, GitLab } from "../gitlab";
+import { AI_LINE } from "../conversation";
+import { GitLab } from "../gitlab";
 import { FACTORY_GIT_EMAIL } from "../repo";
 import { makeGitLabCodeHost } from "./gitlab-code-host";
 
@@ -253,6 +254,11 @@ describe("merge, revert, comment, assign", () => {
     expect(branch).toMatchObject({ url: "/projects/7/repository/branches", body: { branch: expect.stringMatching(/^factory\/revert-abcdef12-\d+$/), ref: "develop" } });
     expect(revert.body).toEqual({ branch: branch.body.branch });
     expect(opened.body).toMatchObject({ source_branch: branch.body.branch, target_branch: "develop" });
+    // A second revert of the same commit uses a new branch name.
+    calls = [];
+    await new Promise((r) => setTimeout(r, 2));
+    await host().revert("abcdef1234");
+    expect(calls.find((c) => c.url === "/projects/7/repository/branches")?.body.branch).not.toBe(branch.body.branch);
   });
   test("a comment starts with the AI line, escapes slash lines and refuses secrets", async () => {
     routes["/projects/7/merge_requests/5/notes"] = {};
