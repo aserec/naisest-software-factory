@@ -339,7 +339,7 @@ export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[
     // One failed request must not stop the poller: it is logged and tried again next minute.
     try {
       const t = await ctx.tracker.ticket(r.ticket).catch((e) => {
-        if (/status 404|No ticket/.test(String(e))) return undefined; // the ticket is gone, nothing to stop
+        if (/status 404|No ticket|Could not resolve to an Issue/.test(String(e))) return undefined; // the ticket is gone (GitHub GraphQL names a deleted issue so), nothing to stop
         throw e;
       });
       if (t?.state === "running") {
@@ -365,7 +365,7 @@ export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
     if (r.outcome || (r.kind !== "resume" && r.kind !== "restart")) continue;
     try {
       const t = await ctx.tracker.ticket(r.ticket).catch((e) => {
-        if (/status 404|No ticket/.test(String(e))) return undefined; // the ticket is gone
+        if (/status 404|No ticket|Could not resolve to an Issue/.test(String(e))) return undefined; // the ticket is gone (GitHub GraphQL names a deleted issue so)
         throw e;
       });
       // A restart whose start failed set the ticket ready already: only the start is left.
@@ -389,7 +389,7 @@ export async function handleReadyRequests(ctx: StepContext): Promise<TicketRef[]
     if (r.outcome || r.kind !== "ready") continue;
     try {
       const state = (await ctx.tracker.ticket(r.ticket).catch((e) => {
-        if (/status 404|No ticket/.test(String(e))) return undefined; // the ticket is gone
+        if (/status 404|No ticket|Could not resolve to an Issue/.test(String(e))) return undefined; // the ticket is gone (GitHub GraphQL names a deleted issue so)
         throw e;
       }))?.state;
       const ok = (state === "blocked" || state === "needs_info") && (await ctx.tracker.trusted(r.user));

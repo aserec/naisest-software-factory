@@ -177,6 +177,15 @@ test("a ready request sets a blocked ticket ready for a trusted person, and the 
   ctx.dashboard = fakeDashboard({ requests: [request("ready", "7", { outcome: "done" })] });
   expect(await pollReady(ctx)).toEqual(["7"]);
 });
+// A ticket deleted on GitHub: its GraphQL error must refuse the request once, not fail it every minute.
+test("a ready request for a deleted GitHub issue is refused", async () => {
+  const ctx = stoppedCtx([]);
+  ctx.tracker.ticket = async () => { throw new Error("GitHub GraphQL failed: Could not resolve to an Issue with the number of 326."); };
+  const dash = fakeDashboard({ requests: [request("ready", "326")] });
+  ctx.dashboard = dash;
+  expect(await handleReadyRequests(ctx)).toEqual([]);
+  expect(dash.done).toEqual([["q326", "refused"]]);
+});
 // The local factory polls with --list only. Set to Ready must still reach the tracker there, and print just the ticket.
 test("the --list poll sets a requested ticket ready and lists it to run", async () => {
   vi.stubEnv("FACTORY_SCHEDULE", "poll");
