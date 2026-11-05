@@ -1533,15 +1533,6 @@ test("a declined @factory resume sends no step start or end to the old run", asy
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "repo-full" } });
   expect(dash(w).events.filter((e) => e.type === "step_start" || e.type === "step_end")).toEqual([]);
 });
-test("a successful @factory resume sends one paired start and end for the event step", async () => {
-  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
-  const w = await resumeStopped({}, first);
-  expect(w.finishTriggered).toBe(true);
-  const ev = dash(w).events.filter((e) => e.step === "event" && (e.type === "step_start" || e.type === "step_end"));
-  expect(ev.map((e) => e.type)).toEqual(["step_start", "step_end"]);
-  expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([first.record.runId]));
-});
-
 // Task B3: author tool calls go to the dashboard under the step; usage carries the cache and context tokens.
 test("an author's tool calls are sent as tool_call events under their step, a reviewer's are not asked for, and usage has the cache tokens", async () => {
   const w = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));

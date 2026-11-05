@@ -10,6 +10,7 @@ import { conversation, type Read } from "../conversation";
 import { STEPS, SWITCHES, type ControlRequest } from "../run-events";
 import type { ChangeRef, FactoryEvent, FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import type { FactoryCommands } from "../types";
+import { startStep } from "./with-step";
 import { controls, facts, person, save, ticketRef, type StepContext, type StepResult } from "./context";
 
 export const MAX_RUNS_PER_REPO = 2;
@@ -67,7 +68,7 @@ export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string
 export async function startRun(ctx: StepContext, ref: TicketRef): Promise<StepResult> {
   ctx.record = { ...ctx.record, runId: randomUUID() };
   emit(ctx, "run_start", {});
-  ctx.stepEvent = emit(ctx, "step_start", {});
+  startStep(ctx);
   await ctx.tracker.setState(ref, "running");
   return "next";
 }
@@ -240,7 +241,7 @@ function continuePoint(ctx: StepContext, ref: TicketRef, buildRun: string, kind:
 // `round`: a request round starts here; the dashboard hears which one.
 export async function continueAt(ctx: StepContext, ref: TicketRef, resumeAt: string, d: { actor?: string; fromPipeline: string; sessionId?: string; round?: number }): Promise<StepResult> {
   save(ctx, "event", { start: true, resume: true, ticket: ref, resumeAt, ...d });
-  ctx.stepEvent = emit(ctx, "step_start", d.round ? { round: d.round } : {});
+  startStep(ctx, d.round ? { round: d.round } : {});
   await ctx.tracker.setState(ref, "running");
   return "next";
 }
