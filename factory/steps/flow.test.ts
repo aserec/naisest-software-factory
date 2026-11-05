@@ -996,11 +996,15 @@ test("a sure duplicate of an older work item is closed with a link and never bui
   expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
   expect(w.cloned).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).not.toContain("triaged");
+  const [outcome] = dash(w).events.filter((e) => e.type === "triage_outcome");
+  expect(outcome.data).toMatchObject({ kind: "stop", title: expect.stringContaining("duplicate of #7"), url: "https://tracker.example/7" });
+  expect((outcome.data.reasons as string[])[0]).toContain('answered "same" with 0.95 confidence');
 });
 test("an unsure same asks instead of closing", async () => {
   const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.89 } }));
   expect(w.closed).toBe(false);
   expect(w.states).toEqual(["needs_info"]);
+  expect(dash(w).events.filter((e) => e.type === "triage_outcome").map((e) => e.data.kind)).toEqual(["ask"]);
 });
 test("a work item that adds something gets the writer's question and needs_info, before the clarity questions", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, dedupe: { verdict: "adds" } }));
@@ -1459,6 +1463,7 @@ test("a low-risk run sends run_start, a start and an end per step, usage, Jev an
   for (const s of steps) expect(events.findIndex((e) => e.type === "step_start" && e.step === s)).toBeLessThan(events.findIndex((e) => e.type === "step_end" && e.step === s));
   expect(events.filter((e) => e.type === "usage").length).toBeGreaterThan(0);
   expect(new Set(events.filter((e) => e.type === "jev_answer").map((e) => e.step))).toEqual(new Set(["triage", "risk-check"]));
+  expect(events.filter((e) => e.type === "triage_outcome").map((e) => e.data.kind)).toEqual(["go"]);
   expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [], risk: 3, riskMax: 4, changeUrl: "https://host.example/changes/5" }]);
   expect(events.filter((e) => e.type === "label_change").at(-1)?.data).toEqual({ to: "factory_done" });
   // run_end is the last event of the run; only its own step's end comes after it.
@@ -1538,6 +1543,21 @@ test("an author's tool calls are sent as tool_call events under their step, a re
   expect(jobs.filter((j) => j.role !== "author").every((j) => j.onToolCall === undefined)).toBe(true);
   const usage = events.filter((e) => e.type === "usage" && e.data.role === "author");
   expect(usage[0].data).toMatchObject({ input: 100, output: 20, cacheRead: 7, cacheWrite: 3, contextTokens: 110 });
+});
+
+// Each author fix is its own patch step, inside the review or gate step that asked for it.
+test("a review fix and a gate fix each send a patch step that owns the fix's tool calls and usage", async () => {
+  const w = await runAllJobs(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [], []] }));
+  const events = dash(w).events;
+  const patches = events.filter((e) => e.type === "step_start" && e.step === "patch");
+  const starts = events.filter((e) => e.type === "step_start");
+  expect(patches.map((p) => starts.slice(0, starts.indexOf(p)).filter((e) => e.step !== "patch").at(-1)?.step)).toEqual(["code-review", "precommit-gate"]);
+  expect(patches.every((p) => typeof p.data.prompt === "string" && p.data.prompt.length > 0)).toBe(true);
+  expect(stepEnds(w).filter(([s]) => s === "patch")).toEqual([["patch", "next"], ["patch", "next"]]);
+  for (const p of patches) expect(events.some((e) => e.type === "tool_call" && e.parent === p.id)).toBe(true);
+  expect(events.filter((e) => e.type === "usage" && e.step === "patch" && e.data.role === "author")).toHaveLength(2);
+  // The outer step gets its IDs back: the review after the fix still sends under code-review.
+  expect(events.filter((e) => e.type === "review_finding").every((e) => e.step === "code-review")).toBe(true);
 });
 
 // Task B4: the dashboard switches. No saved value means on; an unreachable dashboard counts as on, except new_runs.

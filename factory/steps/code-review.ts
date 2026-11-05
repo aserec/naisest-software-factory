@@ -38,7 +38,7 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
     const parsed = parseFindings(r.text);
     const judged = screenVerdicts(parsed, proof.proof, Object.keys(images), readsImages);
     const findings = parsed.map((f) => (f.verdict === "does_not_match" && judged.some((v) => v.screen === f.screen && v.verdict === "does_not_match") ? { ...f, blocking: true } : f));
-    for (const f of findings) emit(ctx, "review_finding", { text: f.file ? `${f.file}: ${f.text}` : f.text, blocking: f.blocking, round });
+    for (const f of findings) emit(ctx, "review_finding", { text: f.file ? `${f.file}: ${f.text}` : f.text, blocking: f.blocking, round, title: f.title, file: f.file });
     last = { findings, proof, images };
     return findings;
   };

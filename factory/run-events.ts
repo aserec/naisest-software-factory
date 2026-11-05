@@ -1,7 +1,7 @@
 // Event schema shared by the factory (sender) and the dashboard (receiver).
 import { z } from "zod";
 
-export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "decision", "label_change", "usage", "stop", "resume", "restart", "switch_change", "error"] as const;
+export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "label_change", "usage", "stop", "resume", "restart", "switch_change", "error"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // The state of a work item, in factory words. factory/seams.ts re-exports it.
@@ -45,9 +45,13 @@ export const EVENT_DATA: Record<EventType, z.ZodTypeAny> = {
   step_end: z.object({ outcome: z.enum(["next", "stop", "stopped", "waiting", "error"]), log: field.optional() }),
   tool_call: z.object({ name: z.string(), input: field, result: field, ms: z.number(), ok: z.boolean() }),
   jev_answer: z.object({ question: z.string(), answer: z.string(), confidence: z.string() }),
-  review_finding: z.object({ text: z.string(), blocking: z.boolean(), round: z.number() }),
+  // text starts with "file: " when the finding names a file. title and file: older events have neither.
+  review_finding: z.object({ text: z.string(), blocking: z.boolean(), round: z.number(), title: z.string().optional(), file: z.string().optional() }),
   gate_check: z.object({ command: z.string(), exitCode: z.number(), outputTail: z.string() }),
   rule_check: z.object({ rule: z.string(), passed: z.boolean(), detail: z.string() }),
+  // What triage decided, said once for people: go builds, ask waits for a person's answer, stop ends or blocks the run.
+  // url: the original work item when the ticket repeats one.
+  triage_outcome: z.object({ kind: z.enum(["go", "ask", "stop"]), title: z.string(), reasons: z.array(z.string()), url: z.string().optional() }),
   // risk: Jev 2's diff_risk, 2 to 10. changeUrl: the merge request. Older events have neither.
   decision: z.object({ auto: z.boolean(), reasons: z.array(z.string()), risk: z.number().optional(), riskMax: z.number().optional(), changeUrl: z.string().optional() }),
   label_change: z.object({ from: z.string().optional(), to: z.string() }),

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { PersonRef } from "./seams";
 
-export interface Finding { blocking: boolean; file?: string; text: string; screen?: string; verdict?: string } // screen and verdict: the reviewer's answer for one screen of the proof
+export interface Finding { blocking: boolean; title?: string; file?: string; text: string; screen?: string; verdict?: string } // screen and verdict: the reviewer's answer for one screen of the proof
 
 // Never from an env variable: trigger callers can set any variable.
 export const HOOKS_DIR = fileURLToPath(new URL("../.agents/hooks", import.meta.url));

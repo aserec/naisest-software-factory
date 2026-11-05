@@ -42,8 +42,12 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     `Outcome: ${outcome.kind}.`,
   ].join("\n"));
 
-  if (outcome.kind === "blocked") return block(ctx, outcome.reason);
+  if (outcome.kind === "blocked") {
+    emit(ctx, "triage_outcome", { kind: "stop", title: "Stopped: a person must look at this work item", reasons: [outcome.reason] });
+    return block(ctx, outcome.reason);
+  }
   if (outcome.kind === "build") {
+    emit(ctx, "triage_outcome", { kind: "go", title: "Go: the factory builds this work item", reasons: [`Risk ${outcome.risk}, clarity ${a.clarity.value}, effort ${a.effort.value}.`] });
     // One risk mark at a time: the earlier run's other risk marks go.
     const risk = `risk_${outcome.risk}` as const;
     for (const m of ticket.marks) if (m !== risk && ["risk_trivial", "risk_low", "risk_medium", "risk_high"].includes(m)) await ctx.tracker.unmark(ref, m);
@@ -52,6 +56,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     return "next";
   }
 
+  emit(ctx, "triage_outcome", { kind: "ask", title: "Asks first: the work item is not clear enough to build", reasons: [`Clarity ${a.clarity.value} is under the limit, so an agent asks the open questions on the work item.`] });
   return questions(ctx, row);
 }
 
@@ -82,7 +87,9 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
     open = await ctx.tracker.listOpen(MAX_CANDIDATES + 1);
     answers = await askDedupe(ctx.judge, { ref, ...ctx.record.ticket! }, open);
   } catch (e) {
-    return block(ctx, `The duplicate check failed, so the factory did not guess: ${String(e)}`);
+    const reason = `The duplicate check failed, so the factory did not guess: ${String(e)}`;
+    emit(ctx, "triage_outcome", { kind: "stop", title: "Stopped: a person must look at this work item", reasons: [reason] });
+    return block(ctx, reason);
   }
   if (!answers) return undefined;
   const verdict = decideDedupe(answers);
@@ -90,13 +97,16 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
   // Without the original the factory can neither link nor quote it, so it goes on.
   if (verdict === "different" || !o) return undefined;
   // Close only when the original is older. A newer one, or refs that are not numbers, get the question.
+  const why = `Jev compared it with #${o.ref} "${o.title}" and answered "${answers.verdict}" with ${answers.confidence} confidence.`;
   if (verdict === "same" && Number(o.ref) < Number(ref)) {
+    emit(ctx, "triage_outcome", { kind: "stop", title: `Stopped: a duplicate of #${o.ref}, so the factory closed it`, reasons: [why, `#${o.ref} is older, so it keeps the work.`], url: o.url });
     await ctx.tracker.comment(ref, `This work item asks for the same change as #${o.ref} (${o.url}), so the factory closed it as a duplicate. If it is a separate change, reopen it, say what is different, and add factory_ready again.\n\n${DEDUPE_MARKER}`);
     await ctx.tracker.clearState(ref);
     await ctx.tracker.close(ref);
     endRun(ctx, "closed");
     return "stop";
   }
+  emit(ctx, "triage_outcome", { kind: "ask", title: `Asks first: it may repeat #${o.ref}`, reasons: [why, "The factory closes a work item only when the answer is a sure same and the original is older, so it asked a person."], url: o.url });
   const text = await dedupeQuestion(ctx, o, answers.injectionYes);
   await ctx.tracker.comment(ref, `${text}\n\n${DEDUPE_MARKER}`);
   await ctx.tracker.setState(ref, "needs_info");

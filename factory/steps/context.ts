@@ -149,7 +149,21 @@ export async function fix(ctx: StepContext, feedback: string): Promise<HarnessRe
   const resume = f.session;
   if (!resume) throw new Error("The run record has no author session to fix");
   const preview = !!f.commands?.preview;
-  return agent(ctx, "author", modelRow(ctx).author, { tools: "code", resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) });
+  const job = { tools: "code" as const, resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) };
+  // Each fix is its own "patch" step on the dashboard, inside the review or gate step that asked for it.
+  // Its tool calls and usage go to the patch step. The outer step's IDs come back after it.
+  const outer = { step: ctx.step, stepEvent: ctx.stepEvent };
+  ctx.step = "patch";
+  ctx.stepEvent = emit(ctx, "step_start", { prompt: feedback });
+  let outcome = "error";
+  try {
+    const r = await agent(ctx, "author", modelRow(ctx).author, job);
+    outcome = r.limitHit ? "waiting" : r.stopped ? "stopped" : r.ok ? "next" : "error";
+    return r;
+  } finally {
+    if (ctx.stepEvent) emit(ctx, "step_end", { outcome });
+    Object.assign(ctx, outer);
+  }
 }
 
 // Polls a status for up to an hour. Still "running" after that counts as not done.
