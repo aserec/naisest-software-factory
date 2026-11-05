@@ -18,7 +18,7 @@ export const INBOX_HOOK = fileURLToPath(new URL("./claude-inbox-hook.ts", import
 // The settings the agent runs with: the factory file, a hook from a fixed absolute dir, Read denies for the config dir,
 // and the same sandbox rules as install and gate commands. cwd is the target clone.
 // With an inbox file, a second hook hands new ticket comments to the agent after every tool call (see claude-inbox-hook.ts).
-export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false, platform = process.platform, commands: string[] = [], execPath = process.execPath): any {
+export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false, platform = process.platform, commands: string[] = [], execPath = process.execPath, uid?: number): any {
   const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf8"));
   const rules = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
   const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
@@ -39,6 +39,8 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   // tsx always opens an IPC pipe in TMPDIR (/tmp/claude in the sandbox). macOS allows it through allowUnixSockets;
   // Linux ignores those paths and needs every unix socket allowed. The worker's step containers mount no host socket.
   if (platform === "linux") settings.sandbox.network.allowAllUnixSockets = true;
+  // Newer Claude Code names its TMPDIR /tmp/claude-<uid>, so the fixed paths in the file no longer cover tsx's pipe.
+  else if (uid !== undefined) settings.sandbox.network.allowUnixSockets.push(`/tmp/claude-${uid}`, `/private/tmp/claude-${uid}`);
   return settings;
 }
 
@@ -76,8 +78,9 @@ export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.Pro
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
 
-// The sandbox hides HOME, so npm's cache (~/.npm) fails with EPERM: a code agent keeps it in the clone's run/, which git excludes.
-export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string): NodeJS.ProcessEnv => (job.tools === "code" ? { npm_config_cache: join(cwd, "run", "npm-cache") } : {});
+// The sandbox hides HOME, so npm's cache (~/.npm) and ~/.gitconfig fail with EPERM: a code agent keeps the cache in the
+// clone's run/, which git excludes, and reads no global git config, as the factory's own git calls (repo.ts).
+export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string): NodeJS.ProcessEnv => (job.tools === "code" ? { npm_config_cache: join(cwd, "run", "npm-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } : {});
 
 // Pairs each tool_use (assistant line) with its tool_result (user line) by id. Feed it the stream line by line.
 export function toolCalls(now: () => number = Date.now): { line(l: string): ToolCall[] } {
@@ -151,7 +154,7 @@ export const claudeCode: Harness = {
       const path = join(dir, "settings.json");
       // The inbox file sits in the settings dir, outside the clone, so the agent's own commands cannot write to it.
       const inboxFile = job.inbox ? join(dir, "inbox.jsonl") : undefined;
-      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview, process.platform, job.tools === "code" ? job.commands : [])));
+      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview, process.platform, job.tools === "code" ? job.commands : [], process.execPath, process.getuid?.())));
       if (job.inbox && inboxFile) pump = pumpInbox(job.inbox, inboxFile);
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools, images: Boolean(job.images?.length) };
       const calls = toolCalls();

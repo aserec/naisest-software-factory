@@ -255,6 +255,11 @@ test("an nvm node under HOME gets its install dir readable in the sandbox; a nod
 });
 
 test("a code agent keeps npm's cache in the clone's run dir; an agent without tools gets no extra variable", () => {
-  expect(codeEnv({ tools: "code" }, "/w/run/target")).toEqual({ npm_config_cache: "/w/run/target/run/npm-cache" });
+  expect(codeEnv({ tools: "code" }, "/w/run/target")).toEqual({ npm_config_cache: "/w/run/target/run/npm-cache", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
   expect(codeEnv({ tools: "none" }, "/tmp/empty")).toEqual({});
+});
+
+test("on macOS the agent may open unix sockets in Claude Code's per-user TMPDIR too", () => {
+  const mac = factorySettings({}, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/usr/bin/node", 501).sandbox.network;
+  expect(mac.allowUnixSockets).toEqual(["/tmp/claude", "/private/tmp/claude", "/tmp/claude-501", "/private/tmp/claude-501"]);
 });
