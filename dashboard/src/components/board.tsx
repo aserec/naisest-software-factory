@@ -1,12 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { DIFF_RISK_MAX } from "software-factory/run-events";
+import { useEffect, useRef, useState } from "react";
+import { DIFF_RISK_MAX, STEPS, stepIndex } from "software-factory/run-events";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { BoardRow, FactoryState } from "@/server/seams";
-import { ago, usd, words } from "@/lib/utils";
+import { ago, cn, usd, words } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
 
 export interface BoardItem extends BoardRow {
@@ -14,6 +16,9 @@ export interface BoardItem extends BoardRow {
   costUsd?: number;
   stuck: boolean;
   step?: string; // the live step of an open run
+  reached?: string; // the last step any run reached, ended or not
+  stepStartedAt?: string; // when the step the factory works on now began; none between steps or while paused
+  stepLimit?: number; // that step's stuck limit in minutes, when it has one
   round?: number; // the highest code-review round
   mergeRisk?: number; // Jev 2's diff_risk, 2 to 10
   mergeRiskMax?: number; // the target's limit; older runs did not send it
@@ -48,14 +53,50 @@ export const STATE: Record<FactoryState, string> = {
 };
 
 // Left: the states that wait for a person. Right: the ones the factory is working through.
+const WAITING: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked"];
 const SIDES: [string, FactoryState[]][] = [
-  ["Waiting on you", ["needs_approval", "needs_info", "stopped", "blocked"]],
+  ["Waiting on you", WAITING],
   ["With the factory", ["running", "waiting", "ready", "done"]],
 ];
 
+// What waits for a person: the left side, plus stuck runs on the right.
+export const waitingCount = (items: BoardItem[]) => items.filter((i) => WAITING.includes(i.state) || i.stuck).length;
+
+// The ten steps as one line of segments: reached in ink, the live one in the data hue, a stuck or failed run's step in red.
+function Progress({ item: i }: { item: BoardItem }) {
+  const at = stepIndex(i.reached);
+  if (at < 0) return null;
+  const now = i.stuck || i.state === "blocked" ? "bg-destructive" : i.stepStartedAt ? "bg-data" : "bg-foreground";
+  return (
+    <div role="img" aria-label={`Step ${at + 1} of ${STEPS.length}, ${words(STEPS[at])}`} className="mt-2 flex gap-0.5">
+      {STEPS.map((s, n) => (
+        <span key={s} className={cn("h-1 w-3 rounded-full", n < at ? "bg-foreground" : n === at ? now : "bg-raised")} />
+      ))}
+    </div>
+  );
+}
+
+// "12 of 30 m" against the live step's stuck limit, with a thin bar that turns red once over.
+function Clock({ item: i, now }: { item: BoardItem; now: number }) {
+  if (!i.stepStartedAt || i.stepLimit === undefined) return null;
+  const m = Math.max(0, Math.floor((now - Date.parse(i.stepStartedAt)) / 60_000));
+  if (!Number.isFinite(m)) return null;
+  const over = m > i.stepLimit;
+  return (
+    <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="h-1 w-12 overflow-hidden rounded-full bg-raised">
+        <span data-over={over} className={cn("block h-full rounded-full", over ? "bg-destructive" : "bg-data")} style={{ width: `${Math.min(100, (m / i.stepLimit) * 100)}%` }} />
+      </span>
+      <span className={over ? "text-destructive" : ""}>
+        {m} of {i.stepLimit} m
+      </span>
+    </div>
+  );
+}
+
 const link = "font-medium outline-none after:absolute after:inset-0 after:rounded-lg";
 
-function Row({ item: i }: { item: BoardItem }) {
+function Row({ item: i, now }: { item: BoardItem; now: number }) {
   const when = ago(i.updatedAt);
   const title = i.run ? (
     <Link href={`/runs/${encodeURIComponent(i.run)}`} className={link}>
@@ -79,6 +120,8 @@ function Row({ item: i }: { item: BoardItem }) {
           {i.round !== undefined && ` · round ${i.round}`}
           {when && ` · ${when}`}
         </div>
+        <Progress item={i} />
+        <Clock item={i} now={now} />
       </div>
       <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 pt-px">
         {i.stuck && <Badge variant="destructive">Stuck</Badge>}
@@ -91,9 +134,10 @@ function Row({ item: i }: { item: BoardItem }) {
 
 const DONE_SHOWN = 10; // Done only grows; the board shows the newest ones.
 
-function Column({ state, items }: { state: FactoryState; items: BoardItem[] }) {
+function Column({ state, items, now }: { state: FactoryState; items: BoardItem[]; now: number }) {
   const name = STATE[state];
-  const shown = state === "done" ? [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, DONE_SHOWN) : items;
+  const [all, setAll] = useState(false);
+  const shown = state === "done" && !all ? [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, DONE_SHOWN) : items;
   return (
     <section>
       <SectionHeading as="h3">
@@ -101,10 +145,14 @@ function Column({ state, items }: { state: FactoryState; items: BoardItem[] }) {
       </SectionHeading>
       <ul className="flex flex-col gap-2">
         {shown.map((i) => (
-          <Row key={`${i.target}/${i.ticket}`} item={i} />
+          <Row key={`${i.target}/${i.ticket}`} item={i} now={now} />
         ))}
       </ul>
-      {shown.length < items.length && <p className="mt-3 text-muted-foreground">And {items.length - shown.length} older.</p>}
+      {shown.length < items.length && (
+        <Button variant="ghost" size="sm" className="mt-2 text-muted-foreground" onClick={() => setAll(true)}>
+          Show {items.length - shown.length} older
+        </Button>
+      )}
     </section>
   );
 }
@@ -142,14 +190,152 @@ export function useBoard() {
   });
 }
 
+// The filter lives in the URL (?q=, ?target=), so a link or a reload keeps it.
+function useFilter() {
+  const [f, setF] = useState({ q: "", target: "" });
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    setF({ q: p.get("q") ?? "", target: p.get("target") ?? "" });
+  }, []);
+  const set = (next: Partial<typeof f>) => {
+    const v = { ...f, ...next };
+    setF(v);
+    const url = new URL(window.location.href);
+    for (const k of ["q", "target"] as const) {
+      if (v[k]) url.searchParams.set(k, v[k]);
+      else url.searchParams.delete(k);
+    }
+    window.history.replaceState(null, "", url);
+  };
+  return [f, set] as const;
+}
+
+// The search matches the title or "#12"; a target chip keeps only that target.
+export function matches(i: BoardItem, { q, target }: { q: string; target: string }) {
+  const s = q.trim().toLowerCase();
+  return (!target || i.target === target) && (!s || i.title.toLowerCase().includes(s) || `#${i.ticket}`.includes(s));
+}
+
+// "(2) Factory" in the tab while things wait for a person; layout.tsx sets plain "Factory".
+function useTabTitle(n: number | undefined) {
+  useEffect(() => {
+    if (n !== undefined) document.title = n ? `(${n}) Factory` : "Factory";
+  }, [n]);
+  useEffect(() => () => void (document.title = "Factory"), []);
+}
+
+const NOTIFY_KEY = "board.notify";
+const remembered = () => {
+  try {
+    return localStorage.getItem(NOTIFY_KEY) === "on";
+  } catch {
+    return false;
+  }
+};
+const remember = (on: boolean) => {
+  try {
+    if (on) localStorage.setItem(NOTIFY_KEY, "on");
+    else localStorage.removeItem(NOTIFY_KEY);
+  } catch {}
+};
+
+// What turned to need a person between two board loads: entered needs approval or needs info, or a run turned stuck.
+export function newlyWaiting(prev: BoardItem[], next: BoardItem[]) {
+  const before = new Map(prev.map((i) => [`${i.target}/${i.ticket}`, i]));
+  return next.flatMap((i) => {
+    const p = before.get(`${i.target}/${i.ticket}`);
+    if ((i.state === "needs_approval" || i.state === "needs_info") && p?.state !== i.state) return [`${STATE[i.state]}: ${i.title}`];
+    if (i.stuck && !p?.stuck) return [`Stuck: ${i.title}`];
+    return [];
+  });
+}
+
+// Browser notifications, only once a person asks. No button where the browser has none or the person refused them.
+function useNotify(data: BoardItem[] | undefined) {
+  const [on, setOn] = useState(false);
+  const [perm, setPerm] = useState<NotificationPermission | "none">("none");
+  useEffect(() => {
+    if (typeof Notification === "undefined") return;
+    setPerm(Notification.permission);
+    setOn(Notification.permission === "granted" && remembered());
+  }, []);
+  const prev = useRef<BoardItem[]>(undefined);
+  useEffect(() => {
+    if (!data) return;
+    if (on && prev.current) for (const body of newlyWaiting(prev.current, data)) new Notification("Factory", { body });
+    prev.current = data;
+  }, [data, on]);
+  const toggle = async () => {
+    if (on) return (remember(false), setOn(false));
+    const p = await Notification.requestPermission();
+    setPerm(p);
+    remember(p === "granted");
+    setOn(p === "granted");
+  };
+  return { shown: perm !== "none" && perm !== "denied", on, toggle };
+}
+
+// The clock the card times count against; minutes are enough.
+function useNow() {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
 export function Board() {
   const board = useBoard();
-  const { data, error } = board;
+  const { data: all, error } = board;
+  const [filter, setFilter] = useFilter();
+  const notify = useNotify(all);
+  const now = useNow();
+  const search = useRef<HTMLInputElement>(null);
+  useTabTitle(all && waitingCount(all));
+  // "/" jumps to the search, unless a person is typing somewhere already.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || t?.closest("input, textarea") || t?.isContentEditable) return;
+      e.preventDefault();
+      search.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const targets = [...new Set(all?.map((i) => i.target))].sort();
+  const data = all?.filter((i) => matches(i, filter));
   return (
     <>
       {error && <LoadError what="the board" query={board} className="mb-6" />}
-      {!data && !error && <p className="text-muted-foreground">Loading the board…</p>}
-      {data && (
+      {!all && !error && <p className="text-muted-foreground">Loading the board…</p>}
+      {all && (
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          <input
+            ref={search}
+            type="search"
+            aria-label="Search work items"
+            placeholder="Search title or #number"
+            value={filter.q}
+            onChange={(e) => setFilter({ q: e.target.value })}
+            className="h-8 w-64 max-w-full rounded-md border border-input bg-background px-2.5 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          />
+          {targets.length > 1 &&
+            targets.map((t) => (
+              <Button key={t} variant={filter.target === t ? "secondary" : "outline"} size="sm" aria-pressed={filter.target === t} className="font-mono text-xs" onClick={() => setFilter({ target: filter.target === t ? "" : t })}>
+                {t}
+              </Button>
+            ))}
+          {notify.shown && (
+            <Button variant="outline" className="ml-auto" aria-pressed={notify.on} onClick={notify.toggle}>
+              {notify.on ? "Notifying" : "Notify me"}
+            </Button>
+          )}
+        </div>
+      )}
+      {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">No work item matches the filter.</p>}
+      {data && (all?.length === 0 || data.length > 0) && (
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
           {SIDES.map(([side, states]) => {
             const of = (s: FactoryState) => data.filter((i) => i.state === s);
@@ -160,7 +346,7 @@ export function Board() {
                 {states
                   .filter((s) => of(s).length > 0)
                   .map((s) => (
-                    <Column key={s} state={s} items={of(s)} />
+                    <Column key={s} state={s} items={of(s)} now={now} />
                   ))}
                 {empty && <p className="text-muted-foreground">{empty}</p>}
               </div>

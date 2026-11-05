@@ -45,7 +45,8 @@ describe("GET /api/board", () => {
   it("joins the latest run per ticket and marks a step past its limit as stuck", async () => {
     getDb().addEvents([ev("run_start", 300, "old"), ev("run_start", 200, "new"), ev("step_start", 200, "new", {}, "prepare-patch"), ev("usage", 190, "new", { costUsd: 1.25 }), ev("decision", 180, "new", { auto: false, reasons: [], risk: 6, changeUrl: "http://gl/mr/1" })]);
     const rows = (await (await getBoard()).json()) as Record<string, unknown>[];
-    expect(rows[0]).toMatchObject({ ticket: "7", run: "new", costUsd: 1.25, stuck: true, step: "prepare-patch", mergeRisk: 6, changeUrl: "http://gl/mr/1" });
+    expect(rows[0]).toMatchObject({ ticket: "7", run: "new", costUsd: 1.25, stuck: true, step: "prepare-patch", reached: "prepare-patch", stepLimit: 120, mergeRisk: 6, changeUrl: "http://gl/mr/1" });
+    expect(Date.parse(rows[0].stepStartedAt as string)).toBeCloseTo(Date.parse(at(200)), -4);
     expect(rows[1]).toMatchObject({ ticket: "8", stuck: false });
     expect(rows[1].run).toBeUndefined();
   });
@@ -56,7 +57,17 @@ describe("GET /api/board", () => {
     board.board.mockResolvedValue([item("9")]);
     getDb().addEvents([of9(ev("run_start", 300, "paused")), of9(ev("step_start", 200, "paused", {}, "prepare-patch")), of9(ev("label_change", 100, "paused", { to: "stopped" }))]);
     const rows = (await (await getBoard()).json()) as Record<string, unknown>[];
-    expect(rows[0]).toMatchObject({ ticket: "9", run: "paused", stuck: false });
+    expect(rows[0]).toMatchObject({ ticket: "9", run: "paused", stuck: false, reached: "prepare-patch" });
+    expect(rows[0].stepStartedAt).toBeUndefined(); // not working, so no time against the limit
+  });
+
+  it("sends how far an ended run got, but no live step or time", async () => {
+    const of10 = (e: RunEvent): RunEvent => ({ ...e, ticket: "10" });
+    board.board.mockResolvedValue([{ ...item("10"), state: "blocked" }]);
+    getDb().addEvents([of10(ev("run_start", 50, "ended")), of10(ev("step_start", 40, "ended", {}, "code-review")), of10(ev("run_end", 30, "ended", { outcome: "blocked" }))]);
+    const rows = (await (await getBoard()).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ ticket: "10", reached: "code-review" });
+    expect([rows[0].step, rows[0].stepStartedAt, rows[0].stepLimit]).toEqual([undefined, undefined, undefined]);
   });
 
   it("answers 502 when the tracker fails", async () => {

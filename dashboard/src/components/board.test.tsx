@@ -1,11 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ago, duration } from "@/lib/utils";
-import { Board, emptyLine, finding, RiskPills, type BoardItem } from "./board";
+import { Board, emptyLine, finding, newlyWaiting, RiskPills, type BoardItem } from "./board";
 import { json, renderWithQuery } from "./test-utils";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
+  localStorage.clear();
+});
 
 const item = (o: Partial<BoardItem>): BoardItem => ({ target: "demo", ticket: "7", title: "Fix login", state: "running", url: "http://gl/7", updatedAt: "", stuck: false, ...o });
 
@@ -88,11 +93,141 @@ test("the empty line names one or many labels, and nothing when none is empty", 
   expect(emptyLine([])).toBeUndefined();
 });
 
-test("Done shows its ten newest tickets and counts the rest", async () => {
+test("Done shows its ten newest tickets, and Show older shows the rest", async () => {
   const done = Array.from({ length: 12 }, (_, n) => item({ ticket: String(n), title: `T${n}`, state: "done", updatedAt: `2026-11-01T10:${String(n).padStart(2, "0")}:00Z` }));
   vi.stubGlobal("fetch", vi.fn(async () => json(done)));
   renderWithQuery(<Board />);
   expect(await screen.findByText("T11")).toBeTruthy();
   expect(screen.queryByText("T1")).toBeNull();
-  expect(screen.getByText("And 2 older.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Show 2 older" }));
+  expect(screen.getByText("T1")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /older/ })).toBeNull();
+});
+
+// The segment colors of the progress line, one class per step.
+const segments = (name: string) => [...screen.getByRole("img", { name }).children].map((c) => ["bg-foreground", "bg-data", "bg-destructive", "bg-raised"].find((k) => c.classList.contains(k)));
+
+test("the progress line shows how far a run got: ink before, the data hue on a live step, red on a stuck or blocked one", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([
+    item({ ticket: "1", title: "Live", reached: "code-review", stepStartedAt: new Date().toISOString() }),
+    item({ ticket: "2", title: "Ended", state: "blocked", reached: "triage" }),
+    item({ ticket: "3", title: "Hung", reached: "verify", stuck: true }),
+    item({ ticket: "4", title: "Paused", state: "needs_approval", reached: "decision" }),
+  ])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Live");
+  const ink = (n: number) => Array(n).fill("bg-foreground");
+  const off = (n: number) => Array(n).fill("bg-raised");
+  expect(segments("Step 4 of 10, Code review")).toEqual([...ink(3), "bg-data", ...off(6)]);
+  expect(segments("Step 2 of 10, Triage")).toEqual([...ink(1), "bg-destructive", ...off(8)]);
+  expect(segments("Step 9 of 10, Verify")).toEqual([...ink(8), "bg-destructive", ...off(1)]);
+  expect(segments("Step 7 of 10, Decision")).toEqual([...ink(7), ...off(3)]);
+});
+
+test("a live step shows its time against the stuck limit, red once over, and nothing without a limit", async () => {
+  const ago = (m: number) => new Date(Date.now() - m * 60_000 - 1000).toISOString();
+  vi.stubGlobal("fetch", vi.fn(async () => json([
+    item({ ticket: "1", title: "Under", stepStartedAt: ago(12), stepLimit: 30 }),
+    item({ ticket: "2", title: "Over", stepStartedAt: ago(45), stepLimit: 30 }),
+    item({ ticket: "3", title: "No limit", stepStartedAt: ago(5) }),
+  ])));
+  renderWithQuery(<Board />);
+  const under = await screen.findByText("12 of 30 m");
+  const over = screen.getByText("45 of 30 m");
+  expect(under.previousElementSibling!.firstElementChild!.className).toMatch(/bg-data/);
+  expect(over.previousElementSibling!.firstElementChild!.className).toMatch(/bg-destructive/);
+  expect(screen.queryAllByText(/ of \d+ m$/)).toHaveLength(2);
+});
+
+test("the search and target chips filter the cards, live in the URL, and leave the finding counting everything", async () => {
+  window.history.replaceState(null, "", "/?target=api");
+  const items = [item({ ticket: "12", title: "Fix login", state: "needs_approval" }), item({ ticket: "30", title: "Add docs", target: "api", state: "needs_approval" })];
+  vi.stubGlobal("fetch", vi.fn(async () => json(items)));
+  renderWithQuery(<Board />);
+  expect(await screen.findByText("Add docs")).toBeTruthy();
+  expect(screen.queryByText("Fix login")).toBeNull(); // the target from the URL
+  expect(screen.getByRole("button", { name: "api", pressed: true })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "api" }));
+  expect(window.location.search).toBe("");
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search work items" }), { target: { value: "#12" } });
+  expect(window.location.search).toBe("?q=%2312");
+  expect(screen.getByText("Fix login")).toBeTruthy();
+  expect(screen.queryByText("Add docs")).toBeNull();
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nothing like it" } });
+  expect(screen.getByText("No work item matches the filter.")).toBeTruthy();
+  expect(finding(items)).toBe("2 to approve.");
+});
+
+test("one target shows no chips", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({}), item({ ticket: "8" })])));
+  renderWithQuery(<Board />);
+  await screen.findByRole("searchbox");
+  expect(screen.queryByRole("button", { name: "demo" })).toBeNull();
+});
+
+test("the tab title counts what waits for you, stuck runs too, and reads Factory at zero", async () => {
+  let rows = [item({ state: "needs_info" }), item({ ticket: "8", stuck: true }), item({ ticket: "9", state: "done" })];
+  vi.stubGlobal("fetch", vi.fn(async () => json(rows)));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><Board /></QueryClientProvider>);
+  await waitFor(() => expect(document.title).toBe("(2) Factory"));
+  rows = [item({ state: "done" })];
+  await client.refetchQueries();
+  await waitFor(() => expect(document.title).toBe("Factory"));
+});
+
+test("/ focuses the search, but not while typing in a field", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({})])));
+  const { container } = renderWithQuery(<><textarea aria-label="note" /><Board /></>);
+  const search = await screen.findByRole("searchbox");
+  const note = within(container).getByRole("textbox", { name: "note" });
+  note.focus();
+  fireEvent.keyDown(note, { key: "/" });
+  expect(document.activeElement).toBe(note);
+  const editor = document.createElement("div");
+  editor.contentEditable = "true";
+  container.append(editor);
+  editor.focus();
+  fireEvent.keyDown(editor, { key: "/" });
+  expect(document.activeElement).not.toBe(search);
+  note.blur();
+  fireEvent.keyDown(document.body, { key: "/" });
+  expect(document.activeElement).toBe(search);
+});
+
+test("Notify me asks once, remembers the choice, and notifies when a work item starts to wait on you", async () => {
+  const sent: string[] = [];
+  const N = Object.assign(vi.fn(function (_: string, o: { body: string }) { sent.push(o.body); }), { permission: "default", requestPermission: vi.fn(async () => ((N.permission = "granted"), "granted")) });
+  vi.stubGlobal("Notification", N);
+  let rows = [item({ title: "Fix login" })];
+  vi.stubGlobal("fetch", vi.fn(async () => json(rows)));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><Board /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "Notify me" }));
+  await screen.findByRole("button", { name: "Notifying" });
+  expect(localStorage.getItem("board.notify")).toBe("on");
+  rows = [item({ title: "Fix login", state: "needs_approval" })];
+  await client.refetchQueries();
+  await waitFor(() => expect(sent).toEqual(["Needs approval: Fix login"]));
+  await client.refetchQueries(); // the same board again: nothing new
+  expect(sent).toHaveLength(1);
+});
+
+test("no Notify me button when the browser has no notifications or the person refused them", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({})])));
+  vi.stubGlobal("Notification", { permission: "denied" });
+  const { unmount } = renderWithQuery(<Board />);
+  await screen.findByRole("searchbox");
+  expect(screen.queryByRole("button", { name: "Notify me" })).toBeNull();
+  unmount();
+  vi.stubGlobal("Notification", undefined);
+  renderWithQuery(<Board />);
+  await screen.findByRole("searchbox");
+  expect(screen.queryByRole("button", { name: "Notify me" })).toBeNull();
+});
+
+test("a notification goes out for a new wait for approval or info and a run that turned stuck, not for what already waited", () => {
+  const prev = [item({ ticket: "1", state: "needs_info" }), item({ ticket: "2" }), item({ ticket: "3", stuck: true })];
+  const next = [item({ ticket: "1", state: "needs_info" }), item({ ticket: "2", title: "Add docs", stuck: true }), item({ ticket: "3", stuck: true }), item({ ticket: "4", title: "New", state: "needs_approval" }), item({ ticket: "5", state: "blocked" })];
+  expect(newlyWaiting(prev, next)).toEqual(["Stuck: Add docs", "Needs approval: New"]);
 });
