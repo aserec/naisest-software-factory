@@ -13,6 +13,8 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
   let bot: Promise<string> | undefined;
   const botName = () => (bot ??= gh.json("GET", "/user").then((u) => u.login as string));
   const opened = (p: any) => ({ ref: String(p.number), url: p.html_url as string });
+  let workflows: Promise<boolean> | undefined;
+  const hasWorkflows = () => (workflows ??= gh.json("GET", `${r}/actions/workflows?per_page=100`).then((w) => w.workflows.some((x: any) => x.state === "active"), () => true));
   const head = async (ref: string) => (await gh.json("GET", pr(ref))).head.sha as string;
   const branchSha = async (branch: string) => (await gh.json("GET", `${r}/git/ref/heads/${branch}`)).object.sha as string;
   const newBranch = (branch: string, sha: string) => gh.json("POST", `${r}/git/refs`, { ref: `refs/heads/${branch}`, sha });
@@ -46,6 +48,9 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       if (results.some((s) => ["failure", "error", "timed_out", "action_required"].includes(s))) return "red";
       // A canceled main pipeline gives no result; a canceled change pipeline is red, as on GitLab.
       if (results.includes("cancelled")) return "change" in at ? "red" : "none";
+      // A repo with no active Actions workflow gets no check: say so now, not after the hour waitFor would wait.
+      // ponytail: an outside app (Vercel and others) that posts statuses late is missed; it counts as no checks.
+      if (results.length === 0 && !(await hasWorkflows())) return "none";
       if (results.length === 0 || results.some((s) => s === "pending" || s === "queued" || s === "in_progress")) return "running";
       return "green";
     },
