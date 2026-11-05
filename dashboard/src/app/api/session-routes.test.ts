@@ -20,6 +20,8 @@ const { getDb } = await import("@/server/db-instance");
 const { GET: getBoard } = await import("./board/route");
 const { GET: getEvents } = await import("./events/route");
 const { GET: getLog } = await import("./jobs/[job]/log/route");
+const { GET: getDispatches } = await import("./dispatches/route");
+const { GET: getSwitchHistory } = await import("./switches/history/route");
 
 const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const ev = (type: RunEvent["type"], min: number, run: string, data: Record<string, unknown> = {}, step?: string): RunEvent => ({ id: randomUUID(), run, at: at(min), target: "demo", ticket: "7", type, data, ...(step ? { step } : {}) }) as RunEvent;
@@ -37,7 +39,26 @@ describe("session-only routes", () => {
     expect((await getBoard()).status).toBe(401);
     expect((await getEvents(new Request("http://x/api/events?run=r"))).status).toBe(401);
     expect((await log("1")).status).toBe(401);
+    expect((await getDispatches()).status).toBe(401); // the proxy lets /api/dispatches through for outside systems
+    expect((await getSwitchHistory()).status).toBe(401);
     expect(ci.jobLog).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/dispatches", () => {
+  it("lists every target, with its dispatches newest first", async () => {
+    const d = (key: string) => getDb().addDispatch({ target: "demo", source: "pip-audit", key, title: "t", details: "" });
+    d("old");
+    d("new");
+    expect(await (await getDispatches()).json()).toMatchObject([{ target: "demo", dispatches: [{ key: "new" }, { key: "old" }] }]);
+  });
+});
+
+describe("GET /api/switches/history", () => {
+  it("returns the switch changes newest first", async () => {
+    getDb().setSwitch("demo", "apply", false, "ann");
+    getDb().setSwitch("*", "watcher", false, "bo");
+    expect(await (await getSwitchHistory()).json()).toMatchObject([{ user: "bo", scope: "*", name: "watcher", on: false }, { user: "ann", scope: "demo" }]);
   });
 });
 

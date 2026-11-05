@@ -129,6 +129,18 @@ describe("dispatches", async () => {
     expect(((await (await pending()).json()) as { id: string }[]).map((s) => s.id)).not.toContain(id);
   });
 
+  it("done keeps the work item's url, but only an http(s) one", async () => {
+    const markDone = (id: string, workItem: string) => postDispatchDone(new Request("http://x", { method: "POST", headers: auth, body: JSON.stringify({ workItem }) }), { params: Promise.resolve({ id }) });
+    const a = getDb().addDispatch(body);
+    const b = getDb().addDispatch(body);
+    await markDone(a.id, "https://gl/issues/7");
+    await markDone(b.id, "javascript:alert(1)");
+    const log = getDb().dispatchLog("react_frontend", 50);
+    expect(log.find((d) => d.id === a.id)?.workItem).toBe("https://gl/issues/7");
+    expect(log.find((d) => d.id === b.id)).toMatchObject({ id: b.id, doneAt: expect.any(String) });
+    expect(log.find((d) => d.id === b.id)?.workItem).toBeUndefined();
+  });
+
   it("refuses an unknown target and a bad body", async () => {
     expect((await dispatch({ ...body, target: "nope" })).status).toBe(400);
     expect((await dispatch({ ...body, title: "" })).status).toBe(400);

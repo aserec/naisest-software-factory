@@ -1,5 +1,5 @@
 import { dispatchInput } from "software-factory/run-events";
-import { factoryAuthorized } from "@/server/auth";
+import { auth, factoryAuthorized } from "@/server/auth";
 import { getDb } from "@/server/db-instance";
 import { getCi } from "@/server/compose";
 import { startDispatches } from "@/server/loop";
@@ -18,4 +18,11 @@ export async function POST(req: Request) {
   // Saved first: if the start fails, the loop starts the run later. 202, because the ticket comes later.
   await startDispatches({ db, ci: getCi(), now: new Date() });
   return Response.json({ id }, { status: 202 });
+}
+
+// The dispatches page, for a signed-in person: every target's last 50 dispatches, done or not, newest first.
+export async function GET() {
+  if (!(await auth())) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const db = getDb();
+  return Response.json(readTargets().map((t) => ({ target: t.name, dispatches: db.dispatchLog(t.name, 50) })));
 }

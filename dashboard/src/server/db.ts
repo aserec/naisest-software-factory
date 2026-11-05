@@ -21,6 +21,10 @@ export interface RunSummary {
   changeUrl?: string; // the change to review, from the decision event
 }
 
+// A dispatch with what became of it, for the dispatches page.
+export interface DispatchLog extends Dispatch { startedAt?: string; doneAt?: string; workItem?: string }
+export interface SwitchChange { at: string; user: string; name: SwitchName; scope: string; on: boolean }
+
 export interface Db {
   addEvents(events: RunEvent[]): number;
   events(q: { run?: string; after?: number; limit?: number }): { events: (RunEvent & { seq: number })[]; cursor: number };
@@ -29,6 +33,8 @@ export interface Db {
   runs(q: { target?: string; ticket?: string }): RunSummary[];
   switches(target: string): Record<SwitchName, boolean>;
   setSwitch(scope: string, name: SwitchName, on: boolean, user: string): void;
+  /** The newest switch changes first, from their switch_change events. */
+  switchChanges(limit: number): SwitchChange[];
   /** Saves the request and its audit event (type = kind) in one transaction. */
   request(r: Omit<ControlRequest, "id" | "at">): ControlRequest | { refused: string };
   requests(q: { target?: string; pending?: boolean; sinceMinutes?: number }): ControlRequest[];
@@ -40,7 +46,10 @@ export interface Db {
   addDispatch(s: DispatchInput): Dispatch;
   /** Pending dispatches of the target, oldest first. */
   dispatches(target: string): Dispatch[];
-  dispatchDone(id: string): void;
+  /** workItem: the url of the work item the dispatch opened. */
+  dispatchDone(id: string, workItem?: string): void;
+  /** Every dispatch of the target, done or not, newest first. */
+  dispatchLog(target: string, limit: number): DispatchLog[];
   /** Targets with a waiting dispatch whose run was never started, or last started before `startedBefore`. */
   dispatchTargets(startedBefore: string): string[];
   dispatchStarted(target: string, at: string): void;
@@ -67,7 +76,7 @@ CREATE TABLE IF NOT EXISTS requests (
 );
 CREATE TABLE IF NOT EXISTS dispatches (
   id TEXT PRIMARY KEY, target TEXT NOT NULL, source TEXT NOT NULL, key TEXT NOT NULL, title TEXT NOT NULL,
-  details TEXT NOT NULL, link TEXT, at TEXT NOT NULL, started_at TEXT, done_at TEXT
+  details TEXT NOT NULL, link TEXT, at TEXT NOT NULL, started_at TEXT, done_at TEXT, work_item TEXT
 );
 CREATE INDEX IF NOT EXISTS dispatches_pending ON dispatches (target, done_at, at);
 CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);`;
@@ -85,6 +94,8 @@ function toEvent(r: Row): RunEvent & { seq: number } {
   return e;
 }
 
+const toDispatch = (r: Row): Dispatch => ({ id: r.id as string, target: r.target as string, source: r.source as string, key: r.key as string, title: r.title as string, details: r.details as string, at: r.at as string, ...(r.link == null ? {} : { link: r.link as string }) });
+
 function toRequest(r: Row): ControlRequest {
   const q: ControlRequest = { id: r.id as string, kind: r.kind as ControlRequest["kind"], run: r.run as string, target: r.target as string, ticket: r.ticket as string, user: r.user as string, at: r.at as string };
   if (r.outcome != null) q.outcome = r.outcome as ControlRequest["outcome"];
@@ -98,6 +109,8 @@ export function openDb(path: string): Db {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec(SCHEMA);
+  // A database from before work_item has the table without it; CREATE TABLE IF NOT EXISTS does not add it.
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'work_item'").get()) db.exec("ALTER TABLE dispatches ADD COLUMN work_item TEXT");
 
   const insertEvent = db.prepare("INSERT OR IGNORE INTO events (id, run, parent, at, target, ticket, pipeline, job, step, type, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   // A pending request is one with no done_at. "cancelled" keeps it pending (Ruling R4) and is never overwritten.
@@ -208,6 +221,11 @@ export function openDb(path: string): Db {
       });
     },
 
+    switchChanges(limit) {
+      const rows = db.prepare("SELECT at, data FROM events WHERE type = 'switch_change' ORDER BY seq DESC LIMIT ?").all(limit) as Row[];
+      return rows.map((r) => ({ at: r.at as string, ...(JSON.parse(r.data as string) as Omit<SwitchChange, "at">) }));
+    },
+
     request(r) {
       return inTransaction(() => {
         const v = view(r.run);
@@ -245,7 +263,12 @@ export function openDb(path: string): Db {
 
     dispatches(target) {
       const rows = db.prepare("SELECT * FROM dispatches WHERE target = ? AND done_at IS NULL ORDER BY at, rowid").all(target) as Row[];
-      return rows.map((r) => ({ id: r.id as string, target: r.target as string, source: r.source as string, key: r.key as string, title: r.title as string, details: r.details as string, at: r.at as string, ...(r.link == null ? {} : { link: r.link as string }) }));
+      return rows.map(toDispatch);
+    },
+
+    dispatchLog(target, limit) {
+      const rows = db.prepare("SELECT * FROM dispatches WHERE target = ? ORDER BY at DESC, rowid DESC LIMIT ?").all(target, limit) as Row[];
+      return rows.map((r) => ({ ...toDispatch(r), ...(r.started_at == null ? {} : { startedAt: r.started_at as string }), ...(r.done_at == null ? {} : { doneAt: r.done_at as string }), ...(r.work_item == null ? {} : { workItem: r.work_item as string }) }));
     },
 
     dispatchTargets(startedBefore) {
@@ -257,8 +280,8 @@ export function openDb(path: string): Db {
       db.prepare("UPDATE dispatches SET started_at = ? WHERE target = ? AND done_at IS NULL").run(at, target);
     },
 
-    dispatchDone(id) {
-      db.prepare("UPDATE dispatches SET done_at = ? WHERE id = ? AND done_at IS NULL").run(new Date().toISOString(), id);
+    dispatchDone(id, workItem) {
+      db.prepare("UPDATE dispatches SET done_at = ?, work_item = ? WHERE id = ? AND done_at IS NULL").run(new Date().toISOString(), workItem ?? null, id);
     },
 
     isImported: (job) => db.prepare("SELECT 1 FROM imported_jobs WHERE job = ?").get(job) !== undefined,

@@ -217,9 +217,10 @@ async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fak
   const prompts: string[] = [];
   const writer = async (prompt: string): Promise<HarnessResult> => (prompts.push(prompt), { session: "w", ok: o.writerOk ?? true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: HUMAN });
   const done: string[] = [];
-  const r = await runDispatches({ tracker, judge, chat: fakeChat(), writer, writerLocal: o.writerLocal, now: NOW }, list, async (id) => void done.push(id)).catch((e: Error) => e);
+  const urls: (string | undefined)[] = [];
+  const r = await runDispatches({ tracker, judge, chat: fakeChat(), writer, writerLocal: o.writerLocal, now: NOW }, list, async (id, url) => void (done.push(id), urls.push(url))).catch((e: Error) => e);
   if (r instanceof Error && o.writerOk !== false) throw r;
-  return { r: r as Exclude<typeof r, Error>, error: r instanceof Error ? r : undefined, tracker, prompts, done, made: tracker.created.slice(before) };
+  return { r: r as Exclude<typeof r, Error>, error: r instanceof Error ? r : undefined, tracker, prompts, done, urls, made: tracker.created.slice(before) };
 }
 
 test("a dispatch opens a ready watcher ticket once, and every handled dispatch is marked done", async () => {
@@ -236,6 +237,10 @@ test("a dispatch opens a ready watcher ticket once, and every handled dispatch i
   expect(again.made).toEqual([]);
   expect(again.r.skipped).toEqual([dispatchFingerprint(dispatch())]);
   expect(again.done).toEqual(["s3"]);
+  // done gets the ticket each dispatch opened, ready or blocked; none when one was open already.
+  expect(first.urls).toEqual([...first.tracker.tickets.values()].map((t) => t.url));
+  expect(first.urls).toHaveLength(2);
+  expect(again.urls).toEqual([undefined]);
 });
 
 test("a dispatch's customer data is scrubbed, and a failed writer leaves the dispatch pending", async () => {

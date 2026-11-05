@@ -18,7 +18,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env) {
     now: new Date(),
     writerLocal: await ctx.codeHost.readFile(localPath("writer")),
     writer: (prompt) => agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, prompt, cwd: ctx.dir }),
-  }, await ctx.dashboard.dispatches(ctx.target.name), (id) => ctx.dashboard.dispatchDone(id));
+  }, await ctx.dashboard.dispatches(ctx.target.name), (id, url) => ctx.dashboard.dispatchDone(id, url));
   console.log(`Opened: ${r.opened.join(", ") || "none"}. Blocked: ${r.blocked.join(", ") || "none"}. Dispatches with an open ticket: ${r.skipped.length}.`);
 }
 if (isMain(import.meta.url)) await main();

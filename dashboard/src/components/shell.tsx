@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
+import { Inbox, LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -11,6 +11,7 @@ const NAV = [
   { href: "/", label: "Board", icon: LayoutList },
   { href: "/runner", label: "Runner", icon: Server },
   { href: "/switches", label: "Switches", icon: ToggleRight },
+  { href: "/dispatches", label: "Dispatches", icon: Inbox },
 ];
 
 // The factory's mark: three stations on one line, the last one lit.

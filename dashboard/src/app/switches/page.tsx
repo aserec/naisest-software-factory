@@ -8,7 +8,8 @@ import { Confirm } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
-import { words } from "@/lib/utils";
+import { ago, words } from "@/lib/utils";
+import type { SwitchChange } from "@/server/db";
 
 type Rows = Record<string, Record<SwitchName, boolean>>;
 
@@ -59,7 +60,15 @@ export default function SwitchesPage() {
       // 403: the server's sentence says which role is missing.
       if (!r.ok) throw new Error(`Could not turn ${label(v.name)} ${v.on ? "on" : "off"} for ${where(v.scope)}. ${r.status === 403 ? await r.text() : "Try again."}`);
     },
-    onSettled: () => client.invalidateQueries({ queryKey: ["switches"] }),
+    onSettled: () => client.invalidateQueries({ queryKey: ["switches"] }), // the prefix also reloads the history
+  });
+  const history = useQuery({
+    queryKey: ["switches", "history"],
+    queryFn: async () => {
+      const r = await api("/api/switches/history");
+      if (!r.ok) throw new Error(`The switch history answered ${r.status}`);
+      return (await r.json()) as SwitchChange[];
+    },
   });
   const { data, error } = switches;
   const [ask, setAsk] = useState<{ scope: string; name: SwitchName }>();
@@ -123,6 +132,38 @@ export default function SwitchesPage() {
         action="Turn on"
         onConfirm={() => ask && change.mutate({ ...ask, on: true })}
       />
+      <section className="mt-8">
+        <SectionHeading>History</SectionHeading>
+        {history.error && <LoadError what="the switch history" query={history} />}
+        {history.data?.length === 0 && <p className="text-muted-foreground">No switch was changed yet.</p>}
+        {!!history.data?.length && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Who</TableHead>
+                <TableHead>Switch</TableHead>
+                <TableHead>Target</TableHead>
+                <TableHead>Turned</TableHead>
+                <TableHead className="text-right">When</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {history.data.map((c, i) => (
+                <TableRow key={`${c.at}-${i}`}>
+                  <TableCell>{c.user}</TableCell>
+                  <TableCell>{label(c.name)}</TableCell>
+                  <TableCell>{c.scope === "*" ? "All targets" : <span className="font-mono">{c.scope}</span>}</TableCell>
+                  <TableCell>{c.on ? "On" : "Off"}</TableCell>
+                  <TableCell className="text-right text-muted-foreground" title={new Date(c.at).toLocaleString()}>
+                    {ago(c.at)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {history.data?.length === 50 && <p className="mt-2 text-muted-foreground">The last 50 changes.</p>}
+      </section>
       <section className="mt-8 max-w-2xl">
         <SectionHeading>When a switch is off</SectionHeading>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
