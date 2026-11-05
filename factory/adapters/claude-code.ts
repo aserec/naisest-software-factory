@@ -18,12 +18,14 @@ export const INBOX_HOOK = fileURLToPath(new URL("./claude-inbox-hook.ts", import
 // The settings the agent runs with: the factory file, a hook from a fixed absolute dir, Read denies for the config dir,
 // and the same sandbox rules as install and gate commands. cwd is the target clone.
 // With an inbox file, a second hook hands new ticket comments to the agent after every tool call (see claude-inbox-hook.ts).
-export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false, platform = process.platform): any {
+export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false, platform = process.platform, commands: string[] = []): any {
   const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf8"));
   const rules = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
   const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
   settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: quote(`${hooksDir}/deny-dangerous.sh`) }] }] };
   if (inboxFile) settings.hooks.PostToolUse = [{ hooks: [{ type: "command", command: `node --import ${quote(TSX_IMPORT)} ${quote(INBOX_HOOK)} ${quote(inboxFile)}` }] }];
+  // The target's own lint, test and build: an npm or yarn target cannot use the pnpm entries in the file.
+  settings.permissions.allow.push(...commands.map((c) => `Bash(${c}*)`));
   if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
   if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
   settings.sandbox.network.allowedDomains = rules.network.allowedDomains;
@@ -141,7 +143,7 @@ export const claudeCode: Harness = {
       const path = join(dir, "settings.json");
       // The inbox file sits in the settings dir, outside the clone, so the agent's own commands cannot write to it.
       const inboxFile = job.inbox ? join(dir, "inbox.jsonl") : undefined;
-      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview)));
+      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview, process.platform, job.tools === "code" ? job.commands : [])));
       if (job.inbox && inboxFile) pump = pumpInbox(job.inbox, inboxFile);
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools, images: Boolean(job.images?.length) };
       const calls = toolCalls();

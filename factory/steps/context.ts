@@ -145,13 +145,16 @@ export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, jo
   return r;
 }
 
+// The commands the author may run: the gate's own, so it can check its work as the gate will.
+export const agentCommands = (c?: FactoryCommands) => (c ? [c.lint, c.test, c.build, c.preview].filter((x): x is string => !!x) : []);
+
 // Resume the author session with feedback from the reviewer or the gate.
 export async function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
   const f = facts(ctx);
   const resume = f.session;
   if (!resume) throw new Error("The run record has no author session to fix");
   const preview = !!f.commands?.preview;
-  const job = { tools: "code" as const, resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) };
+  const job = { tools: "code" as const, resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, commands: agentCommands(f.commands), ...(preview && { preview }) };
   // Each fix is its own "patch" step on the dashboard, inside the review or gate step that asked for it.
   // Its tool calls and usage go to the patch step.
   return withStep(ctx, "patch", () => agent(ctx, "author", modelRow(ctx).author, job), {

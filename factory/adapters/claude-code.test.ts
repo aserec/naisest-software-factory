@@ -239,3 +239,9 @@ test("author settings run the hook after every tool, and settings without an inb
   expect(withInbox.hooks.PreToolUse).toBeDefined();
   expect(factorySettings({}, HOOKS_DIR, "/w/run/target").hooks.PostToolUse).toBeUndefined();
 });
+
+test("settings allow the target's own commands with any arguments, and nothing else new", () => {
+  const s = factorySettings({}, "/opt/hooks", "/w/run/target", undefined, false, "darwin", ["npm run lint", "npm run test"]);
+  expect(s.permissions.allow).toEqual(expect.arrayContaining(["Bash(npm run lint*)", "Bash(npm run test*)"]));
+  expect(s.permissions.allow.length).toBe(factorySettings({}, "/opt/hooks", "/w/run/target").permissions.allow.length + 2);
+});

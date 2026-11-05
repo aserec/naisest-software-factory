@@ -866,6 +866,12 @@ test("author runs get the inbox; reviewer runs do not", async () => {
   expect(w.harness.jobs.filter((j) => j.role === "author").every((j) => j.inbox)).toBe(true);
   expect(w.harness.jobs.filter((j) => j.role === "reviewer").some((j) => j.inbox)).toBe(false);
 });
+test("author runs and their fixes may run the target's lint, test and build", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], []] }));
+  const authors = w.harness.jobs.filter((j) => j.role === "author" && j.tools === "code");
+  expect(authors.length).toBeGreaterThan(1);
+  for (const j of authors) expect(j.commands).toEqual(["pnpm lint", "pnpm test:unit", "pnpm build"]);
+});
 test("@factory resume from a trusted person on a stopped ticket continues with the saved session", async () => {
   const w = await resumeStopped();
   expect(w.restored).toEqual(["1"]);

@@ -2,7 +2,7 @@ import { wrapRequest } from "../agents";
 import { parseFactoryFile } from "../config";
 import { localPath, localSection } from "../local-instructions";
 import type { FactoryCommands } from "../types";
-import { agent, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { agent, agentCommands, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
@@ -28,7 +28,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
   const stop = await install(ctx, commands);
   if (stop) return stop;
-  const job = { tools: "code", maxTurns: 60, cwd: ctx.dir, ...(commands.preview && { preview: true }) } as const;
+  const job = { tools: "code", maxTurns: 60, cwd: ctx.dir, commands: agentCommands(commands), ...(commands.preview && { preview: true }) } as const;
   const author = modelRow(ctx).author;
   // A new session has no memory: it gets the repo's instructions and the ticket, then the requests if this is a round.
   const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}${requests ? `\n\n${requests}` : ""}`;
