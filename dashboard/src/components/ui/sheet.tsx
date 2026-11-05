@@ -6,7 +6,7 @@ import { Dialog as SheetPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";
 
 // A panel that slides in from the right edge: title row with a close button, one scrolling body, an optional footer.
-// Non-modal: no overlay, the page behind stays live and clickable, so a click on another row swaps the content. Esc closes it.
+// Non-modal: no overlay, the page behind stays live and clickable, so a click on another row swaps the content. Esc or a click elsewhere closes it.
 // On open, focus goes to the title, so a keyboard or screen reader user lands in the panel. The caller returns focus on close.
 export function Sheet({ open, onClose, title, description, children, footer }: { open: boolean; onClose: () => void; title: React.ReactNode; description?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -14,7 +14,9 @@ export function Sheet({ open, onClose, title, description, children, footer }: {
     <SheetPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()} modal={false}>
       <SheetPrimitive.Portal>
         <SheetPrimitive.Content
-          onInteractOutside={(e) => e.preventDefault()}
+          // A press outside closes it, except on a part that opens the panel: that click swaps or toggles the content itself.
+          onPointerDownOutside={(e) => (e.target as Element).closest?.("[aria-haspopup=dialog]") && e.preventDefault()}
+          onFocusOutside={(e) => e.preventDefault()}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             heading.current?.focus();

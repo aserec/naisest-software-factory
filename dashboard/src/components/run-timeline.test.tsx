@@ -65,6 +65,21 @@ test("shows a lane per step, and a click opens that step in the side panel", asy
   expect(window.location.search).toBe("");
 });
 
+test("a press on another row swaps the side panel, and a press elsewhere closes it", async () => {
+  stream(events);
+  renderWithQuery(<RunTimeline run="r1" />);
+  fireEvent.click(await screen.findByRole("button", { name: /Implement/ }));
+  await screen.findByRole("dialog");
+  await new Promise((r) => setTimeout(r)); // Radix listens for outside presses from the next tick
+  const other = screen.getByRole("button", { name: /Code review/ });
+  fireEvent.pointerDown(other);
+  fireEvent.click(other);
+  expect((await screen.findByRole("dialog")).textContent).toContain("Code review");
+  fireEvent.pointerDown(document.body); // Radix acts on the click that follows the press
+  fireEvent.click(document.body);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
 test("the events hook streams the run, appends each batch, closes on end, and a retry opens it after the last event held", async () => {
   stream(events.slice(0, 2));
   const { result } = renderHook(() => useRunEvents("r1"), { wrapper });
