@@ -23,6 +23,28 @@ colors:
   pill-warning-bg: "#fffbeb"
   pill-warning-ink: "#92400e"
   pill-neutral-ink: "#353736"
+  # Dark mode: the same roles, used under prefers-color-scheme: dark or data-theme="dark".
+  dark-signal-teal: "#5bb5c9"
+  dark-ink: "#e6e7e8"
+  dark-ink-button: "#d9dbdd"
+  dark-muted-ink: "#9b9ea1"
+  dark-frame-ground: "#0e1113"
+  dark-sheet: "#17191b"
+  dark-raised: "#1f2225"
+  dark-active: "#282b2e"
+  dark-border: "#2c2f32"
+  dark-rule: "#222528"
+  dark-input-stroke: "#42464a"
+  dark-switch-off: "#6f7377"
+  dark-positive: "#4cc38a"
+  dark-destructive: "#f2726d"
+  dark-pill-positive-bg: "#123222"
+  dark-pill-positive-ink: "#a6ebbf"
+  dark-pill-negative-bg: "#3d1a1b"
+  dark-pill-negative-ink: "#ffbab3"
+  dark-pill-warning-bg: "#33290f"
+  dark-pill-warning-ink: "#f9d58a"
+  dark-pill-neutral-ink: "#cdcfd1"
 typography:
   headline:
     fontFamily: "IBM Plex Sans, system-ui, sans-serif"
@@ -142,7 +164,7 @@ The shell is a tinted blue-grey frame (sidebar and top bar on one ground, no rul
 The feel is tactile and calm. Surfaces are flat. Every clickable thing fades in 120ms and presses to 0.96 scale. Numbers are tabular so columns of cost and duration line up. Density is that of a working tool: 14px body, 32px buttons, cards that hold one line of title and one line of facts.
 
 **Key Characteristics:**
-- Tinted frame around a white sheet, light mode only.
+- Tinted frame around a white sheet, with a dark mode that keeps the same two planes.
 - Ink first; Signal Teal is the one hue and marks live data.
 - Flat surfaces; depth comes from the frame and the sheet, not from shadows.
 - IBM Plex Sans with Plex Mono for repo and ticket IDs, tabular numbers everywhere.
@@ -170,6 +192,17 @@ A near-greyscale palette with one signal hue and three soft state pills.
 ### State
 - **Positive** (`positive`) and **Destructive** (`destructive`): solid state color for text, a failed step's bar, and destructive button strokes.
 - **State pills** (`pill-*`): pale fill with dark ink of the same hue for positive, negative and warning. Neutral pills use Active with `pill-neutral-ink`.
+
+### Dark mode
+Every token has a dark value (the `dark-*` colors above). The header's Theme control offers System, Light and Dark; System follows the operating system. The rules do not change. The frame is the darkest plane and the sheet sits one step lighter on it, so the sheet still reads as the working surface. Ink turns light and stays first. Signal Teal and red lighten to keep 4.5:1 on the dark sheet, and stay the only hue and the only alarm. Pills keep the pale-fill idea inverted: a dark fill of the hue with light ink of the same hue. Floating layers keep their shadow, cast in black. The switch thumb takes the sheet color.
+
+| Pair (dark) | Ratio |
+| --- | --- |
+| Ink on Sheet / on Frame | 14.2 / 15.3 |
+| Muted Ink on Sheet / Frame / Raised / Active | 6.6 / 7.0 / 5.9 / 5.3 |
+| Signal Teal, Positive, Destructive text on Sheet | 7.5 / 8.0 / 6.2 |
+| Pill ink on its fill: positive, negative, warning, neutral | 10.1 / 9.5 / 10.2 / 9.1 |
+| Switch Off on Sheet | 3.7 |
 
 ### Named Rules
 **The One Signal Rule.** Signal Teal appears only on live data, the active tab, the mark and focus. If a teal element is not live or selected, it is wrong.
@@ -281,7 +314,7 @@ The production line on the run page. One row per step: name in a 160px column, a
 - **Do** give every control the 120ms fade and the 0.96 press, and respect reduced motion.
 
 ### Don't:
-- **Don't** add a dark theme or a second hue without updating this file; the system is light only.
+- **Don't** add a second hue, or a color without both a light and a dark value, without updating this file.
 - **Don't** use solid red fills; red is text, a stroke, a bar or a pale pill.
 - **Don't** add shadows beyond `shadow-xs` on cards, or use shadow on hover.
 - **Don't** put cards on tinted panels inside the sheet; there are two planes.

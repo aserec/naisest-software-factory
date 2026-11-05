@@ -4,6 +4,7 @@ import { LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -94,6 +95,41 @@ export function SectionHeading({ as: Tag = "h2", children, className = "" }: { a
   return <Tag className={cn("mb-3 flex items-baseline gap-2 border-b pb-2 font-semibold", Tag === "h2" ? "text-base" : "text-sm", className)}>{children}</Tag>;
 }
 
+type Theme = "system" | "light" | "dark";
+
+// System, Light or Dark. The choice is data-theme on <html> and "theme" in localStorage; layout.tsx applies it before first paint.
+export function ThemeSelect() {
+  const [theme, setTheme] = useState<Theme>("system");
+  useEffect(() => {
+    const t = document.documentElement.dataset.theme;
+    if (t === "light" || t === "dark") setTheme(t);
+  }, []);
+  const pick = (t: Theme) => {
+    setTheme(t);
+    const html = document.documentElement;
+    if (t === "system") html.removeAttribute("data-theme");
+    else html.dataset.theme = t;
+    try {
+      if (t === "system") localStorage.removeItem("theme");
+      else localStorage.setItem("theme", t);
+    } catch {
+      // Storage blocked: the choice holds for this page only.
+    }
+  };
+  return (
+    <select
+      aria-label="Theme"
+      value={theme}
+      onChange={(e) => pick(e.target.value as Theme)}
+      className="ml-auto h-9 rounded-lg bg-transparent px-2 text-sm text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  );
+}
+
 // Tinted L-frame (sidebar and top bar on one ground, no rule between) around a white sheet inset 8px right and bottom.
 // On a phone the frame folds into a 48px bar with a menu.
 // signOut is a server action; layout.tsx passes it so this file does not load next-auth.
@@ -138,7 +174,8 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
             </li>
           ))}
         </ol>
-        <form action={signOut} className="ml-auto">
+        <ThemeSelect />
+        <form action={signOut}>
           <button type="submit" className="flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm text-muted-foreground hover:bg-active hover:text-foreground">
             <LogOut className="size-4" strokeWidth={1.5} aria-hidden="true" />
             Sign out

@@ -8,11 +8,11 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-active text-[#353736]",
+        default: "bg-active text-pill-neutral-ink",
         positive: "bg-pill-positive text-pill-positive-ink",
         warning: "bg-pill-warning text-pill-warning-ink",
         secondary:
-          "bg-active text-[#353736]",
+          "bg-active text-pill-neutral-ink",
         destructive:
           "bg-pill-negative text-pill-negative-ink",
         outline:
