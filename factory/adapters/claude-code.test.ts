@@ -6,7 +6,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { HOOKS_DIR, TSX_IMPORT } from "../agents";
 import { sandboxSettings } from "../repo";
 import type { HarnessJob, Provider } from "../seams";
-import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, claudeInput, factorySettings, parseStream, toolCalls } from "./claude-code";
+import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, claudeInput, factorySettings, codeEnv, parseStream, toolCalls } from "./claude-code";
 
 const load = (f: string) => readFileSync(new URL(`../fixtures/${f}`, import.meta.url), "utf8");
 const teamPlan: Provider = { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { "claude-sonnet-5-5": "claude" } };
@@ -252,4 +252,9 @@ test("an nvm node under HOME gets its install dir readable in the sandbox; a nod
   expect(nvm.permissions.deny).toContain("Read(//home/a/.*/**)");
   const sys = factorySettings({ HOME: "/home/a" }, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/usr/local/bin/node");
   expect(sys.sandbox.filesystem.allowRead).toBeUndefined();
+});
+
+test("a code agent keeps npm's cache in the clone's run dir; an agent without tools gets no extra variable", () => {
+  expect(codeEnv({ tools: "code" }, "/w/run/target")).toEqual({ npm_config_cache: "/w/run/target/run/npm-cache" });
+  expect(codeEnv({ tools: "none" }, "/tmp/empty")).toEqual({});
 });

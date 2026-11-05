@@ -76,6 +76,9 @@ export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.Pro
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
 
+// The sandbox hides HOME, so npm's cache (~/.npm) fails with EPERM: a code agent keeps it in the clone's run/, which git excludes.
+export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string): NodeJS.ProcessEnv => (job.tools === "code" ? { npm_config_cache: join(cwd, "run", "npm-cache") } : {});
+
 // Pairs each tool_use (assistant line) with its tool_result (user line) by id. Feed it the stream line by line.
 export function toolCalls(now: () => number = Date.now): { line(l: string): ToolCall[] } {
   const open = new Map<string, { name: string; input: string; at: number }>();
@@ -153,7 +156,7 @@ export const claudeCode: Harness = {
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools, images: Boolean(job.images?.length) };
       const calls = toolCalls();
       const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
-      const { code, out, err } = await runCommand("claude", buildClaudeArgs(run, path), agentEnv(process.env, job.model.provider), cwd, run.images ? claudeInput(job.prompt, job.images!) : undefined, onLine);
+      const { code, out, err } = await runCommand("claude", buildClaudeArgs(run, path), { ...agentEnv(process.env, job.model.provider), ...codeEnv(job, cwd) }, cwd, run.images ? claudeInput(job.prompt, job.images!) : undefined, onLine);
       // The hook stops the agent at its next tool call after a stop line. A run that was stopped is never ok.
       const stopped = (await pump?.end()) ?? false;
       pump = undefined;
