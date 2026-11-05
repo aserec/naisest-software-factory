@@ -4,7 +4,7 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
-import { SANDBOX_RULES_PATH, sandboxDenyRead } from "../sandbox";
+import { SANDBOX_RULES_PATH, rootReads, sandboxDenyRead } from "../sandbox";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string; images?: boolean }
@@ -41,6 +41,14 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   if (platform === "linux") settings.sandbox.network.allowAllUnixSockets = true;
   // Newer Claude Code names its TMPDIR /tmp/claude-<uid>, so the fixed paths in the file no longer cover tsx's pipe.
   else if (uid !== undefined) settings.sandbox.network.allowUnixSockets.push(`/tmp/claude-${uid}`, `/private/tmp/claude-${uid}`);
+  return settings;
+}
+
+// The factory checkout around the clone, readable but for what git ignores there (see rootReads).
+export function withRootReads(settings: any, root = rootReads()): any {
+  const fs = settings.sandbox.filesystem;
+  if (root.allowRead.length) fs.allowRead = [...(fs.allowRead ?? []), ...root.allowRead];
+  fs.denyRead.push(...root.denyRead);
   return settings;
 }
 
@@ -154,7 +162,7 @@ export const claudeCode: Harness = {
       const path = join(dir, "settings.json");
       // The inbox file sits in the settings dir, outside the clone, so the agent's own commands cannot write to it.
       const inboxFile = job.inbox ? join(dir, "inbox.jsonl") : undefined;
-      writeFileSync(path, JSON.stringify(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview, process.platform, job.tools === "code" ? job.commands : [], process.execPath, process.getuid?.())));
+      writeFileSync(path, JSON.stringify(withRootReads(factorySettings(process.env, HOOKS_DIR, cwd, inboxFile, job.preview, process.platform, job.tools === "code" ? job.commands : [], process.execPath, process.getuid?.()))));
       if (job.inbox && inboxFile) pump = pumpInbox(job.inbox, inboxFile);
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools, images: Boolean(job.images?.length) };
       const calls = toolCalls();

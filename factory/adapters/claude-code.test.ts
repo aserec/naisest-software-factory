@@ -1,3 +1,4 @@
+import { rootReads } from "../sandbox";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -6,7 +7,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { HOOKS_DIR, TSX_IMPORT } from "../agents";
 import { sandboxSettings } from "../repo";
 import type { HarnessJob, Provider } from "../seams";
-import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, claudeInput, factorySettings, codeEnv, parseStream, toolCalls } from "./claude-code";
+import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, claudeInput, factorySettings, codeEnv, withRootReads, parseStream, toolCalls } from "./claude-code";
 
 const load = (f: string) => readFileSync(new URL(`../fixtures/${f}`, import.meta.url), "utf8");
 const teamPlan: Provider = { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { "claude-sonnet-5-5": "claude" } };
@@ -262,4 +263,17 @@ test("a code agent keeps npm's cache in the clone's run dir; an agent without to
 test("on macOS the agent may open unix sockets in Claude Code's per-user TMPDIR too", () => {
   const mac = factorySettings({}, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/usr/bin/node", 501).sandbox.network;
   expect(mac.allowUnixSockets).toEqual(["/tmp/claude", "/private/tmp/claude", "/tmp/claude-501", "/private/tmp/claude-501"]);
+});
+
+test("the agent may read the factory checkout around its clone, but none of what git ignores there", () => {
+  const s = withRootReads(factorySettings({}, "/opt/hooks", "/w/run/target"), { allowRead: ["/w"], denyRead: ["/w/.env", "/w/.cache"] });
+  expect(s.sandbox.filesystem.allowRead).toContain("/w");
+  expect(s.sandbox.filesystem.denyRead).toEqual(expect.arrayContaining(["/w/.env", "/w/.cache", "/proc"]));
+});
+test("rootReads denies this checkout's ignored files, keeps run/ readable, and allows nothing without git", () => {
+  const r = rootReads();
+  expect(r.allowRead).toHaveLength(1);
+  expect(r.denyRead.some((p) => p.endsWith("/.cache"))).toBe(true);
+  expect(r.denyRead.some((p) => p.endsWith("/run"))).toBe(false);
+  expect(rootReads("/")).toEqual({ allowRead: [], denyRead: [] });
 });
