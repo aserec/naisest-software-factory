@@ -10,8 +10,14 @@ import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleR
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
   if (!(await controls(ctx)).switchOn("new_runs")) return [];
-  const free = MAX_RUNS_PER_REPO - (await activeRuns(ctx));
-  if (free <= 0) return [];
+  const active = await activeRuns(ctx);
+  const free = MAX_RUNS_PER_REPO - active;
+  if (free <= 0) {
+    // stderr, so local-factory.sh's list stays clean; a stall must not look like a hang in its log.
+    const waiting = (await ctx.tracker.list("ready")).length;
+    if (waiting) console.error(`${waiting} ready ticket(s) wait: ${active} runs are active (running, waiting, stopped or needs approval), the limit is ${MAX_RUNS_PER_REPO}`);
+    return [];
+  }
   // A pending restart owns its ticket: handleRequests starts it, also after a failed start.
   const restarting = (await controls(ctx)).requests.filter((r) => r.kind === "restart" && !r.outcome).map((r) => r.ticket);
   const start: TicketRef[] = [];

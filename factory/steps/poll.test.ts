@@ -20,7 +20,10 @@ test("retry resumes waiting runs with their saved session", async () => {
 
 // Waiting and other active runs hold their slots.
 test("poller starts nothing while the repo already has 2 active runs", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
   expect(await pollReady(fakeCtx({ ready: [3], running: 1, waiting: [{ iid: 9, sessionId: "s9" }] }))).toEqual([]);
+  expect(err).toHaveBeenCalledWith(expect.stringMatching(/^1 ready ticket\(s\) wait: 2 runs are active/));
+  err.mockRestore();
 });
 // Anyone who can comment could write the waiting line. Only the bot's own note counts.
 test("retry ignores a waiting note not written by the bot and blocks the work item", async () => {
