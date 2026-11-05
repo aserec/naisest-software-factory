@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
+import { ChartColumn, LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Board", icon: LayoutList },
+  { href: "/insights", label: "Insights", icon: ChartColumn },
   { href: "/runner", label: "Runner", icon: Server },
   { href: "/switches", label: "Switches", icon: ToggleRight },
 ];

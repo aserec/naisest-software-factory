@@ -15,6 +15,11 @@ function targetsDir(...files: string[]) {
 }
 
 describe("readTargets", () => {
+  it("keeps a positive weekly budget and drops any other value", () => {
+    const [a, b, c] = readTargets(targetsDir("name: a\nprojectPath: g/a\nweeklyBudgetUsd: 40\n", "name: b\nprojectPath: g/b\nweeklyBudgetUsd: -1\n", "name: c\nprojectPath: g/c\n"));
+    expect([a.weeklyBudgetUsd, b.weeklyBudgetUsd, c.weeklyBudgetUsd]).toEqual([40, undefined, undefined]);
+  });
+
   it("gives the default stuck minutes and lets the file override one", () => {
     const dir = targetsDir("name: a\nprojectPath: g/a\n", "name: b\nprojectPath: g/b\nstuckMinutes:\n  prepare-patch: 60\n");
     const [a, b] = readTargets(dir);
