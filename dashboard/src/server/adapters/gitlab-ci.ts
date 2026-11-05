@@ -1,4 +1,4 @@
-import { DASHBOARD_TYPES, EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
+import { DASHBOARD_TYPES, dropUnknownKeys, runEvent, type RunEvent } from "software-factory/run-events";
 import type { Db } from "../db";
 import { NotSetUp } from "../not-set-up";
 import type { Ci, Job } from "../seams";
@@ -38,7 +38,7 @@ export function makeGitLabCi(fetchFn: typeof fetch = fetch, now: () => Date = ()
         try {
           const p = runEvent.safeParse(JSON.parse(line));
           // Same as the collector route: skip the dashboard's own audit types and drop data keys the type does not know.
-          if (p.success && !DASHBOARD_TYPES.has(p.data.type)) events.push({ ...p.data, data: EVENT_DATA[p.data.type].parse(p.data.data) });
+          if (p.success && !DASHBOARD_TYPES.has(p.data.type)) events.push(dropUnknownKeys(p.data));
         } catch {} // a bad line is skipped
       }
     }

@@ -42,10 +42,10 @@ test("what the step sends is under its start, and a nested step is its own step:
     outerStart = ctx.stepEvent!;
     await withStep(ctx, "patch", async () => {
       expect(ctx.step).toBe("patch");
-      emit(ctx, "usage", {});
+      emit(ctx, "usage", { role: "writer", model: "m", input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 0, contextTokens: 1 });
     }, { outcome: next });
     expect([ctx.step, ctx.stepEvent]).toEqual(["code-review", outerStart]);
-    emit(ctx, "review_finding", {});
+    emit(ctx, "review_finding", { text: "t", blocking: false, round: 1 });
   }, { outcome: next });
   expect([ctx.step, ctx.stepEvent]).toEqual([undefined, undefined]);
   const byType = (t: string, step: string) => events().find((e) => e.type === t && e.step === step)!;
@@ -89,7 +89,7 @@ test("a deferred start sends nothing until startStep, and the end only after a s
   await withStep(ctx, "event", async () => {
     expect([ctx.step, ctx.stepEvent]).toEqual(["event", undefined]);
     startStep(ctx, { round: 2 });
-    emit(ctx, "label_change", { to: "factory_running" });
+    emit(ctx, "label_change", { to: "running" });
     return "next" as const;
   }, { outcome: next, deferStart: true });
   const [start, change, end] = events();

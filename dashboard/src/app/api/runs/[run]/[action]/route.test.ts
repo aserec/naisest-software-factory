@@ -17,7 +17,7 @@ process.env.AUTH_URL = "https://dash.test";
 const { getDb } = await import("@/server/db-instance");
 const { GET, POST } = await import("./route");
 
-const ev = (type: RunEvent["type"], run: string, data: Record<string, unknown> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data });
+const ev = (type: RunEvent["type"], run: string, data: Record<string, unknown> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data }) as RunEvent;
 const post = (run: string, action: string, origin: string | null = "https://dash.test") =>
   POST(new Request("http://x", { method: "POST", headers: origin ? { origin } : {} }), { params: Promise.resolve({ run, action }) });
 const state = (run: string) => GET(new Request("http://x"), { params: Promise.resolve({ run, action: "state" }) });

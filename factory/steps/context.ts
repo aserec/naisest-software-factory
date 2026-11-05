@@ -214,7 +214,7 @@ function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "st
 }
 
 // Sends a label_change for every state the steps set and a jev_answer for every Jev answer, so no step has to.
-// The dashboard names states factory_<state>, as the ticket labels do, and picks the run's buttons by the last one.
+// The event names the state without the tracker's factory_ label prefix; the dashboard picks the run's buttons by the last one.
 const WATCHED = Symbol("watched");
 function watch(ctx: StepContext): void {
   const { tracker, judge } = ctx;
@@ -223,7 +223,7 @@ function watch(ctx: StepContext): void {
     [WATCHED]: true,
     setState: async (ref: TicketRef, state: FactoryState) => {
       await tracker.setState(ref, state);
-      emit(ctx, "label_change", { to: `factory_${state}` });
+      emit(ctx, "label_change", { to: state });
     },
   });
   ctx.judge = Object.assign(Object.create(judge) as Judge, {

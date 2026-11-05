@@ -1,4 +1,4 @@
-import { DASHBOARD_TYPES, EVENT_DATA, runEvent, type RunEvent } from "software-factory/run-events";
+import { DASHBOARD_TYPES, dropUnknownKeys, runEvent, type RunEvent } from "software-factory/run-events";
 import { auth, factoryAuthorized } from "@/server/auth";
 import { getDb } from "@/server/db-instance";
 
@@ -15,8 +15,7 @@ export async function POST(req: Request) {
     const r = runEvent.safeParse(body[i]);
     if (!r.success) return bad(`event ${i} is not valid: ${r.error.issues.map((x) => `${x.path.join(".")} ${x.message}`).join("; ")}`);
     if (DASHBOARD_TYPES.has(r.data.type)) return bad(`event ${i} has type ${r.data.type}, which only the dashboard writes`);
-    // runEvent only checks data. Parse it again to drop keys the type does not know (passthrough types keep theirs).
-    events.push({ ...r.data, data: EVENT_DATA[r.data.type].parse(r.data.data) });
+    events.push(dropUnknownKeys(r.data));
   }
   return Response.json({ added: getDb().addEvents(events) });
 }

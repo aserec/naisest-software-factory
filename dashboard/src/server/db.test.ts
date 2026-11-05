@@ -17,7 +17,7 @@ const ev = (type: RunEvent["type"], data: Record<string, unknown> = {}, o: Parti
   type,
   data,
   ...o,
-});
+}) as RunEvent;
 
 describe("events", () => {
   it("reads with a cursor and ignores events it already has", () => {
@@ -68,6 +68,17 @@ describe("switches", () => {
     expect(db.switches("other").watcher).toBe(true);
     const logged = db.events({}).events.find((e) => e.type === "switch_change");
     expect(logged?.data).toEqual({ user: "ana", name: "apply", scope: "*", on: false });
+  });
+});
+
+// The factory used to send label_change with the tracker's label name, factory_<state>. Stored rows keep it.
+describe("run state", () => {
+  it("reads an old factory_* label_change row and a new one as the same state", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("label_change", { to: "factory_stopped" }, { run: "old" }), ev("label_change", { to: "stopped" }, { run: "new" })]);
+    expect(db.view("old")?.state).toBe("stopped");
+    expect(db.view("new")?.state).toBe("stopped");
+    expect(db.view("old")?.actions).toEqual(db.view("new")?.actions);
   });
 });
 

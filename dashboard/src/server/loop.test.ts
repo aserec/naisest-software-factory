@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { openDb } from "./db";
 import { newLoopState, startDispatches, tick } from "./loop";
 
-const ev = (type: RunEvent["type"], run: string, extra: Partial<RunEvent> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data: {}, ...extra });
+const ev = (type: RunEvent["type"], run: string, extra: Partial<RunEvent> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data: {}, ...extra }) as RunEvent;
 const later = (s: number) => new Date(Date.now() + s * 1000);
 
 let db: ReturnType<typeof openDb>;

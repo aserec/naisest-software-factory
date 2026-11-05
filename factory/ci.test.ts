@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
 import { loadSeams, providerKeys } from "./config";
+import { stepIndex } from "./run-events";
 import { BUILD_STEPS, STEPS as RUN_STEPS } from "./steps/run";
 import { main as watcher } from "./steps/watcher";
 
@@ -35,7 +36,7 @@ test("every factory job starts its step through the env -i allowlist", () => {
 
 // The step order lives in STEPS. The CI stages and local-run.sh copy it and must not drift.
 test(".gitlab-ci.yml and local-run.sh run the steps in the order of STEPS", () => {
-  expect((ci.stages as string[]).filter((s) => RUN_STEPS.includes(s))).toEqual(RUN_STEPS);
+  expect((ci.stages as string[]).filter((s) => stepIndex(s) >= 0)).toEqual(RUN_STEPS);
   for (const step of RUN_STEPS) expect(ci[step].stage, step).toBe(step);
   const local = readFileSync(new URL("../local-run.sh", import.meta.url), "utf8");
   expect(/^steps=\((.*)\)$/m.exec(local)?.[1].split(" ")).toEqual(BUILD_STEPS);

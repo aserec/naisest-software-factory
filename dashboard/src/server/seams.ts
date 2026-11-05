@@ -1,13 +1,10 @@
 // The dashboard's outside tools, in factory words. Pages and components use these types and never a tool's own words.
 import type { Provider } from "next-auth/providers";
-import type { FactoryState } from "software-factory/run-events";
+import { STATES, type FactoryState } from "software-factory/run-events";
 import type { Db } from "./db";
 import type { TargetInfo } from "./targets";
 
-export type { FactoryState };
-
-// One board column per state, in this order.
-export const STATES: FactoryState[] = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"];
+export { STATES, type FactoryState }; // STATES: one board column per state, in this order
 
 export type Risk = "trivial" | "low" | "medium" | "high";
 

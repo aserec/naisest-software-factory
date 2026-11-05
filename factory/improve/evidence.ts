@@ -1,7 +1,7 @@
 // A week of corrections people made to the factory in one target: the evidence for the weekly improve job.
 // Text written by people reaches models as data, after scrub and the injection check.
 import { byPeople, isBareCommand, isRequest, newestNote } from "../conversation";
-import { HISTORY_LIMIT } from "../run-events";
+import { eventsOfType, HISTORY_LIMIT } from "../run-events";
 import type { RunEvent } from "../seams";
 import type { StepContext } from "../steps/context";
 import { buildTriageState, injectionYes, INJECTION_LIMIT } from "../triage";
@@ -36,15 +36,15 @@ export function loopEvidence(events: RunEvent[], linkOf: (ticket: string) => str
   return [...runs.values()].flatMap((evs) => {
     const link = linkOf(evs[0].ticket);
     const at = evs.map((e) => e.at).sort((a, b) => ms(b) - ms(a))[0];
-    const blocking = evs.filter((e) => e.type === "review_finding" && e.data.blocking === true);
-    const rounds = new Set(blocking.map((e) => e.data.round as number));
-    const failed = evs.filter((e) => e.type === "gate_check" && e.data.exitCode !== 0).length;
+    const blocking = eventsOfType(evs, "review_finding").filter((e) => e.data.blocking);
+    const rounds = new Set(blocking.map((e) => e.data.round));
+    const failed = eventsOfType(evs, "gate_check").filter((e) => e.data.exitCode !== 0).length;
     const out: Evidence[] = rounds.size >= 2 || failed >= 2 ? [{ kind: "agent_rounds", link, at, text: `review rounds with blocking findings: ${rounds.size}; failed gate checks: ${failed}` }] : [];
     const seen = new Set<string>();
     for (const e of blocking) {
-      const text = squash(String(e.data.text));
-      const round = e.data.round as number;
-      if (seen.has(text) || !blocking.some((o) => squash(String(o.data.text)) === text && o.data.round === round + 1)) continue;
+      const text = squash(e.data.text);
+      const round = e.data.round;
+      if (seen.has(text) || !blocking.some((o) => squash(o.data.text) === text && o.data.round === round + 1)) continue;
       seen.add(text);
       out.push({ kind: "repeat_finding", link, at, text });
     }
@@ -56,7 +56,7 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
   const { tracker, codeHost, dashboard, judge } = ctx;
   const since = new Date(now.getTime() - WEEK_MS).toISOString();
   const week = await dashboard.history(ctx.target.name, since, ["run_start", "review_finding", "gate_check"]);
-  const allDecisions = await dashboard.history(ctx.target.name, new Date(now.getTime() - DECISION_MS).toISOString(), ["decision"]);
+  const allDecisions = eventsOfType(await dashboard.history(ctx.target.name, new Date(now.getTime() - DECISION_MS).toISOString(), ["decision"]), "decision");
   // ponytail: a read stops at HISTORY_LIMIT, oldest first, so a busier target loses its newest events. Page by time if this log shows up.
   for (const [name, list] of [["week", week], ["decision", allDecisions]] as const) if (list.length >= HISTORY_LIMIT) console.log(`The ${name} history read hit ${HISTORY_LIMIT} events, so its newest events are missing from the evidence.`);
   const baseCommits = await codeHost.baseCommits(since); // once per job
@@ -83,7 +83,7 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
       const ofTicket = await codeHost.changeOfTicket(ref);
       const change = ofTicket && (await codeHost.change(ofTicket.ref));
       // A decision about an older change of the work item is not judged against the newest one.
-      const decisions = allDecisions.filter((d) => d.ticket === ref && (!change || typeof d.data.changeUrl !== "string" || d.data.changeUrl === change.url));
+      const decisions = allDecisions.filter((d) => d.ticket === ref && (!change || !d.data.changeUrl || d.data.changeUrl === change.url));
       if (change) {
         const strict = decisions.filter((d) => d.data.auto === false);
         // Comments from the oldest decision on, so a request after it counts even before the week.
@@ -98,7 +98,7 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
         if (mergedThisWeek && strict.length > 0 && (await codeHost.changeCommits(change.ref)).every((c) => c.byFactory)) {
           for (const d of strict) {
             const asked = byPeople([...onChange, ...comments]).some((c) => ms(c.at) > ms(d.at) && isRequest(c.body));
-            if (!asked) out.push({ kind: "too_strict", link: change.url, at: d.at, text: (d.data.reasons as string[]).join("; ") });
+            if (!asked) out.push({ kind: "too_strict", link: change.url, at: d.at, text: d.data.reasons.join("; ") });
           }
         }
       }

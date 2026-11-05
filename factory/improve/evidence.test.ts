@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { noteText } from "../conversation";
 import { fakeCodeHost, fakeDashboard, fakeJudge, fakeTracker } from "../fakes";
+import type { EventData, EventType } from "../run-events";
 import type { JevAnswer, RunEvent } from "../seams";
 import type { Target } from "../types";
 import { collectEvidence, isRevertOf, loopEvidence, DECISION_MS, MAX_EVIDENCE, MAX_EVIDENCE_TEXT, WEEK_MS } from "./evidence";
@@ -11,7 +12,7 @@ const ago = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString()
 const SHA = "abc1234def5678";
 
 let n = 0;
-const ev = (type: RunEvent["type"], data: RunEvent["data"], o: Partial<RunEvent> = {}): RunEvent => ({ id: String(++n), run: "r1", at: ago(2), target: "t", ticket: "8", type, data, ...o });
+const ev = <T extends EventType>(type: T, data: EventData<T>, o: Partial<RunEvent> = {}) => ({ id: String(++n), run: "r1", at: ago(2), target: "t", ticket: "8", type, data, ...o }) as RunEvent;
 const finding = (text: string, round: number, blocking = true, o: Partial<RunEvent> = {}) => ev("review_finding", { text, blocking, round }, o);
 const gate = (exitCode: number) => ev("gate_check", { command: "pnpm test", exitCode, outputTail: "" });
 const decision = (auto: boolean, o: Partial<RunEvent> = {}) => ev("decision", { auto, reasons: auto ? ["small change"] : ["protected path touched"] }, o);
@@ -293,9 +294,9 @@ test("a decision about another change of the work item is not judged against the
   w.host.mergeByPerson("5");
   w.host.commits.set("5", [{ sha: "a", byFactory: true }]);
   w.dashboard.events.push(decision(false, { at: ago(3) }));
-  w.dashboard.events[0].data.changeUrl = "https://host.example/changes/4";
+  w.dashboard.events[0] = ev("decision", { auto: false, reasons: [], changeUrl: "https://host.example/changes/4" }, { at: ago(3) });
   expect(kinds(await run(w))).toEqual([]);
-  w.dashboard.events[0].data.changeUrl = "https://host.example/changes/5";
+  w.dashboard.events[0] = ev("decision", { auto: false, reasons: [], changeUrl: "https://host.example/changes/5" }, { at: ago(3) });
   expect(kinds(await run(w))).toEqual(["too_strict"]);
 });
 test("two work items with one change give one too_strict", async () => {

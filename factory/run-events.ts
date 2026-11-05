@@ -5,12 +5,18 @@ export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "t
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // The state of a work item, in factory words. factory/seams.ts re-exports it.
-export type FactoryState = "ready" | "running" | "needs_info" | "needs_approval" | "waiting" | "stopped" | "blocked" | "done";
+// In board column order.
+export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"] as const;
+export type FactoryState = (typeof STATES)[number];
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
 export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "switch_change"]);
 
 // The steps of a run in order. The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
-export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"];
+export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"] as const;
+export type StepName = (typeof STEPS)[number];
+// Where a job name sits in STEPS, or -1. CI job names also hold steps that are not in STEPS (poll, watcher), so callers hold plain strings.
+const STEP_NAMES: readonly string[] = STEPS;
+export const stepIndex = (name = "") => STEP_NAMES.indexOf(name);
 
 export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply", "improve"] as const;
 export type SwitchName = (typeof SWITCHES)[number];
@@ -37,7 +43,8 @@ export const STUCK_MINUTES: Record<string, number> = {
 const field = z.string().max(MAX_FIELD);
 const user = z.object({ user: z.string() });
 
-export const EVENT_DATA: Record<EventType, z.ZodTypeAny> = {
+// A const object, so each event type keeps its own schema type. `satisfies` makes a missing type a compile error.
+export const EVENT_DATA = {
   run_start: z.object({}).passthrough(),
   run_end: z.object({ outcome: z.enum(["done", "blocked", "needs_info", "restarted", "closed"]) }),
   step_start: z.object({ prompt: z.string().optional() }).passthrough(),
@@ -70,9 +77,12 @@ export const EVENT_DATA: Record<EventType, z.ZodTypeAny> = {
   restart: user,
   switch_change: z.object({ user: z.string(), name: z.enum(SWITCHES), scope: z.string(), on: z.boolean() }),
   error: z.object({ message: z.string() }),
-};
+} satisfies Record<EventType, z.ZodTypeAny>;
 
-export interface RunEvent {
+// What an event of type T carries in `data`.
+export type EventData<T extends EventType = EventType> = z.infer<(typeof EVENT_DATA)[T]>;
+
+interface Envelope {
   id: string;
   run: string;
   parent?: string;
@@ -82,9 +92,14 @@ export interface RunEvent {
   pipeline?: string;
   job?: string;
   step?: string;
-  type: EventType;
-  data: Record<string, unknown>;
 }
+
+// Discriminated on `type`: check `e.type === "usage"` and `e.data` is the usage shape.
+export type RunEvent = { [T in EventType]: Envelope & { type: T; data: EventData<T> } }[EventType];
+export type EventOf<T extends EventType> = Extract<RunEvent, { type: T }>;
+// The events of one type, with the data typed to match. Keeps extra fields on E (the dashboard adds `seq`).
+export const eventsOfType = <E extends RunEvent, T extends EventType>(events: readonly E[], type: T): Extract<E, { type: T }>[] =>
+  events.filter((e): e is Extract<E, { type: T }> => e.type === type);
 
 // The envelope is checked first, then data against EVENT_DATA[type]; issues keep their path under `data`.
 export const runEvent = z
@@ -106,6 +121,10 @@ export const runEvent = z
     if (r.success) return;
     for (const issue of r.error.issues) ctx.addIssue({ ...issue, path: ["data", ...issue.path] });
   }) as z.ZodType<RunEvent>;
+
+// runEvent only checks data. This parses it again to drop the keys its type does not know (passthrough types keep theirs).
+// The cast: TypeScript cannot tell that parsing EVENT_DATA[e.type] gives the data of that same type.
+export const dropUnknownKeys = (e: RunEvent): RunEvent => ({ ...e, data: EVENT_DATA[e.type].parse(e.data) }) as RunEvent;
 
 export interface ControlRequest {
   id: string;

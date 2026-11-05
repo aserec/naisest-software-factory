@@ -22,7 +22,7 @@ const { GET: getEvents } = await import("./events/route");
 const { GET: getLog } = await import("./jobs/[job]/log/route");
 
 const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
-const ev = (type: RunEvent["type"], min: number, run: string, data: Record<string, unknown> = {}, step?: string): RunEvent => ({ id: randomUUID(), run, at: at(min), target: "demo", ticket: "7", type, data, ...(step ? { step } : {}) });
+const ev = (type: RunEvent["type"], min: number, run: string, data: Record<string, unknown> = {}, step?: string): RunEvent => ({ id: randomUUID(), run, at: at(min), target: "demo", ticket: "7", type, data, ...(step ? { step } : {}) }) as RunEvent;
 const item = (ticket: string) => ({ target: "demo", ticket, title: `T${ticket}`, state: "running", url: "u", updatedAt: "" });
 const log = (job: string) => getLog(new Request("http://x"), { params: Promise.resolve({ job }) });
 

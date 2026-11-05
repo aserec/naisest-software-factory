@@ -26,7 +26,7 @@ import { NotFactoryRunError, type FactoryState, type Mark } from "../seams";
 import { addStep, newRecord, runFacts, saveRecord } from "../record";
 import type { RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
-import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
+import { eventsOfType, runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
 import * as apply from "./apply";
 import { findSecrets } from "../rules";
 import { pumpInbox } from "../inbox";
@@ -1015,9 +1015,9 @@ test("a sure duplicate of an older work item is closed with a link and never bui
   expect(noteIn(w.workItemComments.at(-1)!, "duplicate")?.kind).toBe("duplicate_close");
   expect(w.cloned).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).not.toContain("triaged");
-  const [outcome] = dash(w).events.filter((e) => e.type === "triage_outcome");
+  const [outcome] = eventsOfType(dash(w).events, "triage_outcome");
   expect(outcome.data).toMatchObject({ kind: "stop", title: expect.stringContaining("duplicate of #7"), url: "https://tracker.example/7" });
-  expect((outcome.data.reasons as string[])[0]).toContain('answered "same" with 0.95 confidence');
+  expect(outcome.data.reasons[0]).toContain('answered "same" with 0.95 confidence');
 });
 test("an unsure same asks instead of closing", async () => {
   const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.89 } }));
@@ -1486,9 +1486,9 @@ test("a low-risk run sends run_start, a start and an end per step, usage, Jev an
   expect(new Set(events.filter((e) => e.type === "jev_answer").map((e) => e.step))).toEqual(new Set(["triage", "risk-check"]));
   expect(events.filter((e) => e.type === "triage_outcome").map((e) => e.data.kind)).toEqual(["go"]);
   expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [], risk: 3, riskMax: 4, changeUrl: "https://host.example/changes/5" }]);
-  expect(events.filter((e) => e.type === "label_change").at(-1)?.data).toEqual({ to: "factory_done" });
+  expect(eventsOfType(events, "label_change").at(-1)?.data).toEqual({ to: "done" });
   // run_end is the last event of the run; only its own step's end comes after it.
-  expect(events.slice(-2).map((e) => [e.type, e.data.outcome])).toEqual([["run_end", "done"], ["step_end", "next"]]);
+  expect(events.slice(-2).map((e) => [e.type, "outcome" in e.data ? e.data.outcome : undefined])).toEqual([["run_end", "done"], ["step_end", "next"]]);
   // Every event passes the dashboard's own check.
   for (const e of events) expect(runEvent.safeParse(e).success, e.type).toBe(true);
 });
@@ -1561,8 +1561,8 @@ test("an author's tool calls are sent as tool_call events under their step, a re
 test("a review fix and a gate fix each send a patch step that owns the fix's tool calls and usage", async () => {
   const w = await runAllJobs(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [], []] }));
   const events = dash(w).events;
-  const patches = events.filter((e) => e.type === "step_start" && e.step === "patch");
-  const starts = events.filter((e) => e.type === "step_start");
+  const patches = eventsOfType(events, "step_start").filter((e) => e.step === "patch");
+  const starts = eventsOfType(events, "step_start");
   expect(patches.map((p) => starts.slice(0, starts.indexOf(p)).filter((e) => e.step !== "patch").at(-1)?.step)).toEqual(["code-review", "precommit-gate"]);
   expect(patches.every((p) => typeof p.data.prompt === "string" && p.data.prompt.length > 0)).toBe(true);
   expect(stepEnds(w).filter(([s]) => s === "patch")).toEqual([["patch", "next"], ["patch", "next"]]);
@@ -1679,7 +1679,7 @@ test("apply off does not stop a finish run after a hand merge", async () => {
   expect(w.record.steps.some((s) => s.step === "verify")).toBe(true);
   expect(w.states).toEqual(["done"]);
 });
-test("a resumed apply sends label_change factory_running to the stopped run, and a failed start leaves the ticket stopped", async () => {
+test("a resumed apply sends label_change running to the stopped run, and a failed start leaves the ticket stopped", async () => {
   const w = fakeWorld();
   const switches = withSwitches(w, "apply");
   w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
@@ -1695,7 +1695,7 @@ test("a resumed apply sends label_change factory_running to the stopped run, and
   w.ci.save("41", record);
   await runStep("apply", apply.run, { dir: tmp(), make: () => w.ctx });
   expect(w.merged).toBe(true);
-  expect(dash(w).events.filter((e) => e.type === "label_change").map((e) => [e.run, e.data])).toEqual([["run-41", { to: "factory_running" }]]);
+  expect(dash(w).events.filter((e) => e.type === "label_change").map((e) => [e.run, e.data])).toEqual([["run-41", { to: "running" }]]);
 });
 // Task B6: resume and restart from the dashboard, and the open item of B4.
 const restartRequest = (run: string, o: Partial<ControlRequest> = {}): ControlRequest => ({ id: "q1", kind: "restart", run, target: "react_frontend", ticket: "8", user: "ana", at: new Date().toISOString(), ...o });

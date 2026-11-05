@@ -77,10 +77,10 @@ const KEEP_BACKUPS = 7;
 const BACKUP_FILE = /^factory-\d{4}-\d{2}-\d{2}\.db$/;
 
 type Row = Record<string, unknown>;
-const text = (v: unknown) => (v == null ? undefined : (v as string));
 
 function toEvent(r: Row): RunEvent & { seq: number } {
-  const e: RunEvent & { seq: number } = { seq: r.seq as number, id: r.id as string, run: r.run as string, at: r.at as string, target: r.target as string, ticket: r.ticket as string, type: r.type as RunEvent["type"], data: JSON.parse(r.data as string) };
+  // Stored rows are untyped. runEvent checked them when they came in, so the type and data are taken as they are.
+  const e = { seq: r.seq as number, id: r.id as string, run: r.run as string, at: r.at as string, target: r.target as string, ticket: r.ticket as string, type: r.type as EventType, data: JSON.parse(r.data as string) } as RunEvent & { seq: number };
   for (const k of ["parent", "pipeline", "job", "step"] as const) if (r[k] != null) e[k] = r[k] as string;
   return e;
 }
@@ -163,30 +163,30 @@ export function openDb(path: string): Db {
 
     runs({ target, ticket }) {
       const starts = [target != null && "target = ?", ticket != null && "ticket = ?"].filter(Boolean);
-      const sql = `SELECT seq, run, target, ticket, at, step, type, data FROM events
+      const sql = `SELECT seq, id, run, target, ticket, at, step, type, data FROM events
         WHERE +type IN ('run_start','run_end','usage','step_start','step_end','review_finding','decision') -- "+" stops SQLite scanning the type index; the run index is better
           AND run IN (SELECT run FROM events WHERE type = 'run_start'${starts.map((c) => ` AND ${c}`).join("")})
         ORDER BY seq`;
       const rows = stmt(sql).all(...[target, ticket].filter((v) => v != null)) as Row[];
       const byRun = new Map<string, RunSummary>();
       for (const r of rows) {
-        const id = r.run as string;
-        const data = JSON.parse(r.data as string) as Record<string, unknown>;
+        const e = toEvent(r);
+        const id = e.run;
         let s = byRun.get(id);
-        if (r.type === "run_start") {
-          s = { run: id, target: r.target as string, ticket: r.ticket as string, startedAt: r.at as string, costUsd: 0 };
+        if (e.type === "run_start") {
+          s = { run: id, target: e.target, ticket: e.ticket, startedAt: e.at, costUsd: 0 };
           byRun.set(id, s);
         } else if (!s) continue;
-        else if (r.type === "run_end") {
-          s.endedAt = r.at as string;
-          s.outcome = data.outcome as string;
-        } else if (r.type === "usage") s.costUsd += data.costUsd as number;
-        else if (r.type === "step_start" || r.type === "step_end") s.lastStep = trackStep(s.lastStep, { type: r.type, step: text(r.step), at: r.at as string });
-        else if (r.type === "review_finding") s.round = Math.max(s.round ?? 0, data.round as number);
-        else if (r.type === "decision") {
-          if (typeof data.risk === "number") s.mergeRisk = data.risk;
-          if (typeof data.riskMax === "number") s.mergeRiskMax = data.riskMax;
-          if (typeof data.changeUrl === "string") s.changeUrl = data.changeUrl;
+        else if (e.type === "run_end") {
+          s.endedAt = e.at;
+          s.outcome = e.data.outcome;
+        } else if (e.type === "usage") s.costUsd += e.data.costUsd;
+        else if (e.type === "step_start" || e.type === "step_end") s.lastStep = trackStep(s.lastStep, e);
+        else if (e.type === "review_finding") s.round = Math.max(s.round ?? 0, e.data.round);
+        else if (e.type === "decision") {
+          if (e.data.risk !== undefined) s.mergeRisk = e.data.risk;
+          if (e.data.riskMax !== undefined) s.mergeRiskMax = e.data.riskMax;
+          if (e.data.changeUrl !== undefined) s.changeUrl = e.data.changeUrl;
         }
       }
       return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));

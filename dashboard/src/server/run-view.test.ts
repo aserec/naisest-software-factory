@@ -4,7 +4,7 @@ import { runView, type RunViewInput } from "./run-view";
 
 const now = new Date("2026-11-05T12:00:00Z");
 const ago = (min: number) => new Date(now.getTime() - min * 60_000).toISOString();
-const ev = (type: RunEvent["type"], data: Record<string, unknown> = {}, o: Partial<RunEvent> = {}): RunEvent => ({ id: `${type}${Math.random()}`, run: "r1", at: ago(1), target: "demo", ticket: "7", type, data, ...o });
+const ev = (type: RunEvent["type"], data: Record<string, unknown> = {}, o: Partial<RunEvent> = {}): RunEvent => ({ id: `${type}${Math.random()}`, run: "r1", at: ago(1), target: "demo", ticket: "7", type, data, ...o }) as RunEvent;
 const label = (to: string) => ev("label_change", { to });
 const req = (kind: ControlRequest["kind"], o: Partial<ControlRequest> = {}): ControlRequest => ({ id: `${kind}${Math.random()}`, kind, run: "r1", target: "demo", ticket: "7", user: "ann", at: ago(2), ...o });
 const view = (i: Partial<RunViewInput>) => runView({ now, ...({ events: [] } as RunViewInput), ...i });

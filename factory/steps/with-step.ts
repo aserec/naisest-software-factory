@@ -1,14 +1,15 @@
 // The only place step_start and step_end are sent (GLOSSARY.md: Step, Event). A step owns the context's step fields
 // while it runs: its name, and the ID of its start event, the parent of what it sends.
 import { emit } from "../emit";
+import type { EventData } from "../run-events";
 import type { StepContext } from "./context";
 
-export type StepOutcome = "next" | "stop" | "stopped" | "waiting" | "error";
+export type StepOutcome = EventData<"step_end">["outcome"];
 
 export interface StepOptions<R> {
   outcome(result: R): StepOutcome; // what the end says when fn returns
-  data?: object; // the start's data
-  endData?: () => object; // more data for the end, read when it is sent
+  data?: EventData<"step_start">; // the start's data
+  endData?: () => Omit<EventData<"step_end">, "outcome">; // more data for the end, read when it is sent
   // The event step sends its start from startStep, once it knows the run goes on, so a declined start or resume sends nothing.
   deferStart?: boolean;
   onError?(e: unknown): Promise<void>; // runs when fn throws, before the end is sent; the throw goes on after it
@@ -35,6 +36,6 @@ export async function withStep<R>(ctx: StepContext, name: string, fn: () => Prom
 }
 
 // The start of a step run with deferStart.
-export function startStep(ctx: StepContext, data: object = {}): void {
+export function startStep(ctx: StepContext, data: EventData<"step_start"> = {}): void {
   ctx.stepEvent = emit(ctx, "step_start", data);
 }

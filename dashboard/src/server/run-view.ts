@@ -1,5 +1,4 @@
-import type { ControlRequest, FactoryState, RunEvent } from "software-factory/run-events";
-import { STATES } from "./seams";
+import { STATES, type ControlRequest, type FactoryState, type RunEvent } from "software-factory/run-events";
 
 // The one place that reads a run's state: what it is in, what a person may do, and whether it is stuck.
 // Pure, so the server (db.request, the routes) and the run page read the same answer.
@@ -45,8 +44,8 @@ export function runView({ events, requests = [], newer = false, limits = {}, now
   let lastStep: LastStep | undefined;
   let ended = false;
   for (const e of events) {
-    // Events saved before the seams hold the factory_* label name.
-    if (e.type === "label_change") state = STATES.find((s) => s === String(e.data.to).replace(/^factory_/, ""));
+    // The one place that reads a label_change state. Rows saved before the factory dropped the prefix hold the tracker's label name, factory_<state>.
+    if (e.type === "label_change") state = STATES.find((s) => s === e.data.to.replace(/^factory_/, ""));
     else if (e.type === "run_end") ended = true;
     else lastStep = trackStep(lastStep, e);
   }

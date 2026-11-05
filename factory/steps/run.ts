@@ -81,8 +81,9 @@ export function endRun(ctx: StepContext, outcome: "done" | "blocked" | "needs_in
 
 // The build pipeline, then the finish pipeline from apply on.
 export { STEPS };
-export const BUILD_STEPS = STEPS.slice(0, STEPS.indexOf("apply"));
-export const FINISH_STEPS = STEPS.slice(STEPS.indexOf("apply"));
+// Plain strings: callers ask with CI job names, which are not all run steps.
+export const BUILD_STEPS: readonly string[] = STEPS.slice(0, STEPS.indexOf("apply"));
+export const FINISH_STEPS: readonly string[] = STEPS.slice(STEPS.indexOf("apply"));
 // A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
 const CONTINUABLE = BUILD_STEPS.slice(2);
 
