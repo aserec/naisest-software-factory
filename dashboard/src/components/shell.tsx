@@ -99,10 +99,11 @@ export function SectionHeading({ as: Tag = "h2", children, className = "" }: { a
 }
 
 type Theme = "system" | "light" | "dark";
+// One button that steps through these in order, showing the icon of the theme in use.
 const THEMES = [
-  ["system", "System theme", SunMoon],
-  ["light", "Light theme", Sun],
-  ["dark", "Dark theme", Moon],
+  ["system", "System", SunMoon],
+  ["light", "Light", Sun],
+  ["dark", "Dark", Moon],
 ] as const;
 
 // System, Light or Dark. The choice is data-theme on <html> and "theme" in localStorage; layout.tsx applies it before first paint.
@@ -124,22 +125,19 @@ export function ThemeSelect() {
       // Storage blocked: the choice holds for this page only.
     }
   };
+  const at = THEMES.findIndex(([t]) => t === theme);
+  const [, label, Icon] = THEMES[at];
+  const [nextTheme, nextLabel] = THEMES[(at + 1) % THEMES.length];
   return (
-    <div role="group" aria-label="Theme" className="ml-auto flex items-center gap-0.5 rounded-lg p-0.5">
-      {THEMES.map(([t, label, Icon]) => (
-        <button
-          key={t}
-          type="button"
-          aria-label={label}
-          aria-pressed={theme === t}
-          title={label}
-          onClick={() => pick(t)}
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-active aria-pressed:text-foreground"
-        >
-          <Icon className="size-4" strokeWidth={1.5} aria-hidden="true" />
-        </button>
-      ))}
-    </div>
+    <button
+      type="button"
+      aria-label={`Theme: ${label}. Switch to ${nextLabel}`}
+      title={`Theme: ${label}. Click for ${nextLabel}.`}
+      onClick={() => pick(nextTheme)}
+      className="ml-auto flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Icon className="size-4" strokeWidth={1.5} aria-hidden="true" />
+    </button>
   );
 }
 
