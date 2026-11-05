@@ -5,7 +5,8 @@ export const GITHUB_API = "https://api.github.com";
 export class GitHub {
   constructor(private token: string, private fetchFn: typeof fetch = fetch, private sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))) {}
 
-  async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Response> {
+  // once: GraphQL does its own retries, so a 502 is not tried 3 × 3 times.
+  async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, once = false): Promise<Response> {
     for (let attempt = 1; ; attempt++) {
       const res = await this.fetchFn(`${GITHUB_API}${path}`, {
         method,
@@ -14,7 +15,7 @@ export class GitHub {
         signal: AbortSignal.timeout(60_000),
       });
       if (res.ok) return res;
-      if (method !== "GET" || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) throw new Error(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}`);
+      if (method !== "GET" || once || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) throw new Error(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}`);
       await this.sleep(1000 * attempt);
     }
   }
@@ -34,9 +35,23 @@ export class GitHub {
     }
   }
 
+  // GitHub's own failures (a 502/503/504, or "Something went wrong while executing your query") are tried 3 times.
+  // That is safe only because every query and mutation the factory sends is a read or can run twice: adding a card
+  // that exists returns it, and setting or clearing a field again changes nothing. A new mutation must be too.
   async graphql(query: string, variables: Record<string, unknown>) {
-    const r = await this.json("POST", "/graphql", { query, variables });
-    if (r.errors?.length) throw new Error(`GitHub GraphQL failed: ${String(r.errors[0].message).slice(0, 200)}`);
-    return r.data;
+    for (let attempt = 1; ; attempt++) {
+      let r;
+      try {
+        r = await (await this.call("POST", "/graphql", { query, variables }, {}, true)).json();
+      } catch (e) {
+        if (attempt === 3 || !/failed with status (502|503|504)$/.test(String(e))) throw e;
+        await this.sleep(1000 * attempt);
+        continue;
+      }
+      if (!r.errors?.length) return r.data;
+      const message = String(r.errors[0].message);
+      if (attempt === 3 || !message.startsWith("Something went wrong")) throw new Error(`GitHub GraphQL failed: ${message.slice(0, 200)}`);
+      await this.sleep(1000 * attempt);
+    }
   }
 }
