@@ -54,13 +54,42 @@ function Weeks({ weeks }: { weeks: Insights["weeks"] }) {
   );
 }
 
-// A p50 to p95 range on one shared scale: the band is the spread, the tick the usual run.
-const Range = ({ p50, p95, max }: { p50: number; p95: number; max: number }) => (
-  <span className="relative block h-2 rounded-full bg-raised">
-    <span className="absolute inset-y-0 rounded-full bg-data/30" style={{ left: `${(p50 / max) * 100}%`, width: `${Math.max(((p95 - p50) / max) * 100, 0.5)}%` }} />
-    <span className="absolute -inset-y-0.5 w-1 rounded-full bg-data" style={{ left: `${(p50 / max) * 100}%` }} />
-  </span>
-);
+// The production line: one column per step, as tall as the runs that reached it. The runs that ended blocked
+// there sit on top in red, so a drop between two columns reads as where the line loses runs.
+function Line({ steps }: { steps: Insights["steps"] }) {
+  const max = Math.max(1, ...steps.map((s) => s.reached));
+  return (
+    <div className="overflow-x-auto">
+      <ol className="grid min-w-[52rem] grid-cols-10 gap-2">
+        {steps.map((s, i) => {
+          const said = `${words(s.step)}: reached by ${s.reached}, ${s.blocked} blocked here${s.reached ? `, ${duration(s.p50)} on a usual run, ${duration(s.p95)} on a slow one` : ""}`;
+          return (
+            <li key={s.step} title={said} aria-label={said} className="group flex flex-col">
+              <div className="flex h-40 flex-col justify-end gap-0.5">
+                {s.blocked > 0 && <div className="rounded-sm bg-destructive group-hover:opacity-80" style={{ height: `${(s.blocked / max) * 100}%` }} />}
+                {s.reached - s.blocked > 0 && <div className={`rounded-sm ${i === steps.length - 1 ? "bg-data" : "bg-foreground/45"} group-hover:opacity-80`} style={{ height: `${((s.reached - s.blocked) / max) * 100}%` }} />}
+              </div>
+              <div className="mt-2 border-t pt-2">
+                <div className="truncate text-xs font-medium">
+                  {i + 1}. {words(s.step)}
+                </div>
+                <div className="text-lg">{s.reached || "—"}</div>
+                <div className={`text-xs ${s.blocked ? "text-destructive" : "text-muted-foreground"}`}>{s.blocked ? `${s.blocked} blocked` : "none blocked"}</div>
+                {s.reached > 0 && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {duration(s.p50)}
+                    <br />
+                    p95 {duration(s.p95)}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
 
 // The week's cost against the target's budget: a warning from 80%, red over it.
 function Budget({ week, budget }: { week: number; budget?: number }) {
@@ -116,7 +145,6 @@ export function InsightsView({ data }: { data: Insights }) {
   const thisWeek = data.weeks.at(-1)!;
   const merged = data.weeks.reduce((a, w) => a + w.auto, 0);
   const decided = data.weeks.reduce((a, w) => a + w.auto + w.person, 0);
-  const maxStep = Math.max(1, ...data.steps.map((s) => s.p95));
   const rounded = data.rounds.reduce((a, r) => a + r.count, 0);
   return (
     <>
@@ -132,32 +160,10 @@ export function InsightsView({ data }: { data: Insights }) {
         <Weeks weeks={data.weeks} />
       </section>
 
-      <section className="mb-10 overflow-x-auto">
-        <SectionHeading>Steps</SectionHeading>
-        <table className="w-full min-w-[36rem]">
-          <thead className="text-left text-xs text-muted-foreground">
-            <tr>
-              <th className={th}>Step</th>
-              <th className={`${th} text-right`}>Runs</th>
-              <th className={`${th} pl-4`}>Time, p50 to p95</th>
-              <th className={`${th} text-right`}>p50</th>
-              <th className={`${th} text-right`}>p95</th>
-              <th className={`${th} text-right`}>Blocked here</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.steps.map((s) => (
-              <tr key={s.step} className="border-t border-rule">
-                <td className="py-2.5 pr-4">{words(s.step)}</td>
-                <td className="text-right">{s.reached || "—"}</td>
-                <td className="w-1/2 pl-4">{s.reached > 0 && <Range p50={s.p50} p95={s.p95} max={maxStep} />}</td>
-                <td className="pl-4 text-right">{s.reached ? duration(s.p50) : "—"}</td>
-                <td className="pl-4 text-right text-muted-foreground">{s.reached ? duration(s.p95) : "—"}</td>
-                <td className={`pl-4 text-right ${s.blocked ? "text-destructive" : "text-muted-foreground"}`}>{s.blocked || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <section className="mb-10">
+        <SectionHeading>The line</SectionHeading>
+        <p className="mb-4 text-muted-foreground">How many runs reached each step, how many it blocked, and how long it took on a usual and on a slow run.</p>
+        <Line steps={data.steps} />
       </section>
 
       <div className="mb-10 grid gap-10 lg:grid-cols-2">

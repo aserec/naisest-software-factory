@@ -36,6 +36,12 @@ test("a week's cost turns to a warning from 80% of its budget, and a target with
   expect(screen.getAllByText("$3.00").length).toBeGreaterThan(0);
 });
 
+test("the line gives each step its runs, its blocks and its times", () => {
+  render(<InsightsView data={base} />);
+  expect(screen.getByLabelText("Code review: reached by 6, 2 blocked here, 1 m on a usual run, 5 m on a slow one")).toBeTruthy();
+  expect(screen.getByText("2 blocked").className).toContain("text-destructive");
+});
+
 test("a page with no runs says so", () => {
   render(<InsightsView data={{ ...base, runs: 0 }} />);
   expect(screen.getByText("No runs in these weeks yet.")).toBeTruthy();
