@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RunEvent } from "software-factory/run-events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const session = vi.hoisted(() => ({ on: true }));
 const ci = vi.hoisted(() => ({ jobLog: vi.fn() }));
@@ -19,6 +19,7 @@ process.env.TARGETS_DIR = dir;
 const { getDb } = await import("@/server/db-instance");
 const { GET: getBoard } = await import("./board/route");
 const { GET: getEvents } = await import("./events/route");
+const { GET: getStream } = await import("./events/stream/route");
 const { GET: getLog } = await import("./jobs/[job]/log/route");
 const { GET: getDispatches } = await import("./dispatches/route");
 const { GET: getSwitchHistory } = await import("./switches/history/route");
@@ -38,6 +39,7 @@ describe("session-only routes", () => {
     session.on = false;
     expect((await getBoard()).status).toBe(401);
     expect((await getEvents(new Request("http://x/api/events?run=r"))).status).toBe(401);
+    expect((await getStream(new Request("http://x/api/events/stream?run=r"))).status).toBe(401);
     expect((await log("1")).status).toBe(401);
     expect((await getDispatches()).status).toBe(401); // the proxy lets /api/dispatches through for outside systems
     expect((await getSwitchHistory()).status).toBe(401);
@@ -110,6 +112,65 @@ describe("GET /api/events", () => {
   it("asks for a run and a good cursor", async () => {
     expect((await getEvents(new Request("http://x/api/events"))).status).toBe(400);
     expect((await getEvents(new Request("http://x/api/events?run=r&after=-1"))).status).toBe(400);
+  });
+});
+
+describe("GET /api/events/stream", () => {
+  afterEach(() => vi.useRealTimers());
+  const open = async (url: string, init?: RequestInit) => {
+    const abort = new AbortController();
+    const res = await getStream(new Request(url, { ...init, signal: abort.signal }));
+    const reader = res.body!.getReader();
+    const next = async () => new TextDecoder().decode((await reader.read()).value);
+    return { res, next, reader, abort };
+  };
+  const seqs = (chunk: string) => (JSON.parse(chunk.match(/^data: (.*)$/m)![1]) as { seq: number }[]).map((e) => e.seq);
+
+  it("sends the run's events with the last seq as id, then the new ones, and resumes after Last-Event-ID", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    getDb().addEvents([ev("run_start", 5, "st1"), ev("step_start", 4, "st1", {}, "triage")]);
+    const { res, next, reader, abort } = await open("http://x/api/events/stream?run=st1");
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const first = await next();
+    const [a, b] = seqs(first);
+    expect(first).toMatch(new RegExp(`^id: ${b}\n`));
+    getDb().addEvents([ev("step_end", 3, "st1", { outcome: "next" }, "triage")]);
+    vi.advanceTimersByTime(500);
+    const second = await next();
+    expect(seqs(second)).toEqual([b + 1]);
+    vi.advanceTimersByTime(15_000);
+    expect(await next()).toBe(": heartbeat\n\n");
+    abort.abort(); // the page went away: the stream closes and stops asking
+    expect((await reader.read()).done).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    // A reconnect sends Last-Event-ID, which wins over the after in the URL.
+    const again = await open("http://x/api/events/stream?run=st1&after=0", { headers: { "Last-Event-ID": String(a) } });
+    expect(seqs(await again.next())).toEqual([b, b + 1]);
+    again.abort.abort();
+  });
+
+  it("sends an empty first batch for a run without events, and asks for a run", async () => {
+    const { next, abort } = await open("http://x/api/events/stream?run=none");
+    expect(await next()).toBe("id: 0\ndata: []\n\n");
+    abort.abort();
+    expect((await getStream(new Request("http://x/api/events/stream"))).status).toBe(400);
+  });
+
+  it("ends once the run has a run_end and stayed quiet, and not before", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    getDb().addEvents([ev("run_start", 5, "st2")]);
+    const { next, reader } = await open("http://x/api/events/stream?run=st2");
+    await next();
+    vi.advanceTimersByTime(20_000); // quiet, but the run has not ended: only heartbeats
+    expect(await next()).toBe(": heartbeat\n\n");
+    getDb().addEvents([ev("run_end", 1, "st2", { outcome: "done" })]);
+    vi.advanceTimersByTime(500);
+    await next(); // the run_end itself
+    vi.advanceTimersByTime(9_000); // 9 s quiet: not yet
+    vi.advanceTimersByTime(1_000); // the 30 s heartbeat, then 10 s quiet: the end
+    let rest = "";
+    for (let r = await reader.read(); !r.done; r = await reader.read()) rest += new TextDecoder().decode(r.value);
+    expect(rest).toBe(": heartbeat\n\nevent: end\ndata: \n\n");
   });
 });
 
