@@ -82,7 +82,7 @@ test("the finding names what waits for a person, and says so when nothing does",
 });
 
 test("durations and ages read as people say them", () => {
-  expect([duration(42), duration(540), duration(8400)]).toEqual(["42 s", "9 m", "2 h 20 m"]);
+  expect([0.25, 42, 540, 545, 8400].map(duration)).toEqual(["250 ms", "42 s", "9 m", "9 m 5 s", "2 h 20 m"]);
   const now = Date.parse("2026-11-01T12:00:00Z");
   expect([ago("2026-11-01T11:59:40Z", now), ago("2026-11-01T11:12:00Z", now), ago("2026-10-30T12:00:00Z", now), ago("", now)]).toEqual(["just now", "48 m ago", "2 d ago", undefined]);
 });

@@ -5,11 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// "45 s", "9 m", "2 h 20 m". Durations under a minute keep their seconds.
+// "250 ms", "45 s", "9 m 5 s", "2 h 20 m". Under a second shows milliseconds, under an hour keeps its seconds.
 export function duration(secs: number) {
-  if (secs < 60) return `${Math.max(0, Math.round(secs))} s`;
+  if (secs < 1) return `${Math.max(0, Math.round(secs * 1000))} ms`;
+  const s = Math.round(secs);
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.floor(s / 60)} m${s % 60 ? ` ${s % 60} s` : ""}`;
   const m = Math.round(secs / 60);
-  return m < 60 ? `${m} m` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ""}`;
+  return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ""}`;
 }
 
 // "just now", "48 m ago", "3 h ago", "2 d ago"; undefined for a date that does not parse.
