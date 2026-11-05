@@ -1343,7 +1343,7 @@ test("the first author prompt tells how the preview runs, or to take no screensh
 });
 test("a reviewer model that does not read images gets none, and every screen is unsure", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
-  w.ctx.seams.providers.tensorx.images = [];
+  w.ctx.seams.providers[w.ctx.router.low.reviewer.provider].images = [];
   await runBuildPipeline(w);
   const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
   expect(job.images).toBeUndefined();
@@ -1351,7 +1351,7 @@ test("a reviewer model that does not read images gets none, and every screen is 
 });
 test("a harness that does not read images gets none, and the screen is unsure", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
-  w.ctx.harnesses.pi = { ...w.harness, images: false };
+  w.ctx.harnesses[w.ctx.router.low.reviewer.harness] = { ...w.harness, images: false };
   await runBuildPipeline(w);
   const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
   expect(job.images).toBeUndefined();
@@ -1359,7 +1359,7 @@ test("a harness that does not read images gets none, and the screen is unsure", 
 });
 test("a does_not_match from a reviewer that cannot read images does not block", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] });
-  w.ctx.seams.providers.tensorx.images = [];
+  w.ctx.seams.providers[w.ctx.router.low.reviewer.provider].images = [];
   await runBuildPipeline(w);
   expect(w.states).not.toContain("blocked");
   expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure" }] });

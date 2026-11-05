@@ -178,7 +178,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const seams = loadSeams();
   // The router's reviewer reads images in these tests, whatever seams.yml lists.
   const router = loadRouter(undefined, seams);
-  seams.providers.tensorx.images = [router.low.reviewer.model];
+  seams.providers[router.low.reviewer.provider].images = [router.low.reviewer.model];
   const harnesses = {} as Record<HarnessName, Harness>;
   for (const n of HARNESS_NAMES) harnesses[n] = harness;
   const ctx: StepContext = {
