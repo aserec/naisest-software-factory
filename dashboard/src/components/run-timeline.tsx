@@ -228,7 +228,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => stepIndex(l.start.step)));
   const first = Math.min(...rows.map((l) => stepIndex(l.start.step)).filter((i) => i >= 0));
-  const at = stepIndex((live ?? rows.at(-1)!).start.step);
+  const at = live ? stepIndex(live.start.step) : reached; // the last row can be a review that ran inside the gate
   const nowText = live ? words(live.start.step ?? "") : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
   const waited = paused && !view.ended && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
