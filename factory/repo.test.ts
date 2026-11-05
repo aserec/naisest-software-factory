@@ -138,6 +138,16 @@ test("gate sandbox: agent network allowlist, no /proc, writes only to the clone,
   expect(local.network).toMatchObject({ allowLocalBinding: true });
 });
 
+// srt sets TMPDIR to /tmp/claude, and tsx binds its IPC pipe there. Without this the gate fails with listen EPERM.
+test("gate sandbox lets tsx open its IPC pipe: macOS allows the sandbox TMPDIR, Linux allows every unix socket", () => {
+  const mac = sandboxSettings("/w/run/target", "/tmp/h", undefined, "darwin").network;
+  expect(mac.allowUnixSockets).toEqual(["/tmp/claude", "/private/tmp/claude"]);
+  expect(mac).not.toHaveProperty("allowAllUnixSockets");
+  const linux = sandboxSettings("/w/run/target", "/tmp/h", undefined, "linux").network;
+  expect(linux.allowAllUnixSockets).toBe(true);
+  expect(linux).not.toHaveProperty("allowUnixSockets");
+});
+
 test("readFile refuses links and paths that leave the clone", async () => {
   const root = mkdtempSync(join(tmpdir(), "repo-read-"));
   const dir = join(root, "target");
