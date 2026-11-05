@@ -16,6 +16,13 @@ export function isRequest(body: string): boolean {
   return MENTION.test(body);
 }
 
+// A line that stops the run, and the bare stop or resume comment: commands to the factory, not requests.
+export const hasStopLine = (body: string) => body.split("\n").some((l) => l.trim().toLowerCase() === COMMANDS[0]);
+export const isBareCommand = (body: string) => COMMANDS.includes(body.trim());
+
+// The comments people wrote: the factory's own are left out, even when they quote a command.
+export const byPeople = (comments: Comment[]) => comments.filter((c) => !c.byFactory);
+
 export const later = (a: string | undefined, b: string | undefined): string | undefined =>
   a === undefined || b === undefined ? (a ?? b) : Date.parse(b) > Date.parse(a) ? b : a;
 
@@ -170,8 +177,10 @@ export interface Conversation {
   // The requests on a change, in the list's order, that no answer or round has taken up: after the change's cursor and the work item's.
   unanswered(change: ChangeRef, ref: TicketRef, since: string): Promise<Comment[]>;
   // What the running agent gets: comments of trusted people on the work item and its change after `since`, oldest first.
-  // `until`: the time of the newest comment read, trusted or not. Throws when the judge fails: nothing is lost, the caller reads again.
-  news(ref: TicketRef, since: string, change?: ChangeRef): Promise<{ until?: string; comments: (Comment & { injection: boolean })[] }>;
+  // `until`: the time of the newest comment read, trusted or not. `stop`: a trusted comment has a stop line; it is found before the
+  // injection check, because it orders the factory and not the agent. When the judge fails, `comments` is empty and there is no
+  // `until`: nothing is lost, the caller reads the same comments again.
+  news(ref: TicketRef, since: string, change?: ChangeRef): Promise<{ until?: string; stop: boolean; comments: (Comment & { injection: boolean })[] }>;
   // Does the comment try to give an AI agent orders? Fails closed (a judge answer that is not a number counts as yes) and throws when the judge gives none.
   isInjection(c: Pick<Comment, "author" | "body">): Promise<boolean>;
   write(ref: TicketRef, note: Note): Promise<void>;
@@ -240,9 +249,15 @@ export function conversation(seams: { tracker: Tracker; codeHost: CodeHost; judg
     async news(ref, since, change) {
       const all = oldestFirst([...(await tracker.comments(ref, since)).reverse(), ...(change ? await codeHost.changeComments(change, since) : []).reverse()]);
       const kept = await people(all, {});
+      const stop = kept.some((c) => hasStopLine(c.body));
       const comments: (Comment & { injection: boolean })[] = [];
-      for (const c of kept) comments.push({ ...c, injection: await isInjection(c) });
-      return { ...(all.length > 0 ? { until: all.reduce((latest, c) => later(latest, c.at)!, since) } : {}), comments };
+      try {
+        for (const c of kept) comments.push({ ...c, injection: await isInjection(c) });
+      } catch (e) {
+        console.log(`Judge failed for the comments of ticket ${ref}: ${String(e).slice(0, 300)}`);
+        return { stop, comments: [] };
+      }
+      return { ...(all.length > 0 ? { until: all.reduce((latest, c) => later(latest, c.at)!, since) } : {}), stop, comments };
     },
     isInjection,
     write: (ref, note) => tracker.comment(ref, noteText(note)),

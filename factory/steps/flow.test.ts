@@ -914,6 +914,26 @@ test("a stopped ticket holds a run slot", async () => {
   expect(w.record.steps.at(-1)?.data).toMatchObject({ reason: "repo-full" });
 });
 // A stop posted between author runs (here during code review) must still stop the run before it merges.
+test("a stop comment posted during code review still stops when the judge is down at the decision step", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  const run = w.harness.run;
+  let down = false;
+  const ask = w.judge.ask;
+  w.judge.ask = async (state, qs) => {
+    if (down && qs.some((q) => q.id === "injection")) throw new Error("Berget Jev call failed: HTTP 503");
+    return ask(state, qs);
+  };
+  w.harness.run = async (job) => {
+    if (job.role === "reviewer") {
+      w.tracker.say("8", "dev", "@factory stop", new Date(Date.now() + 1000).toISOString());
+      down = true;
+    }
+    return run(job);
+  };
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["stopped"]); // a stopped run a person can resume, not a blocked one
+});
 test("a stop comment posted during code review leads to stopped, not a merge", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   const run = w.harness.run;

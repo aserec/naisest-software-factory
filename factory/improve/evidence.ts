@@ -1,6 +1,6 @@
 // A week of corrections people made to the factory in one target: the evidence for the weekly improve job.
 // Text written by people reaches models as data, after scrub and the injection check.
-import { isRequest, newestNote } from "../conversation";
+import { byPeople, isBareCommand, isRequest, newestNote } from "../conversation";
 import { HISTORY_LIMIT } from "../run-events";
 import type { RunEvent } from "../seams";
 import type { StepContext } from "../steps/context";
@@ -69,13 +69,12 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
       const evs = week.filter((e) => e.ticket === ref);
       const ticket = await tracker.ticket(ref);
       const comments = await tracker.comments(ref); // all of them: the factory may have spoken before the week began
-      const people = comments.filter((c) => !c.byFactory);
+      const people = byPeople(comments);
       const out: Evidence[] = loopEvidence(evs, () => ticket.url);
 
       const firstFactory = Math.min(...comments.filter((c) => c.byFactory).map((c) => ms(c.at)));
       for (const c of people) {
-        const line = c.body.trim();
-        if (ms(c.at) >= ms(since) && ms(c.at) > firstFactory && line !== "@factory stop" && line !== "@factory resume") out.push({ kind: "ticket_reply", link: ticket.url, at: c.at, text: c.body });
+        if (ms(c.at) >= ms(since) && ms(c.at) > firstFactory && !isBareCommand(c.body)) out.push({ kind: "ticket_reply", link: ticket.url, at: c.at, text: c.body });
       }
       // Only the close: the factory's question about a possible duplicate says nothing about a wrong close.
       const dupe = newestNote(comments, "duplicate");
@@ -90,7 +89,7 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
         // Comments from the oldest decision on, so a request after it counts even before the week.
         const from = [since, ...strict.map((d) => d.at)].sort((a, b) => ms(a) - ms(b))[0];
         const onChange = await codeHost.changeComments(change.ref, new Date(ms(from) - 1).toISOString()); // newest first
-        for (const c of onChange.filter((c) => !c.byFactory && ms(c.at) >= ms(since))) out.push({ kind: "change_comment", link: change.url, at: c.at, text: c.body });
+        for (const c of byPeople(onChange).filter((c) => ms(c.at) >= ms(since))) out.push({ kind: "change_comment", link: change.url, at: c.at, text: c.body });
         const edit = (await codeHost.changeEdits(change.ref, since)).filter((e) => !e.byFactory && ms(e.at) >= ms(since)).sort((a, b) => ms(b.at) - ms(a.at))[0];
         if (edit) out.push({ kind: "change_edit", link: change.url, at: edit.at, text: `${change.title}\n\n${change.body}` });
 
@@ -98,7 +97,7 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
         const mergedThisWeek = change.merged && (!change.mergedAt || ms(change.mergedAt) >= ms(since));
         if (mergedThisWeek && strict.length > 0 && (await codeHost.changeCommits(change.ref)).every((c) => c.byFactory)) {
           for (const d of strict) {
-            const asked = [...onChange, ...comments].some((c) => !c.byFactory && ms(c.at) > ms(d.at) && isRequest(c.body));
+            const asked = byPeople([...onChange, ...comments]).some((c) => ms(c.at) > ms(d.at) && isRequest(c.body));
             if (!asked) out.push({ kind: "too_strict", link: change.url, at: d.at, text: (d.data.reasons as string[]).join("; ") });
           }
         }
