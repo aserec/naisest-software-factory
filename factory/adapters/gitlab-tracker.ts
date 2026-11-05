@@ -95,9 +95,9 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     isFactory: async (actor) => actor === (await botName()),
     async trusted(actor) {
       if (actor === (await botName())) return false;
-      const id = await userId(actor);
+      const [id, project] = [await userId(actor), await projectId()];
       try {
-        return (await gitlab.getJson(`/projects/${await projectId()}/members/all/${id}`)).access_level >= DEVELOPER;
+        return (await gitlab.getJson(`/projects/${project}/members/all/${id}`)).access_level >= DEVELOPER;
       } catch (e) {
         if (String(e).includes("status 404")) return false; // not a member
         throw e;

@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { eventsOfType, STEPS, stepIndex, type EventData, type EventType, type RunEvent } from "software-factory/run-events";
+import { eventsOfType, STEPS, stepIndex, type EventType, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd, words } from "@/lib/utils";
@@ -222,7 +222,8 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
   const last = Math.max(...times);
   const span = Math.max(Math.max(last, over ? 0 : nowMs) - from, 1);
   const live = rows.find((l) => !l.end);
-  const stuck = (l: Lane) => view.stuck && l === live;
+  const { lastStep } = view;
+  const stuck = (l: Lane) => view.stuck && !!lastStep && l.start.step === lastStep.step && l.start.at === lastStep.startedAt;
   const open = rows.find((l) => l.start.id === openId);
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => stepIndex(l.start.step)));

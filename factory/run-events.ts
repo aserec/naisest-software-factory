@@ -13,7 +13,6 @@ export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume"
 
 // The steps of a run in order. The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
 export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"] as const;
-export type StepName = (typeof STEPS)[number];
 // Where a job name sits in STEPS, or -1. CI job names also hold steps that are not in STEPS (poll, watcher), so callers hold plain strings.
 const STEP_NAMES: readonly string[] = STEPS;
 export const stepIndex = (name = "") => STEP_NAMES.indexOf(name);

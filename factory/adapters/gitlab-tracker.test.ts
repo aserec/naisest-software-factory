@@ -166,6 +166,12 @@ describe("people", () => {
     expect(await t.isFactory("factory-bot")).toBe(true);
     expect(await t.isFactory("ann")).toBe(false);
   });
+  // A wrong project path is a setup error, not "this person is not a member".
+  test("trusted throws when the project is not found, instead of meaning untrusted", async () => {
+    routes["/users"] = { body: [{ id: 5 }] };
+    delete routes[`/projects/${encodeURIComponent(PATH)}`];
+    await expect(tracker().trusted("ann")).rejects.toThrow("status 404");
+  });
   test("startedBy names who added the ready label last", async () => {
     routes["/projects/7/issues/8/resource_label_events"] = { body: [
       { action: "add", label: { name: "factory_ready" }, user: { id: 5 } },

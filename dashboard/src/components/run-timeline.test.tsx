@@ -75,6 +75,15 @@ test("marks the running step past its limit as Stuck, and not a recent one, an e
   expect(await run([lane("prepare-patch", old)], "stopped")).not.toContain("Stuck");
 });
 
+test("the Stuck badge sits on the run's last step, not on an earlier lane that never ended", async () => {
+  const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const events = [{ ...ev("step_start", "00", { step: "prepare-patch" }), at: at(200) }, { ...ev("step_start", "01", { step: "code-review" }), at: at(30) }];
+  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 2 })));
+  renderWithQuery(<RunTimeline run="r1" limits={{ "prepare-patch": 120, "code-review": 20 }} />);
+  expect((await screen.findByRole("button", { name: /Code review/ })).textContent).toContain("Stuck");
+  expect(screen.getByRole("button", { name: /Implement/ }).textContent).not.toContain("Stuck");
+});
+
 test("a running step and the run's time count to now, not to the last event", async () => {
   const at = new Date(Date.now() - 5 * 60_000).toISOString();
   vi.stubGlobal("fetch", vi.fn(async () => json({ events: [{ ...ev("run_start", "00"), at }, { ...ev("step_start", "00", { step: "code-review" }), at }], cursor: 2 })));

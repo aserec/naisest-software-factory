@@ -16,7 +16,7 @@ export interface RunView {
   restarted: boolean; // a restart of this run is done
   pending: Action[]; // requests that wait for the factory; a cancelled stop does not count
   actions: Action[]; // what a person may request now
-  refusals: Partial<Record<Action, string>>; // why each action in no `actions` is refused
+  refusals: Partial<Record<Action, string>>; // why each action that is not in `actions` is refused
 }
 
 export interface RunViewInput {

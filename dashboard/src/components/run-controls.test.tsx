@@ -44,7 +44,7 @@ test("shows the actions the server allows, in its order", async () => {
   await screen.findByRole("button", { name: "Resume" });
   expect(names()).toEqual(["Resume", "Restart"]);
   cleanup();
-  server({ state: "running", cancelled: true, actions: ["restart"] });
+  server({ state: "running", actions: ["restart"] });
   renderWithQuery(<RunControls run="r1" />);
   await screen.findByRole("button", { name: "Restart" });
   expect(names()).toEqual(["Restart"]);
