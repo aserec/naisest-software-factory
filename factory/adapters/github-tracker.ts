@@ -58,6 +58,9 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
     const p = d.repositoryOwner?.projectV2;
     if (!p?.field?.id) throw new Error(`GitHub project ${owner}/${number} not found, or it has no Status field`);
     return { id: p.id, field: p.field.id, options: p.field.options };
+  }).catch((e) => {
+    found = undefined; // a failed lookup is tried again on the next call, not kept for the whole run
+    throw e;
   }));
   // The issue, its node id, and its card on this board, if any.
   const item = async (ref: string) => {

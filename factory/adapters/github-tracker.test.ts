@@ -100,6 +100,16 @@ describe("board", () => {
     await expect(t().setState("8", "running")).rejects.toThrow(/no column for running/);
   });
 
+  test("a failed board lookup is tried again on the next call", async () => {
+    let missing = true;
+    graph = (q) => q.includes("projectV2(number") ? (missing ? { repositoryOwner: null } : project) : q.includes("addProjectV2ItemById") ? { addProjectV2ItemById: { item: { id: "IT" } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [] } } } };
+    const tracker = t();
+    await expect(tracker.setState("8", "ready")).rejects.toThrow(/not found/);
+    missing = false;
+    await tracker.setState("8", "ready");
+    expect(calls.at(-1)!.body.variables).toEqual({ p: "P", i: "IT", f: "F", o: "o-ready" });
+  });
+
   test("clearState clears the Status field of the issue's card, and does nothing when it has no card", async () => {
     let nodes: object[] = [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready" } }];
     graph = (q) => q.includes("projectV2(number") ? project : q.includes("clearProjectV2ItemFieldValue") ? {} : { repository: { issue: { ...gqlIssue(), projectItems: { nodes } } } };
