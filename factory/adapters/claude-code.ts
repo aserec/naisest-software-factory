@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
@@ -18,7 +18,7 @@ export const INBOX_HOOK = fileURLToPath(new URL("./claude-inbox-hook.ts", import
 // The settings the agent runs with: the factory file, a hook from a fixed absolute dir, Read denies for the config dir,
 // and the same sandbox rules as install and gate commands. cwd is the target clone.
 // With an inbox file, a second hook hands new ticket comments to the agent after every tool call (see claude-inbox-hook.ts).
-export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false, platform = process.platform, commands: string[] = []): any {
+export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false, platform = process.platform, commands: string[] = [], execPath = process.execPath): any {
   const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf8"));
   const rules = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
   const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
@@ -30,6 +30,11 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   if (env.HOME) settings.permissions.deny.push(`Read(/${env.HOME}/.*/**)`);
   settings.sandbox.network.allowedDomains = rules.network.allowedDomains;
   settings.sandbox.filesystem = { denyRead: sandboxDenyRead(cwd) };
+  // Claude Code's sandbox hides HOME, and the deny above turns into a sandbox deny too. node from nvm (~/.nvm/versions/
+  // node/vX) then still starts, but npm, npx and global tools are unreadable: "operation not permitted: npm".
+  // allowRead wins over both, for that one install dir only.
+  const prefix = dirname(dirname(execPath));
+  if (env.HOME && prefix.startsWith(`${env.HOME}${sep}`)) settings.sandbox.filesystem.allowRead = [prefix];
   if (preview) settings.sandbox.network.allowLocalBinding = true; // the author starts the target's dev server
   // tsx always opens an IPC pipe in TMPDIR (/tmp/claude in the sandbox). macOS allows it through allowUnixSockets;
   // Linux ignores those paths and needs every unix socket allowed. The worker's step containers mount no host socket.
