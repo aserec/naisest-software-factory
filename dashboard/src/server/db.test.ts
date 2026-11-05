@@ -269,6 +269,51 @@ describe("dispatches", () => {
     db.dispatchDone(a.id);
     expect(db.dispatches("react_frontend").map((s) => s.id)).toEqual([b.id]);
   });
+
+  it("the log keeps done dispatches newest first, with when the run started and the work item it opened", () => {
+    const db = openDb(":memory:");
+    const d = (key: string) => db.addDispatch({ target: "react_frontend", source: "pip-audit", key, title: "t", details: "" });
+    const [a, b, c] = [d("a"), d("b"), d("c")];
+    db.addDispatch({ target: "other", source: "pip-audit", key: "k", title: "t", details: "" });
+    db.dispatchStarted("react_frontend", at(2));
+    db.dispatchDone(a.id, "https://gl/issues/7");
+    db.dispatchDone(b.id);
+    const log = db.dispatchLog("react_frontend", 10);
+    expect(log.map((x) => x.key)).toEqual(["c", "b", "a"]);
+    expect(log[2]).toMatchObject({ id: a.id, startedAt: at(2), workItem: "https://gl/issues/7" });
+    expect(log[2].doneAt).toBeDefined();
+    expect(log[1].doneAt).toBeDefined();
+    expect(log[1].workItem).toBeUndefined();
+    expect(log[0]).toMatchObject({ id: c.id, startedAt: at(2) });
+    expect(log[0].doneAt).toBeUndefined();
+    expect(db.dispatchLog("react_frontend", 1).map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it("adds the work_item column to a database made before it", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "old-")), "f.db");
+    new DatabaseSync(file).exec("CREATE TABLE dispatches (id TEXT PRIMARY KEY, target TEXT NOT NULL, source TEXT NOT NULL, key TEXT NOT NULL, title TEXT NOT NULL, details TEXT NOT NULL, link TEXT, at TEXT NOT NULL, started_at TEXT, done_at TEXT)");
+    const db = openDb(file);
+    const a = db.addDispatch({ target: "t", source: "s", key: "k", title: "t", details: "" });
+    db.dispatchDone(a.id, "https://gl/issues/1");
+    expect(db.dispatchLog("t", 1)[0].workItem).toBe("https://gl/issues/1");
+    openDb(file); // a second open does not add it twice
+  });
+});
+
+describe("switch changes", () => {
+  it("lists who changed which switch, newest first, up to the limit", () => {
+    const db = openDb(":memory:");
+    db.setSwitch("*", "apply", false, "ana");
+    db.setSwitch("demo", "watcher", false, "bo");
+    db.setSwitch("demo", "watcher", true, "cy");
+    db.addEvents([ev("run_start")]); // not a switch change
+    expect(db.switchChanges(10).map(({ at, ...c }) => (expect(at).toBeTruthy(), c))).toEqual([
+      { user: "cy", name: "watcher", scope: "demo", on: true },
+      { user: "bo", name: "watcher", scope: "demo", on: false },
+      { user: "ana", name: "apply", scope: "*", on: false },
+    ]);
+    expect(db.switchChanges(1).map((c) => c.user)).toEqual(["cy"]);
+  });
 });
 
 describe("history", () => {

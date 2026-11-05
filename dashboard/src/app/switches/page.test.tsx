@@ -62,6 +62,23 @@ test("while a change is sent, only that switch is disabled", async () => {
   expect(screen.getByRole("switch", { name: "Watcher for all targets" }).hasAttribute("disabled")).toBe(false);
 });
 
+test("the history shows who turned which switch on or off, for which target, and when", async () => {
+  const at = new Date(Date.now() - 3 * 3_600_000).toISOString();
+  const changes = [
+    { at, user: "ann", name: "auto_merge", scope: "*", on: false },
+    { at, user: "bo", name: "retry", scope: "demo", on: true },
+  ];
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url === "/api/switches/history" ? changes : { "*": all })));
+  renderWithQuery(<SwitchesPage />);
+  await screen.findAllByText("3 h ago");
+  const rows = screen.getAllByRole("row").filter((r) => r.textContent?.includes("3 h ago"));
+  expect(rows.map((r) => [...r.querySelectorAll("td")].map((c) => c.textContent))).toEqual([
+    ["ann", "Auto-merge", "All targets", "Off", "3 h ago"],
+    ["bo", "Auto-resume", "demo", "On", "3 h ago"],
+  ]);
+  expect(rows[0].querySelector("td:last-child")?.getAttribute("title")).toBe(new Date(at).toLocaleString());
+});
+
 test("a refused change names the switch and the missing role", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response("You need the Developer role on the factory project.", { status: 403 }) : json({ "*": all }))));
   renderWithQuery(<SwitchesPage />);
