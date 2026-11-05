@@ -13,7 +13,7 @@ import { CONTINUE, inbox, prompt, runStep, save, ticketText } from "./context";
 import type { HarnessJob, HarnessResult } from "../seams";
 import { previewLine } from "./prepare-patch";
 import * as preparePatchStep from "./prepare-patch";
-import { conversation, noteText } from "../conversation";
+import { conversation, md, noteText } from "../conversation";
 import { pollRequests } from "./requests";
 import { parseFactoryFile } from "../config";
 import { endIfClosed, handleRequests, resumeSwitchedOff } from "./run";
@@ -98,7 +98,7 @@ test("medium ticket: stops at decision with reasons on the MR and a Teams card",
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass" }));
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.mrComments.at(-1)).toContain("risk");
-  expect(w.mrComments.at(-1)).toContain("This change needs a person to review and merge it:");
+  expect(w.mrComments.at(-1)).toContain("This change needs a person to review and merge it.");
   expect(w.cards.map(c => c.kind)).toEqual(["needs_approval"]);
 });
 test("usage limit mid-run labels factory_waiting and keeps the session", async () => {
@@ -530,7 +530,7 @@ test("a poller start with no payload claims the run from live labels", async () 
 test("a resume continues at the limited step with the saved session", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
   expect(first.workItemComments.at(-1)).toContain("Waiting run: pipeline 1");
-  expect(first.workItemComments.at(-1)).toMatch(/^The author agent reached its usage limit\./); // the author may be any harness
+  expect(first.workItemComments.at(-1)).toContain("The author agent reached its usage limit."); // the author may be any harness
   const w = await resumeWorld({ jev1: { risk: "trivial" } }, first);
   await drain(w, "build");
   expect(w.restored).toEqual(["1"]);
@@ -757,8 +757,8 @@ test("the result comment shows the tokens used and the author's summary", async 
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   expect(w.record).toMatchObject({ tokens: { input: 100, output: 20 }, summary: "1. Which list?" });
   await resultSaved.run(w.ctx);
-  expect(w.workItemComments.at(-1)).toContain("Tokens: 100 in, 20 out");
-  expect(w.workItemComments.at(-1)).toContain("What changed: 1. Which list?");
+  expect(w.workItemComments.at(-1)).toContain("- **Tokens:** 100 in, 20 out");
+  expect(w.workItemComments.at(-1)).toContain("- **What changed:** 1. Which list?");
 });
 
 test("a webhook label start stops when factory_ready is no longer on the work item", async () => {
@@ -1193,7 +1193,7 @@ test("factory_ready starts a new run and says why when the blocked run's record 
     if (record) w.ci.save("1", record);
     else w.ci.runs.delete("1");
     await runBuildJobs(w, tmp());
-    expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([`The factory starts a new run, because it cannot continue the blocked run: the record of pipeline 1 ${why}.`]);
+    expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([md("🔄", "New run", "The factory starts a new run, because it cannot continue the blocked run.", `**Why:** the record of pipeline 1 ${why}.`)]);
     expect(w.restored).toEqual([]);
     expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1); // the new run's record, not the old one
     expect(w.finishTriggered).toBe(true);
@@ -1205,7 +1205,7 @@ test("a crash block names no run, so factory_ready after it starts a new run wit
   const run = crashed.harness.run;
   crashed.harness.run = async (job) => { if (job.role === "reviewer") throw new Error("reviewer crashed"); return run(job); };
   await expect(runBuildJobs(crashed, tmp())).rejects.toThrow("reviewer crashed");
-  expect(crashed.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nThe code-review step failed: Error: reviewer crashed");
+  expect(crashed.workItemComments.at(-1)).toBe(noteText({ kind: "blocked", reason: "The `code-review` step failed:\n\n```\nError: reviewer crashed\n```" }));
   const w = await readyAgain({}, crashed);
   expect(w.ci.runs.has("1")).toBe(false); // the crashed run saved no record
   await runBuildJobs(w, tmp());
@@ -1275,7 +1275,7 @@ test("a review after a gate fix that never passes blocks, and the reviewed mark 
 // 5 review rounds are used before the gate fix, so the review after it is a check only.
 test("a check-only review after a gate fix that fails blocks after 5 rounds, not 6", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [B], [B], [B], [], [B]] }));
-  expect(w.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nCode review did not pass after 5 rounds. Open findings:\n\n- the list never shows the spinner");
+  expect(w.workItemComments.at(-1)).toBe(noteText({ kind: "blocked", reason: "Code review did not pass after 5 rounds.\n\n**Open findings**\n\n- the list never shows the spinner", run: "1" }));
   expect(w.record.rounds.review).toBe(5);
 });
 test("maxAgentRounds from the thresholds file limits the code review rounds", async () => {
@@ -1572,6 +1572,16 @@ test("a review fix and a gate fix each send a patch step that owns the fix's too
   expect(events.filter((e) => e.type === "review_finding").every((e) => e.step === "code-review")).toBe(true);
 });
 
+// The review the gate runs after its fix is its own code-review step, so the dashboard shows it as a row.
+test("the review after a gate fix is a code-review step inside the gate, and its block keeps the gate as the step to continue", async () => {
+  const w = await runAllJobs(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[], [B], [B], [B], [B]] }));
+  const events = dash(w).events;
+  const starts = eventsOfType(events, "step_start").map((e) => e.step);
+  expect(starts.slice(starts.indexOf("precommit-gate"))).toEqual(["precommit-gate", "patch", "code-review", "patch", "patch", "patch"]);
+  expect(events.filter((e) => e.type === "review_finding" && e.data.round > 1).every((e) => e.step === "code-review")).toBe(true);
+  expect(runFacts(w.record).blockedStep).toBe("precommit-gate");
+});
+
 // Task B4: the dashboard switches. No saved value means on; an unreachable dashboard counts as on, except new_runs.
 const withSwitches = (w: ReturnType<typeof fakeWorld>, ...off: SwitchName[]) => {
   const switches = Object.fromEntries(SWITCHES.map((n) => [n, !off.includes(n)])) as Record<SwitchName, boolean>;
@@ -1711,7 +1721,7 @@ test("a restart ends the old run as blocked, sets ready, and that build's event 
   w.tracker.setState = async (ref, state) => (states.push(state), set(ref, state));
   await handleRequests(w.ctx);
   expect(states).toEqual(["blocked", "ready"]);
-  expect(w.workItemComments).toEqual(["Restarted from the dashboard by @ana. This run ends as blocked and a new run starts."]);
+  expect(w.workItemComments).toEqual([md("🔄", "Restarted", "@ana restarted the run from the dashboard. This run ends as blocked and a new run starts.")]);
   expect(w.ci.started).toEqual([{ kind: "build", ticket: "8" }]);
   expect(d.done).toEqual([["q1", "done"]]);
   const ends = d.events.filter((e) => e.type === "run_end");
@@ -1860,7 +1870,7 @@ test("a failed CODEOWNERS read or diff read goes to the default approver and doe
 });
 
 // Part C: a person closes the work item or the merge request while a run is on.
-const CLOSED_NOTE = "This merge request was closed because a person closed work item #8.";
+const CLOSED_NOTE = md("🚫", "Change closed", "This merge request was closed because a person closed work item #8.");
 const ends = (w: ReturnType<typeof fakeWorld>) => (w.ctx.dashboard as ReturnType<typeof fakeDashboard>).events.filter((e) => e.type === "run_end").map((e) => e.data.outcome);
 // The author run polls its inbox once, as the tool hook would, and stops on a stop. before: what happens first.
 function pollingAuthor(w: ReturnType<typeof fakeWorld>, before: () => void = () => {}) {
@@ -2035,7 +2045,7 @@ test("a request round restores the run, tells the work item, clears the marks an
   const dir = tmp();
   await eventJob(w, dir);
   expect(w.restored).toEqual(["41"]);
-  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `The factory started another round for the requests of @dev.`, at: T2 })]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: md("🔁", "New round", "The factory started another round for the requests of @dev."), at: T2 })]);
   expect(w.tracker.tickets.get("8")!.marks).toEqual(["triaged"]);
   expect(w.states).toEqual(["running"]);
   expect(w.record.rounds).toEqual({ review: 0, gate: 0 });
@@ -2191,7 +2201,7 @@ test("a round build whose build run is no longer the change's stops quietly as s
 test.each([["a judge that suspects injection", { injectionYes: 0.9 }], ["a judge that answers NaN", { injectionYes: NaN }]])("%s refuses the whole round and moves the cursor", async (_n, jev1) => {
   const { w } = await requestWorld({ jev1 });
   await eventJob(w);
-  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `@dev The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.`, at: T2 })]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: md("⚠️", "Request not acted on", "@dev The factory did not act on this request. The judge found it may try to give an AI agent orders, so a person must read it. The change still waits for a person."), at: T2 })]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).toContain("implemented");
@@ -2226,7 +2236,7 @@ test("a request round whose open change is not the record's change replies, keep
   const steps = first.record.steps.map((s) => (s.step === "precommit-gate" ? { ...s, data: { ...(s.data as object), change: "99" } } : s));
   w.ci.save("41", { ...first.record, steps });
   await eventJob(w);
-  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `@dev The factory could not start a round: the open change 5 is not the change of pipeline 41. The change still waits for a person.`, at: T2 })]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: md("⚠️", "Round not started", "@dev The factory could not start a round. The open change 5 is not the change of pipeline 41. The change still waits for a person."), at: T2 })]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "change-mismatch" } });
@@ -2264,8 +2274,8 @@ test("a round on a ticket that would merge alone goes to a person, not to a fini
 test("the round comment comes before the needs-a-person comment, which ends with the cursor line; the change goes to the newest request's author", async () => {
   const { w } = await finishedRound("x".repeat(5000));
   const [round, ask] = w.mrComments.slice(-2);
-  expect(round).toBe(`The factory finished the round for the requests of @dev @lead.\n\n${"x".repeat(4000)}`);
-  expect(ask).toBe(noteText({ kind: "cursor", text: `This change needs a person to review and merge it:\n\n- ${decision.ASKED}`, at: T3 }));
+  expect(round).toBe(md("✅", "Round finished", "The factory finished the round for the requests of @dev @lead.", "x".repeat(4000)));
+  expect(ask).toBe(noteText({ kind: "cursor", text: md("👀", "Needs a person", "This change needs a person to review and merge it.", `- ${decision.ASKED}`), at: T3 }));
   expect(w.host.assigned.at(-1)).toEqual({ ref: "5", person: "lead" }); // not the work item's assignee "owner"
 });
 test("the round closes with its own review rounds, gate rounds, cost and tokens", async () => {
@@ -2283,7 +2293,7 @@ test("the cursor line is the time the agent read up to, when that is later than 
   const at = "2026-10-01T14:00:00Z";
   w.ctx.record = { ...w.record, heardUntil: at, requestRounds: w.record.requestRounds!.map((r) => ({ ...r, endedAt: undefined })) }; // the round is open again
   await decision.askPerson(w.ctx, ["x"]);
-  expect(w.mrComments.at(-1)).toBe(noteText({ kind: "cursor", text: `This change needs a person to review and merge it:\n\n- x`, at: at }));
+  expect(w.mrComments.at(-1)).toBe(noteText({ kind: "cursor", text: md("👀", "Needs a person", "This change needs a person to review and merge it.", "- x"), at: at }));
 });
 test("a later resume of the requested run still goes to a person", async () => {
   const { w } = await finishedRound();
@@ -2296,7 +2306,7 @@ test("a later resume of the requested run still goes to a person", async () => {
 });
 test("a first run with no round writes the cursor line too", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" } }));
-  expect(w.mrComments.at(-1)).toMatch(/\n\nRequests read up to: \S+$/);
+  expect(w.mrComments.at(-1)).toMatch(/\nRequests read up to: \S+\n-->$/);
   expect(w.mrComments.at(-1)!.endsWith(noteText({ kind: "cursor", text: ``, at: runFacts(w.record).eventAt! }))).toBe(true);
 });
 

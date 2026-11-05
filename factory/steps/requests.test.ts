@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { main } from "./poll";
-import { noteText, refusal } from "../conversation";
+import { md, noteText, refusal } from "../conversation";
 import { fakeWorld, BOT, cursorOf } from "./test-helpers";
 import { answerRequests, pollRequests, replyOnChanges, REPLY_WINDOW_MS } from "./requests";
 import { askPerson } from "./decision";
@@ -128,7 +128,7 @@ test.each(["blocked", "needs_info"] as const)("a trusted request on a %s ticket 
   w.tracker.say("8", "dev", "@factory the list is the user list", T2);
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
   expect(w.tracker.tickets.get("8")!.state).toBe("ready");
-  expect(w.workItemComments).toEqual([noteText({ kind: "readyFor", text: "The factory starts again for the request of @dev.", person: "dev", cursor: T2 })]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "readyFor", text: md("▶️", "Starting again", "The factory starts again for the request of @dev."), person: "dev", cursor: T2 })]);
   expect(w.ci.started).toEqual([]); // the poller starts the ready ticket
 });
 test.each(["blocked", "needs_info"] as const)("a flagged request on a %s ticket gets the refusal with the cursor line and does not set it ready", async (state) => {
@@ -283,7 +283,7 @@ test("a trusted request on the change of a ticket the factory has not started ge
   const w = other(null);
   expect(await replyOnChanges(w.ctx)).toEqual(["8"]);
   expect(w.mrComments).toHaveLength(1);
-  expect(w.mrComments[0].startsWith("@dev ")).toBe(true);
+  expect(w.mrComments[0]).toContain("\n\n@dev ");
   expect(w.mrComments[0]).toContain("factory_ready");
   expect(cursorOf(w.mrComments[0])).toBe(T1);
   expect(w.ci.started).toEqual([]);

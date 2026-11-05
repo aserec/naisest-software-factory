@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { main, pollReady } from "./poll";
-import { noteText } from "../conversation";
+import { md, noteText } from "../conversation";
 import { endClosedRuns, finishCancelledStops, handleRequests } from "./run";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx, noteIn } from "./test-helpers";
@@ -74,7 +74,7 @@ test("a cancelled stop on a running ticket sets stopped, says why, and is marked
   expect(await finishCancelledStops(ctx)).toEqual(["r0"]);
   expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("stopped");
   const text = ctx.world.tracker.posted.map((p) => [p.ref, p.text]);
-  expect(text).toEqual([["r0", "The run was stopped from the dashboard by @dev. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\nReason: pipeline cancelled from the dashboard"]]);
+  expect(text).toEqual([["r0", noteText({ kind: "cancelled", user: "dev" })]]);
   expect(noteIn(text[0][1], "stopped")?.kind).toBe("cancelled");
   expect(dash.done).toEqual([["qr0", "done"]]);
 });
@@ -271,7 +271,7 @@ test("a restart of a run stopped at apply closes its change with a comment that 
   ctx.dashboard = fakeDashboard({ requests: [request("restart", "7")] });
   expect(await handleRequests(ctx)).toEqual(["7"]);
   expect(ref).toBe("5");
-  expect(ctx.world.host.mrComments).toEqual(["This change was closed because the run was restarted from the dashboard by @ana. The new run: https://ci.example/runs/new"]);
+  expect(ctx.world.host.mrComments).toEqual([md("🚫", "Change closed", "This change was closed because @ana restarted the run from the dashboard.", "**New run:** https://ci.example/runs/new")]);
   expect((await ctx.codeHost.change("5")).open).toBe(false);
   // A run that stopped before apply has no change to close.
   const other = stoppedCtx([personStop]);
@@ -289,7 +289,7 @@ test("a restart retry older than 15 minutes starts nothing, stops the ticket aga
   expect(await handleRequests(ctx)).toEqual([]);
   expect(ctx.world.ci.started).toEqual([]);
   expect(ctx.world.tracker.tickets.get("7")!.state).toBe("stopped");
-  expect(ctx.world.tracker.posted.map((p) => p.text)).toEqual(["The restart could not start a new run within 15 minutes. The ticket is stopped again. Press Restart on the dashboard to try again."]);
+  expect(ctx.world.tracker.posted.map((p) => p.text)).toEqual([md("⚠️", "Restart failed", "The restart could not start a new run within 15 minutes. The ticket is stopped again. Press **Restart** on the dashboard to try again.")]);
   expect(dash.done).toEqual([["q7", "refused"]]);
   expect(dash.events.filter((e) => e.type === "run_end")).toEqual([]);
 });
@@ -309,7 +309,7 @@ test("a closed needs_approval ticket loses its state and its open change is clos
   expect(await endClosedRuns(ctx)).toEqual(["8"]);
   expect(t.state).toBeUndefined();
   expect(w.host.changes.get("5")!.open).toBe(false);
-  expect(w.mrComments).toEqual(["This merge request was closed because a person closed work item #8."]);
+  expect(w.mrComments).toEqual([md("🚫", "Change closed", "This merge request was closed because a person closed work item #8.")]);
 });
 test("an open needs_approval ticket whose change was closed unmerged is blocked", async () => {
   const { ctx, w, t } = closedWorld("needs_approval");

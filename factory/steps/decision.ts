@@ -1,6 +1,6 @@
 import { emit } from "../emit";
 import { need } from "../record";
-import { conversation, later } from "../conversation";
+import { conversation, later, md } from "../conversation";
 import { proofReasons } from "../proof";
 import { decideMerge, type MergeDecision } from "../decision";
 import type { PersonRef, Ticket } from "../seams";
@@ -66,8 +66,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   save(ctx, "decision", d);
   emit(ctx, "decision", { auto: d.kind === "auto", reasons: d.kind === "auto" ? [] : d.reasons, risk: f.riskCheck?.risk?.diffRisk.value, riskMax: f.riskCheck?.thresholds?.diffRiskMax, changeUrl: f.changeUrl });
   if (d.kind === "auto") {
-    const rules = need(facts(ctx).riskCheck, "risk check").rules.map((r) => `- ${r.rule}: ${r.detail}`).join("\n");
-    await ctx.codeHost.commentChange(change, `The factory merges this without a person: triage risk was trivial or low, code review and precommit-gate passed, every hard rule passed and Jev 2 passed.\n\n${rules}`);
+    const rules = need(facts(ctx).riskCheck, "risk check").rules.map((r) => `- **${r.rule}:** ${r.detail}`).join("\n");
+    await ctx.codeHost.commentChange(change, md("🚀", "Merging without a person", "Triage risk was trivial or low. Code review, precommit-gate, every hard rule and Jev 2 passed.", rules));
     await ctx.ci.start({ kind: "finish", ticket: ref, change, buildRun: ctx.ci.vars.run });
     return "next";
   }
@@ -108,13 +108,13 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
   const round = f.openRound;
   if (round) {
     const authors = [...new Set(round.requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
-    await ctx.codeHost.commentChange(change, `The factory finished the round for the requests of ${authors}.${round.answer ? `\n\n${round.answer.slice(0, 4000)}` : ""}`);
+    await ctx.codeHost.commentChange(change, md("✅", "Round finished", `The factory finished the round for the requests of ${authors}.`, round.answer?.slice(0, 4000)));
   }
   // With nothing read yet: the run's first event, so a request written while the run was paused still counts as new.
   // After a resume the agent never saw what was written during the pause, so the cursor stays where this run or its round started reading.
   const first = ctx.record.steps.find((s) => s.step === "event")?.at;
   const read = f.resumed ? (ctx.record.requestRounds?.at(-1)?.cursor ?? first) : (later(ctx.record.heardUntil, round?.cursor) ?? first);
-  await conversation(ctx).writeOnChange(change, { kind: "cursor", text: `This change needs a person to review and merge it:\n\n${reasons.map((r) => `- ${r}`).join("\n")}`, at: read });
+  await conversation(ctx).writeOnChange(change, { kind: "cursor", text: md("👀", "Needs a person", "This change needs a person to review and merge it.", reasons.map((r) => `- ${r}`).join("\n")), at: read });
   if (round) {
     const t = ctx.record.tokens ?? { input: 0, output: 0 };
     const closed = { ...round, endedAt: new Date().toISOString(), ...ctx.record.rounds, costUsd: ctx.record.costUsd - round.costAtStart, tokens: { input: t.input - round.tokensAtStart.input, output: t.output - round.tokensAtStart.output } };

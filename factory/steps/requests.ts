@@ -1,5 +1,5 @@
 // Part G: a `@factory` request from a trusted person starts a round on a ticket that waits for a person, or gets a reply.
-import { conversation, later, refusal, stateReply } from "../conversation";
+import { conversation, later, md, refusal, stateReply } from "../conversation";
 import type { ChangeRef, FactoryState, Ticket, TicketRef } from "../seams";
 import { facts, save, type StepContext, type StepResult } from "./context";
 import { buildRunOf } from "./merge";
@@ -31,12 +31,12 @@ export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"star
         return "replied";
       }
     }
-    await conv.write(t.ref, { kind: "readyFor", text: `The factory starts again for the request of @${last.author}.`, person: last.author, cursor: last.at });
+    await conv.write(t.ref, { kind: "readyFor", text: md("▶️", "Starting again", `The factory starts again for the request of @${last.author}.`), person: last.author, cursor: last.at });
     await ctx.tracker.setState(t.ref, "ready");
     return "started";
   }
   const authors = [...new Set(requests.map((r) => r.author))];
-  await conv.write(t.ref, { kind: "cursor", text: authors.map((a) => stateReply(a, t.state)).join("\n\n"), at: requests.at(-1)!.at });
+  await conv.write(t.ref, { kind: "cursor", text: md("💬", "Request not taken up", ...authors.map((a) => stateReply(a, t.state))), at: requests.at(-1)!.at });
   return "replied";
 }
 
@@ -77,7 +77,7 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   const authors = [...new Set(requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
   // The change stays open and waiting, so a person can still merge it. The cursor line stops the poller from asking again.
   if (change.ref !== facts(ctx).change) {
-    await conv.write(ref, { kind: "cursor", text: `${authors} The factory could not start a round: the open change ${change.ref} is not the change of pipeline ${buildRun}. The change still waits for a person.`, at: newest });
+    await conv.write(ref, { kind: "cursor", text: md("⚠️", "Round not started", `${authors} The factory could not start a round. The open change ${change.ref} is not the change of pipeline ${buildRun}. The change still waits for a person.`), at: newest });
     return quiet("change-mismatch");
   }
   // From here the ticket either starts running or gets a cursor line, so the poller does not start the same round again.
@@ -95,7 +95,7 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
     return quiet("judge-error", String(e).slice(0, 500));
   }
   await ctx.ci.restoreRun(buildRun);
-  await conv.write(ref, { kind: "cursor", text: `The factory started another round for the requests of ${authors}.`, at: newest });
+  await conv.write(ref, { kind: "cursor", text: md("🔁", "New round", `The factory started another round for the requests of ${authors}.`), at: newest });
   for (const m of ["implemented", "reviewed", "checked", "risk_checked"] as const) if (t.marks.includes(m)) await ctx.tracker.unmark(ref, m);
   const rounds = [...(ctx.record.requestRounds ?? []), { cursor: newest, requests, costAtStart: ctx.record.costUsd, tokensAtStart: ctx.record.tokens ?? { input: 0, output: 0 } }];
   ctx.record = { ...ctx.record, rounds: { review: 0, gate: 0 }, requestRounds: rounds };
@@ -120,7 +120,7 @@ export async function replyOnChanges(ctx: StepContext, skip: TicketRef[] = []): 
       if (t.state && ["needs_approval", "running", "stopped", "waiting", "blocked", "needs_info"].includes(t.state)) continue;
       const newest = requests.reduce<string | undefined>((a, x) => later(a, x.at), undefined)!;
       const authors = [...new Set(requests.map((x) => x.author))];
-      await conv.writeOnChange(ref, { kind: "cursor", text: authors.map((a) => stateReply(a, t.state)).join("\n\n"), at: newest });
+      await conv.writeOnChange(ref, { kind: "cursor", text: md("💬", "Request not taken up", ...authors.map((a) => stateReply(a, t.state))), at: newest });
       replied.push(ticket);
     } catch (e) {
       console.log(`Reply on change ${ref} failed: ${String(e).slice(0, 300)}`);

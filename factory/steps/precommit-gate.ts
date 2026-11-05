@@ -6,9 +6,10 @@ import { need } from "../record";
 import { findSecrets } from "../rules";
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { review } from "./code-review";
-import { facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
+import { endOutcome, facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
 import { runLine, withoutMarks } from "./merge";
 import { block, endIfClosed, stopReason, stopped, waiting } from "./run";
+import { withStep } from "./with-step";
 
 const COMMIT_TITLE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^()]+\))?!?: \S.*$/;
 const slug = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
@@ -30,7 +31,7 @@ export function commitMessage(ctx: StepContext, ticketUrl: string): CommitMessag
 export function changeText(ctx: StepContext, links: Record<string, string> = facts(ctx).images ?? {}, failed: string[] = facts(ctx).uploadFailed ?? [], commit: CommitMessage = need(facts(ctx).commit, "commit message")) {
   const testChanges = ctx.repo.readFile("run/test-changes.md");
   const proof = proofSection(facts(ctx).proof, links, failed);
-  return { title: commit.title, body: [runLine(ctx.ci.vars.run, ctx.ci.vars.runUrl), `## Commit message\n\n${commit.message}`, ...(testChanges ? ["Changed tests, and why:", testChanges] : []), proof].join("\n\n") };
+  return { title: commit.title, body: [runLine(ctx.ci.vars.run, ctx.ci.vars.runUrl), `## Commit message\n\n${commit.message}`, ...(testChanges ? [`## Changed tests, and why\n\n${testChanges}`] : []), proof].join("\n\n") };
 }
 
 // The first try and 3 retries, with no wait. An image that never goes up is named in failed, and the run goes on.
@@ -64,11 +65,12 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
     if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
     if (result.kind === "stopped") return stopped(ctx, "precommit-gate", { session: result.sessionId, reason: stopReason(ctx) });
-    if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.join("\n")}`);
+    if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.map((o) => `\`\`\`\n${o}\n\`\`\``).join("\n\n")}`);
     if (!unreviewed && result.rounds === start) break; // passed with no fix since the last review
     // The rounds add up across passes, so this ends inside the review and gate round limits.
     await ctx.tracker.unmark(ref, "reviewed");
-    const r = await review(ctx, "precommit-gate");
+    // Its own code-review step, so the dashboard shows this review as a row after the gate's patch.
+    const r = await withStep(ctx, "code-review", () => review(ctx, "precommit-gate"), { outcome: (r) => endOutcome(ctx, typeof r === "string" ? r : "next") });
     if (typeof r === "string") return r;
     if (!r.fixed) break; // review passed on the code the gate passed
     unreviewed = false; // the review fixed code: run the gate again

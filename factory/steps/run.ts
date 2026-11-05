@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { emit, emitFor, runIds, type RunIds } from "../emit";
 import type { PausableStep } from "../record";
-import { conversation, type Read } from "../conversation";
+import { conversation, md, type Read } from "../conversation";
 import { STEPS, SWITCHES, type ControlRequest } from "../run-events";
 import type { ChangeRef, FactoryEvent, FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import type { FactoryCommands } from "../types";
@@ -95,10 +95,10 @@ export function doneBeforeResume(ctx: StepContext, name: string): boolean {
 
 // Stop the run for a person: state, comment, assign, notice.
 // continuable false: this pipeline fails, so its record never uploads and the comment names no run.
-export async function block(ctx: StepContext, reason: string, continuable = CONTINUABLE.includes(ctx.step ?? "")): Promise<StepResult> {
+export async function block(ctx: StepContext, reason: string, continuable = CONTINUABLE.includes(ctx.job ?? ctx.step ?? "")): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const t = await ctx.tracker.ticket(ref);
-  save(ctx, "blocked", { reason, step: ctx.step });
+  save(ctx, "blocked", { reason, step: ctx.job ?? ctx.step });
   if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
   await ctx.tracker.setState(ref, "blocked");
   endRun(ctx, "blocked");
@@ -149,7 +149,7 @@ async function closedNow(ctx: StepContext, ref: TicketRef, states: FactoryState[
 async function endClosed(ctx: StepContext, ref: TicketRef, closed: Closed): Promise<StepResult> {
   if (!closed.ticket) return block(ctx, `The merge request ${closed.url} was closed without a merge.`, false);
   if (closed.change?.open) {
-    await ctx.codeHost.commentChange(closed.change.ref, `This merge request was closed because a person closed work item #${ref}.`);
+    await ctx.codeHost.commentChange(closed.change.ref, md("🚫", "Change closed", `This merge request was closed because a person closed work item #${ref}.`));
     await ctx.codeHost.closeChange(closed.change.ref);
   }
   await ctx.tracker.clearState(ref);
@@ -300,7 +300,7 @@ export async function continueBlocked(ctx: StepContext, e: Extract<FactoryEvent,
   }
   if ("why" in c) {
     ctx.record = fresh;
-    await ctx.tracker.comment(e.ticket, `The factory starts a new run, because it cannot continue the blocked run: ${c.why}.`);
+    await ctx.tracker.comment(e.ticket, md("🔄", "New run", `The factory starts a new run, because it cannot continue the blocked run.`, `**Why:** ${c.why}.`));
     return undefined;
   }
   // The blocked job starts its rounds again. The gate job runs code review too.
@@ -388,7 +388,7 @@ async function resumeRequest(ctx: StepContext, r: ControlRequest): Promise<boole
 // The old run ends as blocked and the ticket is ready again. The new build's event step takes the factory's ready
 // as the request user's (readyActor), so it gets a new run ID.
 async function restart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
-  await ctx.tracker.comment(r.ticket, `Restarted from the dashboard by @${r.user}. This run ends as blocked and a new run starts.`);
+  await ctx.tracker.comment(r.ticket, md("🔄", "Restarted", `@${r.user} restarted the run from the dashboard. This run ends as blocked and a new run starts.`));
   await ctx.tracker.setState(r.ticket, "blocked");
   await ctx.tracker.setState(r.ticket, "ready");
   return startRestart(ctx, r);
@@ -399,7 +399,7 @@ async function restart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
 async function retryRestart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
   const age = Date.now() - Date.parse(r.at);
   if (age >= 0 && age <= RESTART_MS) return startRestart(ctx, r);
-  await ctx.tracker.comment(r.ticket, "The restart could not start a new run within 15 minutes. The ticket is stopped again. Press Restart on the dashboard to try again.");
+  await ctx.tracker.comment(r.ticket, md("⚠️", "Restart failed", "The restart could not start a new run within 15 minutes. The ticket is stopped again. Press **Restart** on the dashboard to try again."));
   await ctx.tracker.setState(r.ticket, "stopped");
   return false;
 }
@@ -419,6 +419,6 @@ async function closeStoppedChange(ctx: StepContext, r: ControlRequest, url: stri
   const note = await conversation(ctx).newest(r.ticket, "stopped");
   const change = note?.kind === "stopped" ? note.change : undefined;
   if (!change || !(await ctx.codeHost.change(change)).open) return;
-  await ctx.codeHost.commentChange(change, `This change was closed because the run was restarted from the dashboard by @${r.user}.${url ? ` The new run: ${url}` : ""}`);
+  await ctx.codeHost.commentChange(change, md("🚫", "Change closed", `This change was closed because @${r.user} restarted the run from the dashboard.`, url && `**New run:** ${url}`));
   await ctx.codeHost.closeChange(change);
 }

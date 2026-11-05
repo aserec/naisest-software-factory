@@ -8,7 +8,7 @@ import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type Triage
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
-import { conversation } from "../conversation";
+import { conversation, md } from "../conversation";
 import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, endRun, stopReason, stopped, waiting } from "./run";
 
@@ -37,10 +37,12 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     if (stopped) return stopped;
   }
   const a = answers;
-  await ctx.tracker.comment(ref, [
-    `Triage: type ${a.type.value}, risk ${a.risk.value} (confidence ${a.risk.confidence}), clarity ${a.clarity.value}, effort ${a.effort.value}.`,
-    `Outcome: ${outcome.kind}.`,
-  ].join("\n"));
+  await ctx.tracker.comment(ref, md(
+    "🔎",
+    "Triage",
+    ["| Type | Risk | Clarity | Effort |", "| --- | --- | --- | --- |", `| ${a.type.value} | ${a.risk.value} (confidence ${a.risk.confidence}) | ${a.clarity.value} | ${a.effort.value} |`].join("\n"),
+    `**Outcome:** \`${outcome.kind}\``,
+  ));
 
   if (outcome.kind === "blocked") {
     emit(ctx, "triage_outcome", { kind: "stop", title: "Stopped: a person must look at this work item", reasons: [outcome.reason] });
@@ -93,7 +95,7 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
   const why = `Jev compared it with #${o.ref} "${o.title}" and answered "${answers.verdict}" with ${answers.confidence} confidence.`;
   if (verdict === "same" && Number(o.ref) < Number(ref)) {
     emit(ctx, "triage_outcome", { kind: "stop", title: `Stopped: a duplicate of #${o.ref}, so the factory closed it`, reasons: [why, `#${o.ref} is older, so it keeps the work.`], url: o.url });
-    await conv.write(ref, { kind: "duplicate_close", text: `This work item asks for the same change as #${o.ref} (${o.url}), so the factory closed it as a duplicate. If it is a separate change, reopen it, say what is different, and add factory_ready again.` });
+    await conv.write(ref, { kind: "duplicate_close", text: md("🔂", "Closed as a duplicate", `This work item asks for the same change as #${o.ref} (${o.url}), so the factory closed it.`, "If it is a separate change, reopen it, say what is different, and add `factory_ready` again.") });
     await ctx.tracker.clearState(ref);
     await ctx.tracker.close(ref);
     endRun(ctx, "closed");
@@ -101,7 +103,7 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
   }
   emit(ctx, "triage_outcome", { kind: "ask", title: `Asks first: it may repeat #${o.ref}`, reasons: [why, "The factory closes a work item only when the answer is a sure same and the original is older, so it asked a person."], url: o.url });
   const text = await dedupeQuestion(ctx, o, answers.injectionYes);
-  await conv.write(ref, { kind: "duplicate_question", text });
+  await conv.write(ref, { kind: "duplicate_question", text: md("🔂", "Possible duplicate", text) });
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked whether the work item repeats another one."], "");
@@ -110,7 +112,7 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
 
 // The writer agent words the question, unless the candidates look like an injection or it forgets to name the original.
 async function dedupeQuestion(ctx: StepContext, o: Ticket, injectionYes: number): Promise<string> {
-  const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds in a comment that mentions @factory.`;
+  const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds in a comment that mentions \`@factory\`.`;
   if (!(injectionYes < INJECTION_LIMIT)) return fixed;
   const text = `${prompt("dedupe-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
   try {
@@ -131,7 +133,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
   if (r.limitHit) return waiting(ctx, "questions", r.session);
   if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
-  await ctx.tracker.comment(ref, `This ticket is not clear enough to build yet. Please answer these questions in a comment that mentions @factory, or edit the ticket and add factory_ready again.\n\n${r.text}`);
+  await ctx.tracker.comment(ref, md("❓", "Questions before the build", "This ticket is not clear enough to build yet. Answer these questions in a comment that mentions `@factory`, or edit the ticket and add `factory_ready` again.", r.text));
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked questions on the ticket."], "");
