@@ -2,9 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { GitLab } from "../gitlab";
-import { NotFactoryRunError } from "../seams";
 import { GITLAB_URL } from "../gitlab";
+import { NotFactoryRunError } from "../seams";
 import { extractRun, makeGitLabCi } from "./gitlab-ci";
 import { zip } from "./test-zip";
 

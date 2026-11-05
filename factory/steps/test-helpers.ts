@@ -6,12 +6,13 @@ import type { Finding } from "../agents";
 import { PROOF_DIR, PROOF_FILE } from "../proof";
 import { loadRouter, loadSeams, loadTarget } from "../config";
 import { FAKE_FACTORY, fakeChat, fakeCi, fakeCodeHost, fakeDashboard, fakeHarness, fakeJudge, fakeTracker } from "../fakes";
-import { addStep, newRecord, type StepData, type StepName } from "../record";
-import type { Checks, FactoryEvent, FactoryState, Harness, HarnessResult, JevAnswer, PersonRef, Repo } from "../seams";
+import { addStep, loadRecord, newRecord, type RunRecord, type StepData, type StepName } from "../record";
+import type { Checks, FactoryEvent, FactoryState, Harness, HarnessResult, JevAnswer, PersonRef, Repo, RunKind } from "../seams";
 import { HARNESS_NAMES, type HarnessName } from "../harnesses";
 import type { Risk } from "../types";
 import { runStep, type StepContext } from "./context";
-import { BUILD_STEPS, FINISH_STEPS, waitingNote } from "./run";
+import { noteText, newestNote, type Read, type ReadKind } from "../conversation";
+import { BUILD_STEPS, FINISH_STEPS } from "./run";
 import * as event from "./event";
 import * as triage from "./triage";
 import * as preparePatch from "./prepare-patch";
@@ -42,7 +43,7 @@ export interface WorldOptions {
   reviews?: Finding[][];
   gate?: "green" | "red";
   lintFails?: number; // the first n lint runs fail
-  prepare?: "ok" | "limit" | "stop";
+  prepare?: "ok" | "limit" | "stop"; // what the first author run does; the author runs after it go on
   fixLimit?: boolean; // the first fix run hits the usage limit
   fixStop?: boolean; // the first fix run finds @factory stop
   factoryFile?: string; // .factory.yml in the clone
@@ -73,6 +74,7 @@ export interface WorldOptions {
   dedupe?: { verdict?: "same" | "adds" | "different"; confidence?: number; closest?: string; injectionYes?: number } | "throw"; // the duplicate check's answers; default different
   writerText?: string; // the writer agent's reply
   writerThrows?: boolean; // the writer agent's call throws
+  runs?: Map<string, RunRecord>; // another world's ci.runs: this world resumes or finishes runs that world saved
 }
 
 export const COMMIT: CommitMessage = {
@@ -120,7 +122,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     ticket.open = false;
     return landed;
   };
-  const ci = fakeCi({ vars: { payload: o.payload ?? READY, run: "1", runUrl: "https://ci.example/runs/1" } });
+  const ci = fakeCi({ runs: o.runs, vars: { payload: o.payload ?? READY, run: "1", runUrl: "https://ci.example/runs/1" } });
   const chat = fakeChat();
   let dedupeAsked = 0;
   const judge = fakeJudge((q): JevAnswer => {
@@ -145,14 +147,14 @@ export function fakeWorld(o: WorldOptions = {}) {
   // The reviewer answers with the next review in the queue, as JSON text.
   const limit: Partial<HarnessResult> = { session: "sess-limit", ok: false, limitHit: true, text: "usage limit reached" };
   const stop: Partial<HarnessResult> = { session: "sess-stop", ok: false, stopped: true, text: "" };
+  let prepared = false;
   const harness = fakeHarness((job) => {
     if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []), toolCalls: [{ name: "Read", input: "{}", result: "x", ms: 1, ok: true }] };
     if (job.role === "writer" && o.writerThrows) throw new Error("writer harness crashed");
     if (job.role === "writer") return { text: o.writerText ?? "Does this belong in #9, or is it a separate change? This one also asks for a spinner." };
-    if (o.prepare === "limit" && !job.resume) return limit;
+    if ((o.prepare === "limit" || o.prepare === "stop") && !job.resume && !prepared) return ((prepared = true), o.prepare === "limit" ? limit : stop);
     if (o.fixLimit && job.resume) return limit;
     if (o.fixStop && job.resume) return stop;
-    if (o.prepare === "stop" && !job.resume) return stop;
     return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20, cacheRead: 7, cacheWrite: 3 }, contextTokens: 110, toolCalls: [{ name: "Read", input: '{"file_path":"a.ts"}', result: "text", ms: 12, ok: true }], text: "1. Which list?" };
   });
   const ran: string[] = [];
@@ -237,10 +239,38 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
   for (const s of steps) if ((await s.run(w.ctx)) === "stop") break;
   return w;
 }
-export const runBuildPipeline = (w: World) => runSteps(w, BUILD);
+// A build pipeline whose decision job ended well (no job failed; a stopped or waiting run counts, its jobs skip) leaves
+// its record with the CI, under its run ID, for the pipeline that continues it. A pipeline that threw leaves none,
+// and a finish pipeline never does: the real CIs refuse both (gitlab: no successful decision job; local-ci: no `ok` file).
+const keep = (w: World, record: RunRecord) => void (w.ci.vars.run && w.ci.save(w.ci.vars.run, record));
+export async function runBuildPipeline(w: World) {
+  await runSteps(w, BUILD);
+  keep(w, w.ctx.record);
+  return w;
+}
 // The build pipeline as CI runs it: one runStep per job, with the record passed through dir.
 export async function runBuildJobs(w: World, dir = mkdtempSync(join(tmpdir(), "jobs-"))) {
   for (const [i, s] of BUILD.entries()) await runStep(BUILD_STEPS[i], s.run, { dir, make: () => w.ctx });
+  keep(w, loadRecord(dir));
+  return w;
+}
+
+// Runs the pipelines the steps and the pollers started, oldest first, as CI would: each gets its own variables (as the
+// trigger sets them), a new run dir, and one runStep per job of its kind. The record it loads is the one its buildRun saved.
+// A pipeline that starts more pipelines (decision starts finish) gets them run too. `only`: run the queued pipelines of
+// that kind and leave the rest queued, to look at one pipeline alone.
+export async function drain(w: World, only?: RunKind) {
+  const next = () => {
+    const i = w.ci.queue.findIndex((q) => !only || q.kind === only);
+    return i < 0 ? undefined : w.ci.queue.splice(i, 1)[0];
+  };
+  for (let q = next(); q; q = next()) {
+    w.ci.vars = { skipApply: !!q.skipApply, runUrl: `https://ci.example/runs/${q.run}`, run: q.run, ticket: q.ticket, change: q.change, buildRun: q.buildRun };
+    w.ctx.dashboardStop = undefined; // a new process has not seen the dashboard's stop
+    const dir = mkdtempSync(join(tmpdir(), "pipeline-"));
+    for (const name of q.kind === "build" ? BUILD_STEPS : FINISH_STEPS) await runStep(name, MODULES[name].run, { dir, make: () => w.ctx });
+    if (q.kind === "build") keep(w, loadRecord(dir));
+  }
   return w;
 }
 
@@ -257,7 +287,7 @@ export function fakeCtx(o: { ready?: number[]; waiting?: { iid: number; sessionI
   // Person user-<ticket> set the ticket ready. Tickets in nonDeveloper were set ready by a Reporter.
   t.startedBy = async (ref) => `user-${ref}`;
   t.trusted = async (actor) => !(o.nonDeveloper ?? []).some((n) => actor === `user-${n}`);
-  t.comments = async (ref) => [{ author: o.noteAuthor ?? FAKE_FACTORY, byFactory: !o.noteAuthor, body: waitingNote(String(100 + Number(ref))), at: "2026-10-29T00:00:00Z" }];
+  t.comments = async (ref) => [{ author: o.noteAuthor ?? FAKE_FACTORY, byFactory: !o.noteAuthor, body: noteText({ kind: "waiting", run: String(100 + Number(ref)) }), at: "2026-10-29T00:00:00Z" }];
   const resumed: string[] = [];
   const start = world.ci.start;
   world.ci.start = async (run) => {
@@ -285,3 +315,7 @@ export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_appr
   w.ctx.record = r;
   return runSteps(w, FINISH);
 }
+
+// What a comment the factory wrote says, read back through the conversation module.
+export const noteIn = <K extends ReadKind>(body: string, kind: K): Read<K> | undefined => newestNote([{ author: FAKE_FACTORY, byFactory: true, body, at: "" }], kind);
+export const cursorOf = (body: string) => noteIn(body, "cursor")?.cursor;

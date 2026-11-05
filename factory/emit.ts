@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { maskSecrets } from "./rules";
-import { MAX_FIELD, type EventType, type RunEvent } from "./run-events";
+import { MAX_FIELD, type EventData, type EventType, type RunEvent } from "./run-events";
 import type { Dashboard } from "./seams";
 import type { StepContext } from "./steps/context";
 
@@ -12,10 +12,11 @@ const mask = (v: unknown): unknown =>
   typeof v === "string" ? maskSecrets(v) : Array.isArray(v) ? v.map(mask) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mask(x)])) : v;
 
 // Cut after masking, so a cut never leaves half a secret unmasked. A tail keeps its end.
-function cut(data: Record<string, unknown>): Record<string, unknown> {
+function cut<D extends object>(data: D): D {
+  const fields = data as Record<string, unknown>;
   for (const k of ["input", "result", "outputTail", "log"]) {
-    const s = data[k];
-    if (typeof s === "string" && s.length > MAX_FIELD) data[k] = k === "outputTail" || k === "log" ? s.slice(-MAX_FIELD) : s.slice(0, MAX_FIELD);
+    const s = fields[k];
+    if (typeof s === "string" && s.length > MAX_FIELD) fields[k] = k === "outputTail" || k === "log" ? s.slice(-MAX_FIELD) : s.slice(0, MAX_FIELD);
   }
   return data;
 }
@@ -35,14 +36,15 @@ export const runIds = (ctx: StepContext): RunIds => ({
 });
 
 // A step sends with its own IDs.
-export const emit = (ctx: StepContext, type: EventType, data: object, opts: { parent?: string; id?: string } = {}) => emitFor(runIds(ctx), ctx, type, data, opts);
+export const emit = <T extends EventType>(ctx: StepContext, type: T, data: EventData<T>, opts: { parent?: string; id?: string } = {}) => emitFor(runIds(ctx), ctx, type, data, opts);
 
 // to.dir: the target clone; events.jsonl goes in the run dir above it.
 // The parent is the step's start event unless the caller names another one.
-export function emitFor(ids: RunIds, to: { dir: string; dashboard: Dashboard }, type: EventType, data: object, opts: { parent?: string; id?: string } = {}): string | undefined {
+export function emitFor<T extends EventType>(ids: RunIds, to: { dir: string; dashboard: Dashboard }, type: T, data: EventData<T>, opts: { parent?: string; id?: string } = {}): string | undefined {
   const run = ids.run;
   if (!run) return undefined;
   const parent = opts.parent ?? (type === "step_start" ? undefined : ids.stepEvent);
+  // mask and cut work on any depth, so their result is untyped. They only shorten and mask strings, never change a shape.
   const e = mask({
     id: opts.id ?? randomUUID(),
     run,

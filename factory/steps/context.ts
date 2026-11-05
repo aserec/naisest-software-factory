@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { wrapTicket } from "../agents";
 import { makeInbox } from "../inbox";
-import { later } from "../requests";
+import { conversation, later } from "../conversation";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
@@ -16,6 +16,7 @@ import { MAX_FIELD, type ControlRequest } from "../run-events";
 import type { HarnessName } from "../harnesses";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 import { block, closedByPerson, doneBeforeResume } from "./run";
+import { withStep } from "./with-step";
 
 export interface StepContext {
   tracker: Tracker;
@@ -32,8 +33,8 @@ export interface StepContext {
   dir: string; // the target clone, cwd for agents
   repo: Repo;
   sleep(ms: number): Promise<void>;
-  step?: string; // the CI job, set by runStep; a block saves it
-  stepEvent?: string; // the ID of its step_start event, the parent of what the step sends
+  step?: string; // the CI job, set by withStep; a block saves it
+  stepEvent?: string; // the ID of its step_start event, the parent of what the step sends (withStep sets both)
   dashboardStop?: boolean; // the dashboard asked this run to stop (seen by the inbox)
   snapshot?: () => Promise<Controls>; // set by takeSnapshot: the dashboard's controls for this step or poll tick
 }
@@ -114,12 +115,12 @@ export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<bool
 export const inbox = (ctx: StepContext) => {
   const f = facts(ctx);
   const change = f.change;
-  return makeInbox(ctx.tracker, ticketRef(ctx), (f.roundStart ? f.openRound?.cursor : undefined) ?? f.eventAt ?? new Date().toISOString(), async () => {
+  return makeInbox(conversation(ctx), ticketRef(ctx), (f.roundStart ? f.openRound?.cursor : undefined) ?? f.eventAt ?? new Date().toISOString(), async () => {
     const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
     if (stop) ctx.dashboardStop = true;
     return stop;
   }, () => closedByPerson(ctx), {
-    ...(change ? { changeComments: (since: string) => ctx.codeHost.changeComments(change, since) } : {}),
+    change,
     onRead: (t) => void (ctx.record = { ...ctx.record, heardUntil: later(ctx.record.heardUntil, t) }),
   });
 };
@@ -151,19 +152,11 @@ export async function fix(ctx: StepContext, feedback: string): Promise<HarnessRe
   const preview = !!f.commands?.preview;
   const job = { tools: "code" as const, resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, ...(preview && { preview }) };
   // Each fix is its own "patch" step on the dashboard, inside the review or gate step that asked for it.
-  // Its tool calls and usage go to the patch step. The outer step's IDs come back after it.
-  const outer = { step: ctx.step, stepEvent: ctx.stepEvent };
-  ctx.step = "patch";
-  ctx.stepEvent = emit(ctx, "step_start", { prompt: feedback });
-  let outcome = "error";
-  try {
-    const r = await agent(ctx, "author", modelRow(ctx).author, job);
-    outcome = r.limitHit ? "waiting" : r.stopped ? "stopped" : r.ok ? "next" : "error";
-    return r;
-  } finally {
-    if (ctx.stepEvent) emit(ctx, "step_end", { outcome });
-    Object.assign(ctx, outer);
-  }
+  // Its tool calls and usage go to the patch step.
+  return withStep(ctx, "patch", () => agent(ctx, "author", modelRow(ctx).author, job), {
+    data: { prompt: feedback },
+    outcome: (r) => (r.limitHit ? "waiting" : r.stopped ? "stopped" : r.ok ? "next" : "error"),
+  });
 }
 
 // Polls a status for up to an hour. Still "running" after that counts as not done.
@@ -221,7 +214,7 @@ function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "st
 }
 
 // Sends a label_change for every state the steps set and a jev_answer for every Jev answer, so no step has to.
-// The dashboard names states factory_<state>, as the ticket labels do, and picks the run's buttons by the last one.
+// The event names the state without the tracker's factory_ label prefix; the dashboard picks the run's buttons by the last one.
 const WATCHED = Symbol("watched");
 function watch(ctx: StepContext): void {
   const { tracker, judge } = ctx;
@@ -230,7 +223,7 @@ function watch(ctx: StepContext): void {
     [WATCHED]: true,
     setState: async (ref: TicketRef, state: FactoryState) => {
       await tracker.setState(ref, state);
-      emit(ctx, "label_change", { to: `factory_${state}` });
+      emit(ctx, "label_change", { to: state });
     },
   });
   ctx.judge = Object.assign(Object.create(judge) as Judge, {
@@ -263,6 +256,11 @@ export async function runStep(
   ctx.step = name;
   ctx.stepEvent = undefined;
   takeSnapshot(ctx);
+  // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
+  const fail = async (e: unknown) => {
+    emit(ctx, "error", { message: String(e).slice(0, 500) });
+    await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`, false).catch(() => {});
+  };
   let result: StepResult;
   try {
     try {
@@ -270,7 +268,10 @@ export async function runStep(
     } catch (e) {
       // A resume whose record cannot be read now (a server 5xx or a network error) waits for the next hourly retry.
       // Anything else (forged, 404, no decision job, a bad record) will not get better: block, so a person hears.
-      if (name !== "event" || !ctx.ci.vars.buildRun || !TRANSIENT.test(String(e))) throw e;
+      if (name !== "event" || !ctx.ci.vars.buildRun || !TRANSIENT.test(String(e))) {
+        await fail(e);
+        throw e;
+      }
       save(ctx, "event", { start: false, reason: "record-unavailable", error: String(e).slice(0, 500) });
       mkdirSync(dir, { recursive: true });
       writeFileSync(stopFile, name);
@@ -280,16 +281,7 @@ export async function runStep(
       console.log(`Skipping ${name}: it finished before the run was resumed.`);
       return;
     }
-    // The event step sends its own start once it knows the run goes on, so a declined start or resume sends nothing to the run.
-    if (name !== "event") ctx.stepEvent = emit(ctx, "step_start", {});
-    result = await run(ctx);
-    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: endOutcome(ctx, result), ...log() });
-  } catch (e) {
-    emit(ctx, "error", { message: String(e).slice(0, 500) });
-    // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
-    await block(ctx, `The ${name} step failed: ${String(e).slice(0, 500)}`, false).catch(() => {});
-    if (ctx.stepEvent) emit(ctx, "step_end", { outcome: "error", ...log() });
-    throw e;
+    result = await withStep(ctx, name, () => run(ctx), { outcome: (r) => endOutcome(ctx, r), endData: log, onError: fail, deferStart: name === "event" });
   } finally {
     output?.(); // stops the copy when the step ended before step_end, as in a skip
     saveRecord(ctx.record, dir); // also creates the dir

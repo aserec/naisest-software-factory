@@ -2,16 +2,16 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { STEPS, type RunEvent } from "software-factory/run-events";
+import { eventsOfType, STEPS, stepIndex, type EventType, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd, words } from "@/lib/utils";
 import { Fact, StepDetail, Verdict } from "./step-detail";
 import type { FileLink } from "@/server/compose";
+import { runView } from "@/server/run-view";
 import type { FactoryState } from "@/server/seams";
 import { RiskPills, STATE } from "./board";
 import { LoadError, SectionHeading } from "./shell";
-import { isStuck } from "./stuck";
 
 export type SeqEvent = RunEvent & { seq: number };
 
@@ -33,10 +33,10 @@ export function useRunEvents(run: string) {
 }
 
 export interface Lane {
-  start: SeqEvent;
-  end?: SeqEvent;
+  start: Extract<SeqEvent, { type: "step_start" }>;
+  end?: Extract<SeqEvent, { type: "step_end" }>;
   outcome?: string;
-  tools: SeqEvent[];
+  tools: Extract<SeqEvent, { type: "tool_call" }>[];
   events: SeqEvent[]; // the step's other events (findings, checks, usage ...)
   costUsd: number;
 }
@@ -44,17 +44,15 @@ export interface Lane {
 // One lane per step_start. A step_end closes the first open lane of its step. Tool calls hang on their lane by parent.
 export function lanes(events: SeqEvent[]): Lane[] {
   const sorted = [...events].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.seq - b.seq));
-  const out: Lane[] = sorted
-    .filter((e) => e.type === "step_start")
-    .map((start) => ({ start, tools: sorted.filter((e) => e.type === "tool_call" && e.parent === start.id), events: [], costUsd: 0 }));
-  for (const e of sorted.filter((e) => e.type === "step_end")) {
+  const out: Lane[] = eventsOfType(sorted, "step_start").map((start) => ({ start, tools: eventsOfType(sorted, "tool_call").filter((e) => e.parent === start.id), events: [], costUsd: 0 }));
+  for (const e of eventsOfType(sorted, "step_end")) {
     const lane = out.find((l) => !l.end && l.start.step === e.step && l.start.at <= e.at);
-    if (lane) [lane.end, lane.outcome] = [e, e.data.outcome as string];
+    if (lane) [lane.end, lane.outcome] = [e, e.data.outcome];
   }
   const own = new Set(["step_start", "step_end", "tool_call"]);
   for (const lane of out) {
     lane.events = sorted.filter((e) => !own.has(e.type) && e.step === lane.start.step && e.at >= lane.start.at && (!lane.end || e.at <= lane.end.at));
-    lane.costUsd = lane.events.filter((e) => e.type === "usage").reduce((sum, e) => sum + (e.data.costUsd as number), 0);
+    lane.costUsd = eventsOfType(lane.events, "usage").reduce((sum, e) => sum + e.data.costUsd, 0);
   }
   return out;
 }
@@ -115,21 +113,21 @@ const Figure = ({ label, children, className = "" }: { label: string; children: 
 );
 
 // The newest event per key: a gate or rule check that ran again counts once, with its last result.
-const latest = (events: SeqEvent[], key: string) => [...new Map(events.map((e) => [e.data[key], e])).values()];
+const latest = <E,>(events: E[], key: (e: E) => string) => [...new Map(events.map((e) => [key(e), e])).values()];
 
 // What the change carries for the person who merges it: the review, the checks, and why the factory merges or waits.
 // approving: the run waits for a person to merge, so a missing proof is a warning, not a quiet "None sent".
 function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }) {
-  const of = (type: SeqEvent["type"]) => events.filter((e) => e.type === type);
+  const of = <T extends EventType>(type: T) => eventsOfType(events, type);
   const findings = of("review_finding");
-  const round = Math.max(0, ...findings.map((f) => f.data.round as number));
+  const round = Math.max(0, ...findings.map((f) => f.data.round));
   const last = findings.filter((f) => f.data.round === round);
-  const gates = latest(of("gate_check"), "command");
-  const rules = latest(of("rule_check"), "rule");
+  const gates = latest(of("gate_check"), (g) => g.data.command);
+  const rules = latest(of("rule_check"), (r) => r.data.rule);
   const decision = of("decision").at(-1);
   if (!findings.length && !gates.length && !rules.length && !decision) return null;
   const passed = (ok: number, all: number) => <span className={ok < all ? "text-destructive" : ""}>{ok} of {all} passed</span>;
-  const reasons = (decision?.data.reasons as string[] | undefined) ?? [];
+  const reasons = decision?.data.reasons ?? [];
   const none = (what: string, todo: string) =>
     approving ? <span className="text-pill-warning-ink">The run sent no {what}. {todo} before you merge.</span> : <span className="text-muted-foreground">None sent</span>;
   return (
@@ -198,9 +196,6 @@ function useNow() {
   return now;
 }
 
-// The states of a run that halted before a final state and waits to go on.
-const PAUSED: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked", "waiting"];
-
 // limits: minutes per step for the run's target, read on the server.
 // risk: the work item's triage risk and the run's merge risk, read on the server.
 // state: the work item's state in its tracker, read on the server.
@@ -216,25 +211,27 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
   if (rows.length === 0) return <p className="text-muted-foreground">No steps yet.</p>;
   const times = data.map((e) => Date.parse(e.at));
   const from = Math.min(...times);
-  const ended = data.find((e) => e.type === "run_end")?.data.outcome as string | undefined;
+  const ended = eventsOfType(data, "run_end")[0]?.data.outcome;
   // Until the run ends, the line runs to now: a hung step keeps growing instead of reading as just started.
   // A paused run (its label says it waits for a person or the usage limit) is not working either:
   // its line ends at the last event, and the wait counts apart, so Time stays the factory's own time.
-  const paused = !!state && PAUSED.includes(state);
-  const over = paused || data.some((e) => e.type === "run_end");
+  const now = new Date(nowMs);
+  const view = runView({ events: data, limits, now, fallback: state });
+  const { paused } = view;
+  const over = paused || view.ended;
   const last = Math.max(...times);
   const span = Math.max(Math.max(last, over ? 0 : nowMs) - from, 1);
   const live = rows.find((l) => !l.end);
-  const now = new Date(nowMs);
-  const stuck = (l: Lane) => !over && !l.end && isStuck({ step: l.start.step ?? "", startedAt: l.start.at, ended: false }, limits, now);
+  const { lastStep } = view;
+  const stuck = (l: Lane) => view.stuck && !!lastStep && l.start.step === lastStep.step && l.start.at === lastStep.startedAt;
   const open = rows.find((l) => l.start.id === openId);
   // The furthest step reached; the steps after it show as not reached.
-  const reached = Math.max(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")));
-  const first = Math.min(...rows.map((l) => STEPS.indexOf(l.start.step ?? "")).filter((i) => i >= 0));
-  const at = STEPS.indexOf((live ?? rows.at(-1)!).start.step ?? "");
+  const reached = Math.max(...rows.map((l) => stepIndex(l.start.step)));
+  const first = Math.min(...rows.map((l) => stepIndex(l.start.step)).filter((i) => i >= 0));
+  const at = stepIndex((live ?? rows.at(-1)!).start.step);
   const nowText = live ? words(live.start.step ?? "") : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
-  const waited = paused && !data.some((e) => e.type === "run_end") && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
+  const waited = paused && !view.ended && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
   const time = (
     <>
       {duration(span / 1000)}
@@ -251,9 +248,9 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
   ];
   const approving = state === "needs_approval";
   // Why the run waits, said once at the top, so the person reads it before the merge button's consequences.
-  const why = approving ? ((data.filter((e) => e.type === "decision").at(-1)?.data.reasons as string[] | undefined) ?? []) : [];
+  const why = approving ? (eventsOfType(data, "decision").at(-1)?.data.reasons ?? []) : [];
   // A run that triage stopped or held says so at the top. A go needs no box: the steps after it show the run.
-  const triage = data.filter((e) => e.type === "triage_outcome").at(-1)?.data as Record<string, any> | undefined;
+  const triage = eventsOfType(data, "triage_outcome").at(-1)?.data;
   return (
     <>
       {failed}

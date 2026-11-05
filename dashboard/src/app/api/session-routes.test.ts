@@ -22,7 +22,7 @@ const { GET: getEvents } = await import("./events/route");
 const { GET: getLog } = await import("./jobs/[job]/log/route");
 
 const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
-const ev = (type: RunEvent["type"], min: number, run: string, data: Record<string, unknown> = {}, step?: string): RunEvent => ({ id: randomUUID(), run, at: at(min), target: "demo", ticket: "7", type, data, ...(step ? { step } : {}) });
+const ev = (type: RunEvent["type"], min: number, run: string, data: Record<string, unknown> = {}, step?: string): RunEvent => ({ id: randomUUID(), run, at: at(min), target: "demo", ticket: "7", type, data, ...(step ? { step } : {}) }) as RunEvent;
 const item = (ticket: string) => ({ target: "demo", ticket, title: `T${ticket}`, state: "running", url: "u", updatedAt: "" });
 const log = (job: string) => getLog(new Request("http://x"), { params: Promise.resolve({ job }) });
 
@@ -48,6 +48,15 @@ describe("GET /api/board", () => {
     expect(rows[0]).toMatchObject({ ticket: "7", run: "new", costUsd: 1.25, stuck: true, step: "prepare-patch", mergeRisk: 6, changeUrl: "http://gl/mr/1" });
     expect(rows[1]).toMatchObject({ ticket: "8", stuck: false });
     expect(rows[1].run).toBeUndefined();
+  });
+
+  // D-P5: a stopped or waiting run is not working, so a long step is not stuck.
+  it("does not mark a paused run stuck, however long its last step ran", async () => {
+    const of9 = (e: RunEvent): RunEvent => ({ ...e, ticket: "9" });
+    board.board.mockResolvedValue([item("9")]);
+    getDb().addEvents([of9(ev("run_start", 300, "paused")), of9(ev("step_start", 200, "paused", {}, "prepare-patch")), of9(ev("label_change", 100, "paused", { to: "stopped" }))]);
+    const rows = (await (await getBoard()).json()) as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({ ticket: "9", run: "paused", stuck: false });
   });
 
   it("answers 502 when the tracker fails", async () => {

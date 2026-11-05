@@ -1,19 +1,22 @@
-import { isRequest } from "../requests";
-import { DEVELOPER, GitLab, type StateLabel } from "../gitlab";
+import { AI_LINE, fingerprintMarker, isRequest, noQuickActions } from "../conversation";
+import { GitLab, refuseSecrets } from "../gitlab";
 import { ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
 const READY = "factory_ready";
+// GitLab access level of the Developer role. Developers and above may command the factory.
+const DEVELOPER = 30;
 const MARK_LABELS: Record<Mark, string> = {
   watcher: "factory_watcher", triaged: "factory_triaged", risk_trivial: "factory_risk_trivial", risk_low: "factory_risk_low", risk_medium: "factory_risk_medium",
   risk_high: "factory_risk_high", implemented: "factory_implemented", reviewed: "factory_reviewed", checked: "factory_checked", risk_checked: "factory_risk_checked",
   merged: "factory_merged", reverted: "factory_reverted",
 };
-const labelOf = (state: FactoryState) => `factory_${state}` as StateLabel;
-const fingerprintMarker = (fp: string) => `<!-- factory:fingerprint ${fp} -->`;
+const labelOf = (state: FactoryState) => `factory_${state}`;
 const titles = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap((l) => (typeof l?.title === "string" ? [l.title] : [])) : []);
 // A person can add factory_ready next to another state label. An active run wins over ready, ready wins over an ended run.
 const ENDED = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
 const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", ...ENDED] as const satisfies readonly FactoryState[];
+// A work item holds at most one state label: setting one removes all the others.
+const STATE_LABELS = STATE_ORDER.map(labelOf);
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
 
 function toTicket(w: any): Ticket {
@@ -36,38 +39,47 @@ function toTicket(w: any): Ticket {
 export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker {
   let project: Promise<number> | undefined;
   let bot: Promise<string> | undefined;
-  const projectId = () => (project ??= gitlab.getProject(projectPath).then((p) => p.id));
+  const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
   const botName = () => (bot ??= gitlab.getJson("/user").then((u: { username: string }) => u.username));
   const issues = async (query: string): Promise<Ticket[]> => (await gitlab.getJson(`/projects/${await projectId()}/issues?${query}`)).map(toTicket);
   const iid = (ref: string) => Number(ref);
+  const issueUrl = async (ref: string) => `/projects/${await projectId()}/issues/${iid(ref)}`;
+  const update = async (ref: string, body: unknown) => void (await gitlab.call("PUT", await issueUrl(ref), body));
+  const userId = async (username: string): Promise<number> => {
+    const list = await gitlab.getJson(`/users?username=${encodeURIComponent(username)}`);
+    if (!list[0]) throw new Error(`GitLab user ${username} not found`);
+    return list[0].id;
+  };
 
   return {
     async ticket(ref) {
-      return toTicket(await gitlab.getJson(`/projects/${await projectId()}/issues/${iid(ref)}`));
+      return toTicket(await gitlab.getJson(await issueUrl(ref)));
     },
     async setState(ref, state) {
-      await gitlab.setState(await projectId(), iid(ref), labelOf(state));
+      await update(ref, { add_labels: labelOf(state), remove_labels: STATE_LABELS.filter((l) => l !== labelOf(state)).join(",") });
     },
     async clearState(ref) {
-      await gitlab.clearState(await projectId(), iid(ref));
+      await update(ref, { remove_labels: STATE_LABELS.join(",") });
     },
     async mark(ref, mark) {
-      await gitlab.addLabel(await projectId(), iid(ref), MARK_LABELS[mark]);
+      await update(ref, { add_labels: MARK_LABELS[mark] });
     },
     async unmark(ref, mark) {
-      await gitlab.removeLabel(await projectId(), iid(ref), MARK_LABELS[mark]);
+      await update(ref, { remove_labels: MARK_LABELS[mark] });
     },
     async comment(ref, text) {
-      await gitlab.comment(await projectId(), iid(ref), text);
+      const body = noQuickActions(`${AI_LINE}\n\n${text}`);
+      refuseSecrets(body, "Comment");
+      await gitlab.call("POST", `${await issueUrl(ref)}/notes`, { body });
     },
     async assign(ref, person) {
-      await gitlab.assignWorkItem(await projectId(), iid(ref), await gitlab.userId(person));
+      await update(ref, { assignee_ids: [await userId(person)] });
     },
     async close(ref) {
-      await gitlab.closeWorkItem(await projectId(), iid(ref));
+      await update(ref, { state_event: "close" });
     },
     async reopen(ref) {
-      await gitlab.reopenWorkItem(await projectId(), iid(ref));
+      await update(ref, { state_event: "reopen" });
     },
     list: (state) => issues(`labels=${labelOf(state)}&state=opened&order_by=created_at&sort=asc&per_page=100`),
     listClosed: (count) => issues(`state=closed&order_by=updated_at&sort=desc&per_page=${Math.min(count, 100)}`).then((l) => l.slice(0, count)),
@@ -83,15 +95,23 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     isFactory: async (actor) => actor === (await botName()),
     async trusted(actor) {
       if (actor === (await botName())) return false;
-      return (await gitlab.memberAccessLevel(await projectId(), await gitlab.userId(actor))) >= DEVELOPER;
+      const [id, project] = [await userId(actor), await projectId()];
+      try {
+        return (await gitlab.getJson(`/projects/${project}/members/all/${id}`)).access_level >= DEVELOPER;
+      } catch (e) {
+        if (String(e).includes("status 404")) return false; // not a member
+        throw e;
+      }
     },
+    // The poller has no webhook that names the person, so the label history says who last added factory_ready.
     async startedBy(ref) {
-      const id = await gitlab.labelAddedBy(await projectId(), iid(ref), READY);
+      const events = await gitlab.all(`${await issueUrl(ref)}/resource_label_events?per_page=100`);
+      const id = events.filter((e: any) => e.action === "add" && e.label?.name === READY).at(-1)?.user?.id;
       return id === undefined ? undefined : (await gitlab.getJson(`/users/${id}`)).username;
     },
     async comments(ref, since) {
       const bot = await botName();
-      const notes = await gitlab.getJson(`/projects/${await projectId()}/issues/${iid(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
+      const notes = await gitlab.getJson(`${await issueUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
       return notes
         .filter((n: any) => !n.system && (!since || n.created_at > since))
         .map((n: any) => ({ author: n.author.username, byFactory: n.author.username === bot, body: n.body, at: n.created_at }));
@@ -131,15 +151,21 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     },
     async create(draft) {
       const labels = [...draft.marks.map((m) => MARK_LABELS[m]), ...(draft.state ? [labelOf(draft.state)] : [])];
-      const w = await gitlab.createWorkItem(await projectId(), draft.title, `${draft.body}\n\n${fingerprintMarker(draft.fingerprint)}`, labels);
-      return { ref: String(w.iid), url: w.webUrl };
+      const description = noQuickActions(`${draft.body}\n\n${fingerprintMarker(draft.fingerprint)}`);
+      refuseSecrets(`${draft.title}\n${description}`, "Work item");
+      const w = await (await gitlab.call("POST", `/projects/${await projectId()}/issues`, { title: draft.title, description, labels: labels.join(",") })).json();
+      return { ref: String(w.iid), url: w.web_url as string };
     },
     async findOpen(fingerprint) {
       const found = await issues(`labels=${MARK_LABELS.watcher}&state=opened&search=${encodeURIComponent(fingerprint)}&per_page=100`);
       return found.find((t) => t.body.includes(fingerprintMarker(fingerprint)))?.ref;
     },
     async createdSince(mark, since) {
-      return gitlab.countCreatedSince(await projectId(), MARK_LABELS[mark], since);
+      const res = await gitlab.call("GET", `/projects/${await projectId()}/issues?labels=${MARK_LABELS[mark]}&created_after=${encodeURIComponent(since.toISOString())}&per_page=1`);
+      // Fail closed: a missing count would read as 0 and let the daily cap pass.
+      const total = res.headers.get("X-Total")?.trim();
+      if (!total || !Number.isFinite(Number(total))) throw new Error(`GitLab sent no usable X-Total count: ${JSON.stringify(total)}`);
+      return Number(total);
     },
   };
 }

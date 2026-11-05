@@ -17,7 +17,7 @@ const ev = (type: RunEvent["type"], data: Record<string, unknown> = {}, o: Parti
   type,
   data,
   ...o,
-});
+}) as RunEvent;
 
 describe("events", () => {
   it("reads with a cursor and ignores events it already has", () => {
@@ -71,59 +71,72 @@ describe("switches", () => {
   });
 });
 
+// The factory used to send label_change with the tracker's label name, factory_<state>. Stored rows keep it.
+describe("run state", () => {
+  it("reads an old factory_* label_change row and a new one as the same state", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("label_change", { to: "factory_stopped" }, { run: "old" }), ev("label_change", { to: "stopped" }, { run: "new" })]);
+    expect(db.view("old")?.state).toBe("stopped");
+    expect(db.view("new")?.state).toBe("stopped");
+    expect(db.view("old")?.actions).toEqual(db.view("new")?.actions);
+  });
+});
+
 describe("requests", () => {
   const stopReq = { kind: "stop" as const, run: "r1", target: "react_frontend", ticket: "T-1", user: "ana" };
 
   it("refuses a second pending request of the same kind", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start")]);
+    db.addEvents([ev("run_start"), ev("label_change", { to: "running" })]);
     const first = db.request(stopReq);
     expect(first).toMatchObject({ kind: "stop", run: "r1" });
     expect(db.request(stopReq)).toEqual({ refused: "already requested" });
     expect(db.requests({ pending: true })).toHaveLength(1);
   });
 
-  it("refuses stop after run_end, and resume or restart unless the last step stopped", () => {
+  // The rules live in run-view.ts; here only that request() asks the view and passes its reason on.
+  it("refuses with the run view's reason, and accepts what the view allows", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start"), ev("step_start", {}, { step: "triage" }), ev("step_end", { outcome: "next" }, { step: "triage" })]);
-    expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "run is not stopped" });
+    db.addEvents([ev("run_start"), ev("label_change", { to: "running" })]);
     expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "run is not stopped" });
-    db.addEvents([ev("step_end", { outcome: "stopped" }, { step: "triage" })]);
+    expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "run is not stopped" });
+    db.addEvents([ev("label_change", { to: "stopped" })]);
     expect(db.request({ ...stopReq, kind: "resume" })).toMatchObject({ kind: "resume" });
-    db.addEvents([ev("run_end", { outcome: "done" })]);
-    expect(db.request(stopReq)).toEqual({ refused: "run already ended" });
+    expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "a request is already waiting" });
+    expect(db.requests({}).map((r) => r.kind)).toEqual(["resume"]);
+    expect(db.request({ ...stopReq, run: "nope" })).toEqual({ refused: "run not found" });
   });
 
-  it("refuses resume and restart once the run has a run_end, even after a stop", () => {
+  // D-P4: a stop on a run that waits for approval used to be saved, and later set the work item to stopped.
+  it("refuses a stop unless the run is running, and saves nothing", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start"), ev("step_end", { outcome: "stopped" }, { step: "triage" }), ev("run_end", { outcome: "restarted" })]);
-    expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "run already ended" });
-    expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "run already ended" });
+    db.addEvents([ev("run_start"), ev("label_change", { to: "factory_needs_approval" })]);
+    expect(db.request(stopReq)).toEqual({ refused: "run is not running" });
+    expect(db.requests({})).toEqual([]);
+    expect(db.events({ run: "r1" }).events.some((e) => e.type === "stop")).toBe(false);
   });
 
-  // R46: a request acts on the ticket, so it must be for the ticket's newest run.
-  it("refuses resume and restart of a run that a newer run of the same ticket overtook", () => {
+  // R46: the view's `newer` comes from the run starts of the same work item.
+  it("refuses resume and restart of a run that a newer run of the same work item overtook", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start"), ev("step_end", { outcome: "stopped" }, { step: "triage" }), ev("run_start", {}, { run: "r0", ticket: "T-2" })]);
-    expect(db.request({ ...stopReq, kind: "restart" })).toMatchObject({ kind: "restart" });
+    db.addEvents([ev("run_start"), ev("label_change", { to: "stopped" }), ev("run_start", {}, { run: "r0", ticket: "T-2" })]);
+    db.finish((db.request({ ...stopReq, kind: "restart" }) as { id: string }).id, "refused");
     db.addEvents([ev("run_start", {}, { run: "r2" })]);
     expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "run is not the ticket's newest run" });
   });
 
-  it("refuses a second restart once one is done, even after a pipeline cancel", () => {
+  it("a second restart is refused once the first is done, even after a pipeline cancel", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start"), ev("step_start", {}, { step: "triage" })]);
+    db.addEvents([ev("run_start"), ev("label_change", { to: "running" })]);
     db.finish((db.request(stopReq) as { id: string }).id, "cancelled");
     const restart = db.request({ ...stopReq, kind: "restart" }) as { id: string };
-    expect(db.restarted("r1")).toBe(false);
     db.finish(restart.id, "done");
-    expect(db.restarted("r1")).toBe(true);
     expect(db.request({ ...stopReq, kind: "restart" })).toEqual({ refused: "run already restarted" });
   });
 
   it("saves the audit event with the request, and neither when refused", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start")]);
+    db.addEvents([ev("run_start"), ev("label_change", { to: "running" })]);
     const row = db.request(stopReq) as { at: string };
     expect(db.events({ run: "r1" }).events.at(-1)).toMatchObject({ type: "stop", at: row.at, data: { user: "ana" } });
     db.request(stopReq);
@@ -132,7 +145,7 @@ describe("requests", () => {
 
   it("a stopped step_end finishes the pending stop request", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start")]);
+    db.addEvents([ev("run_start"), ev("label_change", { to: "running" })]);
     db.request(stopReq);
     db.addEvents([ev("step_end", { outcome: "stopped" }, { step: "triage" })]);
     expect(db.requests({ pending: true })).toHaveLength(0);
@@ -142,7 +155,7 @@ describe("requests", () => {
 
   it("cancelled keeps the request pending and survives a later finish", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start")]);
+    db.addEvents([ev("run_start"), ev("label_change", { to: "running" })]);
     const r = db.request(stopReq) as { id: string };
     db.finish(r.id, "cancelled");
     expect(db.requests({ pending: true })[0]).toMatchObject({ id: r.id, outcome: "cancelled" });
@@ -152,18 +165,9 @@ describe("requests", () => {
     expect(db.requests({})[0].doneAt).toBeTruthy();
   });
 
-  it("after a pipeline cancel allows restart but refuses resume (spec 6.1)", () => {
-    const db = openDb(":memory:");
-    db.addEvents([ev("run_start"), ev("step_start", {}, { step: "triage" })]);
-    const r = db.request(stopReq) as { id: string };
-    db.finish(r.id, "cancelled");
-    expect(db.request({ ...stopReq, kind: "resume" })).toEqual({ refused: "the run was cancelled, use Restart" });
-    expect(db.request({ ...stopReq, kind: "restart" })).toMatchObject({ kind: "restart" });
-  });
-
   it("filters by target and by age", () => {
     const db = openDb(":memory:");
-    db.addEvents([ev("run_start"), ev("run_start", {}, { run: "r2", target: "other" })]);
+    db.addEvents([ev("run_start"), ev("label_change", { to: "running" }), ev("run_start", {}, { run: "r2", target: "other" }), ev("label_change", { to: "running" }, { run: "r2", target: "other" })]);
     db.request(stopReq);
     db.request({ ...stopReq, run: "r2", target: "other" });
     expect(db.requests({ target: "other" })).toHaveLength(1);
@@ -214,19 +218,6 @@ describe("runs", () => {
       ev("decision", { auto: false, reasons: ["r"], risk: 6, riskMax: 7, changeUrl: "http://gl/mr/9" }),
     ]);
     expect(db.runs({})[0]).toMatchObject({ round: 2, mergeRisk: 6, mergeRiskMax: 7, changeUrl: "http://gl/mr/9" });
-  });
-});
-
-describe("state", () => {
-  it("an old label_change reads as a state, and an unknown one as none", () => {
-    const db = openDb(":memory:");
-    expect(db.state("r1")).toBeUndefined();
-    db.addEvents([ev("label_change", { to: "factory_running" })]);
-    expect(db.state("r1")).toBe("running");
-    db.addEvents([ev("label_change", { to: "stopped" })]);
-    expect(db.state("r1")).toBe("stopped");
-    db.addEvents([ev("label_change", { to: "foo" })]);
-    expect(db.state("r1")).toBeUndefined();
   });
 });
 

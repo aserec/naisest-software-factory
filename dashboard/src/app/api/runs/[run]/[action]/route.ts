@@ -6,23 +6,16 @@ import { getDb } from "@/server/db-instance";
 type Ctx = { params: Promise<{ run: string; action: string }> };
 const KINDS = ["stop", "resume", "restart"] as const;
 
-// What the run page needs to pick its buttons: the last state, whether a CI cancel ended it, whether it was restarted, and what is waiting.
+// What the run page needs to pick its buttons: the run view's state, the actions it allows, whether it was restarted, and what is waiting.
 export async function GET(_req: Request, { params }: Ctx) {
   const { run, action } = await params;
   if (action !== "state") return new Response("not found", { status: 404 });
   if (!(await auth())) return new Response("sign in first", { status: 401 });
   const db = getDb();
-  const first = db.events({ run, limit: 1 }).events[0];
-  if (!first) return new Response("run not found", { status: 404 });
-  const mine = db.requests({ target: first.target }).filter((r) => r.run === run);
-  return Response.json({
-    state: db.state(run),
-    cancelled: mine.some((r) => r.outcome === "cancelled"),
-    // A done restart ended this run, so nothing is left to press.
-    restarted: db.restarted(run),
-    // A cancelled stop stays pending (Ruling R4) but nothing waits for it any more.
-    pending: mine.filter((r) => !r.doneAt && r.outcome !== "cancelled").map((r) => r.kind),
-  });
+  const view = db.view(run);
+  if (!view) return new Response("run not found", { status: 404 });
+  const { state, actions, restarted, pending } = view;
+  return Response.json({ state, actions, restarted, pending });
 }
 
 export async function POST(req: Request, { params }: Ctx) {

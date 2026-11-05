@@ -47,6 +47,8 @@ function events() {
   const step = randomUUID();
   return [
     { id: randomUUID(), ...base, at: at(10), type: "run_start", data: {} },
+    // The run's own state picks its buttons, so Stop shows.
+    { id: randomUUID(), ...base, at: at(10), type: "label_change", data: { to: "running" } },
     { id: step, ...base, at: at(9), step: "prepare-patch", job: "42", type: "step_start", data: { prompt: "Fix the login bug" } },
     { id: randomUUID(), ...base, at: at(8), step: "prepare-patch", parent: step, type: "tool_call", data: { name: "Edit", input: "src/login.ts", result: "ok", ms: 12, ok: true } },
     { id: randomUUID(), ...base, at: at(7), step: "prepare-patch", type: "usage", data: { role: "author", model: "m", input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 0.25, contextTokens: 1 } },
@@ -58,6 +60,7 @@ function events() {
     { id: randomUUID(), ...approve, at: at(12), step: "decision", type: "step_start", data: {} },
     { id: randomUUID(), ...approve, at: at(11), step: "decision", type: "decision", data: { auto: false, reasons: ["merge risk 6 is above the limit of 4"], risk: 6, changeUrl: MR_URL } },
     { id: randomUUID(), ...approve, at: at(11), step: "decision", type: "step_end", data: { outcome: "stop" } },
+    { id: randomUUID(), ...approve, at: at(11), type: "label_change", data: { to: "needs_approval" } },
   ];
 }
 

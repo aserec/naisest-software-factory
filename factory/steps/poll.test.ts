@@ -1,8 +1,9 @@
 import { expect, test, vi } from "vitest";
 import { main, pollReady } from "./poll";
-import { cancelNote, endClosedRuns, finishCancelledStops, handleRequests, isCancelNote, stoppedNote } from "./run";
+import { noteText } from "../conversation";
+import { endClosedRuns, finishCancelledStops, handleRequests } from "./run";
 import { retryWaiting } from "./retry-waiting";
-import { BOT, fakeCtx } from "./test-helpers";
+import { BOT, fakeCtx, noteIn } from "./test-helpers";
 import { fakeDashboard } from "../fakes";
 import { SWITCHES, type SwitchName } from "../run-events";
 
@@ -74,7 +75,7 @@ test("a cancelled stop on a running ticket sets stopped, says why, and is marked
   expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("stopped");
   const text = ctx.world.tracker.posted.map((p) => [p.ref, p.text]);
   expect(text).toEqual([["r0", "The run was stopped from the dashboard by @dev. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\nReason: pipeline cancelled from the dashboard"]]);
-  expect(isCancelNote(text[0][1])).toBe(true);
+  expect(noteIn(text[0][1], "stopped")?.kind).toBe("cancelled");
   expect(dash.done).toEqual([["qr0", "done"]]);
 });
 test("a cancelled stop on a ticket no longer running is only marked done", async () => {
@@ -104,7 +105,7 @@ const stoppedCtx = (notes: string[]) => {
   ctx.tracker.comments = async () => notes.map((body) => ({ author: BOT, byFactory: true, body, at: "2026-10-29T00:00:00Z" }));
   return ctx;
 };
-const personStop = stoppedNote({ run: "55", step: "prepare-patch", reason: "stopped by @factory stop" });
+const personStop = noteText({ kind: "stopped", run: "55", step: "prepare-patch", reason: "stopped by @factory stop" });
 test("a resume request on a stopped ticket starts one build with the stopped pipeline and is marked done", async () => {
   const ctx = stoppedCtx([personStop]);
   const dash = fakeDashboard({ requests: [request("resume", "7")] });
@@ -121,7 +122,7 @@ test("a resume request on a running ticket, or after a cancel, is refused and st
   expect(running.world.ci.started).toEqual([]);
   expect(dash.done).toEqual([["qr0", "refused"]]);
   // The cancel is newer than the stop: the stopped pipeline saved nothing after it.
-  const cancelled = stoppedCtx([cancelNote("dev"), personStop]);
+  const cancelled = stoppedCtx([noteText({ kind: "cancelled", user: "dev" }), personStop]);
   const dash2 = fakeDashboard({ requests: [request("resume", "7")] });
   cancelled.dashboard = dash2;
   await handleRequests(cancelled);
@@ -265,7 +266,7 @@ test("a resume request by a person the target project does not trust is refused 
   expect(dash.done).toEqual([["q7", "refused"]]);
 });
 test("a restart of a run stopped at apply closes its change with a comment that links the new run", async () => {
-  const ctx = stoppedCtx([stoppedNote({ run: "55", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" })]);
+  const ctx = stoppedCtx([noteText({ kind: "stopped", run: "55", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" })]);
   const { ref } = await ctx.codeHost.openChange("factory/7-x", "Change", "Text.", "7");
   ctx.dashboard = fakeDashboard({ requests: [request("restart", "7")] });
   expect(await handleRequests(ctx)).toEqual(["7"]);
@@ -345,7 +346,7 @@ test("a waiting or stopped ticket that paused before the push is not blocked for
   early.w.host.close("5");
   expect(await endClosedRuns(early.ctx)).toEqual([]);
   expect(early.t.state).toBe("stopped");
-  const atApply = closedWorld("stopped", { note: stoppedNote({ run: "55", step: "apply", reason: "switch off apply", change: "5", buildRun: "55" }) });
+  const atApply = closedWorld("stopped", { note: noteText({ kind: "stopped", run: "55", step: "apply", reason: "switch off apply", change: "5", buildRun: "55" }) });
   atApply.w.host.close("5");
   expect(await endClosedRuns(atApply.ctx)).toEqual(["8"]);
   expect(atApply.t.state).toBe("blocked");

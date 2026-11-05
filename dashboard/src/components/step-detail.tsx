@@ -2,19 +2,18 @@
 
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type { RunEvent } from "software-factory/run-events";
+import { eventsOfType, type EventData, type EventOf, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { duration, usd } from "@/lib/utils";
 import type { FileLink } from "@/server/compose";
 import { LoadError, SectionHeading } from "./shell";
 
-const ofType = (events: RunEvent[], type: RunEvent["type"]) => events.filter((e) => e.type === type).map((e) => e.data as Record<string, any>);
 const count = (n: number) => n.toLocaleString("en");
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const pre = "rounded-md bg-raised p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words";
 
 // A step that ran without CI (local-run.sh, the worker) sends its output with its step_end event instead.
-function JobLog({ job, end, log }: { job?: string; end?: RunEvent; log: UseQueryResult<string> }) {
+function JobLog({ job, end, log }: { job?: string; end?: EventOf<"step_end">; log: UseQueryResult<string> }) {
   let { data } = log;
   const note = (text: string) => <p className="text-muted-foreground">{text}</p>;
   if (!job) {
@@ -34,8 +33,8 @@ const Section = ({ title, children }: { title: React.ReactNode; children: React.
 );
 
 // A finding's file: from the event, or for an older event from the "file: " its text starts with.
-export function splitFinding(f: Record<string, any>): { file?: string; text: string } {
-  const file: string | undefined = f.file ?? (f.text as string).match(/^([\w.@/-]+\.\w+): /)?.[1];
+export function splitFinding(f: { file?: string; text: string }): { file?: string; text: string } {
+  const file: string | undefined = f.file ?? f.text.match(/^([\w.@/-]+\.\w+): /)?.[1];
   return { file, text: file && f.text.startsWith(`${file}: `) ? f.text.slice(file.length + 2) : f.text };
 }
 
@@ -63,8 +62,8 @@ const VERDICT = {
   stop: { box: "border-pill-negative-ink/20 bg-pill-negative", ink: "text-pill-negative-ink", badge: "destructive", label: "Stop" },
 } as const;
 
-export function Verdict({ outcome, className = "" }: { outcome: Record<string, any>; className?: string }) {
-  const v = VERDICT[outcome.kind as keyof typeof VERDICT] ?? VERDICT.stop;
+export function Verdict({ outcome, className = "" }: { outcome: EventData<"triage_outcome">; className?: string }) {
+  const v = VERDICT[outcome.kind] ?? VERDICT.stop;
   return (
     <section aria-label="Final decision" className={`rounded-lg border px-4 py-3 ${v.box} ${className}`}>
       <div className="flex items-start justify-between gap-3">
@@ -72,7 +71,7 @@ export function Verdict({ outcome, className = "" }: { outcome: Record<string, a
         <Badge variant={v.badge}>{v.label}</Badge>
       </div>
       <ul className="mt-2 flex flex-col gap-1.5">
-        {(outcome.reasons as string[]).map((r) => (
+        {outcome.reasons.map((r) => (
           <li key={r} className="text-pretty">
             {r}
           </li>
@@ -95,21 +94,21 @@ export const Fact = ({ label, children }: { label: string; children: React.React
 );
 
 // Everything about one step, for the side panel. It is mounted only while the panel is open, so the CI is asked for the log only then.
-export function StepDetail({ start, end, tools = [], events, fileLink }: { start: RunEvent; end?: RunEvent; tools?: RunEvent[]; events: RunEvent[]; fileLink?: FileLink }) {
-  const findings = ofType(events, "review_finding");
-  const rounds = [...new Set(findings.map((f) => f.round as number))].sort((a, b) => a - b);
-  const gates = ofType(events, "gate_check");
-  const rules = ofType(events, "rule_check");
-  const answers = ofType(events, "jev_answer");
-  const decision = ofType(events, "decision").at(-1);
-  const outcome = ofType(events, "triage_outcome").at(-1);
-  const usage = ofType(events, "usage");
-  const cost = usage.reduce((sum, u) => sum + (u.costUsd as number), 0);
+export function StepDetail({ start, end, tools = [], events, fileLink }: { start: EventOf<"step_start">; end?: EventOf<"step_end">; tools?: EventOf<"tool_call">[]; events: RunEvent[]; fileLink?: FileLink }) {
+  const findings = eventsOfType(events, "review_finding").map((e) => e.data);
+  const rounds = [...new Set(findings.map((f) => f.round))].sort((a, b) => a - b);
+  const gates = eventsOfType(events, "gate_check").map((e) => e.data);
+  const rules = eventsOfType(events, "rule_check").map((e) => e.data);
+  const answers = eventsOfType(events, "jev_answer").map((e) => e.data);
+  const decision = eventsOfType(events, "decision").map((e) => e.data).at(-1);
+  const outcome = eventsOfType(events, "triage_outcome").map((e) => e.data).at(-1);
+  const usage = eventsOfType(events, "usage").map((e) => e.data);
+  const cost = usage.reduce((sum, u) => sum + u.costUsd, 0);
   // A model with no price in seams.yml reports its tokens and $0.
-  const unpriced = [...new Set(usage.filter((u) => !u.costUsd && (u.input || u.output)).map((u) => u.model as string))];
+  const unpriced = [...new Set(usage.filter((u) => !u.costUsd && (u.input || u.output)).map((u) => u.model))];
   const models = [...new Set(usage.map((u) => `${u.role} · ${u.model}`))];
-  const tokens = (k: string) => usage.reduce((sum, u) => sum + ((u[k] as number) ?? 0), 0);
-  const prompt = start.data.prompt as string | undefined;
+  const tokens = (k: "input" | "output" | "cacheRead" | "cacheWrite") => usage.reduce((sum, u) => sum + u[k], 0);
+  const prompt = start.data.prompt;
   const log = useQuery({
     queryKey: ["log", start.job],
     enabled: !!start.job,
@@ -160,7 +159,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
             <p className="font-medium">{decision.auto ? "The factory merges this change without a person." : "A person must review and merge this change, because:"}</p>
             {!decision.auto && (
               <ul className="mt-2 list-disc divide-y divide-pill-warning-ink/10 pl-5">
-                {(decision.reasons as string[]).map((r) => (
+                {decision.reasons.map((r) => (
                   <li key={r} className="py-1.5 text-pretty">
                     {r[0].toUpperCase() + r.slice(1)}
                   </li>
@@ -283,14 +282,14 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
               <li key={t.id}>
                 <details className="group">
                   <summary className="flex w-full items-baseline justify-between gap-3 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
-                    <span className="font-medium group-open:underline">{t.data.name as string}</span>
+                    <span className="font-medium group-open:underline">{t.data.name}</span>
                     <span className={`text-xs ${t.data.ok ? "text-muted-foreground" : "text-destructive"}`}>
-                      {t.data.ms as number} ms{t.data.ok ? "" : ", failed"}
+                      {t.data.ms} ms{t.data.ok ? "" : ", failed"}
                     </span>
                   </summary>
                   <div className="mt-1 mb-3 flex flex-col gap-2">
-                    <pre className={pre}>{t.data.input as string}</pre>
-                    <pre className={pre}>{t.data.result as string}</pre>
+                    <pre className={pre}>{t.data.input}</pre>
+                    <pre className={pre}>{t.data.result}</pre>
                   </div>
                 </details>
               </li>

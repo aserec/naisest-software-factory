@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { addStep, formatResult, loadRecord, saveRecord, type RunRecord } from "./record";
+import { addStep, formatResult, loadRecord, newRecord, runFacts, saveRecord, type RequestRound, type RunRecord } from "./record";
 
 const sampleRecord: RunRecord = {
   workItem: "react_frontend#8",
@@ -36,4 +36,14 @@ test("a bad start time and missing steps are shown plainly", () => {
   expect(text).toContain("Time: unknown");
   expect(text).toContain("triage: did not run");
   expect(text).toContain("risk-check: did not run");
+});
+
+test("runFacts reports an open round and a round start", () => {
+  const round: RequestRound = { cursor: "t", requests: [], costAtStart: 0, tokensAtStart: { input: 0, output: 0 } };
+  let r = addStep(newRecord(), "event", { start: true });
+  expect(runFacts(r)).toMatchObject({ roundStart: false, openRound: undefined, requested: false });
+  r = { ...addStep(r, "event", { round: 1 }), requestRounds: [{ ...round, endedAt: "x" }, round] };
+  expect(runFacts(r)).toMatchObject({ roundStart: true, openRound: round, requested: true });
+  r = { ...addStep(r, "questions", {}), requestRounds: [{ ...round, endedAt: "x" }] };
+  expect(runFacts(r)).toMatchObject({ roundStart: false, openRound: undefined, requested: true });
 });

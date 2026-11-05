@@ -10,7 +10,7 @@ dashboardContract(() => {
 
 test("the fake's history keeps the target, the types and the times at or after since, compared as times", async () => {
   const dashboard = fakeDashboard();
-  const ev = (id: string, at: string, type: RunEvent["type"] = "decision", target = "t"): RunEvent => ({ id, run: "r", at, target, ticket: "1", type, data: {} });
+  const ev = (id: string, at: string, type: RunEvent["type"] = "decision", target = "t"): RunEvent => ({ id, run: "r", at, target, ticket: "1", type, data: {} }) as RunEvent;
   for (const e of [ev("old", "2026-06-01T10:00:00Z"), ev("new", "2026-06-01T10:00:01Z"), ev("type", "2026-06-01T11:00:00Z", "usage"), ev("other", "2026-06-01T11:00:00Z", "decision", "u")]) dashboard.send(e);
   expect((await dashboard.history("t", "2026-06-01T10:00:00.500Z", ["decision"])).map((e) => e.id)).toEqual(["new"]);
   dashboard.down = true;

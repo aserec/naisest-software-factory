@@ -1,6 +1,5 @@
 import type { Judge, JevQuestion, Ticket, TicketRef } from "./seams";
 
-export const DEDUPE_MARKER = "<!-- factory:dedupe -->";
 export const MAX_CANDIDATES = 200;
 export const SAME_CONFIDENCE_MIN = 0.9;
 // The judge's injection question sees this much of each candidate, and so does the writer.

@@ -1,24 +1,40 @@
-import { AI_LINE, GitLab, GITLAB_URL } from "../gitlab";
+import { AI_LINE, noQuickActions } from "../conversation";
+import { GitLab, GITLAB_URL, refuseSecrets } from "../gitlab";
 import { FACTORY_GIT_EMAIL, gitRepo } from "../repo";
 import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "../seams";
 
 export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
-  let project: Promise<{ id: number }> | undefined;
-  const proj = () => (project ??= gitlab.getProject(projectPath));
-  const projectId = async () => (await proj()).id;
+  let project: Promise<number> | undefined;
+  const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
   const mrUrl = async (ref: string) => `/projects/${await projectId()}/merge_requests/${Number(ref)}`;
-  const opened = (m: { iid: number; webUrl: string }) => ({ ref: String(m.iid), url: m.webUrl });
+  const opened = (m: { iid: number; web_url: string }) => ({ ref: String(m.iid), url: m.web_url });
   let bot: Promise<string> | undefined;
   const botName = () => (bot ??= gitlab.getJson("/user").then((u: { username: string }) => u.username));
   const notesOf = async (ref: string): Promise<any[]> => gitlab.getJson(`${await mrUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
   const put = async (endpoint: string, body?: unknown) => gitlab.call("PUT", endpoint, body);
+  const userId = async (username: string): Promise<number> => {
+    const list = await gitlab.getJson(`/users?username=${encodeURIComponent(username)}`);
+    if (!list[0]) throw new Error(`GitLab user ${username} not found`);
+    return list[0].id;
+  };
+  const openMergeRequest = async (projectId: number, branch: string, target: string, title: string, description: string) => {
+    const mr = await (await gitlab.call("POST", `/projects/${projectId}/merge_requests`, { source_branch: branch, target_branch: target, title, description: noQuickActions(description) })).json();
+    return opened(mr);
+  };
 
   return {
     baseBranch: async () => baseBranch,
     cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `${GITLAB_URL}/${projectPath}.git`, token, env),
     async openChange(branch, title, body, ticket) {
       const text = [AI_LINE, ...(ticket ? [`Closes #${ticket}`] : []), body].join("\n\n");
-      return opened(await gitlab.upsertMergeRequest(await projectId(), branch, baseBranch, title, text));
+      const id = await projectId();
+      // A re-run reuses the open MR of the factory branch and updates its text.
+      const open = await gitlab.getJson(`/projects/${id}/merge_requests?state=opened&source_branch=${encodeURIComponent(branch)}`);
+      if (!open[0]) return openMergeRequest(id, branch, baseBranch, title, text);
+      // GitLab allows one open MR per source branch, so an MR with another target must be closed by a person.
+      if (open[0].target_branch !== baseBranch) throw new Error(`Merge request !${open[0].iid} from ${branch} targets ${open[0].target_branch}, not ${baseBranch}`);
+      await put(`/projects/${id}/merge_requests/${open[0].iid}`, { title, description: noQuickActions(text) });
+      return opened(open[0]);
     },
     async change(ref) {
       const m = await gitlab.getJson(`${await mrUrl(ref)}?include_diverged_commits_count=true`);
@@ -66,7 +82,12 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       return { ok: false, error: "the rebase did not end within 5 minutes" };
     },
     async readFile(path) {
-      return gitlab.fileRaw(await projectId(), path, baseBranch);
+      try {
+        return await (await gitlab.call("GET", `/projects/${await projectId()}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(baseBranch)}`)).text();
+      } catch (e) {
+        if (String(e).includes("failed with status 404")) return undefined;
+        throw e;
+      }
     },
     async branchDiff(sha) {
       const c = await gitlab.getJson(`/projects/${await projectId()}/repository/compare?from=${encodeURIComponent(baseBranch)}&to=${sha}`);
@@ -85,10 +106,17 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       return m && { ref: String(m.iid), open: m.state === "opened" || m.state === "locked", merged: m.state === "merged", url: m.web_url as string };
     },
     async revert(sha) {
-      return opened(await gitlab.revertMerge(await projectId(), sha, baseBranch));
+      const id = await projectId();
+      // A unique name, so an earlier revert branch for the same commit does not get in the way.
+      const branch = `factory/revert-${sha.slice(0, 8)}-${Date.now()}`;
+      await gitlab.call("POST", `/projects/${id}/repository/branches`, { branch, ref: baseBranch });
+      await gitlab.call("POST", `/projects/${id}/repository/commits/${sha}/revert`, { branch });
+      return openMergeRequest(id, branch, baseBranch, `Revert ${sha.slice(0, 8)}`, `The ${baseBranch} pipeline failed after ${sha}. This reverts it.`);
     },
     async commentChange(ref, text) {
-      await gitlab.commentMergeRequest(await projectId(), Number(ref), text);
+      const body = noQuickActions(`${AI_LINE}\n\n${text}`);
+      refuseSecrets(body, "Comment");
+      await gitlab.call("POST", `${await mrUrl(ref)}/notes`, { body });
     },
     async changeComments(ref, since) {
       const name = await botName();
@@ -125,7 +153,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       });
     },
     async assignChange(ref, person) {
-      await put(await mrUrl(ref), { assignee_ids: [await gitlab.userId(person)] });
+      await put(await mrUrl(ref), { assignee_ids: [await userId(person)] });
     },
     // The returned url works in the Markdown of a change of this project.
     async attach(name, data) {

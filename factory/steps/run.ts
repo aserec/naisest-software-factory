@@ -6,10 +6,11 @@
 import { randomUUID } from "node:crypto";
 import { emit, emitFor, runIds, type RunIds } from "../emit";
 import type { PausableStep } from "../record";
-import { readyForOf } from "../requests";
+import { conversation, type Read } from "../conversation";
 import { STEPS, SWITCHES, type ControlRequest } from "../run-events";
 import type { ChangeRef, FactoryEvent, FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import type { FactoryCommands } from "../types";
+import { startStep } from "./with-step";
 import { controls, facts, person, save, ticketRef, type StepContext, type StepResult } from "./context";
 
 export const MAX_RUNS_PER_REPO = 2;
@@ -59,15 +60,15 @@ export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string
   const recent = (at: string) => Date.now() - Date.parse(at) >= 0 && Date.now() - Date.parse(at) <= RESTART_MS; // a future or bad `at` never counts
   const restart = control.requests.find((r) => r.kind === "restart" && r.ticket === ref && (!r.outcome || r.outcome === "done") && recent(r.at));
   if (restart) return { actor: restart.user, restart: true };
-  const asked = (await ctx.tracker.comments(ref)).filter((c) => c.byFactory && recent(c.at) && readyForOf(c.body)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
-  return { actor: asked ? readyForOf(asked.body)! : actor, restart: false };
+  const asked = await conversation(ctx).newest(ref, "readyFor");
+  return { actor: asked && recent(asked.at) ? asked.person : actor, restart: false };
 }
 
 // A new run gets its ID here, then the event step's start (runStep leaves it to that step).
 export async function startRun(ctx: StepContext, ref: TicketRef): Promise<StepResult> {
   ctx.record = { ...ctx.record, runId: randomUUID() };
   emit(ctx, "run_start", {});
-  ctx.stepEvent = emit(ctx, "step_start", {});
+  startStep(ctx);
   await ctx.tracker.setState(ref, "running");
   return "next";
 }
@@ -80,8 +81,9 @@ export function endRun(ctx: StepContext, outcome: "done" | "blocked" | "needs_in
 
 // The build pipeline, then the finish pipeline from apply on.
 export { STEPS };
-export const BUILD_STEPS = STEPS.slice(0, STEPS.indexOf("apply"));
-export const FINISH_STEPS = STEPS.slice(STEPS.indexOf("apply"));
+// Plain strings: callers ask with CI job names, which are not all run steps.
+export const BUILD_STEPS: readonly string[] = STEPS.slice(0, STEPS.indexOf("apply"));
+export const FINISH_STEPS: readonly string[] = STEPS.slice(STEPS.indexOf("apply"));
 // A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
 const CONTINUABLE = BUILD_STEPS.slice(2);
 
@@ -89,66 +91,6 @@ const CONTINUABLE = BUILD_STEPS.slice(2);
 export function doneBeforeResume(ctx: StepContext, name: string): boolean {
   const i = BUILD_STEPS.indexOf(name);
   return i > 0 && i < BUILD_STEPS.indexOf(facts(ctx).resumeAt ?? "");
-}
-
-// The four note formats. They must not change: work items paused before a deploy carry the old ones.
-const BLOCKED = "The factory stopped. A person must look at this.";
-// Only the comment's last line: the reason above it can quote agent text with a run line of its own.
-const BLOCKED_RUN = /\nBlocked run: pipeline (\d+)\s*$/;
-export const waitingNote = (run: string | undefined) =>
-  `The author agent reached its usage limit. The factory tries again every hour and continues this run.\n\nWaiting run: pipeline ${run ?? "unknown"}`;
-const WAITING_RUN = /^Waiting run: pipeline (\d+)$/m;
-// `@factory resume` continues a person's stop, the poller a switch stop once the switch is on again.
-export interface StoppedNote { run: string; step: string; reason: string; change?: ChangeRef; buildRun?: string }
-export const stoppedNote = (n: StoppedNote) =>
-  [
-    n.reason.startsWith("switch off") ? "A dashboard switch stopped this run. The factory continues it when the switch is on again." : "A person stopped this run. Comment the line @factory resume to continue it.",
-    "",
-    `Stopped run: pipeline ${n.run}`,
-    `Stopped step: ${n.step}`,
-    `Reason: ${n.reason}`,
-    ...(n.change ? [`Change: ${n.change}`, `Build run: ${n.buildRun ?? "unknown"}`] : []),
-  ].join("\n");
-const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
-// The poller's comment when the dashboard cancelled a pipeline that did not stop in time. Such a run cannot be resumed.
-const CANCEL_REASON = "Reason: pipeline cancelled from the dashboard";
-export const cancelNote = (user: string) =>
-  `The run was stopped from the dashboard by @${user}. The pipeline did not stop within 60 seconds, so it was cancelled. Resume is not possible. Use Restart.\n\n${CANCEL_REASON}`;
-
-// Only the factory's own comments may be passed to the readers below: anyone who can comment could write the same lines.
-export const isCancelNote = (body: string) => body.split("\n").includes(CANCEL_REASON);
-// Reads a stopped note back, or undefined for a cancel note or an old note with only its run line.
-export function parseStoppedNote(body: string): StoppedNote | undefined {
-  const field = (name: string) => new RegExp(`^${name}: (.+)$`, "m").exec(body)?.[1];
-  const run = STOPPED_RUN.exec(body)?.[1];
-  const step = field("Stopped step");
-  const reason = field("Reason");
-  if (!run || !step || !reason) return undefined;
-  const change = field("Change");
-  return { run, step, reason, ...(change ? { change, buildRun: field("Build run") } : {}) };
-}
-
-export type PauseKind = "blocked" | "waiting" | "stopped";
-// What a note says. run: the pipeline whose record to load; a blocked note has none when the run could not continue.
-// step, reason, change and buildRun: a stopped note's details; an old stopped note has only its run.
-// A cancel note is the stopped kind too: it says the run cannot be resumed, only restarted.
-export interface PauseNote { kind: PauseKind | "cancelled"; run?: string; step?: string; reason?: string; change?: ChangeRef; buildRun?: string }
-
-function readNote(body: string, kind: PauseKind): PauseNote | undefined {
-  if (kind === "blocked") return body.includes(BLOCKED) ? { kind, run: BLOCKED_RUN.exec(body)?.[1] } : undefined;
-  const run = (kind === "waiting" ? WAITING_RUN : STOPPED_RUN).exec(body)?.[1];
-  if (kind === "stopped" && isCancelNote(body)) return { kind: "cancelled" };
-  return run ? { kind, run, ...(kind === "stopped" ? parseStoppedNote(body) : {}) } : undefined;
-}
-
-// The factory's newest note of this kind on the work item. Only the newest counts: a person or the dashboard may have
-// paused the run again since an older note, and a newer block without a run line wins over an older one with it.
-export async function pauseNote(ctx: StepContext, ref: TicketRef, kind: PauseKind): Promise<PauseNote | undefined> {
-  for (const c of await ctx.tracker.comments(ref)) {
-    const n = c.byFactory ? readNote(c.body, kind) : undefined;
-    if (n) return n;
-  }
-  return undefined;
 }
 
 // Stop the run for a person: state, comment, assign, notice.
@@ -160,8 +102,7 @@ export async function block(ctx: StepContext, reason: string, continuable = CONT
   if (!t.open) await ctx.tracker.reopen(ref); // the change closed it at the merge
   await ctx.tracker.setState(ref, "blocked");
   endRun(ctx, "blocked");
-  const line = continuable ? `\n\nBlocked run: pipeline ${ctx.ci.vars.run ?? "unknown"}` : "";
-  await ctx.tracker.comment(ref, `${BLOCKED}\n\n${reason}${line}`);
+  await conversation(ctx).write(ref, { kind: "blocked", reason, ...(continuable ? { run: ctx.ci.vars.run ?? "unknown" } : {}) });
   await ctx.tracker.assign(ref, person(ctx, t));
   await ctx.chat.notify("blocked", t.title, [reason], t.url);
   return "stop";
@@ -172,7 +113,7 @@ export async function waiting(ctx: StepContext, step: PausableStep, sessionId: s
   const ref = ticketRef(ctx);
   save(ctx, step, { ...extra, sessionId, limit: true });
   await ctx.tracker.setState(ref, "waiting");
-  await ctx.tracker.comment(ref, waitingNote(ctx.ci.vars.run));
+  await conversation(ctx).write(ref, { kind: "waiting", run: ctx.ci.vars.run });
   return "stop";
 }
 
@@ -185,7 +126,7 @@ export async function stopped(ctx: StepContext, step: PausableStep, o: { session
   const ref = ticketRef(ctx);
   save(ctx, step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
   await ctx.tracker.setState(ref, "stopped");
-  await ctx.tracker.comment(ref, stoppedNote({ run: ctx.ci.vars.run ?? "unknown", step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun }));
+  await conversation(ctx).write(ref, { kind: "stopped", run: ctx.ci.vars.run ?? "unknown", step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun });
   return "stop";
 }
 // Part C (GLOSSARY.md: Closed run). What a person closed, read live when the caller acts: a webhook may have seen the
@@ -232,8 +173,10 @@ export async function endIfClosed(ctx: StepContext): Promise<StepResult | undefi
 const PAUSED: FactoryState[] = ["needs_approval", "waiting", "stopped"];
 // The poller has no run record. A ticket is past the gate's push when it waits for a person,
 // or a stop note names the decision or apply step. Before the push, the newest change is an older run's.
-const pushed = async (ctx: StepContext, t: Ticket) =>
-  t.state === "needs_approval" || (t.state === "stopped" && ["decision", "apply"].includes((await pauseNote(ctx, t.ref, "stopped"))?.step ?? ""));
+const pushed = async (ctx: StepContext, t: Ticket) => {
+  const note = t.state === "stopped" ? await conversation(ctx).newest(t.ref, "stopped") : undefined;
+  return t.state === "needs_approval" || (note?.kind === "stopped" && ["decision", "apply"].includes(note.step ?? ""));
+};
 
 // The poller: a paused run whose work item or change a person closed would keep its run slot for good. Same outcomes
 // as endIfClosed. Returns the tickets it ended. One failed ticket is logged and tried again next minute.
@@ -263,7 +206,7 @@ export const stopReason = (ctx: StepContext) => (ctx.dashboardStop ? DASHBOARD_S
 // Starts a stopped run again, in the kind of pipeline it stopped in. A build run resumes through its event step,
 // which checks the ticket and the record again. False when the note does not say enough to start it
 // (an old note names no step, a note at apply no change or build pipeline).
-async function startStopped(ctx: StepContext, ref: TicketRef, note: PauseNote): Promise<boolean> {
+async function startStopped(ctx: StepContext, ref: TicketRef, note: Extract<Read<"stopped">, { kind: "stopped" }>): Promise<boolean> {
   if (!note.step) return false;
   if (note.step !== "apply") {
     await ctx.ci.start({ kind: "build", ticket: ref, buildRun: note.run });
@@ -299,7 +242,7 @@ function continuePoint(ctx: StepContext, ref: TicketRef, buildRun: string, kind:
 // `round`: a request round starts here; the dashboard hears which one.
 export async function continueAt(ctx: StepContext, ref: TicketRef, resumeAt: string, d: { actor?: string; fromPipeline: string; sessionId?: string; round?: number }): Promise<StepResult> {
   save(ctx, "event", { start: true, resume: true, ticket: ref, resumeAt, ...d });
-  ctx.stepEvent = emit(ctx, "step_start", d.round ? { round: d.round } : {});
+  startStep(ctx, d.round ? { round: d.round } : {});
   await ctx.tracker.setState(ref, "running");
   return "next";
 }
@@ -321,10 +264,10 @@ export async function resume(ctx: StepContext, ref: TicketRef, buildRun: string)
 // A trusted person's `@factory resume` on a stopped ticket (the caller checked both). It continues the run named in the
 // factory's newest stop note, a finish run the apply switch stopped as a finish run.
 export async function resumeOnCommand(ctx: StepContext, ref: TicketRef, actor: string, quiet: (reason: string) => "stop"): Promise<StepResult> {
-  const note = await pauseNote(ctx, ref, "stopped");
+  const note = await conversation(ctx).newest(ref, "stopped");
   // A cancelled pipeline saved nothing after the stop before it: only a restart helps.
   if (note?.kind === "cancelled") return quiet("cancelled");
-  if (note?.step === "apply") {
+  if (note?.kind === "stopped" && note.step === "apply") {
     if (!(await startStopped(ctx, ref, note))) return block(ctx, "The factory could not resume this run: its stopped-run comment names no change or build pipeline. Add factory_ready to start again.");
     save(ctx, "event", { start: true, resume: true, ticket: ref, actor, change: note.change, fromPipeline: note.buildRun });
     return "stop";
@@ -345,7 +288,7 @@ export async function resumeOnCommand(ctx: StepContext, ref: TicketRef, actor: s
 
 // A person set a blocked ticket ready again: continue the run at the job that blocked. Undefined: start a new run.
 export async function continueBlocked(ctx: StepContext, e: Extract<FactoryEvent, { kind: "ready" }>): Promise<StepResult | undefined> {
-  const buildRun = (await pauseNote(ctx, e.ticket, "blocked"))?.run;
+  const buildRun = (await conversation(ctx).newest(e.ticket, "blocked"))?.run;
   if (!buildRun) return undefined;
   const fresh = ctx.record;
   let c: ReturnType<typeof continuePoint>;
@@ -375,9 +318,9 @@ export async function resumeSwitchedOff(ctx: StepContext, skip: TicketRef[] = []
   const started: TicketRef[] = [];
   for (const { ref } of await ctx.tracker.list("stopped")) {
     if (skip.includes(ref)) continue;
-    const note = await pauseNote(ctx, ref, "stopped");
-    const name = note?.reason && /^switch off (\w+)$/.exec(note.reason)?.[1];
-    if (!note || !name || !control.resumeOn(name as SwitchName)) continue;
+    const note = await conversation(ctx).newest(ref, "stopped");
+    const name = note?.kind === "stopped" && note.reason && /^switch off (\w+)$/.exec(note.reason)?.[1];
+    if (note?.kind !== "stopped" || !name || !control.resumeOn(name as SwitchName)) continue;
     if (await startStopped(ctx, ref, note)) started.push(ref);
   }
   return started;
@@ -398,7 +341,7 @@ export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[
       });
       if (t?.state === "running") {
         // The comment first: without it a resume would read an older stop note.
-        await ctx.tracker.comment(r.ticket, cancelNote(r.user));
+        await conversation(ctx).write(r.ticket, { kind: "cancelled", user: r.user });
         await ctx.tracker.setState(r.ticket, "stopped");
         finished.push(r.ticket);
       }
@@ -438,7 +381,7 @@ export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
 // The dashboard checked the role on the factory project; the target project must trust the person too (Ruling R45).
 async function resumeRequest(ctx: StepContext, r: ControlRequest): Promise<boolean> {
   if (!(await ctx.tracker.trusted(r.user))) return false;
-  const note = await pauseNote(ctx, r.ticket, "stopped");
+  const note = await conversation(ctx).newest(r.ticket, "stopped");
   return note?.kind === "stopped" && startStopped(ctx, r.ticket, note);
 }
 
@@ -473,7 +416,8 @@ async function startRestart(ctx: StepContext, r: ControlRequest): Promise<boolea
 // A run stopped at apply left its change open. The new run opens its own, so the old one is closed.
 // The ticket is ready by now, but the stopped note still names the change.
 async function closeStoppedChange(ctx: StepContext, r: ControlRequest, url: string): Promise<void> {
-  const change = (await pauseNote(ctx, r.ticket, "stopped"))?.change;
+  const note = await conversation(ctx).newest(r.ticket, "stopped");
+  const change = note?.kind === "stopped" ? note.change : undefined;
   if (!change || !(await ctx.codeHost.change(change)).open) return;
   await ctx.codeHost.commentChange(change, `This change was closed because the run was restarted from the dashboard by @${r.user}.${url ? ` The new run: ${url}` : ""}`);
   await ctx.codeHost.closeChange(change);

@@ -4,14 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Confirm } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
+import type { Action } from "@/server/run-view";
 import type { FactoryState } from "@/server/seams";
 import { STATE } from "./board";
 import { LoadError } from "./shell";
 
-type Action = "stop" | "resume" | "restart";
 interface RunState {
   state?: FactoryState;
-  cancelled: boolean;
+  actions: Action[]; // the buttons, from the run view on the server
   restarted: boolean;
   pending: Action[];
 }
@@ -40,10 +40,8 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
   );
 }
 
-// Stop while the last state is running. Resume and Restart while it is stopped.
-// After a cancelled run only Restart, because the cancelled job saved nothing to resume from (spec 6.1).
-// state: the work item's state in its tracker. The run's own label_change events win; the tracker fills in when the run sent none.
-export function RunControls({ run, state }: { run: string; state?: FactoryState }) {
+// The buttons are the actions the run view allows (server/run-view.ts); this component only shows them.
+export function RunControls({ run }: { run: string }) {
   const client = useQueryClient();
   const key = ["run-state", run];
   const runState = useQuery({
@@ -68,10 +66,7 @@ export function RunControls({ run, state }: { run: string; state?: FactoryState 
   const { data, error } = runState;
   if (!data && error) return <LoadError what="the run state, so Stop and Resume are hidden" query={runState} />;
   if (!data) return null;
-  // A cancel means the run is over even before the poller sets the stopped state, so only Restart is left (Ruling R18).
-  // A done restart ended the run: a new run carries on, so this one shows no buttons.
-  const current = data.state ?? state;
-  const buttons: Action[] = data.pending.length || data.restarted ? [] : data.cancelled ? ["restart"] : current === "running" ? ["stop"] : current === "stopped" ? ["resume", "restart"] : [];
+  const { state: current, actions: buttons } = data;
   // A run that waits for approval says so on the page; the person's action is the merge, not a control.
   const quiet = current === "needs_approval";
   // Nothing to show: no wrapper either, or the title row's gap leaves a hole after the merge button.

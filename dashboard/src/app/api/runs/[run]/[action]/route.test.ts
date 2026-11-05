@@ -17,7 +17,7 @@ process.env.AUTH_URL = "https://dash.test";
 const { getDb } = await import("@/server/db-instance");
 const { GET, POST } = await import("./route");
 
-const ev = (type: RunEvent["type"], run: string, data: Record<string, unknown> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data });
+const ev = (type: RunEvent["type"], run: string, data: Record<string, unknown> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data }) as RunEvent;
 const post = (run: string, action: string, origin: string | null = "https://dash.test") =>
   POST(new Request("http://x", { method: "POST", headers: origin ? { origin } : {} }), { params: Promise.resolve({ run, action }) });
 const state = (run: string) => GET(new Request("http://x"), { params: Promise.resolve({ run, action: "state" }) });
@@ -31,7 +31,7 @@ beforeEach(() => {
 });
 
 describe("POST /api/runs/[run]/[action]", () => {
-  it("saves a stop request and a stop event with the user, and refuses a second stop", async () => {
+  it("saves a stop request and a stop event with the user, and answers 409 with the reason to a second stop", async () => {
     const res = await post(run, "stop");
     expect(res.status).toBe(200);
     expect(getDb().requests({ target: "demo" }).filter((r) => r.run === run)).toMatchObject([{ kind: "stop", user: "ann" }]);
@@ -40,13 +40,14 @@ describe("POST /api/runs/[run]/[action]", () => {
     expect([again.status, await again.text()]).toEqual([409, "already requested"]);
   });
 
-  it("refuses a restart on a run that is not stopped", async () => {
+  it("answers 409 with the reason to a refused action, and writes nothing", async () => {
     const res = await post(run, "restart");
     expect([res.status, await res.text()]).toEqual([409, "run is not stopped"]);
+    expect(getDb().requests({ target: "demo" }).filter((r) => r.run === run)).toEqual([]);
   });
 
   it("accepts a resume on a stopped run", async () => {
-    getDb().addEvents([ev("step_end", run, { outcome: "stopped" })]);
+    getDb().addEvents([ev("label_change", run, { to: "stopped" })]);
     expect((await post(run, "resume")).status).toBe(200);
   });
 
@@ -75,12 +76,12 @@ describe("POST /api/runs/[run]/[action]", () => {
 });
 
 describe("GET /api/runs/[run]/state", () => {
-  it("gives the label and the pending requests, and flags a cancelled stop without calling it pending", async () => {
-    expect(await (await state(run)).json()).toEqual({ state: "running", cancelled: false, restarted: false, pending: [] });
+  it("gives the state, the allowed actions and the pending requests, and a cancelled stop is not pending", async () => {
+    expect(await (await state(run)).json()).toEqual({ state: "running", actions: ["stop"], restarted: false, pending: [] });
     await post(run, "stop");
-    expect(await (await state(run)).json()).toMatchObject({ pending: ["stop"] });
+    expect(await (await state(run)).json()).toMatchObject({ actions: [], pending: ["stop"] });
     getDb().finish(getDb().requests({ target: "demo" }).find((r) => r.run === run)!.id, "cancelled");
-    expect(await (await state(run)).json()).toMatchObject({ cancelled: true, pending: [] });
+    expect(await (await state(run)).json()).toMatchObject({ actions: ["restart"], pending: [] });
   });
 
   it("reports a done restart, and refuses another restart", async () => {
@@ -89,7 +90,7 @@ describe("GET /api/runs/[run]/state", () => {
     getDb().finish(stop.id, "cancelled");
     expect((await post(run, "restart")).status).toBe(200);
     getDb().finish(getDb().requests({ target: "demo" }).find((r) => r.run === run && r.kind === "restart")!.id, "done");
-    expect(await (await state(run)).json()).toMatchObject({ restarted: true, pending: [] });
+    expect(await (await state(run)).json()).toMatchObject({ restarted: true, actions: [], pending: [] });
     const again = await post(run, "restart");
     expect([again.status, await again.text()]).toEqual([409, "run already restarted"]);
   });
@@ -97,10 +98,11 @@ describe("GET /api/runs/[run]/state", () => {
   it("gives the newest label of a run with more than 500 events", async () => {
     getDb().addEvents(Array.from({ length: 600 }, () => ev("tool_call", run, { name: "x", input: "", result: "", ms: 1, ok: true })));
     getDb().addEvents([ev("label_change", run, { to: "factory_stopped" })]);
-    expect(await (await state(run)).json()).toMatchObject({ state: "stopped" });
+    expect(await (await state(run)).json()).toMatchObject({ state: "stopped", actions: ["resume", "restart"] });
   });
 
-  it("answers 401 without a session", async () => {
+  it("answers 401 without a session, and 404 for an unknown run", async () => {
+    expect((await state("nope")).status).toBe(404);
     who.session = false;
     expect((await state(run)).status).toBe(401);
   });

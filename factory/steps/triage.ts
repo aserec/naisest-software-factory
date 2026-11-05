@@ -1,5 +1,5 @@
 import { wrapTicket } from "../agents";
-import { CANDIDATE_BODY, DEDUPE_MARKER, MAX_CANDIDATES, askDedupe, decideDedupe } from "../dedupe";
+import { CANDIDATE_BODY, MAX_CANDIDATES, askDedupe, decideDedupe } from "../dedupe";
 import { emit } from "../emit";
 import { need } from "../record";
 import { pickModels } from "../router";
@@ -8,7 +8,7 @@ import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type Triage
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
-import { isRequest } from "../requests";
+import { conversation } from "../conversation";
 import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, endRun, stopReason, stopped, waiting } from "./run";
 
@@ -64,15 +64,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
 // Triage checks them for injection with the description, and the agents read them as part of it.
 // ponytail: buildTriageState cuts the description at MAX_DESCRIPTION, so a long body hides the comments. Summarise them if that bites.
 async function requestText(ctx: StepContext, ticket: Ticket): Promise<string> {
-  const trust = new Map<string, Promise<boolean>>();
-  const out: string[] = [];
-  const list = (await ctx.tracker.comments(ticket.ref)).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  for (const c of list) {
-    if (c.byFactory || !isRequest(c.body)) continue;
-    if (!trust.has(c.author)) trust.set(c.author, ctx.tracker.trusted(c.author));
-    if (await trust.get(c.author)) out.push(`\n\nComment by ${c.author}:\n${c.body}`);
-  }
-  return out.join("");
+  return (await conversation(ctx).itemRequests(ticket.ref)).map((c) => `\n\nComment by ${c.author}:\n${c.body}`).join("");
 }
 
 // A work item a person wrote may repeat an open one. A sure duplicate is closed, a near one gets a question.
@@ -80,7 +72,8 @@ async function requestText(ctx: StepContext, ticket: Ticket): Promise<string> {
 async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | undefined> {
   const ref = ticketRef(ctx);
   if (ticket.marks.includes("watcher")) return undefined;
-  if ((await ctx.tracker.comments(ref)).some((c) => c.byFactory && c.body.includes(DEDUPE_MARKER))) return undefined;
+  const conv = conversation(ctx);
+  if (await conv.newest(ref, "duplicate")) return undefined;
   let answers;
   let open;
   try {
@@ -100,7 +93,7 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
   const why = `Jev compared it with #${o.ref} "${o.title}" and answered "${answers.verdict}" with ${answers.confidence} confidence.`;
   if (verdict === "same" && Number(o.ref) < Number(ref)) {
     emit(ctx, "triage_outcome", { kind: "stop", title: `Stopped: a duplicate of #${o.ref}, so the factory closed it`, reasons: [why, `#${o.ref} is older, so it keeps the work.`], url: o.url });
-    await ctx.tracker.comment(ref, `This work item asks for the same change as #${o.ref} (${o.url}), so the factory closed it as a duplicate. If it is a separate change, reopen it, say what is different, and add factory_ready again.\n\n${DEDUPE_MARKER}`);
+    await conv.write(ref, { kind: "duplicate_close", text: `This work item asks for the same change as #${o.ref} (${o.url}), so the factory closed it as a duplicate. If it is a separate change, reopen it, say what is different, and add factory_ready again.` });
     await ctx.tracker.clearState(ref);
     await ctx.tracker.close(ref);
     endRun(ctx, "closed");
@@ -108,7 +101,7 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
   }
   emit(ctx, "triage_outcome", { kind: "ask", title: `Asks first: it may repeat #${o.ref}`, reasons: [why, "The factory closes a work item only when the answer is a sure same and the original is older, so it asked a person."], url: o.url });
   const text = await dedupeQuestion(ctx, o, answers.injectionYes);
-  await ctx.tracker.comment(ref, `${text}\n\n${DEDUPE_MARKER}`);
+  await conv.write(ref, { kind: "duplicate_question", text });
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked whether the work item repeats another one."], "");

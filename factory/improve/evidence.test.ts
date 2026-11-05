@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
-import { DEDUPE_MARKER } from "../dedupe";
+import { noteText } from "../conversation";
 import { fakeCodeHost, fakeDashboard, fakeJudge, fakeTracker } from "../fakes";
+import type { EventData, EventType } from "../run-events";
 import type { JevAnswer, RunEvent } from "../seams";
 import type { Target } from "../types";
 import { collectEvidence, isRevertOf, loopEvidence, DECISION_MS, MAX_EVIDENCE, MAX_EVIDENCE_TEXT, WEEK_MS } from "./evidence";
@@ -11,7 +12,7 @@ const ago = (days: number) => new Date(NOW.getTime() - days * DAY).toISOString()
 const SHA = "abc1234def5678";
 
 let n = 0;
-const ev = (type: RunEvent["type"], data: RunEvent["data"], o: Partial<RunEvent> = {}): RunEvent => ({ id: String(++n), run: "r1", at: ago(2), target: "t", ticket: "8", type, data, ...o });
+const ev = <T extends EventType>(type: T, data: EventData<T>, o: Partial<RunEvent> = {}) => ({ id: String(++n), run: "r1", at: ago(2), target: "t", ticket: "8", type, data, ...o }) as RunEvent;
 const finding = (text: string, round: number, blocking = true, o: Partial<RunEvent> = {}) => ev("review_finding", { text, blocking, round }, o);
 const gate = (exitCode: number) => ev("gate_check", { command: "pnpm test", exitCode, outputTail: "" });
 const decision = (auto: boolean, o: Partial<RunEvent> = {}) => ev("decision", { auto, reasons: auto ? ["small change"] : ["protected path touched"] }, o);
@@ -228,14 +229,27 @@ test("isRevertOf", () => {
 test("a ticket the factory closed as a duplicate and a person reopened gives reopened_duplicate", async () => {
   const w = world();
   w.dashboard.events.push(ev("run_start", {}));
-  await factorySays(w, `This asks for the same change as #3.\n\n${DEDUPE_MARKER}`, ago(1));
+  await factorySays(w, noteText({ kind: "duplicate_close", text: "This asks for the same change as #3." }), ago(1));
   const r = await run(w);
   expect(r.evidence).toEqual([{ kind: "reopened_duplicate", link: "https://tracker.example/8", at: ago(1), text: "Show a spinner" }]);
+});
+// F-P3: the factory's question about a possible duplicate is not a wrong close.
+test("a duplicate question on an open work item gives nothing", async () => {
+  const w = world();
+  w.dashboard.events.push(ev("run_start", {}));
+  await factorySays(w, noteText({ kind: "duplicate_question", text: "Does this belong in #3?" }), ago(1));
+  expect(kinds(await run(w))).toEqual([]);
+});
+test("a close with the marker posted before the question had its own still gives reopened_duplicate", async () => {
+  const w = world();
+  w.dashboard.events.push(ev("run_start", {}));
+  await factorySays(w, "This asks for the same change as #3.\n\n<!-- factory:dedupe -->", ago(1));
+  expect(kinds(await run(w))).toEqual(["reopened_duplicate"]);
 });
 test("a duplicate that is still closed gives nothing", async () => {
   const w = world();
   w.dashboard.events.push(ev("run_start", {}));
-  await factorySays(w, `Same as #3.\n\n${DEDUPE_MARKER}`, ago(1));
+  await factorySays(w, noteText({ kind: "duplicate_close", text: "Same as #3." }), ago(1));
   await w.tracker.close("8");
   expect(kinds(await run(w))).toEqual([]);
 });
@@ -270,7 +284,7 @@ test("the reverted mark counts only for an auto decision of this week", async ()
 test("a reply or a duplicate marker from before the week gives nothing", async () => {
   const w = world();
   w.dashboard.events.push(ev("run_start", {}));
-  await factorySays(w, `Same as #3.\n\n${DEDUPE_MARKER}`, ago(9));
+  await factorySays(w, noteText({ kind: "duplicate_close", text: "Same as #3." }), ago(9));
   w.tracker.say("8", "dev", "Like the login page", ago(8));
   expect(kinds(await run(w))).toEqual([]);
 });
@@ -280,9 +294,9 @@ test("a decision about another change of the work item is not judged against the
   w.host.mergeByPerson("5");
   w.host.commits.set("5", [{ sha: "a", byFactory: true }]);
   w.dashboard.events.push(decision(false, { at: ago(3) }));
-  w.dashboard.events[0].data.changeUrl = "https://host.example/changes/4";
+  w.dashboard.events[0] = ev("decision", { auto: false, reasons: [], changeUrl: "https://host.example/changes/4" }, { at: ago(3) });
   expect(kinds(await run(w))).toEqual([]);
-  w.dashboard.events[0].data.changeUrl = "https://host.example/changes/5";
+  w.dashboard.events[0] = ev("decision", { auto: false, reasons: [], changeUrl: "https://host.example/changes/5" }, { at: ago(3) });
   expect(kinds(await run(w))).toEqual(["too_strict"]);
 });
 test("two work items with one change give one too_strict", async () => {

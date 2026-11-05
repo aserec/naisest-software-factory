@@ -1,46 +1,16 @@
 // Part G: a `@factory` request from a trusted person starts a round on a ticket that waits for a person, or gets a reply.
-import { cursorLine, isRequest, later, newestByFactory, readCursor, readyForLine, stateReply } from "../requests";
-import type { Request } from "../record";
-import type { ChangeRef, Comment, FactoryState, Ticket, TicketRef } from "../seams";
-import { INJECTION_LIMIT, buildTriageState, injectionQuestion } from "../triage";
+import { conversation, later, refusal, stateReply } from "../conversation";
+import type { ChangeRef, FactoryState, Ticket, TicketRef } from "../seams";
 import { facts, save, type StepContext, type StepResult } from "./context";
 import { buildRunOf } from "./merge";
 import { block, continueAt } from "./run";
-
-// One Tracker.trusted call per author.
-const trustCache = (ctx: StepContext) => {
-  const seen = new Map<string, Promise<boolean>>();
-  return (author: string) => seen.get(author) ?? seen.set(author, ctx.tracker.trusted(author)).get(author)!;
-};
-
-// The requests after the cursor, oldest first, from the work item and from its open change.
-// `forReply`: the requests only get a reply, so with no cursor at all the factory's newest comment on the work item counts too.
-export async function newRequests(ctx: StepContext, ref: TicketRef, forReply = false): Promise<{ requests: Request[]; change?: { ref: ChangeRef; url: string } }> {
-  const c = await ctx.codeHost.changeOfTicket(ref);
-  const onItem = await ctx.tracker.comments(ref);
-  const onChange = c ? await ctx.codeHost.changeComments(c.ref) : [];
-  // No cursor line: the factory's newest comment on the change. With neither, nothing is read.
-  const cursor = readCursor([...onItem, ...onChange]) ?? newestByFactory(onChange) ?? (forReply ? newestByFactory(onItem) : undefined);
-  if (cursor === undefined) return { requests: [] };
-  const open = c?.open ? { ref: c.ref, url: c.url } : undefined;
-  const trusted = trustCache(ctx);
-  const requests: Request[] = [];
-  const take = async (list: Comment[], on: Request["on"]) => {
-    for (const x of list) {
-      if (x.byFactory || Date.parse(x.at) <= Date.parse(cursor) || !isRequest(x.body)) continue;
-      if (await trusted(x.author)) requests.push({ author: x.author, body: x.body, at: x.at, on });
-    }
-  };
-  await take(onItem, "work item");
-  if (open) await take(onChange, "change");
-  return { requests: requests.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)), ...(open ? { change: open } : {}) };
-}
 
 // needs_approval: start a round. blocked, needs_info: ready again, as if the newest author added factory_ready.
 // running: nothing, the inbox has it. Any other state: one reply on the work item.
 export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"started" | "replied" | "none"> {
   if (t.state === "running") return "none";
-  const { requests, change } = await newRequests(ctx, t.ref, t.state !== "needs_approval");
+  const conv = conversation(ctx);
+  const { requests, change } = await conv.requests(t.ref, t.state !== "needs_approval");
   if (requests.length === 0) return "none";
   if (t.state === "needs_approval") {
     const buildRun = change && buildRunOf((await ctx.codeHost.change(change.ref)).body);
@@ -53,12 +23,20 @@ export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"star
   if (t.state === "blocked" || t.state === "needs_info") {
     // The poller starts the ready ticket; readyActor takes the factory's ready as this person's.
     const last = requests.at(-1)!;
-    await ctx.tracker.comment(t.ref, `The factory starts again for the request of @${last.author}.\n\n${readyForLine(last.author)}\n\n${cursorLine(last.at)}`);
+    // Like a round: one flagged request refuses all, with the cursor line so the next poll does not ask the judge again.
+    // A judge that fails throws: pollRequests logs it and the next poll tries again.
+    for (const r of requests) {
+      if (await conv.isInjection(r)) {
+        await conv.write(t.ref, refusal(requests.map((x) => x.author), last.at));
+        return "replied";
+      }
+    }
+    await conv.write(t.ref, { kind: "readyFor", text: `The factory starts again for the request of @${last.author}.`, person: last.author, cursor: last.at });
     await ctx.tracker.setState(t.ref, "ready");
     return "started";
   }
   const authors = [...new Set(requests.map((r) => r.author))];
-  await ctx.tracker.comment(t.ref, [...authors.map((a) => stateReply(a, t.state)), cursorLine(requests.at(-1)!.at)].join("\n\n"));
+  await conv.write(t.ref, { kind: "cursor", text: authors.map((a) => stateReply(a, t.state)).join("\n\n"), at: requests.at(-1)!.at });
   return "replied";
 }
 
@@ -92,24 +70,23 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   const why = facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
   if (why) return block(ctx, `The factory could not start a round: ${why}. Add factory_ready to start again.`);
   // Requests wait for a change that is open. A quiet stop writes nothing: there is nothing to answer.
-  const { requests, change } = await newRequests(ctx, ref);
+  const conv = conversation(ctx);
+  const { requests, change } = await conv.requests(ref);
   if (!change || requests.length === 0) return quiet("no-request");
   const newest = requests.at(-1)!.at;
   const authors = [...new Set(requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
   // The change stays open and waiting, so a person can still merge it. The cursor line stops the poller from asking again.
   if (change.ref !== facts(ctx).change) {
-    await ctx.tracker.comment(ref, `${authors} The factory could not start a round: the open change ${change.ref} is not the change of pipeline ${buildRun}. The change still waits for a person.\n\n${cursorLine(newest)}`);
+    await conv.write(ref, { kind: "cursor", text: `${authors} The factory could not start a round: the open change ${change.ref} is not the change of pipeline ${buildRun}. The change still waits for a person.`, at: newest });
     return quiet("change-mismatch");
   }
   // From here the ticket either starts running or gets a cursor line, so the poller does not start the same round again.
   // A judge that fails refuses nothing and writes no cursor: the next poll tries again.
   try {
     for (const r of requests) {
-      const [a] = await ctx.judge.ask(buildTriageState(`Request by ${r.author}`, r.body, []), [injectionQuestion]);
-      if (!a) throw new Error(`The judge gave no answer for "${injectionQuestion.id}"`);
-      // Fails closed, like triage: NaN counts as an injection, and one request refuses the whole round.
-      if (!(a.probability < INJECTION_LIMIT)) {
-        await ctx.tracker.comment(ref, `${authors} The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.\n\n${cursorLine(newest)}`);
+      // One request that looks like an injection refuses the whole round.
+      if (await conv.isInjection(r)) {
+        await conv.write(ref, refusal(requests.map((r) => r.author), newest, " The change still waits for a person."));
         return quiet("injection");
       }
     }
@@ -118,7 +95,7 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
     return quiet("judge-error", String(e).slice(0, 500));
   }
   await ctx.ci.restoreRun(buildRun);
-  await ctx.tracker.comment(ref, `The factory started another round for the requests of ${authors}.\n\n${cursorLine(newest)}`);
+  await conv.write(ref, { kind: "cursor", text: `The factory started another round for the requests of ${authors}.`, at: newest });
   for (const m of ["implemented", "reviewed", "checked", "risk_checked"] as const) if (t.marks.includes(m)) await ctx.tracker.unmark(ref, m);
   const rounds = [...(ctx.record.requestRounds ?? []), { cursor: newest, requests, costAtStart: ctx.record.costUsd, tokensAtStart: ctx.record.tokens ?? { input: 0, output: 0 } }];
   ctx.record = { ...ctx.record, rounds: { review: 0, gate: 0 }, requestRounds: rounds };
@@ -132,27 +109,18 @@ export const REPLY_WINDOW_MS = 10 * 60_000;
 // `skip`: tickets pollRequests answered in this poll. A ticket it set ready must not also get the ready reply.
 export async function replyOnChanges(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
   const since = new Date(Date.now() - REPLY_WINDOW_MS).toISOString();
-  const trusted = trustCache(ctx);
+  const conv = conversation(ctx);
   const replied: TicketRef[] = [];
   for (const { ref, ticket } of await ctx.codeHost.recentChanges(since)) {
     if (skip.includes(ticket)) continue;
     try {
-      const comments = await ctx.codeHost.changeComments(ref, since);
-      const cursor = readCursor(comments);
-      let requests: Comment[] = [];
-      for (const x of comments) if (!x.byFactory && isRequest(x.body) && (cursor === undefined || Date.parse(x.at) > Date.parse(cursor)) && (await trusted(x.author))) requests.push(x);
+      const requests = await conv.unanswered(ref, ticket, since);
       if (requests.length === 0) continue;
       const t = await ctx.tracker.ticket(ticket);
       if (t.state && ["needs_approval", "running", "stopped", "waiting", "blocked", "needs_info"].includes(t.state)) continue;
-      // The webhook answers on the work item, with its own cursor line: that counts for the change too.
-      // No cursor line: the factory's newest comment on the change, else on the work item. With none, every request in the window.
-      const onItem = await ctx.tracker.comments(ticket);
-      const seen = later(cursor, readCursor(onItem)) ?? newestByFactory(comments) ?? newestByFactory(onItem);
-      requests = requests.filter((x) => seen === undefined || Date.parse(x.at) > Date.parse(seen));
-      if (requests.length === 0) continue;
       const newest = requests.reduce<string | undefined>((a, x) => later(a, x.at), undefined)!;
       const authors = [...new Set(requests.map((x) => x.author))];
-      await ctx.codeHost.commentChange(ref, [...authors.map((a) => stateReply(a, t.state)), cursorLine(newest)].join("\n\n"));
+      await conv.writeOnChange(ref, { kind: "cursor", text: authors.map((a) => stateReply(a, t.state)).join("\n\n"), at: newest });
       replied.push(ticket);
     } catch (e) {
       console.log(`Reply on change ${ref} failed: ${String(e).slice(0, 300)}`);

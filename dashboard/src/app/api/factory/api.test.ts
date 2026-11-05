@@ -15,7 +15,7 @@ const { GET: getControl } = await import("./control/route");
 const { POST: postDone } = await import("./requests/[id]/done/route");
 
 const auth = { authorization: "Bearer secret-token" };
-const ev = (type: RunEvent["type"], data: Record<string, unknown>, run = "r1"): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "t", ticket: "T-1", type, data });
+const ev = (type: RunEvent["type"], data: Record<string, unknown>, run = "r1"): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "t", ticket: "T-1", type, data }) as RunEvent;
 const send = (events: unknown, headers: Record<string, string> = auth) => postEvents(new Request("http://x/api/events", { method: "POST", headers, body: JSON.stringify(events) }));
 const control = (run: string, headers: Record<string, string> = auth) => getControl(new Request(`http://x/api/factory/control?target=t&run=${run}`, { headers }));
 const state = async (run: string) => (await control(run)).json() as Promise<ControlState>;
@@ -72,14 +72,14 @@ describe("GET /api/factory/control", () => {
   });
 
   it("sets stop for the run with a pending stop only", async () => {
-    getDb().addEvents([ev("run_start", {}, "ra")]);
+    getDb().addEvents([ev("run_start", {}, "ra"), ev("label_change", { to: "running" }, "ra")]);
     ask("stop", "ra");
     expect((await state("ra")).stop).toBe(true);
     expect((await state("rb")).stop).toBe(false);
   });
 
   it("returns a cancelled stop in requests without stop", async () => {
-    getDb().addEvents([ev("run_start", {}, "rc")]);
+    getDb().addEvents([ev("run_start", {}, "rc"), ev("label_change", { to: "running" }, "rc")]);
     const r = ask("stop", "rc");
     await done(r.id, "cancelled");
     const s = await state("rc");
@@ -90,7 +90,7 @@ describe("GET /api/factory/control", () => {
   it("returns a pending resume and keeps a restart for 15 minutes after it is done", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T10:00:00Z"));
-    const stopped = (run: string) => getDb().addEvents([ev("step_end", { outcome: "stopped" }, run)]);
+    const stopped = (run: string) => getDb().addEvents([ev("label_change", { to: "stopped" }, run)]);
     stopped("rr1");
     stopped("rr2");
     stopped("rr3");
