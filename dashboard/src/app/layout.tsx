@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = { title: "Factory" };
 
-// Runs before first paint so a saved Light or Dark never flashes the other theme. ThemeSelect in shell.tsx writes the same "theme" key.
+// Runs before first paint so a saved Light or Dark never flashes the other theme. ThemeSync in shell.tsx writes the same "theme" key.
 // suppressHydrationWarning on <html> because this sets data-theme before React hydrates.
 const themeScript = `try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`;
 

@@ -173,3 +173,15 @@
     opacity: 0.7;
   }
 }
+
+/* Chrome draws a native select's arrow about 5px from the edge and ignores padding-right, so every select draws its own:
+   a small caret 12px in from the edge, from two gradients so it takes the theme's muted color.
+   Outside @layer so its padding wins over a px-* utility on the select. */
+select {
+  appearance: none;
+  padding-right: 2rem;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%), linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 55%, calc(100% - 12px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}

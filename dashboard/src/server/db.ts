@@ -57,6 +57,9 @@ export interface Db {
   dispatchStarted(target: string, at: string): void;
   isImported(job: string): boolean;
   markImported(job: string): void;
+  /** The user's saved preferences as stored, {} when none. Checked by preferences.ts, not here. */
+  preferences(user: string): Record<string, unknown>;
+  setPreferences(user: string, prefs: Record<string, unknown>): void;
   prune(now: Date): void;
   backup(dir: string, now: Date): void;
 }
@@ -81,7 +84,8 @@ CREATE TABLE IF NOT EXISTS dispatches (
   details TEXT NOT NULL, link TEXT, at TEXT NOT NULL, started_at TEXT, done_at TEXT, work_item TEXT
 );
 CREATE INDEX IF NOT EXISTS dispatches_pending ON dispatches (target, done_at, at);
-CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);`;
+CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS preferences (user TEXT PRIMARY KEY, data TEXT NOT NULL, at TEXT NOT NULL);`;
 
 const DAY_MS = 864e5;
 const KEEP_BACKUPS = 7;
@@ -289,6 +293,15 @@ export function openDb(path: string): Db {
 
     dispatchDone(id, workItem) {
       db.prepare("UPDATE dispatches SET done_at = ?, work_item = ? WHERE id = ? AND done_at IS NULL").run(new Date().toISOString(), workItem ?? null, id);
+    },
+
+    preferences(user) {
+      const r = db.prepare("SELECT data FROM preferences WHERE user = ?").get(user) as Row | undefined;
+      return r ? (JSON.parse(r.data as string) as Record<string, unknown>) : {};
+    },
+
+    setPreferences(user, prefs) {
+      db.prepare("INSERT INTO preferences (user, data, at) VALUES (?, ?, ?) ON CONFLICT (user) DO UPDATE SET data = excluded.data, at = excluded.at").run(user, JSON.stringify(prefs), new Date().toISOString());
     },
 
     isImported: (job) => db.prepare("SELECT 1 FROM imported_jobs WHERE job = ?").get(job) !== undefined,

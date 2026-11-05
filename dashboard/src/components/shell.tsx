@@ -1,13 +1,16 @@
 "use client";
 
-import { ChartColumn, Inbox, LayoutList, LogOut, Menu, Moon, Server, Sun, SunMoon, ToggleRight } from "lucide-react";
+import { ChartColumn, ChevronDown, CircleUser, Inbox, LayoutList, LogOut, Menu, Server, Settings, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { DropdownMenu } from "radix-ui";
+import { useEffect, useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import type { Theme } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 import { Notifications } from "./notifications";
+import { usePreferences } from "./use-preferences";
 
 const NAV = [
   { href: "/", label: "Board", icon: LayoutList },
@@ -32,6 +35,7 @@ export function Mark() {
 function crumbs(path: string): { label: string; href?: string }[] {
   // The run id is already under the page title in mono; repeating it here reads as "Run run-…".
   if (path.startsWith("/runs/")) return [{ label: "Board", href: "/" }, { label: "Run" }];
+  if (path === "/preferences") return [{ label: "Preferences" }];
   return [{ label: NAV.find((n) => n.href === path)?.label ?? "Factory" }];
 }
 
@@ -98,46 +102,74 @@ export function SectionHeading({ as: Tag = "h2", children, className = "" }: { a
   return <Tag className={cn("mb-3 flex items-baseline gap-2 border-b pb-2 font-semibold", Tag === "h2" ? "text-base" : "text-sm", className)}>{children}</Tag>;
 }
 
-type Theme = "system" | "light" | "dark";
-// One button that steps through these in order, showing the icon of the theme in use.
-const THEMES = [
-  ["system", "System", SunMoon],
-  ["light", "Light", Sun],
-  ["dark", "Dark", Moon],
+// The theme choices in the order the preferences page lists them.
+export const THEMES = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
 ] as const;
 
-// System, Light or Dark. The choice is data-theme on <html> and "theme" in localStorage; layout.tsx applies it before first paint.
-export function ThemeSelect() {
-  const [theme, setTheme] = useState<Theme>("system");
+// data-theme on <html>, and "theme" in localStorage so layout.tsx can apply it before first paint on the next load.
+function applyTheme(t: Theme) {
+  const html = document.documentElement;
+  if (t === "system") html.removeAttribute("data-theme");
+  else html.dataset.theme = t;
+  try {
+    if (t === "system") localStorage.removeItem("theme");
+    else localStorage.setItem("theme", t);
+  } catch {
+    // Storage blocked: the saved preference still applies once it loads.
+  }
+}
+
+// Puts the saved theme on <html> once preferences load and whenever the preferences page changes it.
+// Until then, the theme layout.tsx applied from localStorage stays.
+export function ThemeSync() {
+  const saved = usePreferences().prefs?.theme;
   useEffect(() => {
-    const t = document.documentElement.dataset.theme;
-    if (t === "light" || t === "dark") setTheme(t);
-  }, []);
-  const pick = (t: Theme) => {
-    setTheme(t);
-    const html = document.documentElement;
-    if (t === "system") html.removeAttribute("data-theme");
-    else html.dataset.theme = t;
-    try {
-      if (t === "system") localStorage.removeItem("theme");
-      else localStorage.setItem("theme", t);
-    } catch {
-      // Storage blocked: the choice holds for this page only.
-    }
-  };
-  const at = THEMES.findIndex(([t]) => t === theme);
-  const [, label, Icon] = THEMES[at];
-  const [nextTheme, nextLabel] = THEMES[(at + 1) % THEMES.length];
+    if (saved) applyTheme(saved);
+  }, [saved]);
+  return null;
+}
+
+const menuItem = "flex h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-active";
+
+// The account button at the end of the top bar: who is signed in, Preferences, and Sign out.
+export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
+  const { me } = usePreferences();
+  const [leaving, start] = useTransition();
   return (
-    <button
-      type="button"
-      aria-label={`Theme: ${label}. Switch to ${nextLabel}`}
-      title={`Theme: ${label}. Click for ${nextLabel}.`}
-      onClick={() => pick(nextTheme)}
-      className="ml-auto flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Icon className="size-4" strokeWidth={1.5} aria-hidden="true" />
-    </button>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger className="flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-active data-[state=open]:text-foreground">
+        <CircleUser className="size-4" strokeWidth={1.5} aria-hidden="true" />
+        <span className="max-w-32 truncate max-sm:sr-only">{me?.user.username ?? "Account"}</span>
+        <ChevronDown className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-56 rounded-lg border bg-background p-1 text-sm shadow-lg">
+          {me && (
+            <>
+              <DropdownMenu.Label className="px-2.5 py-2">
+                <span className="block truncate font-medium">{me.user.username}</span>
+                <span className="block text-xs text-muted-foreground">Signed in with {me.user.signIn}</span>
+              </DropdownMenu.Label>
+              <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
+            </>
+          )}
+          <DropdownMenu.Item asChild className={menuItem}>
+            <Link href="/preferences">
+              <Settings className="size-4 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+              Preferences
+            </Link>
+          </DropdownMenu.Item>
+          <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
+          <DropdownMenu.Item className={menuItem} disabled={leaving} onSelect={() => start(() => signOut())}>
+            <LogOut className="size-4 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+            {leaving ? "Signing out…" : "Sign out"}
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 
@@ -171,7 +203,7 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
         <span className="md:hidden">
           <Mark />
         </span>
-        <ol className="flex min-w-0 items-center gap-2 text-sm">
+        <ol className="mr-auto flex min-w-0 items-center gap-2 text-sm">
           {trail.map((c, i) => (
             <li key={c.label} className="flex min-w-0 items-center gap-2">
               {i > 0 && <span className="text-muted-foreground">/</span>}
@@ -185,14 +217,9 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
             </li>
           ))}
         </ol>
-        <ThemeSelect />
+        <ThemeSync />
         <Notifications />
-        <form action={signOut}>
-          <button type="submit" className="flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm text-muted-foreground hover:bg-active hover:text-foreground">
-            <LogOut className="size-4" strokeWidth={1.5} aria-hidden="true" />
-            Sign out
-          </button>
-        </form>
+        <UserMenu signOut={signOut} />
       </header>
 
       <div className="min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-4 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:rounded-xl md:border md:px-6 md:pt-6">

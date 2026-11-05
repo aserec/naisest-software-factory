@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { ago, cn } from "@/lib/utils";
 import { type BoardItem, needsYou, newlyWaiting, STATE, useBoard } from "./board";
 import { SectionHeading } from "./shell";
+import { usePreferences } from "./use-preferences";
 
 type RunEnd = EventOf<"run_end"> & { seq: number };
 
@@ -34,35 +35,38 @@ const store = {
   },
 };
 
-// The key the board used when Notify me lived there, so a saved choice carries over.
-const NOTIFY_KEY = "board.notify";
 // The highest run_end seq this browser has seen in the panel. Above it counts as unread.
 // ponytail: read marks live in this browser only; a per-user table if people want them on every device.
 const SEEN_KEY = "notifications.seen";
 
-// Browser notifications, only once a person asks. No button where the browser has none or the person refused them.
-function useNotify(data: BoardItem[] | undefined) {
-  const [on, setOn] = useState(false);
+// The Notify me switch: on when the user saved it on and this browser allows notifications.
+// shown is false where the browser has none or the person refused them, so no switch is offered there.
+export function useNotifyPref() {
+  const { prefs, save } = usePreferences();
   const [perm, setPerm] = useState<NotificationPermission | "none">("none");
   useEffect(() => {
-    if (typeof Notification === "undefined") return;
-    setPerm(Notification.permission);
-    setOn(Notification.permission === "granted" && store.get(NOTIFY_KEY) === "on");
+    if (typeof Notification !== "undefined") setPerm(Notification.permission);
   }, []);
+  const on = perm === "granted" && !!prefs?.notify;
+  const toggle = async () => {
+    if (on) return save.mutate({ notify: false });
+    const p = await Notification.requestPermission();
+    setPerm(p);
+    save.mutate({ notify: p === "granted" });
+  };
+  return { perm, shown: perm !== "none" && perm !== "denied", ready: !!prefs, on, toggle };
+}
+
+// Browser notifications, only once a person asks.
+function useNotify(data: BoardItem[] | undefined) {
+  const pref = useNotifyPref();
   const prev = useRef<BoardItem[]>(undefined);
   useEffect(() => {
     if (!data) return;
-    if (on && prev.current) for (const body of newlyWaiting(prev.current, data)) new Notification("Factory", { body });
+    if (pref.on && prev.current) for (const body of newlyWaiting(prev.current, data)) new Notification("Factory", { body });
     prev.current = data;
-  }, [data, on]);
-  const toggle = async () => {
-    if (on) return (store.set(NOTIFY_KEY, null), setOn(false));
-    const p = await Notification.requestPermission();
-    setPerm(p);
-    store.set(NOTIFY_KEY, p === "granted" ? "on" : null);
-    setOn(p === "granted");
-  };
-  return { shown: perm !== "none" && perm !== "denied", on, toggle };
+  }, [data, pref.on]);
+  return pref;
 }
 
 function useRunEnds() {
@@ -130,7 +134,7 @@ export function Notifications() {
         description={waiting.length ? `${waiting.length} waiting on you` : "Nothing waits on you."}
         footer={
           notify.shown && (
-            <Button variant="outline" aria-pressed={notify.on} onClick={notify.toggle}>
+            <Button variant="outline" aria-pressed={notify.on} disabled={!notify.ready} onClick={notify.toggle}>
               {notify.on ? "Notifying" : "Notify me"}
             </Button>
           )

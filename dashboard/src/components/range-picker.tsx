@@ -6,7 +6,8 @@ import { RANGES } from "@/server/insights"; // types and Intl only, safe in the 
 
 export type RangeQuery = { range: string; from?: string; to?: string };
 
-const field = "h-8 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+// The one style for a select or date field. globals.css draws the select arrow.
+export const field = "h-8 rounded-md border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
 // One row as tall as a button. Picking a custom range adds the two dates to the right in the same row, so nothing below moves.
 export function RangePicker({ value, onPick }: { value: RangeQuery; onPick: (q: RangeQuery) => void }) {

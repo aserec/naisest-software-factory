@@ -49,3 +49,22 @@ test("a page without a session goes to sign-in, an API route answers 401", async
   await expect(page).toHaveURL(/\/sign-in/);
   expect((await request.get("/api/events?run=x")).status()).toBe(401);
 });
+
+test("the account menu opens Preferences, a saved theme and range hold after a reload, and Sign out ends the session", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
+  await page.goto("/");
+  await page.locator("header button[aria-haspopup=menu]").click();
+  await page.getByRole("menuitem", { name: "Preferences" }).click();
+  await expect(page.getByRole("heading", { name: "Preferences" })).toBeVisible();
+  await page.getByLabel("Theme", { exact: true }).selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.getByLabel("Default range").selectOption("30d");
+  await expect.poll(async () => (await (await page.request.get("/api/preferences")).json()).prefs.insightsRange).toBe("30d");
+  await page.reload();
+  await expect(page.getByLabel("Theme", { exact: true })).toHaveValue("dark");
+  await page.goto("/insights");
+  await expect(page.locator("#range")).toHaveValue("30d");
+  await page.locator("header button[aria-haspopup=menu]").click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/sign-in/);
+});
