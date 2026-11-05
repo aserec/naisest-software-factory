@@ -309,8 +309,7 @@ export function Board() {
   return (
     <>
       {error && <LoadError what="the board" query={board} className="mb-6" />}
-      {!all && !error && <p className="text-muted-foreground">Loading the board…</p>}
-      {all && (
+      {!error && (
         <div className="mb-6 flex flex-wrap items-center gap-2">
           <input
             ref={search}
@@ -335,6 +334,28 @@ export function Board() {
         </div>
       )}
       {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">No work item matches the filter.</p>}
+      {!error && !data && (
+        <div aria-busy="true" className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
+          <span className="sr-only">Loading the board…</span>
+          {SIDES.map(([side]) => (
+            <div key={side} className="flex flex-col gap-6">
+              <h2 className="text-lg leading-7 font-semibold">{side}</h2>
+              {[2, 1].map((cards, n) => (
+                <div key={n} className="motion-safe:animate-pulse">
+                  <div className="mb-3 border-b pb-2">
+                    <div className="h-5 w-28 rounded bg-raised" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {Array.from({ length: cards }, (_, c) => (
+                      <div key={c} className="h-[74px] rounded-lg border bg-raised/60" />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
       {data && (all?.length === 0 || data.length > 0) && (
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
           {SIDES.map(([side, states]) => {
