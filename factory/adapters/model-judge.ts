@@ -33,7 +33,10 @@ function toApiAnswer(q: JevQuestion, a: { value?: unknown; confidence?: unknown 
   return { type: q.kind, probabilities: { [key]: confidence }, confidence };
 }
 
-export function makeModelJudge({ provider, model }: ModelChoice, env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch): Judge {
+// A 5xx or a lost connection is the provider's passing trouble: up to RETRIES more tries, waiting retryMs, 2x, 3x between them.
+const RETRIES = 3;
+
+export function makeModelJudge({ provider, model }: ModelChoice, env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch, retryMs = 2000): Judge {
   const key = env[provider.keyEnv];
   if (!key) throw new Error(`${provider.keyEnv} is not set`);
   // Only the provider's own baseUrl from seams.yml gets the key.
@@ -45,7 +48,7 @@ export function makeModelJudge({ provider, model }: ModelChoice, env: NodeJS.Pro
       // "<" is escaped so the state cannot close its own block. The result is still valid JSON.
       const user = `<state>\n${JSON.stringify(state).replaceAll("<", "\\u003c")}\n</state>\n\nQuestions:\n${JSON.stringify(questions.map(describe))}`;
       const openai = provider.api === "openai";
-      const res = await fetchFn(openai ? `${base}/chat/completions` : `${base}/v1/messages`, {
+      const call = () => fetchFn(openai ? `${base}/chat/completions` : `${base}/v1/messages`, {
         method: "POST",
         headers: openai ? { Authorization: `Bearer ${key}`, "Content-Type": "application/json" } : { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
         body: JSON.stringify(
@@ -54,6 +57,18 @@ export function makeModelJudge({ provider, model }: ModelChoice, env: NodeJS.Pro
             : { model, max_tokens: 1024, temperature: 0, system: SYSTEM, messages: [{ role: "user", content: user }] },
         ),
       });
+      let res: Response | undefined;
+      for (let attempt = 0; ; attempt++) {
+        const last = attempt === RETRIES;
+        try {
+          res = await call();
+        } catch (e) {
+          if (last) throw e;
+        }
+        if ((res && res.status < 500) || last) break;
+        await new Promise((r) => setTimeout(r, retryMs * (attempt + 1)));
+      }
+      if (!res) throw new Error("Model judge call failed: no response");
       // No body in the message: it could echo the request.
       if (!res.ok) throw new Error(`Model judge call failed: HTTP ${res.status}`);
       // No body in the message here either.

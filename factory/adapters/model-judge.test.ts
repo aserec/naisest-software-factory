@@ -107,10 +107,27 @@ test("the key goes only to the provider baseUrl, even if a variable names anothe
 
 test("an HTTP error throws with the status and no key or body", async () => {
   const f = fake("openai", GOOD, 500);
-  const err = await makeModelJudge(openai, env, f.fn).ask({}, QS).catch((e: Error) => e);
+  const err = await makeModelJudge(openai, env, f.fn, 0).ask({}, QS).catch((e: Error) => e);
   expect(err).toBeInstanceOf(Error);
   expect((err as Error).message).toMatch(/500/);
   expect((err as Error).message).not.toContain("secret-t");
+});
+
+test("a 5xx or a lost connection is tried again, at most 3 more times; a 4xx is not", async () => {
+  const good = fake("openai", GOOD);
+  const flaky = (fails: (() => Promise<Response>)[]) => {
+    let n = 0;
+    return { fn: ((url: string, init: RequestInit) => (n < fails.length ? fails[n++]() : good.fn(url, init))) as typeof fetch, tries: () => n + good.calls.length };
+  };
+  const ok = flaky([async () => new Response("", { status: 504 }), async () => { throw new TypeError("fetch failed"); }]);
+  expect(await makeModelJudge(openai, env, ok.fn, 0).ask({}, QS)).toHaveLength(3);
+  expect(ok.tries()).toBe(3);
+  const down = fake("openai", GOOD, 504);
+  await expect(makeModelJudge(openai, env, down.fn, 0).ask({}, QS)).rejects.toThrow("HTTP 504");
+  expect(down.calls).toHaveLength(4);
+  const bad = fake("openai", GOOD, 401);
+  await expect(makeModelJudge(openai, env, bad.fn, 0).ask({}, QS)).rejects.toThrow("HTTP 401");
+  expect(bad.calls).toHaveLength(1);
 });
 
 test("a missing key or baseUrl throws when the judge is built", () => {
