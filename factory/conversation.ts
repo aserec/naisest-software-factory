@@ -170,6 +170,14 @@ export function stateReply(author: PersonRef, state: FactoryState | undefined): 
   return `@${author} The factory takes @factory requests only while its change waits for a person (factory_needs_approval). ${what}`;
 }
 
+// The refusal for requests the injection check flagged: a request round posts it with the cursor at its newest request, and so does the inbox.
+// `rest` is what only the caller knows (a round: the change still waits for a person).
+export const refusal = (authors: PersonRef[], at: string, rest = ""): Note => ({
+  kind: "cursor",
+  text: `${[...new Set(authors)].map((a) => `@${a}`).join(" ")} The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it.${rest}`,
+  at,
+});
+
 // --- the conversation of a run --------------------------------------------------------------------------------
 
 // One Tracker.trusted call per author for the run: the cache lives as long as the tracker does.
@@ -178,12 +186,14 @@ const trustOf = new WeakMap<Tracker, Map<string, Promise<boolean>>>();
 export interface Conversation {
   // The requests after the cursor, oldest first, from the work item and from its open change. `change` is that change when it is open.
   // forReply: the requests only get a reply, so with no cursor at all the factory's newest comment on the work item counts too.
+  // It does not run the injection check: a caller that acts on a request must (requestRound does, the inbox does through `news`).
   requests(ref: TicketRef, forReply?: boolean): Promise<{ requests: Request[]; change?: { ref: ChangeRef; url: string } }>;
   // Every request on the work item, oldest first, whatever the cursor.
   itemRequests(ref: TicketRef): Promise<Comment[]>;
   // The requests on a change, in the list's order, that no answer or round has taken up: after the change's cursor and the work item's.
   unanswered(change: ChangeRef, ref: TicketRef, since: string): Promise<Comment[]>;
   // What the running agent gets: comments of trusted people on the work item and its change after `since`, oldest first.
+  // A flagged `@factory` request is not lost with its cursor: `news` writes the refusal note for it, so the person learns it was not acted on.
   // `until`: the time of the newest comment read, trusted or not. `stop`: a trusted comment has a stop line; it is found before the
   // injection check, because it orders the factory and not the agent. When the judge fails, `comments` is empty and there is no
   // `until`: nothing is lost, the caller reads the same comments again.
@@ -264,6 +274,8 @@ export function conversation(seams: { tracker: Tracker; codeHost: CodeHost; judg
         console.log(`Judge failed for the comments of ticket ${ref}: ${String(e).slice(0, 300)}`);
         return { stop, comments: [] };
       }
+      const refused = comments.filter((c) => c.injection && isRequest(c.body));
+      if (refused.length > 0) await tracker.comment(ref, noteText(refusal(refused.map((c) => c.author), refused.reduce((t, c) => later(t, c.at)!, refused[0]!.at))));
       return { ...(all.length > 0 ? { until: all.reduce((latest, c) => later(latest, c.at)!, since) } : {}), stop, comments };
     },
     isInjection,

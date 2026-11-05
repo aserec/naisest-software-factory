@@ -1,5 +1,5 @@
 // Part G: a `@factory` request from a trusted person starts a round on a ticket that waits for a person, or gets a reply.
-import { conversation, later, stateReply } from "../conversation";
+import { conversation, later, refusal, stateReply } from "../conversation";
 import type { ChangeRef, FactoryState, Ticket, TicketRef } from "../seams";
 import { facts, save, type StepContext, type StepResult } from "./context";
 import { buildRunOf } from "./merge";
@@ -78,7 +78,7 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
     for (const r of requests) {
       // One request that looks like an injection refuses the whole round.
       if (await conv.isInjection(r)) {
-        await conv.write(ref, { kind: "cursor", text: `${authors} The factory did not act on this request: the judge found it may try to give an AI agent orders. A person must read it. The change still waits for a person.`, at: newest });
+        await conv.write(ref, refusal(requests.map((r) => r.author), newest, " The change still waits for a person."));
         return quiet("injection");
       }
     }
