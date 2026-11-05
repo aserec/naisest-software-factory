@@ -30,6 +30,8 @@ export interface Db {
   events(q: { run?: string; after?: number; limit?: number }): { events: (RunEvent & { seq: number })[]; cursor: number };
   /** Events of the target at or after `since` with one of the types, oldest first. */
   history(q: { target: string; since: string; types: EventType[]; limit: number }): RunEvent[];
+  /** The newest events of the types across every target, newest first. */
+  recent(q: { types: EventType[]; limit: number }): (RunEvent & { seq: number })[];
   runs(q: { target?: string; ticket?: string }): RunSummary[];
   switches(target: string): Record<SwitchName, boolean>;
   setSwitch(scope: string, name: SwitchName, on: boolean, user: string): void;
@@ -172,6 +174,11 @@ export function openDb(path: string): Db {
       // One statement for any list of types. julianday, so "10:00:00Z" is not read as later than "10:00:00.500Z".
       const sql = `SELECT * FROM events WHERE type IN (SELECT value FROM json_each(?)) AND target = ? AND julianday(at) >= julianday(?) ORDER BY seq LIMIT ?`;
       return (stmt(sql).all(JSON.stringify(types), target, since, limit) as Row[]).map(toEvent);
+    },
+
+    recent({ types, limit }) {
+      const sql = `SELECT * FROM events WHERE type IN (SELECT value FROM json_each(?)) ORDER BY seq DESC LIMIT ?`;
+      return (stmt(sql).all(JSON.stringify(types), limit) as Row[]).map(toEvent);
     },
 
     runs({ target, ticket }) {

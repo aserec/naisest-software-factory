@@ -316,6 +316,16 @@ describe("switch changes", () => {
   });
 });
 
+describe("recent", () => {
+  it("returns the asked types across targets, newest first, and stops at limit", () => {
+    const db = openDb(":memory:");
+    const [a, b, c] = [ev("run_end", { outcome: "done" }), ev("run_end", { outcome: "blocked" }, { target: "other" }), ev("run_end", { outcome: "done" })];
+    db.addEvents([a, ev("usage"), b, c]);
+    expect(db.recent({ types: ["run_end"], limit: 10 }).map((e) => e.id)).toEqual([c.id, b.id, a.id]);
+    expect(db.recent({ types: ["run_end"], limit: 2 }).map((e) => e.id)).toEqual([c.id, b.id]);
+  });
+});
+
 describe("history", () => {
   it("returns the asked target, types and times oldest first, and stops at limit", () => {
     const db = openDb(":memory:");

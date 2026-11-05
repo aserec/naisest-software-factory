@@ -195,37 +195,6 @@ test("/ focuses the search, but not while typing in a field", async () => {
   expect(document.activeElement).toBe(search);
 });
 
-test("Notify me asks once, remembers the choice, and notifies when a work item starts to wait on you", async () => {
-  const sent: string[] = [];
-  const N = Object.assign(vi.fn(function (_: string, o: { body: string }) { sent.push(o.body); }), { permission: "default", requestPermission: vi.fn(async () => ((N.permission = "granted"), "granted")) });
-  vi.stubGlobal("Notification", N);
-  let rows = [item({ title: "Fix login" })];
-  vi.stubGlobal("fetch", vi.fn(async () => json(rows)));
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><Board /></QueryClientProvider>);
-  fireEvent.click(await screen.findByRole("button", { name: "Notify me" }));
-  await screen.findByRole("button", { name: "Notifying" });
-  expect(localStorage.getItem("board.notify")).toBe("on");
-  rows = [item({ title: "Fix login", state: "needs_approval" })];
-  await client.refetchQueries();
-  await waitFor(() => expect(sent).toEqual(["Needs approval: Fix login"]));
-  await client.refetchQueries(); // the same board again: nothing new
-  expect(sent).toHaveLength(1);
-});
-
-test("no Notify me button when the browser has no notifications or the person refused them", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json([item({})])));
-  vi.stubGlobal("Notification", { permission: "denied" });
-  const { unmount } = renderWithQuery(<Board />);
-  await screen.findByRole("searchbox");
-  expect(screen.queryByRole("button", { name: "Notify me" })).toBeNull();
-  unmount();
-  vi.stubGlobal("Notification", undefined);
-  renderWithQuery(<Board />);
-  await screen.findByRole("searchbox");
-  expect(screen.queryByRole("button", { name: "Notify me" })).toBeNull();
-});
-
 test("a notification goes out for a new wait for approval or info and a run that turned stuck, not for what already waited", () => {
   const prev = [item({ ticket: "1", state: "needs_info" }), item({ ticket: "2" }), item({ ticket: "3", stuck: true })];
   const next = [item({ ticket: "1", state: "needs_info" }), item({ ticket: "2", title: "Add docs", stuck: true }), item({ ticket: "3", stuck: true }), item({ ticket: "4", title: "New", state: "needs_approval" }), item({ ticket: "5", state: "blocked" })];

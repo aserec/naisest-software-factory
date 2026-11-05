@@ -60,7 +60,8 @@ const SIDES: [string, FactoryState[]][] = [
 ];
 
 // What waits for a person: the left side, plus stuck runs on the right.
-export const waitingCount = (items: BoardItem[]) => items.filter((i) => WAITING.includes(i.state) || i.stuck).length;
+export const needsYou = (items: BoardItem[]) => items.filter((i) => WAITING.includes(i.state) || i.stuck);
+export const waitingCount = (items: BoardItem[]) => needsYou(items).length;
 
 // The ten steps as one line of segments: reached in ink, the live one in the data hue, a stuck or failed run's step in red.
 function Progress({ item: i }: { item: BoardItem }) {
@@ -224,21 +225,6 @@ function useTabTitle(n: number | undefined) {
   useEffect(() => () => void (document.title = "Factory"), []);
 }
 
-const NOTIFY_KEY = "board.notify";
-const remembered = () => {
-  try {
-    return localStorage.getItem(NOTIFY_KEY) === "on";
-  } catch {
-    return false;
-  }
-};
-const remember = (on: boolean) => {
-  try {
-    if (on) localStorage.setItem(NOTIFY_KEY, "on");
-    else localStorage.removeItem(NOTIFY_KEY);
-  } catch {}
-};
-
 // What turned to need a person between two board loads: entered needs approval or needs info, or a run turned stuck.
 export function newlyWaiting(prev: BoardItem[], next: BoardItem[]) {
   const before = new Map(prev.map((i) => [`${i.target}/${i.ticket}`, i]));
@@ -248,31 +234,6 @@ export function newlyWaiting(prev: BoardItem[], next: BoardItem[]) {
     if (i.stuck && !p?.stuck) return [`Stuck: ${i.title}`];
     return [];
   });
-}
-
-// Browser notifications, only once a person asks. No button where the browser has none or the person refused them.
-function useNotify(data: BoardItem[] | undefined) {
-  const [on, setOn] = useState(false);
-  const [perm, setPerm] = useState<NotificationPermission | "none">("none");
-  useEffect(() => {
-    if (typeof Notification === "undefined") return;
-    setPerm(Notification.permission);
-    setOn(Notification.permission === "granted" && remembered());
-  }, []);
-  const prev = useRef<BoardItem[]>(undefined);
-  useEffect(() => {
-    if (!data) return;
-    if (on && prev.current) for (const body of newlyWaiting(prev.current, data)) new Notification("Factory", { body });
-    prev.current = data;
-  }, [data, on]);
-  const toggle = async () => {
-    if (on) return (remember(false), setOn(false));
-    const p = await Notification.requestPermission();
-    setPerm(p);
-    remember(p === "granted");
-    setOn(p === "granted");
-  };
-  return { shown: perm !== "none" && perm !== "denied", on, toggle };
 }
 
 // The clock the card times count against; minutes are enough.
@@ -289,7 +250,6 @@ export function Board() {
   const board = useBoard();
   const { data: all, error } = board;
   const [filter, setFilter] = useFilter();
-  const notify = useNotify(all);
   const now = useNow();
   const search = useRef<HTMLInputElement>(null);
   useTabTitle(all && waitingCount(all));
@@ -326,11 +286,6 @@ export function Board() {
                 {t}
               </Button>
             ))}
-          {notify.shown && (
-            <Button variant="outline" className="ml-auto" aria-pressed={notify.on} onClick={notify.toggle}>
-              {notify.on ? "Notifying" : "Notify me"}
-            </Button>
-          )}
         </div>
       )}
       {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">No work item matches the filter.</p>}

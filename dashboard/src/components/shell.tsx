@@ -1,12 +1,13 @@
 "use client";
 
-import { ChartColumn, Inbox, LayoutList, LogOut, Menu, Server, ToggleRight } from "lucide-react";
+import { ChartColumn, Inbox, LayoutList, LogOut, Menu, Moon, Server, Sun, SunMoon, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Notifications } from "./notifications";
 
 const NAV = [
   { href: "/", label: "Board", icon: LayoutList },
@@ -98,6 +99,11 @@ export function SectionHeading({ as: Tag = "h2", children, className = "" }: { a
 }
 
 type Theme = "system" | "light" | "dark";
+const THEMES = [
+  ["system", "System theme", SunMoon],
+  ["light", "Light theme", Sun],
+  ["dark", "Dark theme", Moon],
+] as const;
 
 // System, Light or Dark. The choice is data-theme on <html> and "theme" in localStorage; layout.tsx applies it before first paint.
 export function ThemeSelect() {
@@ -119,16 +125,21 @@ export function ThemeSelect() {
     }
   };
   return (
-    <select
-      aria-label="Theme"
-      value={theme}
-      onChange={(e) => pick(e.target.value as Theme)}
-      className="ml-auto h-9 rounded-lg bg-transparent px-2 text-sm text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <option value="system">System</option>
-      <option value="light">Light</option>
-      <option value="dark">Dark</option>
-    </select>
+    <div role="group" aria-label="Theme" className="ml-auto flex items-center gap-0.5 rounded-lg p-0.5">
+      {THEMES.map(([t, label, Icon]) => (
+        <button
+          key={t}
+          type="button"
+          aria-label={label}
+          aria-pressed={theme === t}
+          title={label}
+          onClick={() => pick(t)}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-active aria-pressed:text-foreground"
+        >
+          <Icon className="size-4" strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -177,6 +188,7 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
           ))}
         </ol>
         <ThemeSelect />
+        <Notifications />
         <form action={signOut}>
           <button type="submit" className="flex h-9 items-center gap-2 rounded-lg px-2.5 text-sm text-muted-foreground hover:bg-active hover:text-foreground">
             <LogOut className="size-4" strokeWidth={1.5} aria-hidden="true" />
