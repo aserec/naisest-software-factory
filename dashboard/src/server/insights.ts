@@ -16,6 +16,24 @@ export interface Insights {
   targets: { target: string; runs: number; cost: number; p50: number; p95: number; week: number; budget?: number }[]; // week: cost of the current week, whatever the range
   rounds: { n: number; count: number }[]; // n 4 means 4 or more
   risk: { run: string; risk: number; max?: number; kind: RunKind }[];
+  list: RunRow[]; // every run in the range, newest first, for the panel a click on a chart opens
+}
+
+// One run as the panel lists it. bucket: the start of the bar it counts in. stepSecs: its time in each step it reached.
+export interface RunRow {
+  run: string;
+  target: string;
+  ticket: string;
+  startedAt: string;
+  secs?: number; // start to end, once ended
+  costUsd: number;
+  kind: RunKind;
+  outcome?: string;
+  lastStep?: string;
+  round?: number;
+  mergeRisk?: number;
+  bucket: string;
+  stepSecs: Record<string, number>;
 }
 
 const HOUR = 3_600_000;
@@ -119,12 +137,16 @@ export function insights(runs: RunSummary[], events: RunEvent[], o: { from: numb
   const secs = new Map<string, number[]>(STEPS.map((s) => [s, []]));
   const open = new Map<string, number>();
   const reached = new Map<string, Set<string>>(STEPS.map((s) => [s, new Set()]));
+  const perRun = new Map<string, Record<string, number>>(inRange.map((r) => [r.run, {}]));
   for (const e of own) {
     if (!e.step || !secs.has(e.step)) continue;
     const key = `${e.run}/${e.step}`;
-    if (e.type === "step_start") [open.set(key, Date.parse(e.at)), reached.get(e.step)!.add(e.run)];
+    if (e.type === "step_start") [open.set(key, Date.parse(e.at)), reached.get(e.step)!.add(e.run), (perRun.get(e.run)![e.step] ??= 0)];
     else if (e.type === "step_end" && open.has(key)) {
-      secs.get(e.step)!.push((Date.parse(e.at) - open.get(key)!) / 1000);
+      const took = (Date.parse(e.at) - open.get(key)!) / 1000;
+      secs.get(e.step)!.push(took);
+      const mine = perRun.get(e.run)!;
+      mine[e.step] = (mine[e.step] ?? 0) + took;
       open.delete(key);
     }
   }
@@ -159,5 +181,12 @@ export function insights(runs: RunSummary[], events: RunEvent[], o: { from: numb
     targets,
     rounds: [1, 2, 3, 4].map((k) => ({ n: k, count: inRange.filter((r) => r.round !== undefined && Math.min(r.round, 4) === k).length })),
     risk: inRange.filter((r) => r.mergeRisk !== undefined).map((r) => ({ run: r.run, risk: r.mergeRisk!, max: r.mergeRiskMax, kind: kind(r) })),
+    list: [...inRange]
+      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
+      .map((r) => ({
+        run: r.run, target: r.target, ticket: r.ticket, startedAt: r.startedAt, costUsd: r.costUsd, kind: kind(r), bucket: new Date(bucketStart(started(r), tz, unit)).toISOString(), stepSecs: perRun.get(r.run)!,
+        ...(r.endedAt ? { secs: (Date.parse(r.endedAt) - started(r)) / 1000 } : {}),
+        ...(r.outcome ? { outcome: r.outcome } : {}), ...(r.lastStep ? { lastStep: r.lastStep.step } : {}), ...(r.round !== undefined ? { round: r.round } : {}), ...(r.mergeRisk !== undefined ? { mergeRisk: r.mergeRisk } : {}),
+      })),
   };
 }
