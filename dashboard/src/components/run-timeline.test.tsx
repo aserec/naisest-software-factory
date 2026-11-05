@@ -1,13 +1,36 @@
-import { cleanup, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RunTimeline, useRunEvents } from "./run-timeline";
-import { ev, json, renderWithQuery, wrapper } from "./test-utils";
+import { ev, renderWithQuery, wrapper } from "./test-utils";
 
 // No test globals, so Testing Library does not clean up by itself.
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+
+// A stand-in for the browser's EventSource: it sends the given batches, and a test can send more or close it.
+class FakeSource {
+  static CLOSED = 2;
+  static last: FakeSource;
+  static batches: unknown[][] = [];
+  readyState = 1;
+  onmessage?: (m: { data: string }) => void;
+  onerror?: () => void;
+  ends: (() => void)[] = [];
+  constructor(public url: string) {
+    FakeSource.last = this;
+    queueMicrotask(() => FakeSource.batches.forEach((b) => this.send(b)));
+  }
+  send = (events: unknown[]) => act(() => this.onmessage?.({ data: JSON.stringify(events) }));
+  addEventListener = (type: string, f: () => void) => type === "end" && this.ends.push(f);
+  close = () => (this.readyState = 2);
+  fail = () => act(() => ((this.readyState = 2), this.onerror?.()));
+}
+const stream = (...batches: unknown[][]) => {
+  FakeSource.batches = batches;
+  vi.stubGlobal("EventSource", FakeSource);
+};
 
 const start = ev("step_start", "00", { step: "prepare-patch", id: "s1" });
 const events = [
@@ -20,7 +43,7 @@ const events = [
 ];
 
 test("shows a lane per step, and a click opens that step in the side panel", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events: [...events].reverse(), cursor: 9 })));
+  stream([...events].reverse());
   renderWithQuery(<RunTimeline run="r1" />);
   const lane = await screen.findByRole("button", { name: /Implement/ });
   const live = screen.getByRole("button", { name: /Code review/ });
@@ -42,17 +65,24 @@ test("shows a lane per step, and a click opens that step in the side panel", asy
   expect(window.location.search).toBe("");
 });
 
-test("the events hook asks after the cursor it got and appends the answer", async () => {
-  const fetchFn = vi.fn()
-    .mockResolvedValueOnce(json({ events: events.slice(0, 2), cursor: 3 }))
-    .mockResolvedValueOnce(json({ events: events.slice(2), cursor: 6 }));
-  vi.stubGlobal("fetch", fetchFn);
+test("the events hook streams the run, appends each batch, closes on end, and a retry opens it after the last event held", async () => {
+  stream(events.slice(0, 2));
   const { result } = renderHook(() => useRunEvents("r1"), { wrapper });
   await waitFor(() => expect(result.current.data).toHaveLength(2));
-  expect(fetchFn.mock.calls[0][0]).toBe("/api/events?run=r1&after=0");
-  await result.current.refetch();
-  expect(fetchFn.mock.calls[1][0]).toBe("/api/events?run=r1&after=3");
-  await waitFor(() => expect(result.current.data).toHaveLength(events.length));
+  const first = FakeSource.last;
+  expect(first.url).toBe("/api/events/stream?run=r1&after=0");
+  await first.send(events.slice(2));
+  await waitFor(() => expect(result.current.data).toEqual(events));
+  first.ends.forEach((f) => f());
+  expect(first.readyState).toBe(FakeSource.CLOSED);
+  await first.fail(); // a stream the browser gave up on is an error, and the events stay
+  expect(result.current.error).toBeTruthy();
+  expect(result.current.data).toHaveLength(events.length);
+  stream();
+  act(() => void result.current.refetch());
+  await waitFor(() => expect(FakeSource.last).not.toBe(first));
+  expect(FakeSource.last.url).toBe(`/api/events/stream?run=r1&after=${events.at(-1)!.seq}`);
+  expect(result.current.error).toBeUndefined();
 });
 
 test("marks the running step past its limit as Stuck, and not a recent one, an ended one or one of a paused run", async () => {
@@ -62,7 +92,7 @@ test("marks the running step past its limit as Stuck, and not a recent one, an e
   const end = (step: string) => ({ ...ev("step_end", "00", { step, data: { outcome: "next" } }), at: recent });
   const limits = { "prepare-patch": 120, "code-review": 20 };
   const run = async (events: unknown[], state?: "stopped") => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: events.length })));
+    stream(events);
     renderWithQuery(<RunTimeline run="r1" limits={limits} state={state} />);
     return (await screen.findByRole("button", { name: /Implement|Code review/ })).textContent;
   };
@@ -78,7 +108,7 @@ test("marks the running step past its limit as Stuck, and not a recent one, an e
 test("the Stuck badge sits on the run's last step, not on an earlier lane that never ended", async () => {
   const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
   const events = [{ ...ev("step_start", "00", { step: "prepare-patch" }), at: at(200) }, { ...ev("step_start", "01", { step: "code-review" }), at: at(30) }];
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 2 })));
+  stream(events);
   renderWithQuery(<RunTimeline run="r1" limits={{ "prepare-patch": 120, "code-review": 20 }} />);
   expect((await screen.findByRole("button", { name: /Code review/ })).textContent).toContain("Stuck");
   expect(screen.getByRole("button", { name: /Implement/ }).textContent).not.toContain("Stuck");
@@ -86,14 +116,14 @@ test("the Stuck badge sits on the run's last step, not on an earlier lane that n
 
 test("a running step and the run's time count to now, not to the last event", async () => {
   const at = new Date(Date.now() - 5 * 60_000).toISOString();
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events: [{ ...ev("run_start", "00"), at }, { ...ev("step_start", "00", { step: "code-review" }), at }], cursor: 2 })));
+  stream([{ ...ev("run_start", "00"), at }, { ...ev("step_start", "00", { step: "code-review" }), at }]);
   renderWithQuery(<RunTimeline run="r1" />);
   expect((await screen.findByRole("button", { name: /Code review/ })).textContent).toContain("5 m");
   expect(screen.getByText("Time").nextElementSibling?.textContent).toBe("5 m");
 });
 
 test("the Risk figure shows the triage and merge risk, and a dash before triage", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  stream(events);
   renderWithQuery(<RunTimeline run="r1" risk={{ risk: "medium", mergeRisk: 6 }} />);
   expect(await screen.findByText("Triage risk medium")).toBeTruthy();
   expect(screen.getByText("Merge risk 6/10, limit 4").getAttribute("data-variant")).toBe("warning");
@@ -104,7 +134,7 @@ test("the Risk figure shows the triage and merge risk, and a dash before triage"
 });
 
 test("the line shows all ten steps: the ones not reached are listed after the live one, and Now says how far the run is", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  stream(events);
   renderWithQuery(<RunTimeline run="r1" />);
   await screen.findByRole("button", { name: /Code review/ });
   const ahead = screen.getAllByText(/not reached/).map((e) => e.parentElement!.textContent);
@@ -124,7 +154,7 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
     ev("decision", "06", { step: "decision", data: { auto: false, reasons: ["merge risk 6 is above the limit of 4"] } }),
     ev("step_end", "06", { step: "decision", data: { outcome: "stop" } }),
   ];
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events: proof, cursor: 9 })));
+  stream(proof);
   renderWithQuery(<RunTimeline run="r1" state="needs_approval" />);
   const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect(await fact("Review")).toBe("Round 2, 0 of 1 finding blocking");
@@ -146,25 +176,24 @@ test("a run that waits for approval says so in Now, and Proof shows the review, 
 
 test("Proof names the review, checks and rules the run did not send, so a missing proof is not hidden", async () => {
   const only = [ev("run_start", "00"), ev("step_start", "01", { step: "decision" }), ev("decision", "01", { step: "decision", data: { auto: false, reasons: ["merge risk 6 is above the limit of 4"] } })];
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events: only, cursor: 2 })));
+  stream(only);
   renderWithQuery(<RunTimeline run="r1" />);
   const fact = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect([await fact("Review"), await fact("Checks"), await fact("Rules")]).toEqual(["None sent", "None sent", "None sent"]);
   expect(await fact("Decision")).toBe("Waits for a person, because merge risk 6 is above the limit of 4.");
 });
 
-test("a failed poll keeps the steps on screen under the error", async () => {
-  let fail = false;
-  vi.stubGlobal("fetch", vi.fn(async () => (fail ? new Response("", { status: 500 }) : json({ events, cursor: 9 }))));
+test("a closed stream keeps the steps on screen under the error", async () => {
+  stream(events);
   renderWithQuery(<RunTimeline run="r1" />);
   await screen.findByRole("button", { name: /Implement/ });
-  fail = true;
-  expect((await screen.findByRole("alert", {}, { timeout: 3000 })).textContent).toMatch(/^Could not load the run\. Showing it as of /);
+  await FakeSource.last.fail();
+  expect((await screen.findByRole("alert")).textContent).toMatch(/^Could not load the run\. Showing it as of /);
   expect(screen.getByRole("button", { name: /Implement/ })).toBeTruthy();
 });
 
 test("with a step open, the figures sit in one line of label and value pairs", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  stream(events);
   renderWithQuery(<RunTimeline run="r1" />);
   const fig = async (label: string) => (await screen.findByText(label, { selector: "dt" })).nextElementSibling?.textContent;
   expect(screen.queryByText("Time", { selector: "dt" })).toBeNull();
@@ -174,14 +203,14 @@ test("with a step open, the figures sit in one line of label and value pairs", a
 });
 
 test("a run with no proof events shows no Proof section", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events: [ev("step_start", "00", { step: "triage" })], cursor: 1 })));
+  stream([ev("step_start", "00", { step: "triage" })]);
   renderWithQuery(<RunTimeline run="r1" />);
   await screen.findByRole("button", { name: /Triage/ });
   expect(screen.queryByRole("heading", { name: "Proof" })).toBeNull();
 });
 
 test("opening a step moves focus to the panel title, and Esc brings it back to that step's row", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json({ events, cursor: 9 })));
+  stream(events);
   renderWithQuery(<RunTimeline run="r1" />);
   const lane = await screen.findByRole("button", { name: /Implement/ });
   lane.focus();
@@ -191,4 +220,63 @@ test("opening a step moves focus to the panel title, and Esc brings it back to t
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(document.activeElement).toBe(lane);
+});
+
+test("j and k open the next and the previous step, and are left alone while typing in a field", async () => {
+  stream(events);
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /Implement/ });
+  const title = async () => (await screen.findByRole("dialog")).querySelector("h2")!.textContent;
+  fireEvent.keyDown(document.body, { key: "j" }); // nothing open: the first step
+  expect(await title()).toMatch(/^Implement/);
+  fireEvent.keyDown(document.body, { key: "j" });
+  await waitFor(async () => expect(await title()).toMatch(/^Code review/));
+  fireEvent.keyDown(document.body, { key: "j" }); // the last step stays open
+  expect(await title()).toMatch(/^Code review/);
+  const field = document.body.appendChild(document.createElement("input"));
+  fireEvent.keyDown(field, { key: "k" });
+  expect(await title()).toMatch(/^Code review/);
+  field.remove();
+  fireEvent.keyDown(document.body, { key: "k" });
+  await waitFor(async () => expect(await title()).toMatch(/^Implement/));
+  expect(window.location.search).toBe("?step=s1");
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+test("Cost by model shows the run's tokens and cost per role and model, with a total", async () => {
+  const usage = (role: string, model: string, n: number, costUsd: number, step: string) => ev("usage", "02", { step, data: { role, model, input: n, output: n * 2, cacheRead: n * 3, cacheWrite: n * 4, costUsd, contextTokens: 0 } });
+  stream([...events.filter((e) => e.type !== "usage"), usage("author", "opus", 1000, 1.5, "prepare-patch"), usage("reviewer", "glm", 10, 0, "code-review"), usage("author", "opus", 1000, 0.5, "code-review")]);
+  renderWithQuery(<RunTimeline run="r1" />);
+  const table = (await screen.findByRole("heading", { name: "Cost by model" })).parentElement!.querySelector("table")!;
+  const rows = [...table.querySelectorAll("tr")].map((r) => [...r.children].map((c) => c.textContent));
+  expect(rows).toEqual([
+    ["Role and model", "Input", "Output", "Cache read", "Cache write", "Cost"],
+    ["author · opus", "2,000", "4,000", "6,000", "8,000", "$2.00"],
+    ["reviewer · glm", "10", "20", "30", "40", "$0.00"],
+    ["Total", "2,010", "4,020", "6,030", "8,040", "$2.00"],
+  ]);
+  expect(document.body.textContent).toContain("Without glm: seams.yml sets no price for it");
+});
+
+test("Earlier runs lists the work item's other runs with a link each, and is hidden when there are none", async () => {
+  stream(events);
+  const earlier = [
+    { run: "r0", target: "t", ticket: "7", startedAt: "2026-10-28T09:00:00Z", outcome: "blocked", costUsd: 3.2, lastStep: { step: "code-review", startedAt: "", ended: true } },
+    { run: "r-1", target: "t", ticket: "7", startedAt: "2026-10-27T09:00:00Z", costUsd: 0 },
+  ];
+  renderWithQuery(<RunTimeline run="r1" earlier={earlier} />);
+  const table = (await screen.findByRole("heading", { name: "Earlier runs" })).parentElement!.querySelector("table")!;
+  const rows = [...table.querySelectorAll("tbody tr")].map((r) => [...r.children].slice(1).map((c) => c.textContent));
+  expect(rows).toEqual([
+    ["blocked", "Code review", "r0", "$3.20"],
+    ["not ended", "—", "r-1", "$0.00"],
+  ]);
+  expect(table.querySelector("tbody td")!.textContent).toContain("2026");
+  expect(screen.getByRole("link", { name: "r0" }).getAttribute("href")).toBe("/runs/r0");
+  cleanup();
+  stream(events);
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /Implement/ });
+  expect(screen.queryByRole("heading", { name: "Earlier runs" })).toBeNull();
 });

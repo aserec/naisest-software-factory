@@ -12,7 +12,9 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   const { run } = await params;
   const first = getDb().events({ run, limit: 1 }).events[0];
   const target = readTargets().find((t) => t.name === first?.target);
-  const summary = first && getDb().runs({ target: first.target, ticket: first.ticket }).find((r) => r.run === run);
+  // Every run of the work item, newest first: this one's summary, and the others for "Earlier runs".
+  const runs = first ? getDb().runs({ target: first.target, ticket: first.ticket }) : [];
+  const summary = runs.find((r) => r.run === run);
   // The board is cached for 15 s; without it the page still shows the run, only the triage risk and the change link are missing.
   const item = first && (await getBoard().board().catch(() => [])).find((i) => i.target === first.target && i.ticket === first.ticket);
   const changeUrl = item?.state === "needs_approval" ? summary?.changeUrl : undefined;
@@ -59,7 +61,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
           </>
         )}
       </PageTitle>
-      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} />
+      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} earlier={runs.filter((r) => r.run !== run)} />
     </main>
   );
 }

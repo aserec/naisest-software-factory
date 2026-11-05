@@ -1,6 +1,6 @@
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { StepDetail } from "./step-detail";
+import { StepDetail, usageByModel } from "./step-detail";
 import { ev, renderWithQuery } from "./test-utils";
 
 afterEach(() => (cleanup(), vi.unstubAllGlobals()));
@@ -86,4 +86,40 @@ test("a triage stop shows its final decision first, in its own color, with the r
   expect(screen.getByRole("link", { name: "https://github.com/o/r/issues/328" })).toBeTruthy();
   // The decision comes before the step facts and the Jev answers.
   expect(document.body.textContent!.indexOf("Stopped: a duplicate")).toBeLessThan(document.body.textContent!.indexOf("Started"));
+});
+
+test("each tool call has its tool's icon, a bash call shows its command in mono and its time, and calls of one tool in a row fold into one line", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  const call = (name: string, input: unknown, ms = 40, ok = true) => ev("tool_call", "01", { data: { name, input: typeof input === "string" ? input : JSON.stringify(input), result: `${name} result`, ms, ok } });
+  const reads = [1, 2, 3].map((n) => call("Read", { file_path: `src/${n}.ts` }, 500, n !== 2));
+  const tools = [call("Bash", { command: "pnpm test --run" }, 2500), ...reads, call("Edit", "cut at the limit", NaN)];
+  renderWithQuery(<StepDetail start={start} events={[]} tools={tools} />);
+  const bash = screen.getByText("pnpm test --run");
+  expect(bash.tagName).toBe("CODE");
+  expect(bash.className).toContain("font-mono");
+  const bashRow = bash.closest("summary")!;
+  expect(bashRow.querySelector("svg")!.getAttribute("class")).toContain("lucide-square-terminal");
+  expect(bashRow.textContent).toBe("Bashpnpm test --run3 s");
+  // Three reads in a row: one line with the count, the summed time and the failures; each call is still inside it, with its full text.
+  const fold = screen.getByText("3 calls in a row").closest("details")!;
+  expect(fold.querySelector("summary")!.textContent).toBe("Read3 calls in a row2 s, 1 failed");
+  expect(fold.querySelector("summary svg")!.getAttribute("class")).toContain("lucide-file-text");
+  expect([...fold.querySelectorAll("li summary")].map((s) => s.textContent)).toEqual(["Readsrc/1.ts500 ms", "Readsrc/2.ts500 ms, failed", "Readsrc/3.ts500 ms"]);
+  expect(fold.textContent).toContain('{"file_path":"src/2.ts"}');
+  expect(fold.textContent).toContain("Read result");
+  // An input that is not JSON shows no target, and a call with no time shows none.
+  const edit = screen.getByText("Edit").closest("summary")!;
+  expect(edit.textContent).toBe("Edit");
+  expect(edit.querySelector("svg")!.getAttribute("class")).toContain("lucide-file-pen");
+});
+
+test("usageByModel sums the usage per role and model and in all, and names the models with no price", () => {
+  const u = (role: string, model: string, n: number, costUsd: number) => ({ role, model, input: n, output: n, cacheRead: n, cacheWrite: n, costUsd, contextTokens: 0 });
+  const { rows, total, unpriced } = usageByModel([u("author", "opus", 10, 1), u("reviewer", "glm", 5, 0), u("author", "opus", 20, 2)]);
+  expect(rows).toEqual([
+    { role: "author", model: "opus", input: 30, output: 30, cacheRead: 30, cacheWrite: 30, costUsd: 3 },
+    { role: "reviewer", model: "glm", input: 5, output: 5, cacheRead: 5, cacheWrite: 5, costUsd: 0 },
+  ]);
+  expect(total).toEqual({ input: 35, output: 35, cacheRead: 35, cacheWrite: 35, costUsd: 3 });
+  expect(unpriced).toEqual(["glm"]);
 });

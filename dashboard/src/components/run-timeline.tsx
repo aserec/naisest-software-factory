@@ -1,13 +1,14 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { eventsOfType, STEPS, stepIndex, type EventType, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
 import { duration, usd, words } from "@/lib/utils";
-import { Fact, StepDetail, Verdict } from "./step-detail";
+import { CostByModel, Fact, StepDetail, Verdict } from "./step-detail";
 import type { FileLink } from "@/server/compose";
+import type { RunSummary } from "@/server/db";
 import { runView } from "@/server/run-view";
 import type { FactoryState } from "@/server/seams";
 import { RiskPills, STATE } from "./board";
@@ -15,21 +16,29 @@ import { LoadError, SectionHeading } from "./shell";
 
 export type SeqEvent = RunEvent & { seq: number };
 
-// Live and history are one query: ask after the last cursor and append what comes back.
+// Live and history are one stream (/api/events/stream): each batch it sends is appended to the query data, so the page reads one list.
+// The browser reconnects by itself and sends Last-Event-ID, so nothing comes twice. Retry opens it again after the last event held.
 export function useRunEvents(run: string) {
-  const cursor = useRef(0);
-  const all = useRef<SeqEvent[]>([]);
-  return useQuery({
-    queryKey: ["events", run],
-    refetchInterval: 1000,
-    queryFn: async () => {
-      const r = await fetch(`/api/events?run=${encodeURIComponent(run)}&after=${cursor.current}`);
-      if (!r.ok) throw new Error(`The events answered ${r.status}`);
-      const body = (await r.json()) as { events: SeqEvent[]; cursor: number };
-      cursor.current = body.cursor;
-      return (all.current = [...all.current, ...body.events]);
-    },
-  });
+  const client = useQueryClient();
+  // Only the stream fills this query; it never fetches.
+  const query = useQuery<SeqEvent[]>({ queryKey: ["events", run], enabled: false, queryFn: () => client.getQueryData<SeqEvent[]>(["events", run]) ?? [] });
+  const [error, setError] = useState<Error>();
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const key = ["events", run];
+    const after = client.getQueryData<SeqEvent[]>(key)?.at(-1)?.seq ?? 0;
+    const source = new EventSource(`/api/events/stream?run=${encodeURIComponent(run)}&after=${after}`);
+    source.onmessage = (m) => {
+      setError(undefined);
+      client.setQueryData<SeqEvent[]>(key, (old = []) => [...old, ...(JSON.parse(m.data) as SeqEvent[])]);
+    };
+    // The run ended and went quiet: close, or the browser would reconnect.
+    source.addEventListener("end", () => source.close());
+    // While the browser reconnects the state is CONNECTING; CLOSED means it gave up (the server refused the stream).
+    source.onerror = () => source.readyState === EventSource.CLOSED && setError(new Error("The event stream closed"));
+    return () => source.close();
+  }, [client, run, attempt]);
+  return { ...query, error, isFetching: false, refetch: () => (setError(undefined), setAttempt((a) => a + 1)) };
 }
 
 export interface Lane {
@@ -186,6 +195,76 @@ function useOpenStep() {
   return [open, set] as const;
 }
 
+// j and k open the next and the previous step in the side panel, as in a mail list. Typing in a field is left alone.
+function useStepKeys(ids: string[], open: string | undefined, setOpen: (id: string) => void) {
+  const now = useRef({ ids, open, setOpen });
+  now.current = { ids, open, setOpen };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "j" && e.key !== "k") || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target instanceof HTMLElement ? e.target : undefined;
+      if (t && (t.isContentEditable || t.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])"))) return;
+      const { ids, open, setOpen } = now.current;
+      if (!ids.length) return;
+      const i = open ? ids.indexOf(open) : -1;
+      // With no step open, j starts at the first step and k at the last.
+      const next = e.key === "j" ? (i < 0 ? 0 : Math.min(i + 1, ids.length - 1)) : i < 0 ? ids.length - 1 : Math.max(i - 1, 0);
+      e.preventDefault();
+      setOpen(ids[next]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
+const OUTCOME_PILL: Record<string, "destructive" | "warning" | "secondary" | "positive"> = { done: "positive", blocked: "destructive", needs_info: "warning" };
+const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
+// The work item's other runs, newest first, each with a link to its own page.
+export function EarlierRuns({ runs }: { runs: RunSummary[] }) {
+  if (!runs.length) return null;
+  const cell = "py-2 pr-4 text-left font-normal whitespace-nowrap";
+  return (
+    <section className="mt-8">
+      <SectionHeading>Earlier runs</SectionHeading>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[32rem]">
+          <thead className="text-muted-foreground">
+            <tr className="border-b">
+              {["Started", "Outcome", "Last step", "Run"].map((h) => (
+                <th key={h} scope="col" className={cell}>
+                  {h}
+                </th>
+              ))}
+              <th scope="col" className="py-2 text-right font-normal">
+                Cost
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs.map((r) => (
+              <tr key={r.run} className="border-b border-rule last:border-0">
+                <td className={cell}>{when(r.startedAt)}</td>
+                <td className={cell}>
+                  {/* A run with no run_end may still be paused, so it is not called failed. */}
+                  <Badge variant={OUTCOME_PILL[r.outcome ?? ""] ?? "secondary"}>{r.outcome ? words(r.outcome).toLowerCase() : "not ended"}</Badge>
+                </td>
+                <td className={cell}>{r.lastStep ? words(r.lastStep.step) : <span className="text-muted-foreground">—</span>}</td>
+                <td className={cell}>
+                  <a href={`/runs/${encodeURIComponent(r.run)}`} className="font-mono text-xs underline decoration-input underline-offset-4 hover:decoration-current">
+                    {r.run}
+                  </a>
+                </td>
+                <td className="py-2 text-right">{usd(r.costUsd)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 // The clock a live run counts against, ticking each second.
 function useNow() {
   const [now, setNow] = useState(Date.now);
@@ -200,14 +279,16 @@ function useNow() {
 // risk: the work item's triage risk and the run's merge risk, read on the server.
 // state: the work item's state in its tracker, read on the server.
 // fileLink: how a review finding links its file into the change's diff; none until the change exists.
-export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink }) {
+// earlier: the work item's other runs, read on the server.
+export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [] }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[] }) {
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
   const nowMs = useNow();
+  const rows = data ? lanes(data) : [];
+  useStepKeys(rows.map((l) => l.start.id), openId, setOpenId);
   const failed = error && <LoadError what="the run" query={events} className="mb-6" />;
   if (!data) return failed || <p className="text-muted-foreground">Loading the run…</p>;
-  const rows = lanes(data);
   if (rows.length === 0) return <p className="text-muted-foreground">No steps yet.</p>;
   const times = data.map((e) => Date.parse(e.at));
   const from = Math.min(...times);
@@ -251,6 +332,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
   const why = approving ? (eventsOfType(data, "decision").at(-1)?.data.reasons ?? []) : [];
   // A run that triage stopped or held says so at the top. A go needs no box: the steps after it show the run.
   const triage = eventsOfType(data, "triage_outcome").at(-1)?.data;
+  const usage = eventsOfType(data, "usage").map((e) => e.data);
   return (
     <>
       {failed}
@@ -309,6 +391,13 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink }: { 
             <AheadRow key={s} step={s} />
           ))}
         </ul>
+        {usage.length > 0 && (
+          <section className="mt-8">
+            <SectionHeading>Cost by model</SectionHeading>
+            <CostByModel usage={usage} />
+          </section>
+        )}
+        <EarlierRuns runs={earlier} />
       </div>
       <Sheet
         open={!!open}
