@@ -221,17 +221,26 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
 export interface FakeCiOptions {
   vars?: Partial<RunVars>;
   secrets?: Record<string, string>;
-  records?: Record<string, RunRecord>; // runs the factory started; any other run is refused
+  runs?: Map<string, RunRecord>; // run records by run ID, as the CI keeps them; share one map between fakes to carry a run over
 }
 
 type Start = Parameters<CiRunner["start"]>[0];
+// A pipeline that start() queued: its run ID and what was asked for.
+export type QueuedRun = Start & { run: string };
 
 // An in-memory CiRunner for tests. A secret is read once, a foreign run is refused.
+// start() queues a pipeline with a new run ID. save() keeps a run's record under its run ID, as the artifacts of a
+// finished pipeline do, and buildRecord() serves it back as a copy: a run that saved none is refused.
 export function fakeCi(o: FakeCiOptions = {}) {
   const secrets = new Map(Object.entries(o.secrets ?? {}));
+  const runs = o.runs ?? new Map<string, RunRecord>();
+  let lastRun = Number(o.vars?.run ?? 0);
+  const copy = (r: RunRecord): RunRecord => JSON.parse(JSON.stringify(r));
   const ci = {
     vars: { skipApply: false, runUrl: "https://ci.example/runs/1", ...o.vars } as RunVars,
     started: [] as Start[],
+    queue: [] as QueuedRun[],
+    runs,
     finishTriggered: false,
     finishVars: {} as Partial<Start>,
     restored: [] as string[],
@@ -242,13 +251,15 @@ export function fakeCi(o: FakeCiOptions = {}) {
     },
     start: async (run: Start) => {
       ci.started.push(run);
+      ci.queue.push({ ...run, run: String(++lastRun) });
       if (run.kind === "finish") Object.assign(ci, { finishTriggered: true, finishVars: run });
       return "https://ci.example/runs/new";
     },
+    save: (run: string, record: RunRecord) => void runs.set(run, copy(record)),
     buildRecord: async (run: string): Promise<RunRecord> => {
-      const r = o.records?.[run];
+      const r = runs.get(run);
       if (!r) throw new NotFactoryRunError(`Run ${run} is not a factory build run`);
-      return r;
+      return copy(r);
     },
     restoreRun: async (run: string) => void ci.restored.push(run),
   } satisfies CiRunner & Record<string, unknown>;
