@@ -19,11 +19,12 @@ const Figure = ({ label, value, note, className = "" }: { label: string; value: 
   </div>
 );
 
-const day = (iso: string) => new Date(iso).toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" });
+const LABELS_SHOWN = 12; // with more bars, only every n-th bar keeps its label, so the labels do not run into each other
 
-// One stacked bar per week: merged alone at the base, sent to a person, then the runs that ended without a change.
-function Weeks({ weeks }: { weeks: Insights["weeks"] }) {
-  const max = Math.max(1, ...weeks.map((w) => w.auto + w.person + w.stopped));
+// One stacked bar per bucket: merged alone at the base, sent to a person, then the runs that ended without a change.
+function Buckets({ buckets, unit }: { buckets: Insights["buckets"]; unit: Insights["unit"] }) {
+  const max = Math.max(1, ...buckets.map((w) => w.auto + w.person + w.stopped));
+  const every = Math.ceil(buckets.length / LABELS_SHOWN);
   return (
     <>
       <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -34,18 +35,18 @@ function Weeks({ weeks }: { weeks: Insights["weeks"] }) {
           </li>
         ))}
       </ul>
-      <ol className="flex h-40 items-end gap-2 sm:gap-3">
-        {weeks.map((w) => {
-          const said = `Week of ${day(w.start)}: ${w.auto} merged without a person, ${w.person} sent to a person, ${w.stopped} ended without a change`;
+      <ol className={`flex h-40 items-end ${buckets.length > 20 ? "gap-0.5" : "gap-2 sm:gap-3"}`}>
+        {buckets.map((w, i) => {
+          const said = `${unit === "week" ? "Week of " : ""}${w.label}: ${w.auto} merged without a person, ${w.person} sent to a person, ${w.stopped} ended without a change`;
           return (
-            <li key={w.start} title={said} aria-label={said} className="group flex h-full flex-1 flex-col items-center justify-end gap-1">
+            <li key={w.start} title={said} aria-label={said} className="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
               <div className="flex h-[calc(100%-1.25rem)] w-full max-w-10 flex-col-reverse gap-0.5">
                 {KINDS.map(([k, , fill]) => {
                   const n = w[k as "auto" | "person" | "stopped"];
                   return n > 0 && <div key={k} className={`rounded-sm ${fill} group-hover:opacity-80`} style={{ height: `${(n / max) * 100}%` }} />;
                 })}
               </div>
-              <span className="text-xs whitespace-nowrap text-muted-foreground">{day(w.start)}</span>
+              <span className={`h-4 text-xs whitespace-nowrap text-muted-foreground ${i % every ? "invisible" : ""}`}>{w.label}</span>
             </li>
           );
         })}
@@ -141,23 +142,22 @@ function Risk({ risk }: { risk: Insights["risk"] }) {
 const th = "py-2 font-medium";
 
 export function InsightsView({ data }: { data: Insights }) {
-  if (data.runs === 0) return <p className="text-muted-foreground">No runs in these weeks yet.</p>;
-  const thisWeek = data.weeks.at(-1)!;
-  const merged = data.weeks.reduce((a, w) => a + w.auto, 0);
-  const decided = data.weeks.reduce((a, w) => a + w.auto + w.person, 0);
+  if (data.runs === 0) return <p className="text-muted-foreground">No run started in this range.</p>;
+  const merged = data.buckets.reduce((a, w) => a + w.auto, 0);
+  const decided = data.buckets.reduce((a, w) => a + w.auto + w.person, 0);
   const rounded = data.rounds.reduce((a, r) => a + r.count, 0);
   return (
     <>
       <div className="mb-8 grid grid-cols-2 border-y md:grid-cols-4">
-        <Figure className="pr-4" label="Merged alone this week" value={thisWeek.auto} note={`${thisWeek.person} sent to a person`} />
+        <Figure className="pr-4" label="Merged alone" value={merged} note={`${decided - merged} sent to a person, ${data.runs} runs`} />
         <Figure className="border-l pl-4" label="Without a person" value={decided ? `${Math.round((merged / decided) * 100)}%` : "—"} note={`of ${decided} decided changes`} />
         <Figure className="border-t pr-4 md:border-t-0 md:border-l md:pl-4" label="Cost per run" value={usd(data.cost.p50)} note={`p95 ${usd(data.cost.p95)}, ${usd(data.cost.total)} in all`} />
         <Figure className="border-t border-l pl-4 md:border-t-0" label="Time per run" value={data.time.p50 ? duration(data.time.p50) : "—"} note={data.time.p95 ? `p95 ${duration(data.time.p95)}` : "No run ended yet"} />
       </div>
 
       <section className="mb-10">
-        <SectionHeading>Runs by week</SectionHeading>
-        <Weeks weeks={data.weeks} />
+        <SectionHeading>Runs by {data.unit}</SectionHeading>
+        <Buckets buckets={data.buckets} unit={data.unit} />
       </section>
 
       <section className="mb-10">

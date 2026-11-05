@@ -6,7 +6,8 @@ import { InsightsView } from "./insights-view";
 afterEach(cleanup);
 
 const base: Insights = {
-  weeks: [{ start: "2026-11-02T00:00:00.000Z", auto: 3, person: 1, stopped: 2 }],
+  unit: "week",
+  buckets: [{ start: "2026-11-02T00:00:00.000Z", label: "Nov 2", auto: 3, person: 1, stopped: 2 }],
   runs: 6,
   cost: { p50: 1.5, p95: 4, total: 12 },
   time: { p50: 600, p95: 1800 },
@@ -44,5 +45,5 @@ test("the line gives each step its runs, its blocks and its times", () => {
 
 test("a page with no runs says so", () => {
   render(<InsightsView data={{ ...base, runs: 0 }} />);
-  expect(screen.getByText("No runs in these weeks yet.")).toBeTruthy();
+  expect(screen.getByText("No run started in this range.")).toBeTruthy();
 });
