@@ -20,7 +20,7 @@ export function Sheet({ open, onClose, title, description, children, footer }: {
             heading.current?.focus();
           }}
           className={cn(
-            "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-[-12px_0_32px_-12px_rgb(19_20_22/0.16)] outline-none sm:max-w-[640px] lg:max-w-[min(640px,calc(100vw-608px))]",
+            "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l bg-background shadow-[-12px_0_32px_-12px_rgb(var(--shadow-ink)/0.16)] outline-none sm:max-w-[640px] lg:max-w-[min(640px,calc(100vw-608px))]",
             "duration-300 ease-[cubic-bezier(0.2,0,0,1)] data-[state=closed]:duration-200 data-[state=open]:animate-in data-[state=open]:slide-in-from-right data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right motion-reduce:animate-none"
           )}
         >

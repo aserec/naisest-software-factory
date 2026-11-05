@@ -1,6 +1,18 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* dark: follows the chosen theme: data-theme="dark", or the system when no theme is set. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+  &:where([data-theme="dark"] *) {
+    @slot;
+  }
+}
+
 /* Style: framed-sheet (tasteskill app sheet, seed 860487600). The shadcn names map onto the sheet's roles. */
 @theme inline {
   --font-sans: "IBM Plex Sans", system-ui, sans-serif;
@@ -17,6 +29,7 @@
   --color-pill-negative-ink: var(--pill-negative-ink);
   --color-pill-warning: var(--pill-warning-bg);
   --color-pill-warning-ink: var(--pill-warning-ink);
+  --color-pill-neutral-ink: var(--pill-neutral-ink);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--background);
@@ -42,7 +55,9 @@
   --radius-xl: 16px;
 }
 
+/* Light is the default. The inline script in layout.tsx sets data-theme on <html> before first paint. */
 :root {
+  color-scheme: light;
   --ground: #f6f8f9; /* the frame: one blue-grey step, an observability tool's tint */
   --background: #ffffff; /* the sheet */
   --raised: #f4f6f8;
@@ -64,14 +79,70 @@
   --pill-negative-ink: #831c1e;
   --pill-warning-bg: #fffbeb;
   --pill-warning-ink: #92400e;
+  --pill-neutral-ink: #353736;
+  --shadow-ink: 19 20 22; /* rgb channels of the floating layers' shadow */
+}
+
+/* Dark: the same two planes. The frame sinks below the sheet, ink turns light, teal and red lighten to keep 4.5:1.
+   The values appear twice: once for the system setting, once for an explicit choice. Keep the two blocks equal. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e1113;
+    --background: #17191b;
+    --raised: #1f2225;
+    --active: #282b2e;
+    --border: #2c2f32;
+    --rule: #222528;
+    --input: #42464a;
+    --switch-off: #6f7377;
+    --foreground: #e6e7e8;
+    --muted-foreground: #9b9ea1;
+    --primary: #d9dbdd;
+    --data: #5bb5c9;
+    --positive: #4cc38a;
+    --destructive: #f2726d;
+    --ring: #5bb5c9;
+    --pill-positive-bg: #123222;
+    --pill-positive-ink: #a6ebbf;
+    --pill-negative-bg: #3d1a1b;
+    --pill-negative-ink: #ffbab3;
+    --pill-warning-bg: #33290f;
+    --pill-warning-ink: #f9d58a;
+    --pill-neutral-ink: #cdcfd1;
+    --shadow-ink: 0 0 0;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e1113;
+  --background: #17191b;
+  --raised: #1f2225;
+  --active: #282b2e;
+  --border: #2c2f32;
+  --rule: #222528;
+  --input: #42464a;
+  --switch-off: #6f7377;
+  --foreground: #e6e7e8;
+  --muted-foreground: #9b9ea1;
+  --primary: #d9dbdd;
+  --data: #5bb5c9;
+  --positive: #4cc38a;
+  --destructive: #f2726d;
+  --ring: #5bb5c9;
+  --pill-positive-bg: #123222;
+  --pill-positive-ink: #a6ebbf;
+  --pill-negative-bg: #3d1a1b;
+  --pill-negative-ink: #ffbab3;
+  --pill-warning-bg: #33290f;
+  --pill-warning-ink: #f9d58a;
+  --pill-neutral-ink: #cdcfd1;
+  --shadow-ink: 0 0 0;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-  }
-  html {
-    color-scheme: light;
   }
   body {
     @apply bg-ground font-sans text-sm text-foreground antialiased;
