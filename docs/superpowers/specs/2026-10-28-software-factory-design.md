@@ -31,7 +31,7 @@ People should only do three things:
 3. A change merges without a person only when every condition in [6.7](#67-decision) holds.
 4. A watcher finds escalating errors and starts the same flow on its own. It is off by default.
 5. People can steer a running agent from GitLab comments, from Microsoft Teams, and from their phone.
-6. The factory picks the models for each ticket with Jev. The code reviewer always uses a model from a different company than the author.
+6. The factory picks the models for each ticket with Jev. The code reviewer always uses a model from a different model family than the author. Superseded: see swappable-modules §5.5, which allows two families from the same company.
 7. The factory repo stands alone. It works on `react_frontend`, `fastapi_backend` and `ai_gateway`. Adding a repo needs no change to factory code.
 8. The ticket source can change later without changing the flow. Local markdown tickets, one file per ticket with a folder per state, were discussed as a later option.
 
@@ -273,7 +273,7 @@ Jev 1's `risk` and `effort` answers select a row in `router.yml`:
 - An `effort` score of 8 or more moves a ticket to the second row.
 - Use full model IDs, not aliases, so runs repeat the same way.
 - The builder picks the current DeepSeek model IDs on TensorX and keeps them in `router.yml`.
-- The reviewer is never a Claude model while the author is Claude.
+- The reviewer is never the same model family as the author. Superseded: this was "never a Claude model while the author is Claude". See swappable-modules §5.5.
 
 ## 9. Talking to agents
 

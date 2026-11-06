@@ -5,8 +5,8 @@ The factory turns a labeled work item into a reviewed, checked and merged change
 ## Work
 
 **Work item**:
-An issue in the target's tracker that a person sets ready to ask the factory for a change.
-_Avoid_: Ticket, issue, task
+An issue in the target's tracker that a person sets ready to ask the factory for a change. "Ticket" means the same thing, and the code uses that word. GitHub calls it an issue.
+_Avoid_: Task
 
 **Duplicate check**:
 The triage check that compares a work item a person wrote with the open work items. It closes a sure duplicate and asks on a near one. It runs on each new run until it closes the work item or asks once.
