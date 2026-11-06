@@ -147,6 +147,10 @@ test("gate sandbox lets tsx open its IPC pipe: macOS allows the sandbox TMPDIR, 
   expect(linux.allowAllUnixSockets).toBe(true);
   expect(linux).not.toHaveProperty("allowUnixSockets");
 });
+test("gate sandbox on macOS lets fs.watch reach FSEvents, so a dev server sees its files", () => {
+  expect(sandboxSettings("/w/run/target", "/tmp/h", undefined, "darwin").network.allowMachLookup).toEqual(["com.apple.FSEvents"]);
+  expect(sandboxSettings("/w/run/target", "/tmp/h", undefined, "linux").network).not.toHaveProperty("allowMachLookup");
+});
 
 test("readFile refuses links and paths that leave the clone", async () => {
   const root = mkdtempSync(join(tmpdir(), "repo-read-"));

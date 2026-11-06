@@ -222,6 +222,10 @@ test("settings pin the hook to the given absolute dir and deny the config dir", 
   expect(s.permissions.allow).toEqual(expect.arrayContaining(["Read(./**)"]));
   expect(s.permissions.allow).not.toContain("Read");
 });
+test("agent settings on macOS let fs.watch reach FSEvents, like the gate", () => {
+  expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true, "darwin").sandbox.network.allowMachLookup).toEqual(["com.apple.FSEvents"]);
+  expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true, "linux").sandbox.network).not.toHaveProperty("allowMachLookup");
+});
 test("settings allow local binding only for a preview", () => {
   expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true).sandbox.network.allowLocalBinding).toBe(true);
   expect(factorySettings({}, "/opt/hooks", "/w/run/target").sandbox.network.allowLocalBinding).toBeFalsy();

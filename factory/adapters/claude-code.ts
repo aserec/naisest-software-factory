@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
 import { SANDBOX_RULES_PATH, rootReads, sandboxDenyRead } from "../sandbox";
+import { MAC_LOOKUPS } from "../repo";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string; images?: boolean }
@@ -41,6 +42,7 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   if (platform === "linux") settings.sandbox.network.allowAllUnixSockets = true;
   // Newer Claude Code names its TMPDIR /tmp/claude-<uid>, so the fixed paths in the file no longer cover tsx's pipe.
   else if (uid !== undefined) settings.sandbox.network.allowUnixSockets.push(`/tmp/claude-${uid}`, `/private/tmp/claude-${uid}`);
+  if (platform === "darwin") settings.sandbox.network.allowMachLookup = MAC_LOOKUPS; // file watching, as in sandboxSettings
   return settings;
 }
 

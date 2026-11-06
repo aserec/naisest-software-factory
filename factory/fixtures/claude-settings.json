@@ -61,7 +61,8 @@
         "files.pythonhosted.org",
         "registry-1.docker.io"
       ],
-      "allowLocalBinding": true
+      "allowLocalBinding": true,
+      "allowMachLookup": ["com.apple.FSEvents"]
     }
   },
   "hooks": {

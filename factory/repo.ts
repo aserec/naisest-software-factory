@@ -31,9 +31,12 @@ export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.Process
 // A local run (store set) also gets the pnpm store, /private/tmp (the real /tmp on macOS, which srt does not follow)
 // and local port binding (Next's Turbopack starts its PostCSS workers on a local port).
 // ponytail: local binding also lets sandboxed code reach services on the developer's localhost. Local runs only.
+export const MAC_LOOKUPS = ["com.apple.FSEvents"];
+
 export function sandboxSettings(dir: string, home: string, store?: string, platform = process.platform) {
   const rules = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
-  const sockets = platform === "linux" ? { allowAllUnixSockets: true } : { allowUnixSockets: ["/tmp/claude", "/private/tmp/claude"] };
+  // macOS: Node's fs.watch needs the FSEvents service. Without it Next's dev server gets EMFILE on every watch and serves only 404s.
+  const sockets = platform === "linux" ? { allowAllUnixSockets: true } : { allowUnixSockets: ["/tmp/claude", "/private/tmp/claude"], allowMachLookup: MAC_LOOKUPS };
   return {
     network: { allowedDomains: rules.network.allowedDomains, deniedDomains: [], ...sockets, ...(store && { allowLocalBinding: true }) },
     filesystem: { denyRead: sandboxDenyRead(dir), allowWrite: [dir, home, "/tmp", ...(store ? [store, "/private/tmp"] : [])], denyWrite: [] },
