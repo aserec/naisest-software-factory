@@ -1,9 +1,11 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { DIFF_RISK_MAX, STEPS, stepIndex } from "software-factory/run-events";
 import Link from "next/link";
+import { LayoutGroup, motion } from "motion/react";
+import { CircleDot, GitPullRequest, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { STATE } from "@/lib/state";
 import { Button } from "@/components/ui/button";
@@ -90,6 +92,16 @@ function Clock({ item: i, now }: { item: BoardItem; now: number }) {
   );
 }
 
+function IconLink({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
+  return (
+    <Button asChild variant="ghost" size="icon-xs">
+      <a href={href} target="_blank" rel="noreferrer" aria-label={label} title={label}>
+        {icon}
+      </a>
+    </Button>
+  );
+}
+
 const link = "font-medium outline-none after:absolute after:inset-0 after:rounded-lg";
 
 function Row({ item: i, now }: { item: BoardItem; now: number }) {
@@ -104,8 +116,9 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
     </a>
   );
   // The whole card is the link, so the focus ring goes on the card.
+  // layoutId: a card that changes state slides from its old section to its new one. MotionConfig in providers.tsx honours reduced motion.
   return (
-    <li className="relative flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+    <motion.li layout="position" layoutId={`${i.target}/${i.ticket}`} transition={{ layout: { duration: 0.4 } }} className="relative flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
       <div className="min-w-0 flex-1 basis-48">
         {title}
         <div className="mt-0.5 text-xs text-muted-foreground">
@@ -124,8 +137,13 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
         <ConflictsBadge conflicts={i.conflicts} />
         <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
         <span className={`w-14 text-right ${i.costUsd === undefined ? "text-muted-foreground" : ""}`}>{i.costUsd === undefined ? "—" : usd(i.costUsd)}</span>
+        {/* relative z-10 lifts the buttons over the card's stretched title link. The PR shows once the work waits for a person or is done. */}
+        <span className="relative z-10 flex gap-1">
+          {i.changeUrl && (i.state === "done" || WAITING.includes(i.state)) && <IconLink href={i.changeUrl} label="Open PR" icon={<GitPullRequest />} />}
+          <IconLink href={i.url} label="Open issue" icon={<CircleDot />} />
+        </span>
       </div>
-    </li>
+    </motion.li>
   );
 }
 
@@ -154,16 +172,14 @@ function Column({ state, items, now }: { state: FactoryState; items: BoardItem[]
   );
 }
 
+async function loadBoard(fresh = false) {
+  const r = await api(fresh ? "/api/board?fresh=1" : "/api/board");
+  if (!r.ok) throw new Error(`The board answered ${r.status}`);
+  return (await r.json()) as BoardItem[];
+}
+
 export function useBoard() {
-  return useQuery({
-    queryKey: ["board"],
-    refetchInterval: 15_000,
-    queryFn: async () => {
-      const r = await api("/api/board");
-      if (!r.ok) throw new Error(`The board answered ${r.status}`);
-      return (await r.json()) as BoardItem[];
-    },
-  });
+  return useQuery({ queryKey: ["board"], refetchInterval: 15_000, queryFn: () => loadBoard() });
 }
 
 // The filter lives in the URL (?q=, ?target=), so a link or a reload keeps it.
@@ -224,6 +240,9 @@ function useNow() {
 export function Board() {
   const board = useBoard();
   const { data: all, error } = board;
+  const client = useQueryClient();
+  // Skips the server's 15 s tracker cache, so a card just moved in the tracker shows now.
+  const refresh = () => client.fetchQuery({ queryKey: ["board"], queryFn: () => loadBoard(true), staleTime: 0 }).catch(() => {});
   const [filter, setFilter] = useFilter();
   const now = useNow();
   const search = useRef<HTMLInputElement>(null);
@@ -261,6 +280,10 @@ export function Board() {
                 {t}
               </Button>
             ))}
+          <Button variant="outline" size="sm" className="ml-auto" disabled={board.isFetching} onClick={refresh}>
+            <RefreshCw className={cn(board.isFetching && "motion-safe:animate-spin")} />
+            Refresh
+          </Button>
         </div>
       )}
       {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">No work item matches the filter.</p>}
@@ -287,6 +310,7 @@ export function Board() {
         </div>
       )}
       {data && (all?.length === 0 || data.length > 0) && (
+        <LayoutGroup>
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
           {SIDES.map(([side, states]) => {
             const of = (s: FactoryState) => data.filter((i) => i.state === s);
@@ -301,6 +325,7 @@ export function Board() {
             );
           })}
         </div>
+        </LayoutGroup>
       )}
     </>
   );

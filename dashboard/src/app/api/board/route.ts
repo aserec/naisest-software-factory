@@ -6,10 +6,10 @@ import { readTargets } from "@/server/targets";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await auth())) return Response.json({ error: "unauthorized" }, { status: 401 });
   try {
-    return Response.json(boardWithRuns(await getBoard().board(), getDb(), readTargets(), new Date()));
+    return Response.json(boardWithRuns(await getBoard().board(new URL(req.url).searchParams.has("fresh")), getDb(), readTargets(), new Date()));
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : "board failed" }, { status: 502 });
   }

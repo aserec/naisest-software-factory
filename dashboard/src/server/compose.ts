@@ -47,8 +47,9 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
   }
 
   return {
-    board() {
-      if (!cached || now().getTime() - cached.at >= CACHE_MS) {
+    // fresh skips the cache: the board's Refresh button asks for it.
+    board(fresh = false) {
+      if (fresh || !cached || now().getTime() - cached.at >= CACHE_MS) {
         const entry = { at: now().getTime(), rows: fetchBoard() };
         cached = entry;
         entry.rows.catch(() => cached === entry && (cached = undefined)); // do not cache a failure

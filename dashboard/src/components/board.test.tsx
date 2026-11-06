@@ -209,3 +209,26 @@ test("a notification goes out for a new wait for approval or info and a run that
   const next = [item({ ticket: "1", state: "needs_info" }), item({ ticket: "2", title: "Add docs", stuck: true }), item({ ticket: "3", stuck: true }), item({ ticket: "4", title: "New", state: "needs_approval" }), item({ ticket: "5", state: "blocked" })];
   expect(newlyWaiting(prev, next)).toEqual(["Stuck: Add docs", "Needs approval: New"]);
 });
+
+test("Refresh asks the server for a fresh board", async () => {
+  const f = vi.fn(async (_url: string) => json([item({})]));
+  vi.stubGlobal("fetch", f);
+  renderWithQuery(<Board />);
+  await screen.findByText("Fix login");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(f.mock.calls.map((c) => c[0])).toContain("/api/board?fresh=1"));
+});
+
+test("every card links its issue; only a done or waiting card links its PR", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([
+    item({ run: "r1", state: "needs_approval", changeUrl: "http://gl/mr/1" }),
+    item({ ticket: "8", title: "Add docs", run: "r2", state: "running", changeUrl: "http://gl/mr/2", url: "http://gl/8" }),
+  ])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Add docs");
+  const card = (name: string) => within(screen.getByRole("link", { name }).closest("li")!);
+  expect(card("Fix login").getByRole("link", { name: "Open PR" }).getAttribute("href")).toBe("http://gl/mr/1");
+  expect(card("Fix login").getByRole("link", { name: "Open issue" }).getAttribute("href")).toBe("http://gl/7");
+  expect(card("Add docs").queryByRole("link", { name: "Open PR" })).toBeNull();
+  expect(card("Add docs").getByRole("link", { name: "Open issue" }).getAttribute("href")).toBe("http://gl/8");
+});

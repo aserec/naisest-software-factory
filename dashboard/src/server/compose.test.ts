@@ -59,12 +59,14 @@ it("the board is cached for 15 s and a failure is not cached", async () => {
   t += 2_000;
   await board.board();
   expect(vi.mocked(f).mock.calls.length).toBe(2 * calls);
+  await board.board(true); // Refresh skips the cache
+  expect(vi.mocked(f).mock.calls.length).toBe(3 * calls);
 
   vi.mocked(f).mockResolvedValueOnce(new Response("no", { status: 500 }));
   t += 16_000;
   await expect(board.board()).rejects.toThrow();
   await board.board();
-  expect(vi.mocked(f).mock.calls.length).toBe(4 * calls);
+  expect(vi.mocked(f).mock.calls.length).toBe(5 * calls);
 });
 
 it("codeHostName gives the target's code host name", () => {
