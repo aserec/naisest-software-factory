@@ -69,7 +69,10 @@ const commandsSchema = z.object({
   smoke: z.string().min(1).optional(),
   preview: z.string().min(1).optional(),
   previewUrl: z.string().url().optional(),
-}).refine((c) => !c.preview === !c.previewUrl, { message: "preview and previewUrl go together" });
+  // Logs a seeded user in for run/shoot.sh: reads $FACTORY_USER and $FACTORY_URL, writes a Playwright storage state to $FACTORY_STORAGE.
+  login: z.string().min(1).optional(),
+}).refine((c) => !c.preview === !c.previewUrl, { message: "preview and previewUrl go together" })
+  .refine((c) => !c.login || c.preview, { message: "login needs preview" });
 
 const readYaml = (path: string) => parse(readFileSync(path, "utf8"));
 

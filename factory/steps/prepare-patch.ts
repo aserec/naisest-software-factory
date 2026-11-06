@@ -7,7 +7,9 @@ import { agent, agentCommands, rootLine, switchOn, CONTINUE, facts, install, isM
 import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
-  c.preview ? `Preview: start the app with \`${c.preview}\`. It serves ${c.previewUrl}.` : "Preview: this repo has no preview command. Take no screenshots; prove the change with tests only.";
+  c.preview
+    ? `Preview: start the app with \`${c.preview}\`. It serves ${c.previewUrl}. ${c.login ? `Login: this repo logs seeded users in with \`${c.login}\`. Read it to learn the user names.` : "Login: this repo has no login command."}`
+    : "Preview: this repo has no preview command. Take no screenshots; prove the change with tests only.";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   if (!(await switchOn(ctx, "prepare_patch"))) return stopped(ctx, "prepare-patch", { reason: "switch off prepare_patch" });
