@@ -25,7 +25,7 @@ test("router.yml gives the spec's models and bump", () => {
 });
 test("seams.yml picks the GitLab, local CI, model judge and console adapters and gives the providers to the harness", () => {
   const s = loadSeams();
-  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "local", judge: "model-call", chat: "console", logSource: "files", dashboard: "http" });
+  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "local", judge: "model-call", chat: "slack", logSource: "files", dashboard: "http" });
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
     provider: { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", onlyHarness: "claude-code", models: { "claude-sonnet-5-5": "sonnet", "claude-opus-5-5": "opus" }, images: ["claude-sonnet-5-5", "claude-opus-5-5"] },
     model: "claude-opus-5-5",

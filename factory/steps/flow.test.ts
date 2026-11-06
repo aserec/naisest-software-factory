@@ -472,8 +472,8 @@ test("decision blocks instead of starting finish without a build pipeline id", a
 test("makeContext rejects a target with no targets/<name>.yml, and a job image the target does not name", () => {
   const dir = tmp();
   const env = (o: Record<string, string>) => {
-    for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+    for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x");
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   const seams = seamsFile(dir);
   expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
@@ -484,8 +484,8 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
 test("a target on GitHub needs only the GitHub token and builds the GitHub tracker and code host", () => {
   const dir = tmp();
   const env = (o: Record<string, string>) => {
-    for (const k of ["gh", "dash"]) writeFileSync(join(dir, k), "x");
-    return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "musicapp_webapp", TENSORX_API_KEY: "k", FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+    for (const k of ["gh", "chat", "dash"]) writeFileSync(join(dir, k), "x");
+    return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "musicapp_webapp", TENSORX_API_KEY: "k", SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   expect(() => makeContext(env({}), dir, seamsFile(dir))).toThrow(/FACTORY_GITHUB_TOKEN is not set/);
   const ctx = makeContext(env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") }), dir, seamsFile(dir));
@@ -721,11 +721,11 @@ test("the MR pipeline status is read for the reviewed head commit in risk-check 
 test("makeContext registers the secrets it holds, so no comment or push can carry them", () => {
   const dir = tmp();
   const file = (name: string, v: string) => (writeFileSync(join(dir, name), `${v}\n`), join(dir, name));
-  const teams = "https://teams.example/webhook/0123456789";
+  const chat = "https://hooks.slack.example/services/0123456789";
   makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789",
     TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
-    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), TEAMS_WEBHOOK_URL: file("teams", teams), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir, (t) => t.replace(/^ci: local$/m, "ci: gitlab")));
-  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", teams, "dashboard-token-0123456789", "trigger-0123456789"]) {
+    FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), SLACK_WEBHOOK_URL: file("chat", chat), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir, (t) => t.replace(/^ci: local$/m, "ci: gitlab")));
+  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", chat, "dashboard-token-0123456789", "trigger-0123456789"]) {
     expect(findSecrets(`text ${v} text`), v).toHaveLength(1);
   }
 });
@@ -822,15 +822,14 @@ test("makeContext refuses an unknown adapter in seams.yml before it builds any",
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: toString", "tracker: gitlab").replace("logSource: files", "logSource: filez"));
   expect(() => makeContext({ FACTORY_TARGET: "react_frontend" }, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
 });
-// chat: console needs no Teams webhook.
 test("prepare patch and the questions agent clone the base branch", async () => {
   expect((await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }))).cloned).toEqual(["develop"]);
   expect((await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 } }))).cloned).toEqual(["develop"]);
 });
 test("makeContext builds a context on the adapters seams.yml names", async () => {
   const dir = tmp();
-  for (const k of ["gl", "dash"]) writeFileSync(join(dir, k), "x");
-  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
+  for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x");
+  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
   expect(typeof ctx.dashboard.send).toBe("function");
   expect(ctx.ci.vars.ticket).toBe("8");
   expect(await ctx.codeHost.baseBranch()).toBe("develop");
@@ -840,8 +839,8 @@ test("makeContext builds a context on the adapters seams.yml names", async () =>
 test("seams.yml judge: model-call builds the model judge from judgeModel, and needs that provider's key", () => {
   const dir = tmp();
   const seams = seamsFile(dir, (t) => t.replace("judge: jev-berget", "judge: model-call"));
-  const files = () => { for (const k of ["gl", "teams", "dash"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
-  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
+  const files = () => { for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
   files();
   expect(() => makeContext(env, dir, seams)).toThrow("TENSORX_API_KEY is not set");
   files();
@@ -1482,11 +1481,11 @@ test("an upload that works on its last retry adds no reason", async () => {
 });
 test("makeContext needs the dashboard token and a real dashboardUrl", () => {
   const dir = tmp();
-  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl"), TEAMS_WEBHOOK_URL: join(dir, "teams"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
+  const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
   const files = (...ks: string[]) => { for (const k of ks) writeFileSync(join(dir, k), "x"); };
-  files("gl", "teams");
+  files("gl", "chat");
   expect(() => makeContext({ ...env, FACTORY_DASHBOARD_TOKEN: "" }, dir, seamsFile(dir))).toThrow("FACTORY_DASHBOARD_TOKEN is not set");
-  files("gl", "teams", "dash");
+  files("gl", "chat", "dash");
   const placeholder = seamsFile(dir, (t) => t.replace(/^dashboardUrl: .*$/m, "dashboardUrl: REPLACE_WITH_DASHBOARD_URL"));
   expect(() => makeContext(env, dir, placeholder)).toThrow(/dashboardUrl is still a placeholder/);
 });
