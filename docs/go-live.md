@@ -24,7 +24,7 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] `CLAUDE_CODE_OAUTH_TOKEN` from Kirill's `claude setup-token`. Put a one-year reminder in the team calendar.
 - [ ] `TENSORX_API_KEY`.
 - [ ] `TEAMS_WEBHOOK_URL`, type **File**, from a Teams Workflows flow "Post to a channel when a webhook request is received". Or, when `seams.yml` picks chat `slack`, `SLACK_WEBHOOK_URL`, type **File**, from a Slack incoming webhook.
-- [ ] `BERGET_API_KEY`, when it exists.
+- [ ] `CELERIS_API_KEY`.
 - [ ] Do not set `ANTHROPIC_API_KEY` in the runner while the OAuth token is used. Never set both, because the API key wins.
 
 ## 3. Runner and image
@@ -71,9 +71,9 @@ The dashboard must be up before the first run: while the factory cannot reach it
 
 ## 7. Jev shadow test
 
-- [ ] When `BERGET_API_KEY` exists, run on 30 closed work items:
+- [ ] Run on 30 closed work items:
   ```bash
-  BERGET_API_KEY=... FACTORY_GITLAB_TOKEN=... pnpm tsx factory/steps/jev-shadow.ts react_frontend 30
+  CELERIS_API_KEY=... FACTORY_GITLAB_TOKEN=... pnpm tsx factory/steps/jev-shadow.ts react_frontend 30
   ```
   It writes `run/jev-shadow.csv`. It refuses to run without the real key.
 - [ ] Check the answers by hand with the team.
@@ -81,7 +81,7 @@ The dashboard must be up before the first run: while the factory cannot reach it
 
 ## 8. Acceptance runs
 
-- [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 7). With judge `jev-berget` and no key, every step that asks Jev stops with an error.
+- [ ] Before run 1: set `CELERIS_API_KEY` and tune the thresholds from the Jev shadow test (section 7). With judge `jev-celeris` and no key, every step that asks Jev stops with an error.
 - [ ] **Run 1:** label a trivial ticket in `react_frontend`. Expected: merged into `develop` with a green `develop` pipeline, `factory_done`, a result comment, no person involved.
 - [ ] **Run 2:** label a medium-risk ticket. Expected: `factory_needs_approval`, reasons on the merge request, one Teams card.
 

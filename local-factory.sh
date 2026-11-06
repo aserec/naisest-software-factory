@@ -32,7 +32,7 @@ ready() {
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
   env -i PATH="$PATH" HOME="$HOME" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_SCHEDULE=poll FACTORY_TARGET="$1" \
-    "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="$TENSORX_API_KEY" \
+    "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="$TENSORX_API_KEY" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
     node --import tsx factory/steps/poll.ts --list
 }
 

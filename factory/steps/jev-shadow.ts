@@ -1,5 +1,5 @@
 // Jev shadow test, run by a person on their own machine (not in CI):
-//   BERGET_API_KEY=... FACTORY_GITLAB_TOKEN=... pnpm tsx factory/steps/jev-shadow.ts <target> <count>
+//   CELERIS_API_KEY=... FACTORY_GITLAB_TOKEN=... pnpm tsx factory/steps/jev-shadow.ts <target> <count>
 // It reads the newest closed tickets of a target, runs triage on each, and writes run/jev-shadow.csv.
 // It only reads from the tracker. It never writes a state, comment or anything else.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -35,11 +35,11 @@ export async function main(env = process.env, argv = process.argv.slice(2)) {
   const count = Number(countText);
   if (!targetName || !Number.isInteger(count) || count < 1 || count > 100) throw new Error("Usage: pnpm tsx factory/steps/jev-shadow.ts <target> <count> (count is at most 100)");
   // A shadow test with the mock would tell us nothing, so refuse it.
-  if (!env.BERGET_API_KEY) throw new Error("BERGET_API_KEY is not set. The shadow test needs the real Jev, not the mock. Stopping.");
+  // It throws when CELERIS_API_KEY is not set.
+  const jev = makeJevClient(env, fetch, "celeris");
   const tokenName = ADAPTER_SECRETS.tracker[loadSeams().tracker]; // the token of the tracker seams.yml picks
   const token = env[tokenName];
   if (!token) throw new Error(`${tokenName} is not set. It is needed to read closed tickets.`);
-  const jev = makeJevClient(env);
   const target = loadTarget(targetName);
   const tracker = makeTracker(token, target);
   // The target's clarityMin, as triage would use it. A bad file keeps the default, as in triage.

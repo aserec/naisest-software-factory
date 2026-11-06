@@ -19,7 +19,7 @@ test("titles with commas, quotes and line breaks are quoted", async () => {
   expect(await shadowRow(fakeJev, { ref: "1", title: 'a, "b"', body: "", tags: [] })).toMatch(/^1,"a, ""b""",/);
 });
 test("the shadow test refuses the mock provider", async () => {
-  await expect(main({ FACTORY_GITLAB_TOKEN: "t" }, ["react_frontend", "5"])).rejects.toThrow(/BERGET_API_KEY/);
+  await expect(main({ FACTORY_GITLAB_TOKEN: "t" }, ["react_frontend", "5"])).rejects.toThrow(/CELERIS_API_KEY/);
 });
 test("a field that starts with a formula character gets a quote prefix", () => {
   expect(csvField("=SUM(A1)")).toBe("'=SUM(A1)");

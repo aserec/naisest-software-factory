@@ -50,6 +50,7 @@ services:
       GL_TOKEN: ${GL_TOKEN:-}
       FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
       TENSORX_API_KEY: ${TENSORX_API_KEY:-}
+      CELERIS_API_KEY: ${CELERIS_API_KEY:-}
       FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
       # The chat seam's webhook (seams.yml chat: teams or slack). Only the picked one must be set.
       TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL:-}

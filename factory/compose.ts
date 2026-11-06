@@ -45,6 +45,7 @@ const ADAPTERS = {
   },
   judge: {
     "jev-berget": (env: NodeJS.ProcessEnv) => makeJevClient(env),
+    "jev-celeris": (env: NodeJS.ProcessEnv) => makeJevClient(env, fetch, "celeris"),
     "model-call": (env: NodeJS.ProcessEnv, seams: SeamsConfig) => makeModelJudge(modelChoice(seams.judgeModel, seams), env),
   },
   chat: {

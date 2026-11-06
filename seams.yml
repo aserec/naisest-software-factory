@@ -5,7 +5,7 @@ codeHost: gitlab
 # The CI is local (factory/worker.ts: each step in a new container, on this machine or a Hetzner VM per run)
 # or gitlab (.gitlab-ci.yml).
 ci: local
-judge: model-call
+judge: jev-celeris
 # chat is console (notices go to the job log), teams (TEAMS_WEBHOOK_URL) or slack (SLACK_WEBHOOK_URL).
 chat: slack
 logSource: files
@@ -13,7 +13,7 @@ dashboard: http
 # The dashboard's address, e.g. https://factory.<domain>. makeContext refuses the placeholder.
 # Outside GitLab CI, FACTORY_DASHBOARD_URL replaces it (the local scripts default it to https://localhost:3000).
 dashboardUrl: REPLACE_WITH_DASHBOARD_URL
-# Used when judge is model-call.
+# Used when judge is model-call. jev-celeris needs CELERIS_API_KEY.
 judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
 providers:
   team-plan: { api: anthropic, keyEnv: CLAUDE_CODE_OAUTH_TOKEN, onlyHarness: claude-code, models: { claude-sonnet-5-5: sonnet, claude-opus-5-5: opus }, images: [claude-sonnet-5-5, claude-opus-5-5] }

@@ -473,7 +473,7 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", CELERIS_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   const seams = seamsFile(dir);
   expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
@@ -485,7 +485,7 @@ test("a target on GitHub needs only the GitHub token and builds the GitHub track
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gh", "chat", "dash"]) writeFileSync(join(dir, k), "x");
-    return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "musicapp_webapp", TENSORX_API_KEY: "k", SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+    return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "musicapp_webapp", TENSORX_API_KEY: "k", CELERIS_API_KEY: "k", SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   expect(() => makeContext(env({}), dir, seamsFile(dir))).toThrow(/FACTORY_GITHUB_TOKEN is not set/);
   const ctx = makeContext(env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") }), dir, seamsFile(dir));
@@ -722,10 +722,10 @@ test("makeContext registers the secrets it holds, so no comment or push can carr
   const dir = tmp();
   const file = (name: string, v: string) => (writeFileSync(join(dir, name), `${v}\n`), join(dir, name));
   const chat = "https://hooks.slack.example/services/0123456789";
-  makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789",
+  makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789", CELERIS_API_KEY: "celeris-key-0123456789",
     TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
     FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), SLACK_WEBHOOK_URL: file("chat", chat), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir, (t) => t.replace(/^ci: local$/m, "ci: gitlab")));
-  for (const v of ["berget-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", chat, "dashboard-token-0123456789", "trigger-0123456789"]) {
+  for (const v of ["berget-key-0123456789", "celeris-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", chat, "dashboard-token-0123456789", "trigger-0123456789"]) {
     expect(findSecrets(`text ${v} text`), v).toHaveLength(1);
   }
 });
@@ -829,7 +829,7 @@ test("prepare patch and the questions agent clone the base branch", async () => 
 test("makeContext builds a context on the adapters seams.yml names", async () => {
   const dir = tmp();
   for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x");
-  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
+  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", CELERIS_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
   expect(typeof ctx.dashboard.send).toBe("function");
   expect(ctx.ci.vars.ticket).toBe("8");
   expect(await ctx.codeHost.baseBranch()).toBe("develop");
@@ -838,7 +838,7 @@ test("makeContext builds a context on the adapters seams.yml names", async () =>
 });
 test("seams.yml judge: model-call builds the model judge from judgeModel, and needs that provider's key", () => {
   const dir = tmp();
-  const seams = seamsFile(dir, (t) => t.replace("judge: jev-berget", "judge: model-call"));
+  const seams = seamsFile(dir, (t) => t.replace("judge: jev-celeris", "judge: model-call"));
   const files = () => { for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
   const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
   files();

@@ -79,7 +79,7 @@ for step in "${steps[@]}"; do
   # Its own Claude config, as the worker has: your ~/.claude hooks, plugins and CLAUDE.md must not reach the agents.
   env -i PATH="$PATH" HOME="$HOME" CLAUDE_CONFIG_DIR="$PWD/run/claude-home" PLAYWRIGHT_BROWSERS_PATH="$browsers" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID="$run_id" FACTORY_PIPELINE=build FACTORY_TARGET="$target" \
-    FACTORY_WORK_ITEM_IID="$iid" FACTORY_BUILD_PIPELINE_ID="${FACTORY_BUILD_PIPELINE_ID:-}" FACTORY_MR_IID="${FACTORY_MR_IID:-}" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
+    FACTORY_WORK_ITEM_IID="$iid" FACTORY_BUILD_PIPELINE_ID="${FACTORY_BUILD_PIPELINE_ID:-}" FACTORY_MR_IID="${FACTORY_MR_IID:-}" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
     node --import tsx "$([ "$step" = resume ] && echo factory/local-resume.ts || echo "factory/steps/$step.ts")"
   # A round's event step restored the earlier run's run/ and its run-id: this run keeps its own number.
   [ "$step" != event ] || echo "$run_id" > run/run-id

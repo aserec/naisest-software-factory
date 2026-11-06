@@ -25,7 +25,7 @@ test("router.yml gives the spec's models and bump", () => {
 });
 test("seams.yml picks the GitLab, local CI, model judge and console adapters and gives the providers to the harness", () => {
   const s = loadSeams();
-  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "local", judge: "model-call", chat: "slack", logSource: "files", dashboard: "http" });
+  expect(s).toMatchObject({ tracker: "gitlab", codeHost: "gitlab", ci: "local", judge: "jev-celeris", chat: "slack", logSource: "files", dashboard: "http" });
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
     provider: { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", onlyHarness: "claude-code", models: { "claude-sonnet-5-5": "sonnet", "claude-opus-5-5": "opus" }, images: ["claude-sonnet-5-5", "claude-opus-5-5"] },
     model: "claude-opus-5-5",
@@ -119,8 +119,8 @@ test("a target may set stuckMinutes, and a zero or negative value is refused", (
   expect(() => loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 0 } })).toThrow(/stuckMinutes/);
 });
 
-test("providerKeys lists every provider key once, then the Jev key", () => {
+test("providerKeys lists every provider key once, then the Jev host keys", () => {
   const seams = loadSeams();
   const twice = { ...seams, providers: { ...seams.providers, again: { ...seams.providers.tensorx } } };
-  expect(providerKeys(twice)).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY"]);
+  expect(providerKeys(twice)).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY", "CELERIS_API_KEY"]);
 });

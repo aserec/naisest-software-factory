@@ -29,6 +29,17 @@ test("berget client posts to /v1/systemone and never logs the key", async () => 
   expect(JSON.stringify(out.map((s) => s.mock.calls))).not.toContain("secret-key");
 });
 
+test("celeris client posts its model to the Celeris systemone URL with CELERIS_API_KEY", async () => {
+  expect(() => makeJevClient({ BERGET_API_KEY: "k" }, fetch, "celeris")).toThrow(/CELERIS_API_KEY is not set/);
+  const calls: [string, RequestInit][] = [];
+  const fake = (async (url: string, init: RequestInit) => { calls.push([url, init]); return new Response(JSON.stringify(SAMPLE_RESPONSE)); }) as typeof fetch;
+  const c = makeJevClient({ CELERIS_API_KEY: "ck_1" }, fake, "celeris");
+  await c.ask({}, [{ id: "injection", kind: "noul", text: "?" }]);
+  expect(calls[0][0]).toBe("https://inference.celeris.ai/celeris-1-decision/v1/systemone");
+  expect(JSON.parse(String(calls[0][1].body)).model).toBe("celeris-1.1-decision");
+  expect((calls[0][1].headers as Record<string, string>).Authorization).toBe("Bearer ck_1");
+});
+
 test("a failed Berget call throws", async () => {
   const fake = (async () => new Response("down", { status: 503 })) as typeof fetch;
   await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, [])).rejects.toThrow(/503/);
