@@ -5,8 +5,10 @@ import type { Chat, Notice } from "../seams";
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // The message for a Slack incoming webhook: the same words as the Teams card, with an Open link.
+// A blank line sets the title, the lines and the Open link apart.
 export function buildSlackMessage(kind: Notice, title: string, lines: string[], url: string): object {
-  return { text: [`*${KIND_TEXT[kind]}: ${esc(title)}*`, ...lines.map(esc), `<${url}|Open>`].join("\n") };
+  const body = lines.length ? [lines.map(esc).join("\n")] : [];
+  return { text: [`*${KIND_TEXT[kind]}: ${esc(title)}*`, ...body, `<${url}|Open>`].join("\n\n") };
 }
 
 // The Slack adapter. The webhook URL is a secret; sendCard keeps it out of errors.

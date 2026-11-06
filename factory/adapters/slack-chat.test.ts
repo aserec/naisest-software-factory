@@ -22,5 +22,5 @@ test("notify posts the notice, its lines and an Open link, with Slack markup esc
   await makeSlackChat(URL, f).notify("blocked", "Fix <b> & co", ["Tests fail"], "https://x/1");
   const [to, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
   expect(to).toBe(URL);
-  expect(JSON.parse(init.body).text).toBe("*Blocked: Fix &lt;b&gt; &amp; co*\nTests fail\n<https://x/1|Open>");
+  expect(JSON.parse(init.body).text).toBe("*Blocked: Fix &lt;b&gt; &amp; co*\n\nTests fail\n\n<https://x/1|Open>");
 });
