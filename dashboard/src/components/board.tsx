@@ -10,8 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { STATE } from "@/lib/state";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import type { BoardRow, FactoryState } from "@/server/seams";
-import { ago, cn, usd, words } from "@/lib/utils";
+import type { BoardRow, FactoryState, Risk } from "@/server/seams";
+import { ago, cn, usd, words, workItemKey } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
 
 export interface BoardItem extends BoardRow {
@@ -36,7 +36,7 @@ export function ConflictsBadge({ conflicts }: { conflicts?: boolean }) {
 
 // Triage risk (Jev 1, on the work item), then merge risk (Jev 2, on the diff), each named so they cannot be confused. High or above the merge limit takes the warning pill; nothing is green,
 // so a pill never makes a change look safer than its risk check says.
-export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }) {
+export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }) {
   return (
     <>
       {risk && <Badge variant={risk === "high" ? "warning" : "default"}>Triage risk {risk}</Badge>}
@@ -118,7 +118,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
   // The whole card is the link, so the focus ring goes on the card.
   // layoutId: a card that changes state slides from its old section to its new one. MotionConfig in providers.tsx honours reduced motion.
   return (
-    <motion.li layout="position" layoutId={`${i.target}/${i.ticket}`} transition={{ layout: { duration: 0.4 } }} className="relative flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+    <motion.li layout="position" layoutId={workItemKey(i)} transition={{ layout: { duration: 0.4 } }} className="relative flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
       <div className="min-w-0 flex-1 basis-48">
         {title}
         <div className="mt-0.5 text-xs text-muted-foreground">
@@ -160,7 +160,7 @@ function Column({ state, items, now }: { state: FactoryState; items: BoardItem[]
       </SectionHeading>
       <ul className="flex flex-col gap-2">
         {shown.map((i) => (
-          <Row key={`${i.target}/${i.ticket}`} item={i} now={now} />
+          <Row key={workItemKey(i)} item={i} now={now} />
         ))}
       </ul>
       {shown.length < items.length && (
@@ -218,9 +218,9 @@ function useTabTitle(n: number | undefined) {
 
 // What turned to need a person between two board loads: entered needs approval or needs info, or a run turned stuck.
 export function newlyWaiting(prev: BoardItem[], next: BoardItem[]) {
-  const before = new Map(prev.map((i) => [`${i.target}/${i.ticket}`, i]));
+  const before = new Map(prev.map((i) => [workItemKey(i), i]));
   return next.flatMap((i) => {
-    const p = before.get(`${i.target}/${i.ticket}`);
+    const p = before.get(workItemKey(i));
     if ((i.state === "needs_approval" || i.state === "needs_info") && p?.state !== i.state) return [`${STATE[i.state]}: ${i.title}`];
     if (i.stuck && !p?.stuck) return [`Stuck: ${i.title}`];
     return [];

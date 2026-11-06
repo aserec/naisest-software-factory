@@ -23,11 +23,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   const changeUrl = summary?.changeUrl;
   // Review findings link their file into the change's diff once the change exists.
   const fileLink = target && summary?.changeUrl ? fileLinkOf(target, summary.changeUrl) : undefined;
-  // A target whose tracker is unknown still gets its page, only without the work item link.
-  let tracker: ReturnType<typeof trackerOf> | undefined;
-  try {
-    tracker = target && trackerOf(target);
-  } catch {}
+  const tracker = target && trackerOf(target);
   const ticketUrl = item?.url || (target && tracker?.ticketUrl(target, first.ticket));
   return (
     // From lg the open side panel sits beside the page instead of over it; see the panel width in ui/sheet.tsx.

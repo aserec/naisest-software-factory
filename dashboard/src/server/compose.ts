@@ -6,32 +6,27 @@ import { makeGrafana, NOT_SET_UP } from "./adapters/grafana";
 import { makeLocalCi } from "./adapters/local-ci";
 import { NotSetUp } from "./not-set-up";
 import type { BoardRow, Ci, HostMetrics, Tracker } from "./seams";
-import { readTargets, type TargetInfo } from "./targets";
+import { readTargets, type CodeHostKey, type TargetInfo, type TrackerKey } from "./targets";
 
 const CACHE_MS = 15_000;
 
-const trackers = (fetchFn: typeof fetch): Record<string, Tracker> => {
+const trackers = (fetchFn: typeof fetch): Record<TrackerKey, Tracker> => {
   const github = makeGitHubTracker(fetchFn);
   return { gitlab: makeGitLabTracker(fetchFn), github, "github-project": github };
 };
 const defaultTrackers = trackers((...a) => fetch(...a));
 
-function pick(all: Record<string, Tracker>, t: TargetInfo) {
-  const tracker = all[t.tracker];
-  if (!tracker) throw new Error(`${t.name}: unknown tracker ${t.tracker}`);
-  return tracker;
-}
-
-export const trackerOf = (t: TargetInfo): Tracker => pick(defaultTrackers, t);
+export const trackerOf = (t: TargetInfo): Tracker => defaultTrackers[t.tracker];
 
 // Where one file of the change shows in the code host's diff: base, then the hex hash of the file's path.
 export type FileLink = { base: string; hash: "SHA-256" | "SHA-1" };
-export const fileLinkOf = (t: TargetInfo, changeUrl: string): FileLink | undefined =>
-  ({ github: { base: `${changeUrl}/files#diff-`, hash: "SHA-256" }, gitlab: { base: `${changeUrl}/diffs#`, hash: "SHA-1" } } as Record<string, FileLink>)[t.codeHost];
+export const fileLinkOf = (t: TargetInfo, changeUrl: string): FileLink =>
+  ({ github: { base: `${changeUrl}/files#diff-`, hash: "SHA-256" }, gitlab: { base: `${changeUrl}/diffs#`, hash: "SHA-1" } } satisfies Record<CodeHostKey, FileLink>)[t.codeHost];
 
-export const codeHostName = (t: TargetInfo): string => ({ gitlab: "GitLab", github: "GitHub" } as Record<string, string>)[t.codeHost] ?? t.codeHost;
+const CODE_HOST_NAME: Record<CodeHostKey, string> = { gitlab: "GitLab", github: "GitHub" };
+export const codeHostName = (t: TargetInfo): string => CODE_HOST_NAME[t.codeHost];
 
-// Every target's open work items, each from its own tracker. A tracker that is not set up leaves its targets out; any other error fails the board.
+// Every target's work items in a factory state, each from its own tracker. A tracker that is not set up leaves its targets out; any other error fails the board.
 export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
   const all = trackers(fetchFn);
   let cached: { at: number; rows: Promise<BoardRow[]> } | undefined;
@@ -39,7 +34,7 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
   async function fetchBoard() {
     const groups = new Map<Tracker, TargetInfo[]>();
     for (const t of readTargets()) {
-      const tracker = pick(all, t);
+      const tracker = all[t.tracker];
       groups.set(tracker, [...(groups.get(tracker) ?? []), t]);
     }
     const lists = [...groups].map(([tracker, targets]) => tracker.rows(targets).catch((e) => (e instanceof NotSetUp ? [] : Promise.reject(e))));

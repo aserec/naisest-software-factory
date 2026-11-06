@@ -10,4 +10,5 @@ export const fakeTracker = (seed: Seed[], { setUp = true } = {}): Tracker => ({
     return targets.flatMap((t) => seed.map((s) => ({ target: t.name, ...s, url: this.ticketUrl(t, s.ticket), updatedAt: "2026-11-04T10:00:00Z" })));
   },
   ticketUrl: (t, ticket) => `https://tracker.test/${t.name}/${ticket}`,
+  postRelay: async () => new Response(null, { status: 201 }),
 });

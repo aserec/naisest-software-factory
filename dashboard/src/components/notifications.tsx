@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
-import { ago, cn } from "@/lib/utils";
+import { ago, cn, workItemKey } from "@/lib/utils";
 import { type BoardItem, needsYou, newlyWaiting, useBoard } from "./board";
 import { STATE } from "@/lib/state";
 import { SectionHeading } from "./shell";
@@ -99,9 +99,9 @@ export function Notifications() {
   const waiting = board ? needsYou(board) : [];
   const unread = ends.filter((e) => e.seq > seen).length;
   const n = waiting.length + unread;
-  const titles = new Map(board?.map((i) => [`${i.target}/${i.ticket}`, i.title]));
+  const titles = new Map(board?.map((i) => [workItemKey(i), i.title]));
 
-  const toggle = () => {
+  const togglePanel = () => {
     if (!open) {
       setUnreadFrom(seen);
       const top = ends[0]?.seq ?? seen;
@@ -118,7 +118,7 @@ export function Notifications() {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={n ? `Notifications, ${n} new` : "Notifications"}
-        onClick={toggle}
+        onClick={togglePanel}
         className="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Bell className="size-4" strokeWidth={1.5} aria-hidden="true" />
@@ -145,7 +145,7 @@ export function Notifications() {
         {waiting.length === 0 && <p className="mb-8 text-muted-foreground">Nothing waits on you.</p>}
         <ul className="mb-8 flex flex-col gap-2">
           {waiting.map((i) => (
-            <li key={`${i.target}/${i.ticket}`}>
+            <li key={workItemKey(i)}>
               <Link href={i.run ? `/runs/${encodeURIComponent(i.run)}` : i.url} onClick={() => setOpen(false)} className={card}>
                 <span className="flex flex-wrap items-center gap-2">
                   <Badge variant={i.stuck || i.state === "blocked" ? "warning" : "default"}>{i.stuck ? "Stuck" : STATE[i.state]}</Badge>
@@ -172,7 +172,7 @@ export function Notifications() {
                   <span className="flex flex-wrap items-center gap-2">
                     {isNew && <span className="size-2 rounded-full bg-data" aria-label="Unread" />}
                     <Badge variant={e.data.outcome === "blocked" ? "warning" : "default"}>{ENDED[e.data.outcome]}</Badge>
-                    <span className="font-medium">{titles.get(`${e.target}/${e.ticket}`) ?? `${e.target} #${e.ticket}`}</span>
+                    <span className="font-medium">{titles.get(workItemKey(e)) ?? `${e.target} #${e.ticket}`}</span>
                   </span>
                   <span className="text-xs text-muted-foreground">
                     <span className="font-mono">

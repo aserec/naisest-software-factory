@@ -1,6 +1,7 @@
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { StepDetail, usageByModel } from "./step-detail";
+import { usageByModel } from "./cost-by-model";
+import { StepDetail } from "./step-detail";
 import { ev, renderWithQuery } from "./test-utils";
 
 // The real api(), watched, so a test can see the job log goes through it (a 401 there sends the user to sign-in).
@@ -21,6 +22,12 @@ const events = [
   ev("jev_answer", "01", { data: { question: "Which API?", answer: "v2", confidence: "high" } }),
   ev("usage", "02", { data: { costUsd: 0.5 } }),
 ];
+
+test("an agent step shows the prompt its agent was sent", () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("")));
+  renderWithQuery(<StepDetail start={ev("step_start", "00", { step: "code-review" })} events={[ev("prompt", "01", { data: { role: "reviewer", prompt: "Review this diff" } })]} />);
+  expect(document.body.textContent).toContain("Review this diff");
+});
 
 test("shows everything about the step and asks GitLab for its job log once", async () => {
   const fetchFn = vi.fn(async () => new Response("log line one"));
@@ -139,4 +146,10 @@ test("usageByModel sums the usage per role and model and in all, and names the m
   ]);
   expect(total).toEqual({ input: 35, output: 35, cacheRead: 35, cacheWrite: 35, costUsd: 3 });
   expect(unpriced).toEqual(["glm"]);
+});
+
+test("shows the error a failed step sent", async () => {
+  renderWithQuery(<StepDetail start={ev("step_start", "00", { step: "triage" })} events={[ev("error", "01", { data: { message: "Jev did not answer" } })]} />);
+  expect(screen.getByRole("heading", { name: "Error" })).toBeTruthy();
+  expect(screen.getByText("Jev did not answer")).toBeTruthy();
 });

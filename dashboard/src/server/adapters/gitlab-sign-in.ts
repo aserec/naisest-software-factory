@@ -1,6 +1,7 @@
 import GitLab from "next-auth/providers/gitlab";
 import type { SessionUser, SignIn } from "../seams";
 import { gitlabUrl } from "./gitlab-url";
+import { timeout } from "./timeout";
 
 const MIN_LEVEL = 30; // GitLab Developer
 
@@ -13,7 +14,7 @@ export function makeGitLabSignIn(fetchFn: typeof fetch = fetch): SignIn {
   // is needed only once, at sign-in. A user who is not a member (GitLab answers 404) is level 0. A blocked user counts as 0 too.
   // Undefined on any other non-OK answer.
   async function memberLevel(userId: number): Promise<number | undefined> {
-    const m = await fetchFn(api(`/projects/${process.env.FACTORY_PROJECT_ID}/members/all/${userId}`), { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" } });
+    const m = await fetchFn(api(`/projects/${process.env.FACTORY_PROJECT_ID}/members/all/${userId}`), { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" }, signal: timeout() });
     if (m.status === 404) return 0;
     if (!m.ok) return undefined;
     const { access_level, state } = (await m.json()) as { access_level: number; state: string };
@@ -34,7 +35,7 @@ export function makeGitLabSignIn(fetchFn: typeof fetch = fetch): SignIn {
     // Who the user's token belongs to (read_user scope), then their level.
     async check(account) {
       const user = await (async (): Promise<(SessionUser & { level: number }) | undefined> => {
-        const u = await fetchFn(api("/user"), { headers: { authorization: `Bearer ${account.access_token ?? ""}` } });
+        const u = await fetchFn(api("/user"), { headers: { authorization: `Bearer ${account.access_token ?? ""}` }, signal: timeout() });
         if (!u.ok) return undefined;
         const { id, username } = (await u.json()) as { id: number; username: string };
         const level = await memberLevel(id);

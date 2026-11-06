@@ -2,6 +2,7 @@ import GitHub from "next-auth/providers/github";
 import type { SignIn } from "../seams";
 import { readTargets } from "../targets";
 import { githubApi } from "./github-url";
+import { timeout } from "./timeout";
 
 // Sign-in with GitHub: write, maintain or admin on the repo of any GitHub target, read with the server's GITHUB_READ_TOKEN.
 export function makeGitHubSignIn(fetchFn: typeof fetch = fetch): SignIn {
@@ -11,6 +12,7 @@ export function makeGitHubSignIn(fetchFn: typeof fetch = fetch): SignIn {
     for (const t of readTargets().filter((x) => x.githubRepo)) {
       const r = await fetchFn(`${githubApi()}/repos/${t.githubRepo}/collaborators/${encodeURIComponent(login)}/permission`, {
         headers: { Authorization: `Bearer ${process.env.GITHUB_READ_TOKEN ?? ""}`, Accept: "application/vnd.github+json" },
+        signal: timeout(),
       }).catch(() => undefined);
       const p = r?.ok ? ((await r.json().catch(() => undefined)) as { permission?: string } | undefined) : undefined;
       if (p?.permission === "admin" || p?.permission === "write") return true; // maintain shows as write

@@ -3,16 +3,14 @@
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { eventsOfType, type EventData, type EventOf, type RunEvent } from "software-factory/run-events";
-import { Bot, FilePen, FileText, FolderSearch, Globe, ListTodo, type LucideIcon, Search, SquareTerminal, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import { capitalize, duration, httpUrl, usd } from "@/lib/utils";
+import { capitalize, clock, duration, httpUrl, usd } from "@/lib/utils";
 import type { FileLink } from "@/server/compose";
+import { count, Unpriced, usageByModel } from "./cost-by-model";
 import { LoadError, SectionHeading } from "./shell";
+import { pre, ToolCalls } from "./tool-calls";
 
-const count = (n: number) => n.toLocaleString("en");
-const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const pre = "rounded-md bg-raised p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words";
 
 // A step that ran without CI (local-run.sh, the worker) sends its output with its step_end event instead.
 function JobLog({ job, end, log }: { job?: string; end?: EventOf<"step_end">; log: UseQueryResult<string> }) {
@@ -97,155 +95,6 @@ export const Fact = ({ label, children }: { label: string; children: React.React
   </>
 );
 
-const TOKENS = ["input", "output", "cacheRead", "cacheWrite"] as const;
-type Usage = Record<(typeof TOKENS)[number] | "costUsd", number>;
-
-// Usage events summed per role and model, and in all. unpriced: the models with no price in seams.yml; they report tokens and $0.
-export function usageByModel(usage: EventData<"usage">[]) {
-  const rows = new Map<string, Usage & { role: string; model: string }>();
-  const total: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0 };
-  for (const u of usage) {
-    const key = `${u.role} · ${u.model}`;
-    const row = rows.get(key) ?? rows.set(key, { role: u.role, model: u.model, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0 }).get(key)!;
-    for (const k of [...TOKENS, "costUsd"] as const) {
-      row[k] += u[k];
-      total[k] += u[k];
-    }
-  }
-  const unpriced = [...new Set(usage.filter((u) => !u.costUsd && (u.input || u.output)).map((u) => u.model))];
-  return { rows: [...rows.values()], total, unpriced };
-}
-
-const Unpriced = ({ models }: { models: string[] }) => models.length > 0 && <div className="text-muted-foreground">Without {models.join(" and ")}: seams.yml sets no price for it</div>;
-
-// The whole run's tokens and cost per role and model, for the run page.
-export function CostByModel({ usage }: { usage: EventData<"usage">[] }) {
-  const { rows, total, unpriced } = usageByModel(usage);
-  const num = "py-2 pl-4 text-right whitespace-nowrap";
-  const cells = (u: Usage) => (
-    <>
-      {TOKENS.map((k) => (
-        <td key={k} className={num}>
-          {count(u[k])}
-        </td>
-      ))}
-      <td className={num}>{usd(u.costUsd)}</td>
-    </>
-  );
-  return (
-    <>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[36rem]">
-          <thead className="text-muted-foreground">
-            <tr className="border-b">
-              {["Role and model", "Input", "Output", "Cache read", "Cache write", "Cost"].map((h, i) => (
-                <th key={h} scope="col" className={i ? `${num} font-normal` : "py-2 text-left font-normal"}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={`${r.role} ${r.model}`} className="border-b border-rule">
-                <th scope="row" className="py-2 text-left font-normal">
-                  {r.role} · <span className="font-mono text-xs">{r.model}</span>
-                </th>
-                {cells(r)}
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="font-medium">
-              <th scope="row" className="py-2 text-left font-medium">
-                Total
-              </th>
-              {cells(total)}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <Unpriced models={unpriced} />
-    </>
-  );
-}
-
-// An icon per kind of tool. Claude Code names tools "Read", Pi "read", so the name is matched in lower case.
-const TOOL_ICON: Record<string, LucideIcon> = { bash: SquareTerminal, read: FileText, edit: FilePen, multiedit: FilePen, write: FilePen, notebookedit: FilePen, grep: Search, glob: FolderSearch, find: FolderSearch, ls: FolderSearch, webfetch: Globe, websearch: Globe, task: Bot, todowrite: ListTodo };
-const ToolIcon = ({ name }: { name: string }) => {
-  const Icon = TOOL_ICON[name.toLowerCase()] ?? Wrench;
-  return <Icon className="size-4 flex-none self-center text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />;
-};
-
-// What a call acted on, from its JSON input: a bash command, a file, a pattern. An input cut at MAX_FIELD is no longer JSON, so it shows none.
-function toolTarget(input: string): string | undefined {
-  try {
-    const i = JSON.parse(input) as Record<string, unknown>;
-    return [i.command, i.file_path, i.path, i.pattern, i.url, i.query].find((v): v is string => typeof v === "string");
-  } catch {}
-}
-
-const took = (ms: number) => (!Number.isFinite(ms) || ms < 0 ? undefined : ms < 1000 ? `${Math.round(ms)} ms` : duration(ms / 1000));
-
-function ToolCall({ call }: { call: EventOf<"tool_call"> }) {
-  const { name, input, result, ms, ok } = call.data;
-  const what = toolTarget(input);
-  const time = [took(ms), !ok && "failed"].filter(Boolean).join(", ");
-  return (
-    <details className="group">
-      <summary className="flex w-full cursor-pointer list-none items-baseline gap-2 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
-        <ToolIcon name={name} />
-        <span className="flex-none font-medium group-open:underline">{name}</span>
-        {what && <code className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{what}</code>}
-        {time && <span className={`ml-auto flex-none text-xs ${ok ? "text-muted-foreground" : "text-destructive"}`}>{time}</span>}
-      </summary>
-      <div className="mt-1 mb-3 flex flex-col gap-2">
-        <pre className={pre}>{input}</pre>
-        <pre className={pre}>{result}</pre>
-      </div>
-    </details>
-  );
-}
-
-// From this many calls of the same tool in a row, they fold into one line, so twenty reads do not push the rest away.
-const FOLD = 3;
-
-function ToolCalls({ tools }: { tools: EventOf<"tool_call">[] }) {
-  const runs: EventOf<"tool_call">[][] = [];
-  for (const t of tools) {
-    const last = runs.at(-1);
-    if (last?.[0].data.name === t.data.name) last.push(t);
-    else runs.push([t]);
-  }
-  const one = (t: EventOf<"tool_call">) => (
-    <li key={t.id}>
-      <ToolCall call={t} />
-    </li>
-  );
-  return (
-    <ul className="flex flex-col gap-1">
-      {runs.map((run) => {
-        if (run.length < FOLD) return run.map(one);
-        const failed = run.filter((t) => !t.data.ok).length;
-        const time = [took(run.reduce((sum, t) => sum + t.data.ms, 0)), failed && `${failed} failed`].filter(Boolean).join(", ");
-        return (
-          <li key={run[0].id}>
-            <details className="group/run">
-              <summary className="flex w-full cursor-pointer list-none items-baseline gap-2 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
-                <ToolIcon name={run[0].data.name} />
-                <span className="flex-none font-medium group-open/run:underline">{run[0].data.name}</span>
-                <span className="text-muted-foreground">{run.length} calls in a row</span>
-                <span className={`ml-auto flex-none text-xs ${failed ? "text-destructive" : "text-muted-foreground"}`}>{time}</span>
-              </summary>
-              <ul className="mt-1 mb-2 flex flex-col gap-1 border-l border-rule pl-4">{run.map(one)}</ul>
-            </details>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 // Everything about one step, for the side panel. It is mounted only while the panel is open, so the CI is asked for the log only then.
 export function StepDetail({ start, end, tools = [], events, fileLink }: { start: EventOf<"step_start">; end?: EventOf<"step_end">; tools?: EventOf<"tool_call">[]; events: RunEvent[]; fileLink?: FileLink }) {
   const findings = eventsOfType(events, "review_finding").map((e) => e.data);
@@ -256,8 +105,9 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
   const decision = eventsOfType(events, "decision").map((e) => e.data).at(-1);
   const outcome = eventsOfType(events, "triage_outcome").map((e) => e.data).at(-1);
   const usage = eventsOfType(events, "usage").map((e) => e.data);
+  const errors = eventsOfType(events, "error").map((e) => e.data.message);
   const { rows: byModel, total, unpriced } = usageByModel(usage);
-  const prompt = start.data.prompt;
+  const prompt = start.data.prompt ?? eventsOfType(events, "prompt")[0]?.data.prompt;
   const log = useQuery({
     queryKey: ["log", start.job],
     enabled: !!start.job,
@@ -270,6 +120,17 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
   return (
     <div className="flex flex-col gap-8">
       {outcome && <Verdict outcome={outcome} />}
+      {errors.length > 0 && (
+        <Section title="Error">
+          <ul className="flex flex-col gap-2">
+            {errors.map((m, i) => (
+              <li key={i} className={`${pre} border border-destructive/30 bg-destructive/5`}>
+                {m}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
         <Fact label="Started">{clock(start.at)}</Fact>
         <Fact label="Duration">{end ? duration((Date.parse(end.at) - Date.parse(start.at)) / 1000) : "Still running"}</Fact>

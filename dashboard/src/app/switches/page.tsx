@@ -30,13 +30,20 @@ const OFF: Record<SwitchName, string> = {
   improve: "The weekly job opens no change to the repo's factory instructions.",
 };
 
+// The heading each switch's column sits under. A Record, so a new switch without a heading fails to compile.
+const GROUP: Record<SwitchName, string> = {
+  watcher: "New work items",
+  dispatches: "New work items",
+  new_runs: "Runs",
+  retry: "Runs",
+  questions: "Runs",
+  prepare_patch: "Runs",
+  auto_merge: "Merge",
+  apply: "Merge",
+  improve: "Self-improvement",
+};
 // The columns in SWITCHES order, under one heading per part of the factory.
-const GROUPS: [string, SwitchName[]][] = [
-  ["New work items", ["watcher", "dispatches"]],
-  ["Runs", ["new_runs", "retry", "questions", "prepare_patch"]],
-  ["Merge", ["auto_merge", "apply"]],
-  ["Self-improvement", ["improve"]],
-];
+const GROUPS = [...SWITCHES.reduce((m, n) => m.set(GROUP[n], [...(m.get(GROUP[n]) ?? []), n]), new Map<string, SwitchName[]>())];
 
 // Turning these on lets the factory merge, so the page asks first.
 const ASK_ON: Partial<Record<SwitchName, string>> = {

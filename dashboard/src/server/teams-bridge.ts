@@ -1,11 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { githubApi } from "./adapters/github-url";
-import { gitlabUrl } from "./adapters/gitlab-url";
 import { trackerOf } from "./compose";
-import { readTargets, type TargetInfo } from "./targets";
+import { NotSetUp } from "./not-set-up";
+import { readTargets } from "./targets";
 import { plainText, relayText } from "software-factory/relay";
 
-// The Teams inbound bridge (spec 2026-10-28 §9 Teams, phase 2). A Teams outgoing webhook, one per target, POSTs here when someone
+// The Teams inbound bridge (docs/decisions/2026-11-06-dashboard-relays-teams-messages.md). A Teams outgoing webhook, one per target, POSTs here when someone
 // @mentions it. The bridge checks the HMAC, finds the first `#123`, and posts the message on that work item as a quoted relay.
 // The relay is posted by the relay bot, a tracker user below Developer (GitLab Reporter, GitHub read), so the comment itself never counts.
 // The factory acts on it only when a trusted member adds 👍 on the tracker, and then as that member's comment (factory/relay.ts).
@@ -21,19 +20,6 @@ function signed(raw: Buffer, header: string | null, token: string | undefined): 
   const want = createHmac("sha256", Buffer.from(token, "base64")).update(raw).digest();
   const got = Buffer.from(m[1], "base64");
   return got.length === want.length && timingSafeEqual(got, want);
-}
-
-function commentRequest(t: TargetInfo, ticket: string, body: string): { url: string; init: RequestInit } | undefined {
-  const json = { method: "POST", body: JSON.stringify({ body }), signal: AbortSignal.timeout(4000) }; // Teams waits 5 s for the answer
-  if (t.tracker === "gitlab") {
-    const token = process.env.TEAMS_RELAY_GITLAB_TOKEN;
-    const base = gitlabUrl();
-    if (!token || !base) return undefined;
-    return { url: `${base}/api/v4/projects/${encodeURIComponent(t.projectPath)}/issues/${ticket}/notes`, init: { ...json, headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" } } };
-  }
-  const token = process.env.TEAMS_RELAY_GITHUB_TOKEN;
-  if (!token || !t.githubRepo) return undefined;
-  return { url: `${githubApi()}/repos/${t.githubRepo}/issues/${ticket}/comments`, init: { ...json, headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" } } };
 }
 
 const reply = (text: string) => Response.json({ type: "message", text });
@@ -53,10 +39,14 @@ export async function handleTeams(req: Request, target: string): Promise<Respons
   const ticket = /(?<![\w&])#(\d+)\b/.exec(text)?.[1];
   if (!ticket) return reply("Name the work item with its number, for example #123. Nothing was posted.");
 
-  const r = commentRequest(t, ticket, relayText(String(msg.from?.name ?? ""), text));
-  if (!r) return reply("The Teams bridge has no tracker token. Nothing was posted.");
-  const res = await fetch(r.url, r.init).catch(() => undefined);
+  const tracker = trackerOf(t);
+  let res: Response | undefined;
+  try {
+    res = await tracker.postRelay(t, ticket, relayText(String(msg.from?.name ?? ""), text));
+  } catch (e) {
+    if (e instanceof NotSetUp) return reply("The Teams bridge has no tracker token. Nothing was posted.");
+  }
   if (res?.status === 404) return reply(`${target} has no work item #${ticket}. Nothing was posted.`);
   if (!res?.ok) return reply(`The bridge could not post to ${target} #${ticket}${res ? ` (status ${res.status})` : ""}. Try again.`);
-  return reply(`Posted on ${target} #${ticket}: ${trackerOf(t).ticketUrl(t, ticket)}. Add 👍 to it there for the factory to act on it.`);
+  return reply(`Posted on ${target} #${ticket}: ${tracker.ticketUrl(t, ticket)}. Add 👍 to it there for the factory to act on it.`);
 }

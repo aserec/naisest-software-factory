@@ -15,8 +15,8 @@
 
 /* Style: framed-sheet (tasteskill app sheet, seed 860487600). The shadcn names map onto the sheet's roles. */
 @theme inline {
-  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: var(--font-plex-sans), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
   --color-ground: var(--ground);
   --color-raised: var(--raised);
   --color-active: var(--active);

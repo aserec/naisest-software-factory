@@ -162,4 +162,19 @@ describe("importEvents", () => {
     expect(await gl.importEvents(db)).toBe(0);
     expect(artifactCalls()).toBe(2);
   });
+
+  it("reads every page of pipelines and of jobs", async () => {
+    const page = (body: unknown, next?: string) => Response.json(body, { headers: next ? { "X-Next-Page": next } : {} });
+    const { fn } = fakeFetch({
+      "/pipelines?updated_after": () => page([{ id: 7 }], "2"),
+      "/pipelines/7/jobs?scope[]=success&scope[]=failed&scope[]=canceled&per_page=100&page=1": () => page([{ id: 11 }], "2"),
+      "/pipelines/7/jobs?scope[]=success&scope[]=failed&scope[]=canceled&per_page=100&page=2": () => page([{ id: 12 }]),
+      "/pipelines/8/jobs": () => page([{ id: 13 }]),
+      "/artifacts/run/events.jsonl": () => new Response(JSON.stringify(ev(1))),
+    });
+    // The second pipelines page: the first route matches every pipelines call, so serve page 2 from a wrapper.
+    const paged = (async (url: string | URL | Request, init?: RequestInit) =>
+      String(url).includes("/pipelines?") && String(url).endsWith("&page=2") ? page([{ id: 8 }]) : fn(url, init)) as typeof fetch;
+    expect(await makeGitLabCi(paged).importEvents(openDb(":memory:"))).toBe(3);
+  });
 });

@@ -13,9 +13,9 @@ const target = (name: string): TargetInfo => ({ name, projectPath: `g/${name}`, 
 
 // A fake GitLab issues API holding `seed` for every project.
 function fakeGitLab(seed: Seed[]) {
-  const calls: { url: string; token?: string }[] = [];
+  const calls: { url: string; token?: string; signal?: AbortSignal | null }[] = [];
   const fn = vi.fn(async (url: string, init?: RequestInit) => {
-    calls.push({ url, token: (init?.headers as Record<string, string>)["PRIVATE-TOKEN"] });
+    calls.push({ url, token: (init?.headers as Record<string, string>)["PRIVATE-TOKEN"], signal: init?.signal });
     const label = new URL(url).searchParams.get("labels");
     const project = decodeURIComponent(/projects\/([^/]+)\/issues/.exec(url)![1]);
     return Response.json(seed.filter((s) => `factory_${s.state}` === label).map((s) => ({
@@ -31,13 +31,13 @@ trackerContract("GitLab", (seed, { setUp }) => {
   return { tracker: makeGitLabTracker(fakeGitLab(seed).fn), target: target("a") };
 });
 
-it("makes one call per state label per target, all with the read token", async () => {
+it("makes one call per state label per target, newest update first, all with the read token and a time limit", async () => {
   const { fn, calls } = fakeGitLab([{ ticket: "5", title: "Fix it", state: "ready", risk: "high" }]);
   const rows = await makeGitLabTracker(fn).rows([target("t1"), target("t2")]);
   expect(calls).toHaveLength(16);
   expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high", boardUrl: "https://gitlab.test/g/t1/-/boards" });
-  expect(calls[0].url).toBe("https://gitlab.test/api/v4/projects/g%2Ft1/issues?labels=factory_ready&per_page=100");
-  expect(calls.every((c) => c.token === "read-token")).toBe(true);
+  expect(calls[0].url).toBe("https://gitlab.test/api/v4/projects/g%2Ft1/issues?labels=factory_ready&order_by=updated_at&per_page=100");
+  expect(calls.every((c) => c.token === "read-token" && c.signal instanceof AbortSignal)).toBe(true);
 });
 
 it("is not set up without a read token, and makes no call", async () => {

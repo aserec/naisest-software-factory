@@ -27,6 +27,15 @@ export function ago(iso: string, now = Date.now()) {
 // The prepare-patch step and its switch keep their old id in CI and in run records, but people read "Implement".
 export const words = (id: string) => (/^prepare[-_]patch$/.test(id) ? "Implement" : id[0].toUpperCase() + id.slice(1).replace(/[-_]/g, " "));
 
+// One work item across targets: "web/12". Board rows, runs and run ends key on it.
+export const workItemKey = (i: { target: string; ticket: string }) => `${i.target}/${i.ticket}`;
+
+// "14:05:09", a time of day to the second.
+export const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+// "6 Nov 2026, 14:05", a date and time to the minute.
+export const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 
 export const capitalize = (s: string) => s[0].toUpperCase() + s.slice(1);

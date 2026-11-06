@@ -2,20 +2,22 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { eventsOfType, STEPS, stepIndex, type EventType, type RunEvent } from "software-factory/run-events";
+import { eventsOfType, STEPS, stepIndex, type EventType } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
-import { capitalize, duration, usd, words } from "@/lib/utils";
-import { CostByModel, Fact, StepDetail, Verdict } from "./step-detail";
+import { capitalize, duration, usd, when, words } from "@/lib/utils";
+import { CostByModel } from "./cost-by-model";
+import { Fact, StepDetail, Verdict } from "./step-detail";
+import { stepRowName, stepRows, type SeqEvent, type StepRow } from "./step-rows";
 import type { FileLink } from "@/server/compose";
 import type { RunSummary } from "@/server/db";
 import { runView } from "@/server/run-view";
-import type { FactoryState } from "@/server/seams";
+import type { FactoryState, Risk } from "@/server/seams";
 import { RiskPills } from "./board";
 import { STATE } from "@/lib/state";
+import { EarlierRuns } from "./earlier-runs";
 import { LoadError, SectionHeading } from "./shell";
 
-export type SeqEvent = RunEvent & { seq: number };
 
 // Live and history are one stream (/api/events/stream): each batch it sends is appended to the query data, so the page reads one list.
 // The browser reconnects by itself and sends Last-Event-ID, so nothing comes twice. Retry opens it again after the last event held.
@@ -42,76 +44,6 @@ export function useRunEvents(run: string) {
   return { ...query, error, isFetching: false, refetch: () => (setError(undefined), setAttempt((a) => a + 1)) };
 }
 
-export interface Lane {
-  start: Extract<SeqEvent, { type: "step_start" }>;
-  end?: Extract<SeqEvent, { type: "step_end" }>;
-  outcome?: string;
-  tools: Extract<SeqEvent, { type: "tool_call" }>[];
-  events: SeqEvent[]; // the step's other events (findings, checks, usage ...)
-  costUsd: number;
-  round?: number; // a code review or gate round, or the patch that fixed it
-  stepAt?: string; // for a round: when its step started
-}
-
-// The name on a row: "Code review 2", "Patch 2", "Precommit gate 1".
-export const laneName = (l: Lane) => `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}`;
-
-// One lane per step_start. A step_end closes the first open lane of its step. Tool calls hang on their lane by parent.
-export function lanes(events: SeqEvent[]): Lane[] {
-  const sorted = [...events].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.seq - b.seq));
-  const out: Lane[] = eventsOfType(sorted, "step_start").map((start) => ({ start, tools: eventsOfType(sorted, "tool_call").filter((e) => e.parent === start.id), events: [], costUsd: 0 }));
-  for (const e of eventsOfType(sorted, "step_end")) {
-    const lane = out.find((l) => !l.end && l.start.step === e.step && l.start.at <= e.at);
-    if (lane) [lane.end, lane.outcome] = [e, e.data.outcome];
-  }
-  const own = new Set(["step_start", "step_end", "tool_call"]);
-  for (const lane of out) {
-    lane.events = sorted.filter((e) => !own.has(e.type) && e.step === lane.start.step && e.at >= lane.start.at && (!lane.end || e.at <= lane.end.at));
-    lane.costUsd = eventsOfType(lane.events, "usage").reduce((sum, e) => sum + e.data.costUsd, 0);
-  }
-  const kids = (c: Lane) => children(c, out);
-  return out.flatMap((l) => (out.some((c) => kids(c).includes(l)) ? [] : split(l, kids)));
-}
-
-const within = (l: Lane, c: Lane) => l !== c && l.start.at >= c.start.at && (l.start.at > c.start.at || l.start.seq > c.start.seq) && (!c.end || l.start.at <= c.end.at);
-
-// The steps run inside a code review or the gate: their patches, and the code review the gate runs after a fix.
-// A patch inside that inner review belongs to the review, not to the gate.
-function children(c: Lane, all: Lane[]): Lane[] {
-  const kind = (l: Lane) => l.start.step === "patch" || (c.start.step === "precommit-gate" && l.start.step === "code-review");
-  if (c.start.step !== "code-review" && c.start.step !== "precommit-gate") return [];
-  const mine = all.filter((l) => kind(l) && within(l, c));
-  return mine.filter((l) => !mine.some((m) => m.start.step === "code-review" && within(l, m)));
-}
-
-// A code review or gate step shows as its rounds with the steps between them: Code review 1, Patch 1, Code review 2 ...
-// Each round runs from the step's start or the last inner step's end to the next inner step's start or the step's end.
-function split(c: Lane, kids: (c: Lane) => Lane[]): Lane[] {
-  const inner = kids(c);
-  if (inner.length === 0) return [c];
-  const out: Lane[] = [];
-  let from: SeqEvent = c.start;
-  for (const [i, k] of inner.entries()) {
-    // A round a patch followed ends "blocking": it found what the patch fixed. A gate round before a review passed.
-    const r = round(c, i + 1, from, { ...k.start, type: "step_end", data: { outcome: "next" } }, k.start.step === "patch" ? "blocking" : "next");
-    out.push(r, ...(k.start.step === "patch" ? [{ ...k, round: r.round }] : split(k, kids)));
-    if (!k.end) return out;
-    from = k.end;
-  }
-  out.push(round(c, inner.length + 1, from, c.end, c.outcome));
-  return out;
-}
-
-// n counts the rounds in this step. A review round takes its findings' round, which goes on across the review and gate jobs.
-function round(c: Lane, n: number, from: SeqEvent, end: Lane["end"], outcome?: string): Lane {
-  const start = { ...c.start, id: n === 1 ? c.start.id : `${c.start.id}-${n}`, at: from.at, seq: from.seq };
-  const during = <E extends SeqEvent>(e: E) => e.at >= start.at && (!end || e.at <= end.at);
-  const events = c.events.filter(during);
-  const costUsd = eventsOfType(events, "usage").reduce((sum, e) => sum + e.data.costUsd, 0);
-  const found = eventsOfType(events, "review_finding").at(-1)?.data.round;
-  return { start, end, outcome, tools: c.tools.filter(during), events, costUsd, round: found ?? n, stepAt: c.start.at };
-}
-
 const PILL: Record<string, "destructive" | "warning" | "secondary" | "positive"> = { blocking: "warning", next: "positive", error: "destructive", stop: "warning", stopped: "warning", waiting: "warning" };
 
 // The step_end outcome in the words docs/how-it-works.md uses.
@@ -119,42 +51,42 @@ const OUTCOME: Record<string, string> = { next: "passed" };
 
 // state: the work item's state, passed for the last step only. A run that ended there with "stop" waits for whatever
 // that state says (approval, an answer, a fix), so the pill uses the board's name for it.
-function Pills({ lane, stuck, state }: { lane: Lane; stuck: boolean; state?: FactoryState }) {
-  const said = lane.outcome === "stop" && state ? STATE[state].toLowerCase() : lane.outcome && (OUTCOME[lane.outcome] ?? lane.outcome);
+function Pills({ row, stuck, state }: { row: StepRow; stuck: boolean; state?: FactoryState }) {
+  const said = row.outcome === "stop" && state ? STATE[state].toLowerCase() : row.outcome && (OUTCOME[row.outcome] ?? row.outcome);
   return (
     <>
       {stuck && <Badge variant="destructive">Stuck</Badge>}
-      <Badge variant={PILL[lane.outcome ?? ""] ?? "secondary"}>{said || "running"}</Badge>
+      <Badge variant={PILL[row.outcome ?? ""] ?? "secondary"}>{said || "running"}</Badge>
     </>
   );
 }
 
 // In a narrow column (a phone, or beside the open panel): name and pills on the first line, the bar, duration and cost on the second. From a 36rem column: one line.
-function LaneRow({ lane, from, span, stuck, state, selected, onSelect }: { lane: Lane; from: number; span: number; stuck: boolean; state?: FactoryState; selected: boolean; onSelect: () => void }) {
-  const start = Date.parse(lane.start.at);
-  const end = lane.end ? Date.parse(lane.end.at) : from + span;
+function StepRowLine({ row, from, span, stuck, state, selected, onSelect }: { row: StepRow; from: number; span: number; stuck: boolean; state?: FactoryState; selected: boolean; onSelect: () => void }) {
+  const start = Date.parse(row.start.at);
+  const end = row.end ? Date.parse(row.end.at) : from + span;
   // The production line: ended steps in ink, the live one in the data hue, a failed or stuck one in red.
-  const bar = lane.outcome === "error" || stuck ? "bg-destructive" : lane.end ? "bg-foreground/70" : "bg-data";
+  const bar = row.outcome === "error" || stuck ? "bg-destructive" : row.end ? "bg-foreground/70" : "bg-data";
   return (
     <li className="border-b border-rule last:border-0">
       <button
         type="button"
         aria-haspopup="dialog"
         aria-expanded={selected}
-        data-lane={lane.start.id}
+        data-step-row={row.start.id}
         onClick={onSelect}
         className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] @xl:flex"
       >
-        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{laneName(lane)}</span>
+        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{stepRowName(row)}</span>
         <span className="flex justify-end gap-1 @xl:order-4 @xl:w-32">
-          <Pills lane={lane} stuck={stuck} state={state} />
+          <Pills row={row} stuck={stuck} state={state} />
         </span>
         <span className="relative h-2 rounded-full bg-raised @xl:order-2 @xl:flex-1">
           <span className={`absolute inset-y-0 rounded-full ${bar}`} style={{ left: `${((start - from) / span) * 100}%`, width: `${Math.max(((end - start) / span) * 100, 1)}%` }} />
         </span>
         <span className="text-right text-muted-foreground @xl:order-3 @xl:w-16">{duration((end - start) / 1000)}</span>
         {/* No usage: no model ran yet (a live step reports its usage at the end) or ever, so no cost, not $0.00. */}
-        {!lane.events.some((e) => e.type === "usage") ? <span className="text-right text-muted-foreground @xl:order-5 @xl:w-14">—</span> : <span className="text-right @xl:order-5 @xl:w-14">{usd(lane.costUsd)}</span>}
+        {!row.events.some((e) => e.type === "usage") ? <span className="text-right text-muted-foreground @xl:order-5 @xl:w-14">—</span> : <span className="text-right @xl:order-5 @xl:w-14">{usd(row.costUsd)}</span>}
       </button>
     </li>
   );
@@ -263,54 +195,6 @@ function useStepKeys(ids: string[], open: string | undefined, setOpen: (id: stri
   }, []);
 }
 
-const OUTCOME_PILL: Record<string, "destructive" | "warning" | "secondary" | "positive"> = { done: "positive", blocked: "destructive", needs_info: "warning" };
-const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-
-// The work item's other runs, newest first, each with a link to its own page.
-export function EarlierRuns({ runs }: { runs: RunSummary[] }) {
-  if (!runs.length) return null;
-  const cell = "py-2 pr-4 text-left font-normal whitespace-nowrap";
-  return (
-    <section className="mt-8">
-      <SectionHeading>Earlier runs</SectionHeading>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[32rem]">
-          <thead className="text-muted-foreground">
-            <tr className="border-b">
-              {["Started", "Outcome", "Last step", "Run"].map((h) => (
-                <th key={h} scope="col" className={cell}>
-                  {h}
-                </th>
-              ))}
-              <th scope="col" className="py-2 text-right font-normal">
-                Cost
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map((r) => (
-              <tr key={r.run} className="border-b border-rule last:border-0">
-                <td className={cell}>{when(r.startedAt)}</td>
-                <td className={cell}>
-                  {/* A run with no run_end may still be paused, so it is not called failed. */}
-                  <Badge variant={OUTCOME_PILL[r.outcome ?? ""] ?? "secondary"}>{r.outcome ? words(r.outcome).toLowerCase() : "not ended"}</Badge>
-                </td>
-                <td className={cell}>{r.lastStep ? words(r.lastStep.step) : <span className="text-muted-foreground">—</span>}</td>
-                <td className={cell}>
-                  <a href={`/runs/${encodeURIComponent(r.run)}`} className="font-mono text-xs underline decoration-input underline-offset-4 hover:decoration-current">
-                    {r.run}
-                  </a>
-                </td>
-                <td className="py-2 text-right">{usd(r.costUsd)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
 // The clock a live run counts against, ticking each second.
 function useNow() {
   const [now, setNow] = useState(Date.now);
@@ -326,12 +210,12 @@ function useNow() {
 // state: the work item's state in its tracker, read on the server.
 // fileLink: how a review finding links its file into the change's diff; none until the change exists.
 // earlier: the work item's other runs, read on the server.
-export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [] }: { run: string; limits?: Record<string, number>; risk?: { risk?: string; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[] }) {
+export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [] }: { run: string; limits?: Record<string, number>; risk?: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[] }) {
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
   const nowMs = useNow();
-  const rows = data ? lanes(data) : [];
+  const rows = data ? stepRows(data) : [];
   useStepKeys(rows.map((l) => l.start.id), openId, setOpenId);
   const failed = error && <LoadError what="the run" query={events} className="mb-6" />;
   if (!data) return failed || <p className="text-muted-foreground">Loading the run…</p>;
@@ -351,14 +235,14 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   const live = rows.find((l) => !l.end);
   const { lastStep } = view;
   // A split step is stuck in its open round.
-  const stuck = (l: Lane) => view.stuck && !!lastStep && l.start.step === lastStep.step && (l.stepAt ?? l.start.at) === lastStep.startedAt && (!l.stepAt || !l.end);
+  const stuck = (l: StepRow) => view.stuck && !!lastStep && l.start.step === lastStep.step && (l.stepAt ?? l.start.at) === lastStep.startedAt && (!l.stepAt || !l.end);
   const open = rows.find((l) => l.start.id === openId);
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => stepIndex(l.start.step)));
   const first = Math.min(...rows.map((l) => stepIndex(l.start.step)).filter((i) => i >= 0));
   const at = live ? stepIndex(live.start.step) : reached; // the last row can be a review that ran inside the gate
-  const nowText = live ? laneName(live) : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
-  const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
+  const nowText = live ? stepRowName(live) : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
+  const step = at >= 0 && <span className="ml-2 text-muted-foreground">{at + 1} of {STEPS.length}</span>;
   const waited = paused && !view.ended && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
   const time = (
     <>
@@ -369,7 +253,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   const cost = usd(rows.reduce((sum, l) => sum + l.costUsd, 0));
   const pills = (risk.risk || risk.mergeRisk !== undefined) && <RiskPills {...risk} />;
   const figures: [string, React.ReactNode][] = [
-    ["Now", <span>{nowText}{at >= 0 && <span className="ml-2 text-muted-foreground">{at + 1} of {STEPS.length}</span>}</span>],
+    ["Now", <span>{nowText}{step}</span>],
     ["Time", time],
     ["Cost", cost],
     ["Risk", pills || "—"],
@@ -380,9 +264,17 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   // A run that triage stopped or held says so at the top. A go needs no box: the steps after it show the run.
   const triage = eventsOfType(data, "triage_outcome").at(-1)?.data;
   const usage = eventsOfType(data, "usage").map((e) => e.data);
+  // A person stopped the run, and no one resumed or restarted it since. These events have no step, so no row shows them.
+  const control = data.filter((e) => e.type === "stop" || e.type === "resume" || e.type === "restart").at(-1);
+  const stoppedBy = control?.type === "stop" ? control : undefined;
   return (
     <>
       {failed}
+      {stoppedBy && (
+        <p className="-mt-6 mb-6 text-pill-warning-ink">
+          Stopped by {stoppedBy.data.user} at {when(stoppedBy.at)}.
+        </p>
+      )}
       {triage && triage.kind !== "go" && <Verdict outcome={triage} className="-mt-6 mb-6" />}
       {why.length > 0 && (
         <section className="-mt-6 mb-6 rounded-lg border border-pill-warning-ink/20 bg-pill-warning px-4 py-3">
@@ -412,7 +304,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
           <div className="mb-8 grid grid-cols-2 border-y @3xl:grid-cols-4">
             <Figure label="Now" className="col-span-2 border-b pr-4 @3xl:col-span-1 @3xl:border-b-0">
               {nowText}
-              {step}
+              <span className="text-base">{step}</span>
             </Figure>
             <Figure label="Time" className="pr-4 @3xl:border-l @3xl:pl-4">
               {time}
@@ -432,7 +324,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
             <AheadRow key={s} step={s} before />
           ))}
           {rows.map((l) => (
-            <LaneRow key={l.start.id} lane={l} from={from} span={span} stuck={stuck(l)} state={l === rows.at(-1) ? state : undefined} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
+            <StepRowLine key={l.start.id} row={l} from={from} span={span} stuck={stuck(l)} state={l === rows.at(-1) ? state : undefined} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
           ))}
           {STEPS.slice(reached + 1).map((s) => (
             <AheadRow key={s} step={s} />
@@ -450,14 +342,14 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
         open={!!open}
         onClose={() => {
           // Back to the row the panel showed, so a keyboard user carries on from there.
-          const row = document.querySelector<HTMLElement>(`[data-lane="${CSS.escape(openId ?? "")}"]`);
+          const row = document.querySelector<HTMLElement>(`[data-step-row="${CSS.escape(openId ?? "")}"]`);
           setOpenId(undefined);
           row?.focus();
         }}
         title={
           open && (
             <span className="flex flex-wrap items-center gap-2">
-              {laneName(open)} <Pills lane={open} stuck={stuck(open)} state={open === rows.at(-1) ? state : undefined} />
+              {stepRowName(open)} <Pills row={open} stuck={stuck(open)} state={open === rows.at(-1) ? state : undefined} />
             </span>
           )
         }

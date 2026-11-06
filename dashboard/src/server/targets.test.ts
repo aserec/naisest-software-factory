@@ -37,6 +37,11 @@ describe("readTargets", () => {
     expect(() => readTargets(targetsDir("projectPath: o/c\ntracker: github\n"))).toThrow("githubRepo is missing");
   });
 
+  it("refuses a tracker or code host it has no adapter for", () => {
+    expect(() => readTargets(targetsDir("projectPath: o/c\ntracker: jira\n"))).toThrow("t1.yml: unknown tracker jira");
+    expect(() => readTargets(targetsDir("projectPath: o/c\ncodeHost: bitbucket\n"))).toThrow("t1.yml: unknown codeHost bitbucket");
+  });
+
   it("reads TARGETS_DIR when no dir is given", () => {
     expect(readTargets().map((t) => t.name)).toEqual(["t1", "t2"]);
   });

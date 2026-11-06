@@ -3,6 +3,7 @@ import type { Db } from "../db";
 import { NotSetUp } from "../not-set-up";
 import type { Ci, Job } from "../seams";
 import { gitlabUrl } from "./gitlab-url";
+import { timeout } from "./timeout";
 
 const base = () => {
   const url = gitlabUrl();
@@ -11,8 +12,6 @@ const base = () => {
 };
 
 const LOG_BYTES = 200_000;
-// Every GitLab call gives up after this, so a hung GitLab cannot hold up the loop part that waits on it.
-const timeout = () => AbortSignal.timeout(30_000);
 
 const id = (v: string) => {
   if (!/^\d+$/.test(v)) throw new Error(`not a numeric id: ${v}`);
@@ -25,10 +24,16 @@ export function makeGitLabCi(fetchFn: typeof fetch = fetch, now: () => Date = ()
     return id(process.env.FACTORY_PROJECT_ID);
   };
   const get = (path: string) => fetchFn(`${base()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" }, signal: timeout() });
-  const getJson = async <T>(path: string) => {
-    const r = await get(path);
-    if (!r.ok) throw new Error(`GitLab ${r.status} for ${path}`);
-    return (await r.json()) as T;
+  // Every page of a list, following GitLab's X-Next-Page header.
+  const getAll = async <T>(path: string) => {
+    const all: T[] = [];
+    for (let page = "1"; page; ) {
+      const r = await get(`${path}&page=${page}`);
+      if (!r.ok) throw new Error(`GitLab ${r.status} for ${path}`);
+      all.push(...((await r.json()) as T[]));
+      page = r.headers.get("x-next-page") ?? "";
+    }
+    return all;
   };
 
   async function importJob(db: Db, job: string): Promise<number> {
@@ -86,10 +91,10 @@ export function makeGitLabCi(fetchFn: typeof fetch = fetch, now: () => Date = ()
 
     async importEvents(db, sinceHours = 24) {
       const since = new Date(now().getTime() - sinceHours * 3_600_000).toISOString();
-      const pipelines = await getJson<{ id: number }[]>(`/projects/${factory()}/pipelines?updated_after=${encodeURIComponent(since)}&per_page=100`);
+      const pipelines = await getAll<{ id: number }>(`/projects/${factory()}/pipelines?updated_after=${encodeURIComponent(since)}&per_page=100`);
       let added = 0;
       for (const p of pipelines) {
-        const jobs = await getJson<{ id: number }[]>(`/projects/${factory()}/pipelines/${id(String(p.id))}/jobs?scope[]=success&scope[]=failed&scope[]=canceled&per_page=100`);
+        const jobs = await getAll<{ id: number }>(`/projects/${factory()}/pipelines/${id(String(p.id))}/jobs?scope[]=success&scope[]=failed&scope[]=canceled&per_page=100`);
         for (const j of jobs) {
           const job = id(String(j.id));
           if (!db.isImported(job)) added += await importJob(db, job);

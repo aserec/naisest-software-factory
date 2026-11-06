@@ -42,7 +42,7 @@ const events = [
   ev("step_start", "04", { step: "code-review" }),
 ];
 
-test("shows a lane per step, and a click opens that step in the side panel", async () => {
+test("shows a row per step, and a click opens that step in the side panel", async () => {
   stream([...events].reverse());
   renderWithQuery(<RunTimeline run="r1" />);
   const lane = await screen.findByRole("button", { name: /Implement/ });
@@ -310,7 +310,7 @@ test("a code review with fixes shows each round, then the patch that fixed it, i
   ]);
   renderWithQuery(<RunTimeline run="r1" />);
   await screen.findByRole("button", { name: /Code review 1/ });
-  const rows = [...document.querySelectorAll("[data-lane]")].map((b) => b.textContent);
+  const rows = [...document.querySelectorAll("[data-step-row]")].map((b) => b.textContent);
   expect(rows.map((t) => t?.match(/^(Code review|Patch) \d/)?.[0])).toEqual(["Code review 1", "Patch 1", "Code review 2", "Patch 2", "Code review 3"]);
   expect(rows[0]).toContain("blocking");
   expect(rows[4]).toContain("passed");
@@ -338,6 +338,17 @@ test("the gate shows its rounds with its patches, and the code review it runs af
   ]);
   renderWithQuery(<RunTimeline run="r1" />);
   await screen.findByRole("button", { name: /Precommit gate 1/ });
-  const rows = [...document.querySelectorAll("[data-lane]")].map((b) => b.textContent?.match(/^(Code review|Patch|Precommit gate) \d/)?.[0]);
+  const rows = [...document.querySelectorAll("[data-step-row]")].map((b) => b.textContent?.match(/^(Code review|Patch|Precommit gate) \d/)?.[0]);
   expect(rows).toEqual(["Precommit gate 1", "Patch 1", "Precommit gate 2", "Code review 3", "Patch 3", "Code review 4", "Precommit gate 3"]);
+});
+
+test("a run a person stopped says who stopped it, until someone resumes it", async () => {
+  stream([...events, ev("stop", "05", { data: { user: "ana" } })]);
+  renderWithQuery(<RunTimeline run="r1" />);
+  expect(await screen.findByText(/Stopped by ana at/)).toBeTruthy();
+  cleanup();
+  stream([...events, ev("stop", "05", { data: { user: "ana" } }), ev("resume", "06", { data: { user: "bo" } })]);
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /Implement/ });
+  expect(screen.queryByText(/Stopped by/)).toBeNull();
 });

@@ -1,5 +1,6 @@
 import { NotSetUp } from "../not-set-up";
 import type { HostMetrics, HostStat, LogLine } from "../seams";
+import { timeout } from "./timeout";
 
 // Runner VM logs (Loki) and disk and memory (node metrics), read through Grafana with a Viewer service account token.
 export const SOURCES = ["docker", "gitlab-runner", "system"];
@@ -11,7 +12,7 @@ const SEL = 'job="factory-runner"';
 async function grafana<T>(uid: string | undefined, path: string, params: Record<string, string>, fetchFn: typeof fetch): Promise<T> {
   const base = (process.env.GRAFANA_URL ?? "").replace(/\/+$/, "");
   if (!base || !uid) throw new NotSetUp(NOT_SET_UP);
-  const r = await fetchFn(`${base}/api/datasources/proxy/uid/${uid}${path}?${new URLSearchParams(params)}`, { headers: { Authorization: `Bearer ${process.env.GRAFANA_TOKEN ?? ""}` } });
+  const r = await fetchFn(`${base}/api/datasources/proxy/uid/${uid}${path}?${new URLSearchParams(params)}`, { headers: { Authorization: `Bearer ${process.env.GRAFANA_TOKEN ?? ""}` }, signal: timeout() });
   if (!r.ok) throw new Error(`Grafana answered ${r.status}${r.status === 401 || r.status === 403 ? ", so check GRAFANA_TOKEN" : ""}.`);
   return ((await r.json()) as { data: T }).data;
 }

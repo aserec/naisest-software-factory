@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { HostStat, LogLine } from "@/server/seams";
 import { api } from "@/lib/api";
-import { ago } from "@/lib/utils";
+import { ago, clock } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
 
 type Part<T> = T | { error: string } | { unset: string };
@@ -19,7 +19,6 @@ interface Runner {
 
 const FULL = 85; // used percent from which a disk or memory bar turns red
 const pct = (n: number) => (Number.isFinite(n) ? `${Math.round(n)}%` : "—");
-const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
 // Settings a person types, such as METRICS_UID, set in mono.
 const withEnvNames = (s: string) => s.split(/\b([A-Z][A-Z0-9]*_[A-Z0-9_]+)\b/).map((t, i) => (i % 2 ? <code key={i} className="font-mono text-xs">{t}</code> : t));
@@ -96,7 +95,7 @@ export function RunnerView() {
                         </TableCell>
                         <TableCell className={j.runner ? "" : "text-muted-foreground"}>{j.runner ?? "—"}</TableCell>
                         <TableCell className="text-right">
-                          <div>{time(j.startedAt)}</div>
+                          <div>{clock(j.startedAt)}</div>
                           <div className="text-xs text-muted-foreground">{ago(j.startedAt)}</div>
                         </TableCell>
                       </TableRow>
@@ -166,7 +165,7 @@ export function RunnerView() {
         <Show part={data?.logs}>
           {(logs) => (
             <pre className="max-h-[60vh] overflow-auto rounded-lg bg-raised p-4 font-mono text-xs leading-5">
-              {logs.map((l) => `${time(l.at)}  ${l.host}  ${l.line}`).join("\n") || "No log lines."}
+              {logs.map((l) => `${clock(l.at)}  ${l.host}  ${l.line}`).join("\n") || "No log lines."}
             </pre>
           )}
         </Show>

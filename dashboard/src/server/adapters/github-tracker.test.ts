@@ -27,22 +27,31 @@ for (const project of [undefined, 2])
     return { tracker: makeGitHubTracker(fakeGitHub(seed)), target: target("a", "o/r", project) };
   });
 
-it("reads a shared GitHub board once and gives each target its open cards in factory columns", async () => {
+it("reads a shared GitHub board once and gives each target its issue cards in factory columns, closed ones too", async () => {
   let reads = 0;
   const f = vi.fn(async (url: string, init: RequestInit) => {
     expect(url).toBe("https://ghe.test/api/graphql");
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer read-token");
     reads++;
     return graphql([
-      card("o/web", 1, "Ready"), card("o/web", 2, "Needs approval", "OPEN", ["bug", "factory_risk_medium"]), card("o/web", 3, "Backlog"), card("o/web", 4, "Ready", "CLOSED"),
+      card("o/web", 1, "Ready"), card("o/web", 2, "Needs approval", "OPEN", ["bug", "factory_risk_medium"]), card("o/web", 3, "Backlog"), card("o/web", 4, "Done", "CLOSED"),
       card("o/api", 5, "Running"), card("o/other", 6, "Ready"), card("o/web", 7, null),
     ]);
   }) as unknown as typeof fetch;
   vi.stubEnv("GITHUB_API_URL", "https://ghe.test/api");
   const rows = await makeGitHubTracker(f).rows([target("web", "o/web", 2), target("api", "o/api", 2)]);
   expect(reads).toBe(1);
-  expect(rows.map((r) => [r.target, r.ticket, r.state, r.risk])).toEqual([["web", "1", "ready", undefined], ["web", "2", "needs_approval", "medium"], ["api", "5", "running", undefined]]);
+  expect(rows.map((r) => [r.target, r.ticket, r.state, r.risk])).toEqual([["web", "1", "ready", undefined], ["web", "2", "needs_approval", "medium"], ["web", "4", "done", undefined], ["api", "5", "running", undefined]]);
   expect(rows.find((r) => r.target === "api")?.boardUrl).toBe("https://github.com/users/o/projects/1");
+});
+
+it("reads open and closed issues, newest update first, each with a time limit", async () => {
+  vi.stubEnv("GITHUB_API_URL", "");
+  const f = vi.fn(async () => Response.json([])) as unknown as typeof fetch;
+  await makeGitHubTracker(f).rows([target("a", "o/r")]);
+  const [url, init] = vi.mocked(f).mock.calls[0] as [string, RequestInit];
+  expect(url).toBe("https://api.github.com/repos/o/r/issues?labels=factory_ready&state=all&sort=updated&per_page=100");
+  expect(init.signal).toBeInstanceOf(AbortSignal);
 });
 
 it("leaves pull requests out of the issue lists", async () => {

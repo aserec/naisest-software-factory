@@ -1,8 +1,8 @@
 // The board of targets whose work items are GitHub issues (tracker github) or cards on a GitHub board (github-project), read with GITHUB_READ_TOKEN.
 import { NotSetUp } from "../not-set-up";
-import { STATES, type BoardRow, type FactoryState, type Tracker } from "../seams";
-import { triageRisk } from "./gitlab-tracker";
+import { STATES, triageRisk, type BoardRow, type FactoryState, type Tracker } from "../seams";
 import { githubApi } from "./github-url";
+import { timeout } from "./timeout";
 
 const web = () => (process.env.GITHUB_URL || "https://github.com").replace(/\/+$/, "");
 // "Needs approval" -> needs_approval; undefined for a column that is no factory state.
@@ -13,12 +13,12 @@ type Card = { state: FactoryState; repo: string; number: number; title: string; 
 export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
   const headers = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" });
   const rest = async (token: string, path: string) => {
-    const r = await fetchFn(`${githubApi()}${path}`, { headers: headers(token) });
+    const r = await fetchFn(`${githubApi()}${path}`, { headers: headers(token), signal: timeout() });
     if (!r.ok) throw new Error(`GitHub ${r.status} for ${path.split("?")[0]}`);
     return r.json();
   };
   const graphql = async (token: string, query: string, variables: object) => {
-    const r = await fetchFn(`${githubApi()}/graphql`, { method: "POST", headers: headers(token), body: JSON.stringify({ query, variables }) });
+    const r = await fetchFn(`${githubApi()}/graphql`, { method: "POST", headers: headers(token), body: JSON.stringify({ query, variables }), signal: timeout() });
     const j = r.ok ? await r.json() : undefined;
     if (!j || j.errors?.length) throw new Error(`GitHub GraphQL failed with status ${r.status}`);
     return j.data;
@@ -30,7 +30,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
     for (let after: string | null = null; ;) {
       const d = await graphql(
         token,
-        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { url items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url state repository { nameWithOwner } labels(first: 50) { nodes { name } } } } } } } } } }`,
+        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { url items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url repository { nameWithOwner } labels(first: 50) { nodes { name } } } } } } } } } }`,
         { owner, n: number, after },
       );
       const project = d.repositoryOwner?.projectV2;
@@ -39,7 +39,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
       for (const n of items.nodes) {
         const c = n.content;
         const state = n.fieldValueByName && columnState(n.fieldValueByName.name);
-        if (c?.state === "OPEN" && state) cards.push({ state, repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt, risk: triageRisk((c.labels?.nodes ?? []).map((l: { name: string }) => l.name)), boardUrl: project.url });
+        if (c?.number !== undefined && state) cards.push({ state, repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt, risk: triageRisk((c.labels?.nodes ?? []).map((l: { name: string }) => l.name)), boardUrl: project.url });
       }
       if (!items.pageInfo.hasNextPage) return cards;
       after = items.pageInfo.endCursor;
@@ -56,7 +56,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
       const lists = targets.map(async (t): Promise<BoardRow[]> => {
         const repo = t.githubRepo!;
         if (t.githubProject === undefined) {
-          const per = await Promise.all(STATES.map(async (state) => ((await rest(token, `/repos/${repo}/issues?labels=factory_${state}&state=open&per_page=100`)) as any[])
+          const per = await Promise.all(STATES.map(async (state) => ((await rest(token, `/repos/${repo}/issues?labels=factory_${state}&state=all&sort=updated&per_page=100`)) as any[])
             .filter((i) => !i.pull_request)
             .map((i) => ({ target: t.name, ticket: String(i.number), title: i.title, state, url: i.html_url, updatedAt: i.updated_at, risk: triageRisk(i.labels.map((l: { name: string }) => l.name)), boardUrl: `${web()}/${repo}/issues` }))));
           return per.flat();
@@ -72,5 +72,17 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
     },
 
     ticketUrl: (t, ticket) => `${web()}/${t.githubRepo}/issues/${ticket}`,
+
+    // The relay bot has read access only, so its comment never counts as a member's (factory/relay.ts).
+    async postRelay(t, ticket, body) {
+      const token = process.env.TEAMS_RELAY_GITHUB_TOKEN;
+      if (!token) throw new NotSetUp("Set TEAMS_RELAY_GITHUB_TOKEN to relay to GitHub.");
+      return fetchFn(`${githubApi()}/repos/${t.githubRepo}/issues/${ticket}/comments`, {
+        method: "POST",
+        headers: { ...headers(token), "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+        signal: timeout(4000), // Teams waits 5 s for the answer
+      });
+    },
   };
 }

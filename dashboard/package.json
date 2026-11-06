@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
-    "@tanstack/react-table": "^8",
     "class-variance-authority": "^0.7",
     "clsx": "^2",
     "lucide-react": "^0.577.0",
@@ -24,8 +23,7 @@
     "software-factory": "workspace:*",
     "tailwind-merge": "^3",
     "yaml": "^2.6.0",
-    "zod": "^3.25",
-    "zustand": "^5"
+    "zod": "^3.25"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

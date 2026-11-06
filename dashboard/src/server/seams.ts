@@ -8,13 +8,17 @@ export { STATES, type FactoryState }; // STATES: one board column per state, in 
 
 export type Risk = "trivial" | "low" | "medium" | "high";
 
+// The triage risk from the work item's factory_risk_* label, or undefined before triage. Every tracker reads the same labels.
+export const triageRisk = (labels: string[]) => labels.map((l) => /^factory_risk_(trivial|low|medium|high)$/.exec(l)?.[1] as Risk | undefined).find(Boolean);
+
 export interface BoardRow { target: string; ticket: string; title: string; state: FactoryState; url: string; updatedAt: string; risk?: Risk; boardUrl?: string } // boardUrl: the tracker's own board the work item sits on
 
 // Where a target's work items live. A target's `tracker` key picks it.
 export interface Tracker {
   readonly name: string; // the display name
-  rows(targets: TargetInfo[]): Promise<BoardRow[]>; // open work items in a factory state; throws NotSetUp without its address or read token
+  rows(targets: TargetInfo[]): Promise<BoardRow[]>; // work items in a factory state, open or closed, newest update first; throws NotSetUp without its address or read token
   ticketUrl(target: TargetInfo, ticket: string): string; // empty when the tracker is not set up
+  postRelay(target: TargetInfo, ticket: string, body: string): Promise<Response>; // posts a relayed message as the relay bot; throws NotSetUp without the relay token
 }
 
 export interface Job { job: string; name: string; run: string; startedAt: string; runner?: string }
