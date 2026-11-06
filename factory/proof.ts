@@ -97,26 +97,46 @@ export function readVideo(readBytes: Repo["readBytes"], proof: Proof | undefined
   return name && bytes && bytes.subarray(0, 4).equals(WEBM_SIGNATURE) ? { [name]: bytes } : {};
 }
 
-export function proofPrompt(r: { proof?: Proof; error?: string }, attached: string[]): string {
-  if (!r.proof) return `No valid proof: ${r.error}`;
-  return `${JSON.stringify(r.proof, null, 2)}\n${attached.length ? `Images, in the order attached: ${attached.join(", ")}` : "No images are attached."}`;
+// The frames record.sh cut from the video, in time order: <video>-01.png to <video>-08.png. They go to the reviewer, never to the change.
+export const MAX_FRAMES = 8;
+export const videoFrames = (proof: Proof | undefined): string[] =>
+  proof?.video ? Array.from({ length: MAX_FRAMES }, (_, i) => `${proof.video!.file.slice(0, -".webm".length)}-${String(i + 1).padStart(2, "0")}.png`) : [];
+
+export function readFrames(readBytes: Repo["readBytes"], proof: Proof | undefined): Record<string, Buffer> {
+  const frames: Record<string, Buffer> = {};
+  for (const name of videoFrames(proof)) {
+    const bytes = readBytes(PROOF_DIR + name, MAX_IMAGE_BYTES);
+    if (bytes && bytes.subarray(0, 8).equals(PNG_SIGNATURE)) frames[name] = bytes;
+  }
+  return frames;
 }
 
-// One verdict per screen. A screen is "matches" only when the reviewer said so and read the images that judge it. Every other case is "unsure".
+export function proofPrompt(r: { proof?: Proof; error?: string }, attached: string[]): string {
+  if (!r.proof) return `No valid proof: ${r.error}`;
+  const frames = videoFrames(r.proof).filter((f) => attached.includes(f));
+  const video = r.proof.video ? `\n${frames.length ? `Frames of the video ${r.proof.video.file}, in time order: ${frames.join(", ")}` : `No frames of the video ${r.proof.video.file} are attached.`}` : "";
+  return `${JSON.stringify(r.proof, null, 2)}\n${attached.length ? `Images, in the order attached: ${attached.join(", ")}` : "No images are attached."}${video}`;
+}
+
+// One verdict per screen, and one for the video under its file name. A verdict is "matches" only when the reviewer said so
+// and read the images that judge it. Every other case is "unsure".
 export function screenVerdicts(findings: Finding[], proof: Proof | undefined, loaded: string[], readsImages: boolean): ScreenVerdict[] {
-  const screens = (proof?.screens ?? []).map((s): ScreenVerdict => {
-    const unsure = (note: string): ScreenVerdict => ({ screen: s.name, verdict: "unsure", note });
+  // missing: why the images cannot judge this item, or undefined when they can.
+  const judge = (screen: string, missing: string | undefined): ScreenVerdict => {
+    const unsure = (note: string): ScreenVerdict => ({ screen, verdict: "unsure", note });
     if (!readsImages) return unsure("the reviewer cannot read images");
-    const mine = findings.filter((f) => f.screen === s.name);
+    const mine = findings.filter((f) => f.screen === screen);
     const f = mine.find((x) => x.verdict !== "matches") ?? mine[0]; // two answers for one screen: the one that is not "matches" counts
     if (!f) return unsure("the reviewer gave no verdict");
     if (!isVerdict(f.verdict)) return unsure(`the reviewer gave an unknown verdict: ${f.verdict}`);
-    if (!s.after || !loaded.includes(s.after)) return unsure("no after image");
-    if (!s.isNew && (!s.before || !loaded.includes(s.before))) return unsure("no before image");
-    return { screen: s.name, verdict: f.verdict, note: f.text };
-  });
+    if (missing) return unsure(missing);
+    return { screen, verdict: f.verdict, note: f.text };
+  };
+  const screens = (proof?.screens ?? []).map((s) =>
+    judge(s.name, !s.after || !loaded.includes(s.after) ? "no after image" : !s.isNew && (!s.before || !loaded.includes(s.before)) ? "no before image" : undefined));
+  const video = proof?.video ? [judge(proof.video.file, videoFrames(proof).some((f) => loaded.includes(f)) ? undefined : "no frames of the video")] : [];
   const whole = findings.filter((f) => !f.screen && (f.verdict === "unsure" || f.verdict === "does_not_match")).map((f): ScreenVerdict => ({ verdict: "unsure", note: f.text }));
-  return [...screens, ...whole];
+  return [...screens, ...video, ...whole];
 }
 
 // Agent and reviewer text in the change description: one line, no table break, no HTML, at most 200 chars.
@@ -133,13 +153,18 @@ export function proofSection(r: ProofRecord | undefined, links: Record<string, s
     const table = s.isNew ? ["| After |", "| --- |", `| ${cell("after", s.after)} |`] : ["| Before | After |", "| --- | --- |", `| ${cell("before", s.before)} | ${cell("after", s.after)} |`];
     return [`### Screen ${i + 1}: ${text(s.name)}, ${s.width} px${s.isNew ? ", new screen" : ""}: ${v?.verdict ?? "unsure"}`, ...table, ...(v?.note ? ["", `Reviewer: ${text(v.note)}`] : [])].join("\n");
   });
-  const video = proof.video && (links[proof.video.file] ? `[Video of the e2e test: ${text(proof.video.name)}](${links[proof.video.file]})` : failed.includes(proof.video.file) ? "video upload failed" : "no video");
+  const vv = proof.video && r.verdicts.find((x) => x.screen === proof.video!.file);
+  const video = proof.video && [
+    `### Video: ${vv?.verdict ?? "unsure"}`,
+    links[proof.video.file] ? `[Video of the e2e test: ${text(proof.video.name)}](${links[proof.video.file]})` : failed.includes(proof.video.file) ? "video upload failed" : "no video",
+    ...(vv?.note ? [`Reviewer: ${text(vv.note)}`] : []),
+  ].join("\n\n");
   const tests = proof.tests.map((t) => `- ${text(t.name)}: ${t.before.exit !== 0 ? "failed" : "passed"} before, ${t.after.exit === 0 ? "passes" : "fails"} after`);
   return [
     "## Proof",
     ...screens,
     ...(!screens.length && proof.note ? [`No screenshots: ${text(proof.note)}`] : []),
-    ...(video ? [`### Video\n${video}`] : []),
+    ...(video ? [video] : []),
     `### Tests\n${tests.length ? tests.join("\n") : "No test proof."}`,
   ].join("\n\n");
 }
@@ -158,7 +183,8 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
   for (const v of r.verdicts) {
     if (v.verdict === "matches" || (v.screen && cannotRead)) continue;
     const said = v.verdict === "unsure" ? "is unsure" : "says it does not match";
-    reasons.push(`${v.screen ? `screen ${v.screen}: ` : ""}the reviewer ${said}: ${text(v.note)}`);
+    const what = !v.screen ? "" : v.screen === proof.video?.file ? `video ${v.screen}: ` : `screen ${v.screen}: `;
+    reasons.push(`${what}the reviewer ${said}: ${text(v.note)}`);
   }
   const provenTests = testOnly ? proof.tests.length > 0 && proof.tests.every((t) => t.after.exit === 0) : proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0);
   if ((!hasPreview || !proof.visual) && !provenTests) reasons.push(testOnly ? "the change touches only tests, but no test passed after it" : "no test failed before the change and passed after it");
@@ -221,6 +247,22 @@ code=$?
 video=$(find "$out" -name '*.webm' 2>/dev/null | head -1)
 [ -n "$video" ] || { echo "the test wrote no video"; exit 1; }
 cp "$video" "$root/run/proof/$name.webm"
+# Up to ${MAX_FRAMES} frames spread over the video, for the reviewer: run/proof/$name-01.png and on. Playwright's own ffmpeg cuts them.
+rm -f "$root/run/proof/$name"-[0-9][0-9].png
+# Newest first: an older ffmpeg build cannot decode the VP9 that newer Playwright records.
+frames=$out/frames cut=
+for f in $(ls -dr "\${PLAYWRIGHT_BROWSERS_PATH:-/nonexistent}"/ffmpeg-*/ffmpeg-* "$HOME"/Library/Caches/ms-playwright/ffmpeg-*/ffmpeg-* "$HOME"/.cache/ms-playwright/ffmpeg-*/ffmpeg-* 2>/dev/null); do
+  rm -rf "$frames" && mkdir -p "$frames" && [ -x "$f" ] && "$f" -loglevel error -i "$root/run/proof/$name.webm" -r 1 "$frames/%03d.png" 2>/dev/null && [ -n "$(ls "$frames")" ] && { cut=1; break; }
+done
+if [ -n "$cut" ]; then
+  n=$(ls "$frames" | wc -l) k=$(( n < ${MAX_FRAMES} ? n : ${MAX_FRAMES} ))
+  for j in $(seq 0 $((k - 1))); do
+    cp "$frames/$(printf %03d $(( k > 1 ? 1 + j * (n - 1) / (k - 1) : 1 ))).png" "$root/run/proof/$name-$(printf %02d $((j + 1))).png"
+  done
+  echo "wrote $k frames of the video for the reviewer"
+else
+  echo "could not cut frames from the video, so the reviewer cannot judge it: no Playwright ffmpeg found, or it failed"
+fi
 exit $code
 `);
 }

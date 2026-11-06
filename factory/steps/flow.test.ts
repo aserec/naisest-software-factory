@@ -1333,6 +1333,7 @@ test("a resumed gate job reviews the change again", async () => {
 // A screen the reviewer says does not match blocks the change.
 const PREVIEW = "install: pnpm install\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\npreview: pnpm dev\npreviewUrl: http://localhost:3000\n";
 const reviewOf = (verdict: string): Finding => ({ blocking: false, screen: "list page", verdict, text: "no spinner" });
+const videoOf = (verdict: string): Finding => ({ blocking: false, screen: "list.webm", verdict, text: "the list ends with a spinner" });
 const reviewData = (w: ReturnType<typeof fakeWorld>) => w.record.steps.find((s) => s.step === "code-review")?.data as any;
 test("a does_not_match verdict blocks", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: Array.from({ length: 5 }, () => [reviewOf("does_not_match")]) }));
@@ -1341,11 +1342,22 @@ test("a does_not_match verdict blocks", async () => {
   expect(w.workItemComments.at(-1)).toContain("screen list page: no spinner");
 });
 test("the reviewer gets the screenshots and the verdicts are saved", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] }));
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches"), videoOf("matches")]] }));
   const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
-  expect(job.images?.map((i) => i.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
-  expect(job.prompt).toContain("</proof>");
-  expect(reviewData(w).proof.verdicts).toEqual([{ screen: "list page", verdict: "matches", note: "no spinner" }]);
+  expect(job.images?.map((i) => i.name)).toEqual(["before-list-1280.png", "after-list-1280.png", "list-01.png"]);
+  expect(job.prompt).toContain("Frames of the video list.webm, in time order: list-01.png");
+  expect(reviewData(w).proof.verdicts).toEqual([{ screen: "list page", verdict: "matches", note: "no spinner" }, { screen: "list.webm", verdict: "matches", note: "the list ends with a spinner" }]);
+  expect(w.mrDescription).toContain("### Video: matches");
+  expect(w.host.attached.map((a) => a.name)).not.toContain("list-01.png"); // frames are for the reviewer only
+});
+test("a video whose frames do not match blocks, and one with no frames is unsure", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: Array.from({ length: 5 }, () => [reviewOf("matches"), videoOf("does_not_match")]) }));
+  expect(w.states).toEqual(["blocked"]);
+  expect(w.workItemComments.at(-1)).toContain("screen list.webm: the list ends with a spinner");
+  const images = { "before-list-1280.png": PNG, "after-list-1280.png": PNG };
+  const none = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, images, factoryFile: PREVIEW, reviews: [[reviewOf("matches"), videoOf("does_not_match")]] }));
+  expect(none.states).toEqual(["needs_approval"]);
+  expect(none.mrComments.at(-1)).toContain("video list.webm: the reviewer is unsure: no frames of the video");
 });
 test("the author gets the preview flag only when the target has a preview", async () => {
   const jobs = async (factoryFile?: string) => (await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, factoryFile, reviews: [[B], []] }))).harness.jobs.filter((j) => j.role === "author");
@@ -1368,7 +1380,7 @@ test("a reviewer model that does not read images gets none, and every screen is 
   await runBuildPipeline(w);
   const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
   expect(job.images).toBeUndefined();
-  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }] });
+  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }, { screen: "list.webm", verdict: "unsure" }] });
 });
 test("a harness that does not read images gets none, and the screen is unsure", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] });
@@ -1376,19 +1388,19 @@ test("a harness that does not read images gets none, and the screen is unsure", 
   await runBuildPipeline(w);
   const job = w.harness.jobs.find((j) => j.role === "reviewer")!;
   expect(job.images).toBeUndefined();
-  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }] });
+  expect(reviewData(w).proof).toMatchObject({ readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure" }, { screen: "list.webm", verdict: "unsure" }] });
 });
 test("a does_not_match from a reviewer that cannot read images does not block", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] });
   w.ctx.seams.providers[w.ctx.router.low.reviewer.provider].images = [];
   await runBuildPipeline(w);
   expect(w.states).not.toContain("blocked");
-  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure" }] });
+  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure" }, { screen: "list.webm", verdict: "unsure" }] });
 });
 test("a does_not_match for a screen with no after image does not block", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, images: { "before-list-1280.png": PNG }, factoryFile: PREVIEW, reviews: [[reviewOf("does_not_match")], [reviewOf("does_not_match")], [reviewOf("does_not_match")]] }));
   expect(w.states).not.toContain("blocked");
-  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure", note: "no after image" }] });
+  expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure", note: "no after image" }, { screen: "list.webm", verdict: "unsure" }] });
 });
 
 // A change without proof goes to a person.
@@ -1423,7 +1435,7 @@ test("a change with no proof file goes to a person", async () => {
 });
 
 // The Proof section of the change, and the screenshots it links.
-const visual = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]], ...o });
+const visual = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches"), videoOf("matches")]], ...o });
 test("the Proof section appears in the description", async () => {
   const w = await runBuildPipeline(visual());
   expect(w.mrDescription).toContain("## Proof");
@@ -2187,6 +2199,16 @@ test("a conflict round tells the work item and the dashboard, and continues at p
   expect(w.record.requestRounds!.at(-1)).toMatchObject({ requests: [], conflicts: true });
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { resumeAt: "prepare-patch", sessionId: runFacts(first.record).session, round: 1 } });
   expect(dash(w).events.filter((e) => e.type === "change_state").map((e) => e.data)).toEqual([{ conflicts: true }]);
+});
+// Local changes made before local-run.sh saved each run name a build run that cannot be restored.
+test("a conflict round whose build run was never saved leaves a note and keeps the change waiting", async () => {
+  const { w } = await conflictWorld();
+  w.ci.buildRecord = async () => { throw new NotFactoryRunError("Run 41 is not a factory build run whose decision passed"); };
+  await eventJob(w);
+  expect(w.workItemComments).toEqual([noteText({ kind: "conflictRound", text: md("⚠️", "Round not started", "The factory could not start a round. It has no saved copy of pipeline 41. The change still waits for a person.") })]);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.restored).toEqual([]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { start: false, reason: "no-saved-run" } });
 });
 test("a conflict round merges develop first, then resumes the author with the conflicts prompt and the conflicted files", async () => {
   const { first, w } = await conflictWorld();

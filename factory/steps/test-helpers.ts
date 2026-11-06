@@ -64,7 +64,7 @@ export interface WorldOptions {
   mrTarget?: string; // the branch the change targets; default the base branch
   title?: string; // the ticket title
   proof?: unknown; // run/proof/proof.json: the manifest object or raw text; null for no file
-  images?: Record<string, Buffer>; // files in run/proof/; default a PNG for every image the manifest names
+  images?: Record<string, Buffer>; // files in run/proof/; default a PNG for every image the manifest names and the video's first frame
   attachFails?: number; // the first n image uploads fail
   mrHead?: string; // the change's head; default the reviewed head5
   behind?: number; // how many times develop moves ahead of the change
@@ -166,7 +166,8 @@ export function fakeWorld(o: WorldOptions = {}) {
   let commitMessage = "";
   const proof = o.proof === undefined ? TEST_PROOF : o.proof;
   const proofText = proof === null ? undefined : typeof proof === "string" ? proof : JSON.stringify(proof);
-  const names = ((proof as any)?.screens ?? []).flatMap((s: any) => [s.before, s.after]).filter(Boolean);
+  const frame = (proof as any)?.video ? [(proof as any).video.file.replace(/\.webm$/, "-01.png")] : []; // the first frame record.sh cuts
+  const names = [...((proof as any)?.screens ?? []).flatMap((s: any) => [s.before, s.after]).filter(Boolean), ...frame];
   const images = o.images ?? Object.fromEntries(names.map((n: string) => [n, PNG]));
   const cloned: string[] = [];
   const mergedBase: string[] = [];

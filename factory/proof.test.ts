@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseProof, proofPrompt, proofReasons, proofSection, readImages, readProof, readVideo, screenVerdicts, writeShooter } from "./proof";
+import { parseProof, proofPrompt, proofReasons, proofSection, readFrames, readImages, readProof, readVideo, screenVerdicts, writeShooter } from "./proof";
 import type { Finding } from "./agents";
 import type { Proof, ProofRecord } from "./proof";
 import { TEST_PROOF, VISUAL_PROOF as VISUAL } from "./steps/test-helpers";
@@ -85,6 +85,20 @@ test("a does_not_match verdict is kept as it is", () => {
   const proof: Proof = { visual: true, tests: [], screens: [sc("A", { before: "a-b.png", after: "a-a.png" })] };
   expect(screenVerdicts([F("A", "does_not_match")], proof, ["a-b.png", "a-a.png"], true)[0].verdict).toBe("does_not_match");
 });
+test("the video gets a verdict under its file name, judged only with a frame loaded", () => {
+  const proof: Proof = { visual: true, tests: [], screens: [], video: { name: "v", file: "flow.webm" } };
+  expect(screenVerdicts([F("flow.webm", "does_not_match")], proof, ["flow-03.png"], true)).toEqual([{ screen: "flow.webm", verdict: "does_not_match", note: "note flow.webm" }]);
+  expect(screenVerdicts([F("flow.webm", "matches")], proof, [], true)).toEqual([{ screen: "flow.webm", verdict: "unsure", note: "no frames of the video" }]);
+  expect(screenVerdicts([F("flow.webm", "matches")], proof, ["flow-01.png"], false)[0].verdict).toBe("unsure");
+  expect(screenVerdicts([], { ...proof, video: undefined }, [], true)).toEqual([]);
+});
+test("readFrames takes the video's numbered PNG frames only, and proofPrompt lists them", () => {
+  const proof: Proof = { visual: true, tests: [], screens: [], video: { name: "v", file: "flow.webm" } };
+  const files: Record<string, Buffer> = { "run/proof/flow-01.png": PNG, "run/proof/flow-02.png": Buffer.from("not a png"), "run/proof/flow-08.png": PNG, "run/proof/flow-09.png": PNG };
+  expect(Object.keys(readFrames((p) => files[p], proof))).toEqual(["flow-01.png", "flow-08.png"]);
+  expect(proofPrompt({ proof }, ["flow-01.png", "flow-08.png"])).toContain("Frames of the video flow.webm, in time order: flow-01.png, flow-08.png");
+  expect(proofPrompt({ proof }, [])).toContain("No frames of the video flow.webm are attached.");
+});
 test("a does_not_match verdict with no screen is a whole-proof unsure item", () => {
   const proof: Proof = { visual: true, tests: [], screens: [] };
   expect(screenVerdicts([F(undefined, "does_not_match")], proof, [], true)).toEqual([{ verdict: "unsure", note: "note undefined" }]);
@@ -128,7 +142,7 @@ test("readVideo takes only a real WebM file, and proofSection links it", () => {
   const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 1]);
   expect(readVideo((p) => (p === "run/proof/list.webm" ? webm : undefined), VISUAL_PROOF)).toEqual({ "list.webm": webm });
   expect(readVideo(() => Buffer.from("not a video"), VISUAL_PROOF)).toEqual({});
-  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), { "list.webm": "/uploads/3/list.webm" })).toContain("### Video\n[Video of the e2e test: teacher opens the list](/uploads/3/list.webm)");
+  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), { "list.webm": "/uploads/3/list.webm" })).toContain("### Video: unsure\n\n[Video of the e2e test: teacher opens the list](/uploads/3/list.webm)");
   expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), {}, ["list.webm"])).toContain("video upload failed");
 });
 test("proofReasons: a reviewer that cannot read images judged no screen", () => {
@@ -169,7 +183,7 @@ test("proofReasons: a visual change with a preview and matching screens needs no
 const links = { "before-list-1280.png": "/uploads/1/before-list-1280.png", "after-list-1280.png": "/uploads/2/after-list-1280.png", "after-settings-1280.png": "/uploads/3/after-settings-1280.png" };
 test("proofSection: two screens and a test render as the B2 mockup", () => {
   const settings = { name: "settings page", reach: "http://localhost:3000/settings", width: 1280, isNew: true, after: "after-settings-1280.png" };
-  const r = rec({ ...VISUAL_PROOF, screens: [...VISUAL_PROOF.screens, settings] }, { verdicts: [{ screen: "list page", verdict: "matches", note: "the list now shows the spinner." }, { screen: "settings page", verdict: "unsure", note: "..." }] });
+  const r = rec({ ...VISUAL_PROOF, screens: [...VISUAL_PROOF.screens, settings] }, { verdicts: [{ screen: "list page", verdict: "matches", note: "the list now shows the spinner." }, { screen: "settings page", verdict: "unsure", note: "..." }, { screen: "list.webm", verdict: "matches", note: "the frames end on the spinner." }] });
   expect(proofSection(r, links)).toBe(`## Proof
 
 ### Screen 1: list page, 1280 px: matches
@@ -186,8 +200,11 @@ Reviewer: the list now shows the spinner.
 
 Reviewer: ...
 
-### Video
+### Video: matches
+
 no video
+
+Reviewer: the frames end on the spinner.
 
 ### Tests
 - list-spinner: failed before, passes after`);
@@ -277,4 +294,25 @@ test("record.sh runs one test with video on next to the target's config, keeps t
   expect(readFileSync(join(dir, "run/proof/list.webm"), "utf8")).toBe("webm");
   expect(existsSync(join(dir, "playwright.factory-video.config.ts"))).toBe(false);
   expect(spawnSync("bash", ["run/record.sh", "../x.spec.ts", "list"], { cwd: dir }).status).toBe(2);
+});
+// A stub ffmpeg that cuts 20 one-second frames: record.sh keeps 8, spread from the first to the last.
+test("record.sh cuts up to 8 frames spread over the video, and a missing ffmpeg does not fail the recording", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "record-")));
+  writeShooter(dir, { preview: "sleep 30" });
+  mkdirSync(join(dir, "run/proof"), { recursive: true });
+  mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
+  mkdirSync(join(dir, "browsers/ffmpeg-1"), { recursive: true });
+  writeFileSync(join(dir, "playwright.config.ts"), "export default {}");
+  writeFileSync(join(dir, "node_modules/.bin/playwright"), `#!/bin/sh\nmkdir -p "${dir}/run/video-out/t1" && printf webm > "${dir}/run/video-out/t1/video.webm"\n`, { mode: 0o755 });
+  writeFileSync(join(dir, "browsers/ffmpeg-1/ffmpeg-stub"), `#!/bin/sh\nfor a; do out=$a; done\nfor i in $(seq 20); do printf "frame $i" > "$(printf "$out" $i)"; done\n`, { mode: 0o755 });
+  writeFileSync(join(dir, "run/proof/list-09.png"), "old"); // a frame from an earlier recording
+  const env = { PATH: process.env.PATH, HOME: join(dir, "home"), PLAYWRIGHT_BROWSERS_PATH: join(dir, "browsers") };
+  const r = spawnSync("bash", ["run/record.sh", "e2e/list.spec.ts:12", "list"], { cwd: dir, encoding: "utf8", env });
+  expect(r.status).toBe(0);
+  const frames = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => readFileSync(join(dir, `run/proof/list-0${i}.png`), "utf8"));
+  expect(frames).toEqual(["frame 1", "frame 3", "frame 6", "frame 9", "frame 11", "frame 14", "frame 17", "frame 20"]);
+  expect(existsSync(join(dir, "run/proof/list-09.png"))).toBe(false);
+  const bare = spawnSync("bash", ["run/record.sh", "e2e/list.spec.ts:12", "list"], { cwd: dir, encoding: "utf8", env: { ...env, PLAYWRIGHT_BROWSERS_PATH: join(dir, "none") } });
+  expect(bare.status).toBe(0);
+  expect(bare.stdout).toContain("could not cut frames");
 });

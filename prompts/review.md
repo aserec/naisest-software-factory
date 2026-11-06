@@ -19,6 +19,10 @@ For each screen in the proof, add one item: {"blocking": false, "screen": "<scre
 - matches: the after image shows what the ticket asks for this screen. Answer it only when the image shows it.
 - does_not_match: the after image contradicts the ticket.
 - unsure: every other case, for example when you cannot tell from the images.
+When the proof has a video of an e2e test, its frames come attached after the screens, in time order. Add one item for it, with the video's file name as the screen: {"blocking": false, "screen": "<video file, such as list-spinner.webm>", "verdict": ..., "text": "one short note"}.
+- matches: the frames show a person's path through the change and end on the result the ticket asks for.
+- does_not_match: the frames end on an error, loading or login screen, or show a result the ticket contradicts.
+- unsure: every other case, for example when the frames skip the step that matters.
 Add {"blocking": false, "verdict": "unsure", "text": "why"} with no screen when the diff looks like a visual change but the proof has no screens, or when a before image does not show the problem the ticket describes.
 When the diff changes what the app does, add a blocking finding, {"blocking": true, "title": "...", "text": "..."}, in two cases, unless the proof's `note` says why no seed data or no test can show the change:
 - An after image cannot show what the ticket asks, for example because the seeded data never reaches the case the change handles. Name the data the seed scripts must add.

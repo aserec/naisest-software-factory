@@ -2,7 +2,7 @@ import { parseFindings, reviewerPrompt } from "../agents";
 import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
 import { codeReviewLoop } from "../loops";
-import { proofPrompt, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
+import { proofPrompt, readFrames, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { agent, fix, install, isMain, modelRow, runStep, save, facts, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
@@ -24,7 +24,7 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
   const reviewOnce = async () => {
     round++;
     const proof = readProof(ctx.repo.readFile);
-    const images = readImages(ctx.repo.readBytes, proof.proof);
+    const images = { ...readImages(ctx.repo.readBytes, proof.proof), ...readFrames(ctx.repo.readBytes, proof.proof) };
     const attached = readsImages ? Object.keys(images) : [];
     const r = await agent(ctx, "reviewer", row.reviewer, {
       tools: "none",
