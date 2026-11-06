@@ -183,7 +183,7 @@ test("one ticket that fails does not stop the next", async () => {
   await w.tracker.comment("9", noteText({ kind: "cursor", text: "The factory waits.", at: T0 }));
   w.tracker.say("9", "dev", ASK, T1);
   w.ci.start = async () => { throw new Error("status 503"); };
-  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
   try {
     await pollRequests(w.ctx);
     expect(w.workItemComments).toHaveLength(2); // the cursor line and the reply; ticket 9 stopped: answered although 8 threw
@@ -388,4 +388,64 @@ test.each(["close", "mergeByPerson"] as const)("a request on a change after %s g
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);
   expect(w.workItemComments).toEqual([]);
+});
+
+// A conflict round: no request, but the open change has conflicts with the base branch.
+test("a waiting change with conflicts and no request starts one conflict round with the build run", async () => {
+  const w = world();
+  w.host.changes.get("5")!.conflicts = true;
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
+  expect(w.ci.started).toEqual([BUILD]);
+});
+test("a change without conflicts and no request starts nothing", async () => {
+  const w = world();
+  expect(await pollRequests(w.ctx)).toEqual([]);
+  expect(w.ci.started).toEqual([]);
+});
+test("after a conflict round the poll starts no other one until the base branch moves again", async () => {
+  const w = world();
+  w.host.changes.get("5")!.conflicts = true;
+  await w.tracker.comment("8", noteText({ kind: "conflictRound", text: "The factory resolves the conflicts." }));
+  expect(await pollRequests(w.ctx)).toEqual([]);
+  w.host.baseLog.unshift({ sha: "b1", title: "feat: other work", message: "", at: new Date(Date.now() + 60_000).toISOString() });
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
+});
+
+// The local factory polls with --list and runs each line itself: a round prints as ticket:build run:change.
+test("the --list poll lists a conflict round as ticket:build run:change and queues nothing", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const argv = process.argv;
+  process.argv = [...argv, "--list"];
+  try {
+    const w = world();
+    w.host.changes.get("5")!.conflicts = true;
+    await main(w.ctx);
+    expect(log.mock.calls.map((c) => c[0])).toEqual(["8:41:5"]);
+    expect(w.ci.started).toEqual([]);
+  } finally {
+    process.argv = argv;
+    log.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+// local-factory.sh runs every word of stdout as a ticket: a failure must go to stderr.
+test("a failed ticket in the --list poll logs to stderr and lists nothing", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  const argv = process.argv;
+  process.argv = [...argv, "--list"];
+  try {
+    const w = world();
+    w.ctx.codeHost.changeOfTicket = async () => { throw new Error("status 503"); };
+    await main(w.ctx);
+    expect(log.mock.calls.map((c) => c[0])).toEqual([""]);
+    expect(err).toHaveBeenCalledWith("Request of ticket 8 failed: Error: status 503");
+  } finally {
+    process.argv = argv;
+    log.mockRestore();
+    err.mockRestore();
+    vi.unstubAllEnvs();
+  }
 });

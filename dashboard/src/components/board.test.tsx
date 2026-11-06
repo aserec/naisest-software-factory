@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ago, duration } from "@/lib/utils";
-import { Board, newlyWaiting, RiskPills, type BoardItem } from "./board";
+import { Board, ConflictsBadge, newlyWaiting, RiskPills, type BoardItem } from "./board";
 import { json, renderWithQuery } from "./test-utils";
 
 afterEach(() => {
@@ -33,6 +33,21 @@ test("a card shows the live step, the round and both risks", async () => {
   expect(await screen.findByText(/Code review · round 2/)).toBeTruthy();
   expect(screen.getByText("Triage risk low")).toBeTruthy();
   expect(screen.getByText("Merge risk 3/10, limit 4")).toBeTruthy();
+});
+
+test("a card whose change has conflicts with the base branch shows Conflicts; one without shows none", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", state: "needs_approval", conflicts: true }), item({ ticket: "8", title: "Add docs", run: "r2", conflicts: false })])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Add docs");
+  expect(screen.getAllByText("Conflicts")).toHaveLength(1);
+  expect(within(screen.getByRole("link", { name: "Fix login" }).closest("li")!).getByText("Conflicts")).toBeTruthy();
+});
+
+test("the run page's conflicts badge shows only for a change with conflicts", () => {
+  const { rerender } = render(<ConflictsBadge conflicts />);
+  expect(screen.getByText("Conflicts").getAttribute("title")).toMatch(/conflicts with the base branch/);
+  rerender(<ConflictsBadge conflicts={false} />);
+  expect(screen.queryByText("Conflicts")).toBeNull();
 });
 
 test("high triage risk and a merge risk above the limit take the warning pill, the rest stay neutral", () => {

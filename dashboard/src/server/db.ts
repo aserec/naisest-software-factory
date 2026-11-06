@@ -19,6 +19,7 @@ export interface RunSummary {
   mergeRisk?: number; // Jev 2's diff_risk, from the decision event
   mergeRiskMax?: number; // the target's diffRiskMax, from the decision event
   changeUrl?: string; // the change to review, from the decision event
+  conflicts?: boolean; // the change has conflicts with the base branch, from change_state; a later decision means the round resolved them
 }
 
 // A dispatch with what became of it, for the dispatches page.
@@ -147,7 +148,7 @@ export function openDb(path: string): Db {
   // Run summaries of the runs `runSql` selects (one column of run ids), newest first.
   function summaries(runSql: string, params: SQLInputValue[]): RunSummary[] {
     const sql = `SELECT seq, id, run, target, ticket, at, step, type, data FROM events
-      WHERE +type IN ('run_start','run_end','usage','step_start','step_end','review_finding','decision') -- "+" stops SQLite scanning the type index; the run index is better
+      WHERE +type IN ('run_start','run_end','usage','step_start','step_end','review_finding','decision','change_state') -- "+" stops SQLite scanning the type index; the run index is better
         AND run IN (${runSql})
       ORDER BY seq`;
     const rows = stmt(sql).all(...params) as Row[];
@@ -170,7 +171,8 @@ export function openDb(path: string): Db {
         if (e.data.risk !== undefined) s.mergeRisk = e.data.risk;
         if (e.data.riskMax !== undefined) s.mergeRiskMax = e.data.riskMax;
         if (e.data.changeUrl !== undefined) s.changeUrl = e.data.changeUrl;
-      }
+        if (s.conflicts) s.conflicts = false;
+      } else if (e.type === "change_state") s.conflicts = e.data.conflicts;
     }
     return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
   }

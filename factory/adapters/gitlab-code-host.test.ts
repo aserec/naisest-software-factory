@@ -87,7 +87,7 @@ describe("openChange", () => {
 describe("change", () => {
   test("maps state, head, landed commit, url and body", async () => {
     routes["/projects/7/merge_requests/5"] = mr({ description: null });
-    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", title: "T", body: "", target: "develop", behind: false });
+    expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", title: "T", body: "", target: "develop", behind: false, conflicts: false });
     routes["/projects/7/merge_requests/5"] = mr({ state: "merged", merge_commit_sha: "m" });
     expect(await host().change("5")).toMatchObject({ open: false, merged: true, landedSha: "m" });
     routes["/projects/7/merge_requests/5"] = mr({ state: "closed", squash_commit_sha: "sq" });
@@ -103,6 +103,10 @@ describe("change", () => {
     expect(calls.at(-1)!.url).toBe("/projects/7/merge_requests/5?include_diverged_commits_count=true");
     routes["/projects/7/merge_requests/5"] = mr({ diverged_commits_count: 2 });
     expect((await host().change("5")).behind).toBe(true);
+  });
+  test("a merge request with conflicts says so", async () => {
+    routes["/projects/7/merge_requests/5"] = mr({ has_conflicts: true });
+    expect((await host().change("5")).conflicts).toBe(true);
   });
 });
 

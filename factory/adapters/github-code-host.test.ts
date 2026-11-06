@@ -69,6 +69,16 @@ describe("change", () => {
     routes[`${R}/compare/develop...h`] = { behind_by: 0 };
     expect((await host().change("5")).title).toBe("Add a spinner");
   });
+  test("a pull request that GitHub cannot merge has conflicts; a mergeable state not computed yet does not", async () => {
+    const p = { state: "open", head: { sha: "h" }, base: { ref: "develop" }, html_url: "u" };
+    routes[`${R}/compare/develop...h`] = { behind_by: 0 };
+    routes[`${R}/pulls/5`] = { ...p, mergeable: false, mergeable_state: "dirty" };
+    expect((await host().change("5")).conflicts).toBe(true);
+    routes[`${R}/pulls/5`] = { ...p, mergeable: null, mergeable_state: "unknown" };
+    expect((await host().change("5")).conflicts).toBe(false);
+    routes[`${R}/pulls/5`] = { ...p, mergeable: true, mergeable_state: "clean" };
+    expect((await host().change("5")).conflicts).toBe(false);
+  });
 });
 
 describe("checks", () => {

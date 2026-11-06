@@ -64,6 +64,8 @@ const READY_FOR = /^Ready for the request of: (\S+)$/m;
 // Comments posted before the two duplicate kinds were told apart carry CLOSE_MARKER on a question too, so an old marker reads as a close.
 const CLOSE_MARKER = "<!-- factory:dedupe -->";
 const QUESTION_MARKER = "<!-- factory:dedupe-question -->";
+// A conflict round started: the poller starts no other one until the base branch gets a commit after this note.
+const CONFLICT_MARKER = "<!-- factory:conflict-round -->";
 
 // What a factory note says. `text` is the sentence people read; the lines after it are what the factory reads back.
 export type Note =
@@ -75,7 +77,8 @@ export type Note =
   | { kind: "readyFor"; text: string; person: PersonRef; cursor: string } // the factory set the work item ready for this person's request
   | { kind: "cursor"; text: string; at?: string } // the requests read up to `at`; without it, only the text
   | { kind: "duplicate_question"; text: string }
-  | { kind: "duplicate_close"; text: string };
+  | { kind: "duplicate_close"; text: string }
+  | { kind: "conflictRound"; text: string };
 
 export function noteText(n: Note): string {
   switch (n.kind) {
@@ -101,6 +104,8 @@ export function noteText(n: Note): string {
       return `${n.text}\n\n${QUESTION_MARKER}`;
     case "duplicate_close":
       return `${n.text}\n\n${CLOSE_MARKER}`;
+    case "conflictRound":
+      return `${n.text}\n\n${CONFLICT_MARKER}`;
   }
 }
 
@@ -115,6 +120,7 @@ interface Fields {
   cursor: { cursor: string };
   duplicate_question: object;
   duplicate_close: object;
+  conflictRound: object;
 }
 type Found = { [K in keyof Fields]: { kind: K; at: string } & Fields[K] }[keyof Fields];
 
@@ -142,9 +148,10 @@ const PARSE: { [K in keyof Fields]: (body: string) => Fields[K] | undefined } = 
   },
   duplicate_question: (b) => (b.includes(QUESTION_MARKER) ? {} : undefined),
   duplicate_close: (b) => (b.includes(CLOSE_MARKER) ? {} : undefined),
+  conflictRound: (b) => (b.includes(CONFLICT_MARKER) ? {} : undefined),
 };
 // The kinds a read finds. A stopped read also finds a cancel note: the run cannot be resumed, only restarted.
-const READS = { blocked: ["blocked"], waiting: ["waiting"], stopped: ["cancelled", "stopped"], readyFor: ["readyFor"], cursor: ["cursor"], duplicate: ["duplicate_question", "duplicate_close"] } as const;
+const READS = { blocked: ["blocked"], waiting: ["waiting"], stopped: ["cancelled", "stopped"], readyFor: ["readyFor"], cursor: ["cursor"], duplicate: ["duplicate_question", "duplicate_close"], conflictRound: ["conflictRound"] } as const;
 export type ReadKind = keyof typeof READS;
 export type Read<K extends ReadKind> = Extract<Found, { kind: (typeof READS)[K][number] }>;
 

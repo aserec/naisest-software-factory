@@ -259,3 +259,41 @@ test("a push the server failed with its own error is tried again; a refused push
   writeFileSync(join(root, "fail-2"), "! [remote rejected] (protected branch hook declined)\n");
   await expect(repo.commitAndPush("factory/8-test", "again")).rejects.toThrow("protected branch");
 });
+
+// A conflict round: the base branch moved after the clone. The factory merges it into the work tree and leaves the markers for the author.
+test("mergeBase merges the moved base branch into the work tree, lists the conflicted files, and the next push sits on the new base", async () => {
+  const root = mkdtempSync(join(tmpdir(), "repo-test-"));
+  const seed = join(root, "seed");
+  const commit = (msg: string) => (git(seed, "add", "."), git(seed, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg));
+  git(root, "init", "-q", "-b", "master", seed);
+  writeFileSync(join(seed, "a.txt"), "a\nb\nc\n");
+  writeFileSync(join(seed, "same.txt"), "1\n");
+  commit("base");
+  const server = join(root, "server.git");
+  git(root, "clone", "-q", "--bare", seed, server);
+  // The runner image has Debian's git 2.39, which has no `merge-tree --merge-base` (2.40). This git refuses it the same way.
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  const real = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  writeFileSync(join(bin, "git"), `#!/bin/sh\ncase "$*" in *--merge-base*) echo "error: unknown option merge-base" >&2; exit 129 ;; esac\nexec "${real}" "$@"\n`, { mode: 0o755 });
+  const dir = join(root, "run/target");
+  const repo = gitRepo(dir, join(root, "run/target.git"), `file://${server}`, "tok", { ...process.env, PATH: `${bin}:${process.env.PATH}` });
+  await repo.clone("master");
+  writeFileSync(join(dir, "a.txt"), "a\nMINE\nc\n");
+  writeFileSync(join(dir, "mine.txt"), "new\n");
+  // The base branch moves on the server: one line clashes, one new file does not.
+  writeFileSync(join(seed, "a.txt"), "a\nTHEIRS\nc\n");
+  writeFileSync(join(seed, "theirs.txt"), "base\n");
+  commit("base moves");
+  git(seed, "push", "-q", server, "master");
+  const newBase = git(server, "rev-parse", "master");
+  expect(await repo.mergeBase("master")).toEqual(["a.txt"]);
+  const a = execFileSync("cat", [join(dir, "a.txt")], { encoding: "utf8" });
+  expect(a).toMatch(/<<<<<<<[^\n]*\nMINE\n=======\nTHEIRS\n>>>>>>>/);
+  expect(existsSync(join(dir, "theirs.txt")) && existsSync(join(dir, "mine.txt"))).toBe(true);
+  // The author resolves; the diff and the push are against the new base.
+  writeFileSync(join(dir, "a.txt"), "a\nMINE\nTHEIRS\nc\n");
+  expect((await repo.diff()).numstat).not.toContain("theirs.txt");
+  const sha = await repo.commitAndPush("factory/8-test", "change");
+  expect(git(server, "rev-parse", `${sha}^`)).toBe(newBase);
+});

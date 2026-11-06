@@ -4,6 +4,7 @@ import { PageTitle } from "@/components/shell";
 import { getDb } from "@/server/db-instance";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConflictsBadge } from "@/components/board";
 import { STATE } from "@/lib/state";
 import { codeHostName, fileLinkOf, getBoard, trackerOf } from "@/server/compose";
 import { readTargets } from "@/server/targets";
@@ -38,6 +39,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
             {item?.title ?? (first ? `${first.target} #${first.ticket}` : `Run ${run}`)}
             {/* The ticket's board column now; absent when the board did not load. */}
             {item?.state && <Badge variant="outline">{STATE[item.state]}</Badge>}
+            <ConflictsBadge conflicts={summary?.conflicts} />
           </span>
         }
         actions={

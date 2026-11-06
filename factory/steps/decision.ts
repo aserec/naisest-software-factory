@@ -108,7 +108,8 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
   const round = f.openRound;
   if (round) {
     const authors = [...new Set(round.requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
-    await ctx.codeHost.commentChange(change, md("✅", "Round finished", `The factory finished the round for the requests of ${authors}.`, round.answer?.slice(0, 4000)));
+    const done = round.conflicts ? `The factory merged \`${await ctx.codeHost.baseBranch()}\` and resolved the conflicts.` : `The factory finished the round for the requests of ${authors}.`;
+    await ctx.codeHost.commentChange(change, md("✅", "Round finished", done, round.answer?.slice(0, 4000)));
   }
   // With nothing read yet: the run's first event, so a request written while the run was paused still counts as new.
   // After a resume the agent never saw what was written during the pause, so the cursor stays where this run or its round started reading.

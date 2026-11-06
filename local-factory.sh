@@ -66,11 +66,13 @@ case "${1:-}" in
     while true; do
       for target in $targets; do
         if iids=$(ready "$target"); then
-          for iid in $iids; do
-            echo "$(date '+%F %T') == $target ticket $iid"
+          for entry in $iids; do
+            # A round prints as ticket:build run:change; a ready ticket as its number only.
+            IFS=: read -r iid build change <<< "$entry"
+            echo "$(date '+%F %T') == $target ticket $iid${build:+ (round on change $change)}"
             echo "$target $iid" > "$current"
             # A failed step already marks the ticket blocked, so the poll does not pick it up again.
-            FACTORY_TARGET="$target" ./local-run.sh "$iid" || echo "$(date '+%F %T') $target ticket $iid ended with an error"
+            FACTORY_TARGET="$target" FACTORY_BUILD_PIPELINE_ID="$build" FACTORY_MR_IID="$change" ./local-run.sh "$iid" || echo "$(date '+%F %T') $target ticket $iid ended with an error"
             rm -f "$current"
           done
         else

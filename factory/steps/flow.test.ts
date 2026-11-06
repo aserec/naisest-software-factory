@@ -2171,6 +2171,61 @@ test("a round that hits the usage limit is resumed with CONTINUE, not the reques
   expect(runFacts(first.record).roundStart).toBe(false);
   expect(retry.record.requestRounds!.at(-1)!.answer).toBe("- @dev: added the screenshot"); // the CONTINUE run's answer is the round's answer
 });
+// A conflict round: no request, but develop moved and the waiting change no longer merges.
+async function conflictWorld() {
+  const { first, w } = await requestWorld({ conflicts: true, conflictedFiles: ["src/List.tsx"] });
+  // requestWorld leaves two requests: take them as read, so only the conflicts start a round.
+  w.host.sayOnChange("5", BOT, noteText({ kind: "cursor", text: "The factory waits.", at: T2 }), T2, true);
+  return { first, w };
+}
+test("a conflict round tells the work item and the dashboard, and continues at prepare-patch with the saved session", async () => {
+  const { first, w } = await conflictWorld();
+  await eventJob(w);
+  expect(w.restored).toEqual(["41"]);
+  expect(w.workItemComments).toEqual([noteText({ kind: "conflictRound", text: md("🔀", "Conflict round", "The change has conflicts with `develop`. The factory merges `develop` into it and resolves them in a new round.") })]);
+  expect(w.states).toEqual(["running"]);
+  expect(w.record.requestRounds!.at(-1)).toMatchObject({ requests: [], conflicts: true });
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { resumeAt: "prepare-patch", sessionId: runFacts(first.record).session, round: 1 } });
+  expect(dash(w).events.filter((e) => e.type === "change_state").map((e) => e.data)).toEqual([{ conflicts: true }]);
+});
+test("a conflict round merges develop first, then resumes the author with the conflicts prompt and the conflicted files", async () => {
+  const { first, w } = await conflictWorld();
+  const dir = tmp();
+  await eventJob(w, dir);
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  expect(w.mergedBase).toEqual(["develop"]);
+  const run = w.claudeRuns.at(-1)!;
+  expect(run.resume).toBe(runFacts(first.record).session);
+  expect(run.prompt).toContain("Merge `develop` into this branch and resolve the conflicts with the resolving-merge-conflicts skill.");
+  expect(run.prompt).toContain("- `src/List.tsx`");
+  expect(run.prompt).toContain('<skill name="resolving-merge-conflicts">');
+  expect(run.prompt).not.toContain("<request");
+});
+// Both sides added a dependency: the lockfile has markers, so install fails until the author resolves it. The gate installs again.
+test("a conflict round whose install fails on the merged lockfile still runs the author", async () => {
+  const { w } = await conflictWorld();
+  const dir = tmp();
+  await eventJob(w, dir);
+  const run = w.ctx.repo.run;
+  w.ctx.repo.run = async (cmd) => (cmd.startsWith("pnpm install") ? { ok: false, output: "ERR_PNPM_LOCKFILE_BREAKING_CHANGE" } : run(cmd));
+  const before = w.claudeRuns.length;
+  await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
+  expect(w.states).toEqual(["running"]);
+  expect(w.claudeRuns.length).toBe(before + 1);
+  expect(w.claudeRuns.at(-1)!.prompt).toContain("The install command failed on the merged files");
+});
+test("a conflicted change gets one round from the poll that ends with a push, and the next poll starts none", async () => {
+  const { w } = await conflictWorld();
+  w.ci.vars = { ...w.ci.vars, buildRun: undefined, change: undefined };
+  expect(await pollRequests(w.ctx)).toEqual(["8"]);
+  await drain(w, "build");
+  expect(w.mergedBase).toEqual(["develop"]);
+  expect(w.commitMessage).not.toBe(""); // pushed
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.mrComments.some((c) => c.includes("The factory merged `develop` and resolved the conflicts."))).toBe(true);
+  expect(await pollRequests(w.ctx)).toEqual([]);
+});
+
 // The GitLab webhook hears a request at once: the same answer the poller gives.
 const requestEvent = (actor = "dev", change?: string) => ({ kind: "request", ticket: "8", actor, ...(change ? { change } : {}) }) as const;
 const hearRequest = async (state: FactoryState, event: ReturnType<typeof requestEvent>, o: WorldOptions = {}) => {

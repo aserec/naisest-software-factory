@@ -85,6 +85,7 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
     return r.out;
   };
   const ours = ["--git-dir", gitDir, "--work-tree", dir];
+  const who = { GIT_AUTHOR_NAME: "Software Factory", GIT_AUTHOR_EMAIL: FACTORY_GIT_EMAIL, GIT_COMMITTER_NAME: "Software Factory", GIT_COMMITTER_EMAIL: FACTORY_GIT_EMAIL };
   return {
     async clone(ref) {
       if (existsSync(dir)) return;
@@ -115,7 +116,6 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
     async commitAndPush(branch, message) {
       await git([...ours, "add", "-A"]);
       const tree = (await git([...ours, "write-tree"])).trim();
-      const who = { GIT_AUTHOR_NAME: "Software Factory", GIT_AUTHOR_EMAIL: FACTORY_GIT_EMAIL, GIT_COMMITTER_NAME: "Software Factory", GIT_COMMITTER_EMAIL: FACTORY_GIT_EMAIL };
       const sha = (await git([...ours, "commit-tree", tree, "-p", "HEAD", "-m", message], who)).trim();
       // Force: a re-run replaces the earlier factory attempt on this factory-owned branch.
       // A force push of the same commit can run twice, so GitHub's passing server errors are tried again (ticket 451 lost
@@ -129,6 +129,25 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
           await wait(retryMs * attempt);
         }
       }
+    },
+    // A three-way merge of the old base, the work tree and the branch's newest commit, in our git dir only. The shallow clone
+    // has no shared history, so the branch's tree gets the old base (HEAD) as a made-up parent: then git finds HEAD as the
+    // merge base by itself. `merge-tree --merge-base` would say so directly, but it needs git 2.40 and the runner has 2.39.
+    // Conflicted files keep git's markers.
+    async mergeBase(branch) {
+      await git(["--git-dir", gitDir, "fetch", "-q", "--depth", "1", url, `refs/heads/${branch}`], auth);
+      const theirs = (await git(["--git-dir", gitDir, "rev-parse", "FETCH_HEAD"])).trim();
+      await git([...ours, "add", "-A"]);
+      const mine = (await git([...ours, "commit-tree", (await git([...ours, "write-tree"])).trim(), "-p", "HEAD", "-m", "work tree"], who)).trim();
+      // Exit 1 means conflicts, with the tree still written. -z: the tree, the conflicted paths, an empty field, then git's messages.
+      const onOld = (await git(["--git-dir", gitDir, "commit-tree", `${theirs}^{tree}`, "-p", "HEAD", "-m", branch], who)).trim();
+      const r = await sh("git", [...safe, "--git-dir", gitDir, "merge-tree", "--write-tree", "--name-only", "-z", mine, onOld], dir, base);
+      if (r.code !== 0 && r.code !== 1) throw new Error(`git merge-tree failed: ${r.out.slice(-500)}`);
+      const [tree, ...files] = r.out.split("\0\0")[0].split("\0");
+      if (!/^[0-9a-f]{40,64}$/.test(tree)) throw new Error(`git merge-tree gave no tree: ${r.out.slice(0, 500)}`);
+      await git([...ours, "read-tree", "-u", "--reset", tree]);
+      await git(["--git-dir", gitDir, "update-ref", "--no-deref", "HEAD", theirs]);
+      return files.filter(Boolean);
     },
     // Reads from our git dir, so nothing the agent wrote in the work tree can change the answer.
     async readBase(path) {

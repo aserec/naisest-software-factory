@@ -13,8 +13,9 @@ export const RUN_DIR = "run";
 
 export interface Request { author: PersonRef; body: string; at: string; on: "work item" | "change" }
 // One round of @factory requests on the change: what was asked, and what it cost and found.
+// conflicts: a conflict round, which merges the base branch and resolves the conflicts; it has no requests.
 export interface RequestRound {
-  cursor: string; requests: Request[]; costAtStart: number; tokensAtStart: { input: number; output: number };
+  cursor: string; requests: Request[]; conflicts?: true; costAtStart: number; tokensAtStart: { input: number; output: number };
   answer?: string; endedAt?: string; review?: number; gate?: number; costUsd?: number; tokens?: { input: number; output: number };
 }
 

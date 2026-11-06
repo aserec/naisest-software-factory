@@ -26,10 +26,11 @@ The factory shows a person the proof of your change. Write it to `run/proof/`. F
    ```
    - When the Preview line names a login command, use it. It logs a seeded user in, so the screen shows the seeded data. Pick the seeded user whose role sees the screen.
    - When there is no login command, or no seeded user can see the screen, make the session yourself: write a Playwright storage state to `run/auth-<user>.json`, for example with the session cookie the repo's own e2e helpers make. Seed the data the screen needs the same way the e2e tests do.
+   - When the seeded data cannot show the change, add the data to the repo's own seed scripts in the same diff: the scripts the install command runs. Examples: a course that starts in the future for an "Upcoming" badge, a list with no items for an empty state. Then anyone who installs the repo sees the same proof.
    Say in `reach` which user you logged in as.
    Look at each image. If it shows a loading, error or login screen and not the app, say so in `note`.
-3. After lint, test and build pass, shoot the same screens again as `run/proof/after-<screen>-<width>.png`. A screen your change creates has only an after image: set `"isNew": true` and leave out `before`.
-4. For each test you wrote for the ticket, run it before the code change and again after it. Record the exit code and the last lines of output of both runs.
+3. After lint, test and build pass, shoot the same screens again as `run/proof/after-<screen>-<width>.png`. A screen your change creates has only an after image: set `"isNew": true` and leave out `before`. Each after image must show the change. If it does not, add the seed data and shoot again. Only when no seed data can show the change, write why in `note`.
+4. Each behavior the ticket asks for has a test that fails before the change and passes after it. Run each test before the code change and again after it. Record the exit code and the last lines of output of both runs. Leave `tests` empty only when no test can see the change, and write why in `note`.
 5. Write `run/proof/proof.json`. Example:
    ```json
    {

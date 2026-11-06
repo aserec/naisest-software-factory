@@ -25,7 +25,7 @@ test("the reviewer prompt holds a proof block only when there is proof text", ()
 
 test("the reviewer prompt carries the security checklist", () => {
   const p = reviewerPrompt("<ticket>t</ticket>", "diff");
-  for (const s of ["[SECURITY]", "input validation", "authorization", "secrets", "dependencies", "insecure defaults", "a real bug, a likely exploitable security fault, a missing requirement or a weakened test"]) expect(p).toContain(s);
+  for (const s of ["[SECURITY]", "input validation", "authorization", "secrets", "dependencies", "insecure defaults", "a real bug, a likely exploitable security fault, a missing requirement, a weakened test, or a proof that cannot show the change"]) expect(p).toContain(s);
 });
 test("a finding keeps its screen and verdict", () => {
   expect(parseFindings('[{"blocking":false,"screen":"a","verdict":"matches","text":"ok"}]')[0].verdict).toBe("matches");

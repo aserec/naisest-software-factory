@@ -42,7 +42,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       const m = await gitlab.getJson(`${await mrUrl(ref)}?include_diverged_commits_count=true`);
       return {
         ref, open: m.state === "opened", merged: m.state === "merged", mergedAt: m.merged_at ?? undefined, head: m.sha, url: m.web_url, title: m.title ?? "", body: m.description ?? "", target: m.target_branch,
-        landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha, behind: (m.diverged_commits_count ?? 0) > 0,
+        landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha, behind: (m.diverged_commits_count ?? 0) > 0, conflicts: !!m.has_conflicts,
       };
     },
     async checks(at): Promise<Checks> {

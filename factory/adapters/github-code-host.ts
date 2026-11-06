@@ -39,6 +39,8 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       return {
         ref, open: p.state === "open", merged: !!p.merged, mergedAt: p.merged_at ?? undefined, head: p.head.sha, url: p.html_url, title: p.title ?? "", body: p.body ?? "", target: p.base.ref,
         landedSha: p.merge_commit_sha ?? p.head.sha, behind: cmp.behind_by > 0,
+        // GitHub computes mergeable later and gives null until then: no conflict yet, the next poll reads it again.
+        conflicts: p.mergeable === false || p.mergeable_state === "dirty",
       };
     },
     // Only checks of the head count. No check yet is running, as on GitLab: waitFor gives up after an hour.

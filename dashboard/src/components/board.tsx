@@ -24,6 +24,12 @@ export interface BoardItem extends BoardRow {
   mergeRisk?: number; // Jev 2's diff_risk, 2 to 10
   mergeRiskMax?: number; // the target's limit; older runs did not send it
   changeUrl?: string;
+  conflicts?: boolean; // the change has conflicts with the base branch
+}
+
+// The change cannot merge until someone resolves its conflicts: the factory's conflict round, or a person.
+export function ConflictsBadge({ conflicts }: { conflicts?: boolean }) {
+  return conflicts ? <Badge variant="warning" title="The change has conflicts with the base branch. The factory starts a round to resolve them.">Conflicts</Badge> : null;
 }
 
 // Triage risk (Jev 1, on the work item), then merge risk (Jev 2, on the diff), each named so they cannot be confused. High or above the merge limit takes the warning pill; nothing is green,
@@ -115,6 +121,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
       </div>
       <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 pt-px">
         {i.stuck && <Badge variant="destructive">Stuck</Badge>}
+        <ConflictsBadge conflicts={i.conflicts} />
         <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
         <span className={`w-14 text-right ${i.costUsd === undefined ? "text-muted-foreground" : ""}`}>{i.costUsd === undefined ? "—" : usd(i.costUsd)}</span>
       </div>

@@ -83,6 +83,7 @@ export interface FakeCodeHostOptions {
   attachFails?: number; // the first n attach calls fail
   behind?: number; // how many times the base branch moves ahead of the change; a rebase uses up one
   rebaseFails?: boolean;
+  conflicts?: boolean; // every change opened has conflicts with the base branch; a test can set a change's conflicts later
   diffs?: Record<string, Record<string, string>>; // branchDiff by sha; any other sha gets DIFF
   files?: Record<string, string>; // files at the head of the base branch, for readFile; any other path is undefined
 }
@@ -107,7 +108,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     const ref = byBranch.get(branch) ?? String(changes.size + 5);
     byBranch.set(branch, ref);
     const was = changes.get(ref);
-    changes.set(ref, { ref, branch, title, body: text, open: !o.merged, merged: !!o.merged, head, landedSha: o.landedSha ?? "landed1", target: o.target ?? o.baseBranch ?? "develop", url: `https://host.example/changes/${ref}` });
+    changes.set(ref, { ref, branch, title, body: text, open: !o.merged, merged: !!o.merged, head, landedSha: o.landedSha ?? "landed1", target: o.target ?? o.baseBranch ?? "develop", url: `https://host.example/changes/${ref}`, conflicts: was?.conflicts ?? !!o.conflicts });
     return { ref, was: !!was };
   };
   const get = (ref: ChangeRef) => {

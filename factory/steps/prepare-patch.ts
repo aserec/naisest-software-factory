@@ -11,13 +11,27 @@ export const previewLine = (c: FactoryCommands) =>
     ? `Preview: start the app with \`${c.preview}\`. It serves ${c.previewUrl}. ${c.login ? `Login: this repo logs seeded users in with \`${c.login}\`. Read it to learn the user names.` : "Login: this repo has no login command."}`
     : "Preview: this repo has no preview command. Take no screenshots; prove the change with tests only.";
 
+// A conflict round's task: the fixed request, the files the merge left with markers, and what the base branch did since the run began.
+async function conflictsText(ctx: StepContext, base: string, files: string[]): Promise<string> {
+  const commits = await ctx.codeHost.baseCommits(ctx.record.startedAt).catch(() => []);
+  return [
+    prompt("conflicts").replaceAll("{base}", base).trimEnd(),
+    files.length ? `Files with conflict markers:\n${files.map((f) => `- \`${f}\``).join("\n")}` : `No file has conflict markers, but the code host still saw conflicts. Check that your change still works on the new \`${base}\`.`,
+    commits.length ? `Commits of \`${base}\` since your run began, newest first:\n${commits.slice(0, 20).map((c) => `- ${c.title}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
 export async function run(ctx: StepContext): Promise<StepResult> {
   if (!(await switchOn(ctx, "prepare_patch"))) return stopped(ctx, "prepare-patch", { reason: "switch off prepare_patch" });
-  await ctx.repo.clone(await ctx.codeHost.baseBranch());
+  const base = await ctx.codeHost.baseBranch();
+  await ctx.repo.clone(base);
   // A resumed run continues the session that hit the limit, in the clone restored from that pipeline.
   // A round start resumes the author's saved session with the round's requests instead.
   const resumeSessionId = facts(ctx).resumeSession("prepare-patch");
-  const requests = facts(ctx).roundStart ? facts(ctx).openRound?.requests.map((q) => wrapRequest(q.author, q.body)).join("\n\n") : undefined;
+  const round = facts(ctx).roundStart ? facts(ctx).openRound : undefined;
+  const requests = round && !round.conflicts ? round.requests.map((q) => wrapRequest(q.author, q.body)).join("\n\n") : undefined;
+  // A conflict round merges the base branch into the restored clone before install, so install sees the merged lockfile.
+  let conflicts = round?.conflicts ? await conflictsText(ctx, base, await ctx.repo.mergeBase(base)) : undefined;
   // Read the commands before the agent runs, so the agent cannot change what the gate runs.
   // A resumed clone or a round's restored clone holds the agent's edits, so it uses the saved commands.
   let commands: FactoryCommands | undefined;
@@ -29,18 +43,24 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     if (!factoryFile) return block(ctx, "The target repo has no .factory.yml.");
     commands = parseFactoryFile(factoryFile);
   }
-  const stop = await install(ctx, commands);
-  if (stop) return stop;
+  // Markers in a manifest or the lockfile make install fail. The author resolves them first; the gate installs again and blocks if they still fail.
+  if (conflicts) {
+    const r = await ctx.repo.run(commands.install);
+    if (!r.ok) conflicts += `\n\nThe install command failed on the merged files, so the dependencies may be missing. Resolve the conflicts in the package manifests and the lockfile first, and keep the entries of both sides. You cannot run install; the gate runs it again.\n\n${r.output.slice(-1500)}`;
+  } else {
+    const stop = await install(ctx, commands);
+    if (stop) return stop;
+  }
   writeShooter(ctx.dir, commands);
   const job = { tools: "code", maxTurns: 60, cwd: ctx.dir, commands: agentCommands(commands), ...(commands.preview && { preview: true }) } as const;
   const author = modelRow(ctx).author;
   // A new session has no memory: it gets the repo's instructions and the ticket, then the requests if this is a round.
-  const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${rootLine(ctx.dir)}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}${requests ? `\n\n${requests}` : ""}`;
+  const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${rootLine(ctx.dir)}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}${requests ? `\n\n${requests}` : ""}${conflicts ? `\n\n${conflicts}` : ""}`;
   // A resumed session already has the repo's instructions, and a round's session already has the ticket.
-  const text = !resumeSessionId ? await fresh() : requests ? `${prompt("request")}\n${requests}` : CONTINUE;
+  const text = !resumeSessionId ? await fresh() : (conflicts ?? (requests ? `${prompt("request")}\n${requests}` : CONTINUE));
   let r = await agent(ctx, "author", author, { ...job, prompt: text, resume: resumeSessionId });
   // The saved session cannot be loaded: do the round in a new session.
-  if (requests && resumeSessionId && !r.ok && !r.stopped && !r.limitHit) r = await agent(ctx, "author", author, { ...job, prompt: await fresh() });
+  if ((requests || conflicts) && resumeSessionId && !r.ok && !r.stopped && !r.limitHit) r = await agent(ctx, "author", author, { ...job, prompt: await fresh() });
   if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands } });
   if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });
   if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 2000)}`);

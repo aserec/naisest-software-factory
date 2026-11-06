@@ -64,6 +64,8 @@ export interface Repo {
   run(cmd: string): Promise<{ ok: boolean; output: string }>;
   // Commits the clone's files on top of the base and force-pushes the branch. Returns the new sha.
   commitAndPush(branch: string, message: string): Promise<string>;
+  // Merges the newest commit of the branch into the work tree and makes it the base. Returns the files left with conflict markers.
+  mergeBase(branch: string): Promise<string[]>;
   readFile(path: string): string | undefined;
   // A file at the base commit the clone started from, never the work tree the agent edits. Undefined when the path is not there.
   readBase(path: string): Promise<string | undefined>;
@@ -73,7 +75,7 @@ export interface Repo {
 
 // absent: the repo has no CI at all, so no check will ever come.
 export type Checks = "green" | "red" | "running" | "none" | "absent";
-export interface Change { ref: ChangeRef; open: boolean; merged: boolean; mergedAt?: string; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
+export interface Change { ref: ChangeRef; open: boolean; merged: boolean; mergedAt?: string; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean; conflicts: boolean } // behind: the target branch has commits the change lacks. conflicts: the change does not merge cleanly into the target
 export interface CodeHost {
   baseBranch(): Promise<string>;
   cloneAt(dir: string): Repo;

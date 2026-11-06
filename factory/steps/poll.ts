@@ -54,7 +54,11 @@ export async function main(ctx?: StepContext) {
     } finally {
       await ctx.dashboard.flush();
     }
-    console.log((await pollReady({ ...ctx, ci: { ...ctx.ci, start: async () => "" } })).join(" "));
+    // Rounds (requests or conflicts on a waiting change) print as ticket:build run:change; local-run.sh restores that build run.
+    const rounds: string[] = [];
+    const started = await pollRequests({ ...ctx, ci: { ...ctx.ci, start: async (r) => (r.buildRun && r.change && rounds.push(`${r.ticket}:${r.buildRun}:${r.change}`), "") } });
+    const ready = await pollReady({ ...ctx, ci: { ...ctx.ci, start: async () => "" } }, started);
+    console.log([...rounds, ...ready].join(" "));
     return;
   }
   try {

@@ -16,7 +16,7 @@ export function boardWithRuns(items: BoardRow[], db: Db, targets: TargetInfo[], 
     return {
       ...i, run: r?.run, costUsd: r?.costUsd, stuck: !!view?.stuck,
       step: open ? r.lastStep?.step : undefined, reached: r?.lastStep?.step, stepStartedAt: live?.startedAt, stepLimit: live && limits.get(i.target)?.[live.step],
-      round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, changeUrl: r?.changeUrl,
+      round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, changeUrl: r?.changeUrl, conflicts: r?.conflicts,
     };
   });
 }

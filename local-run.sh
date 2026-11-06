@@ -3,6 +3,7 @@
 # FACTORY_DASHBOARD_TOKEN (the dashboard's value), and GL_TOKEN or FACTORY_GITHUB_TOKEN for the target's tracker and code host. FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
 # Usage: ./local-run.sh <ticket iid> [step to start from]
 # With a step, the run goes on from that step with the kept run/ dir (its record and clone) instead of starting over.
+# A round (local-factory.sh sets FACTORY_BUILD_PIPELINE_ID and FACTORY_MR_IID): the event step restores that build run from <repo>.runs.
 set -euo pipefail
 iid=${1:?usage: ./local-run.sh <ticket iid> [step to start from]}
 from=${2:-}
@@ -56,6 +57,12 @@ if [ -n "$from" ]; then
 else
   rm -rf ./run # each trial starts with a new run record
 fi
+# Each run has its own number, the build run its change names, so a later round can restore it from $runs.
+# ponytail: the clock in seconds; two runs in one second would share it. The worker counts instead (nextId).
+runs="$PWD.runs"
+mkdir -p run
+run_id=$(cat run/run-id 2>/dev/null || date +%s)
+echo "$run_id" > run/run-id
 # A resume skips the event step, so the ticket is moved back to running first.
 [ -z "$from" ] || steps=(resume "${steps[@]}")
 for step in "${steps[@]}"; do
@@ -71,7 +78,14 @@ for step in "${steps[@]}"; do
   [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || tokens+=(CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN")
   # Its own Claude config, as the worker has: your ~/.claude hooks, plugins and CLAUDE.md must not reach the agents.
   env -i PATH="$PATH" HOME="$HOME" CLAUDE_CONFIG_DIR="$PWD/run/claude-home" PLAYWRIGHT_BROWSERS_PATH="$browsers" CI_SERVER_URL=https://gitlab.example.com \
-    CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID=1 FACTORY_PIPELINE=build FACTORY_TARGET="$target" \
-    FACTORY_WORK_ITEM_IID="$iid" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
+    CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID="$run_id" FACTORY_PIPELINE=build FACTORY_TARGET="$target" \
+    FACTORY_WORK_ITEM_IID="$iid" FACTORY_BUILD_PIPELINE_ID="${FACTORY_BUILD_PIPELINE_ID:-}" FACTORY_MR_IID="${FACTORY_MR_IID:-}" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" \
     node --import tsx "$([ "$step" = resume ] && echo factory/local-resume.ts || echo "factory/steps/$step.ts")"
+  # A round's event step restored the earlier run's run/ and its run-id: this run keeps its own number.
+  [ "$step" != event ] || echo "$run_id" > run/run-id
 done
+# As the worker does: keep run/ without node_modules, with `ok` once decision ended well, for a later round or resume.
+# ponytail: $runs only grows; delete old run dirs by hand when the disk fills.
+mkdir -p "$runs/$run_id"
+rsync -a --delete --exclude /target/node_modules run/ "$runs/$run_id/run/"
+touch "$runs/$run_id/ok"

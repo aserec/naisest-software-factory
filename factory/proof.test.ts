@@ -116,7 +116,7 @@ test("proofReasons: no record, or no valid proof, gives only the no proof reason
 });
 test("proofReasons: a visual change with a preview and no screens", () => {
   expect(proofReasons(rec({ visual: true, screens: [], tests: [], note: "the dev server did not start" }), true)).toEqual(["a visual change was expected but there are no screenshots: the dev server did not start"]);
-  expect(proofReasons(rec({ visual: true, screens: [], tests: [] }), true)).toEqual(["a visual change was expected but there are no screenshots: no reason given"]);
+  expect(proofReasons(rec({ visual: true, screens: [], tests: [] }), true)).toEqual(["a visual change was expected but there are no screenshots: no reason given", "the proof has no tests and its note gives no reason"]);
 });
 test("proofReasons: a reviewer that cannot read images judged no screen", () => {
   expect(proofReasons(rec(VISUAL_PROOF, { readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure", note: "the reviewer cannot read images" }, { verdict: "unsure", note: "odd" }] }), true)).toEqual(["the reviewer pi/model-x cannot read images, so no screen was judged", "the reviewer is unsure: odd"]);
@@ -142,7 +142,11 @@ test("proofReasons: a test-only diff needs its tests to pass after, not to fail 
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [passingTest(0), { ...passingTest(0), after: { exit: 1, tail: "1 failed" } }] }), false, [], true)).toEqual(["the change touches only tests, but no test passed after it"]);
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [] }), false, [], true)).toEqual(["the change touches only tests, but no test passed after it"]);
 });
-test("proofReasons: a visual change with a preview and matching screens needs no test", () => {
+test("proofReasons: a proof with no tests needs a reason in its note", () => {
+  expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [], note: undefined }, { verdicts: matches }), true)).toEqual(["the proof has no tests and its note gives no reason"]);
+  expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [], note: "only a color changes; no test can see it" }, { verdicts: matches }), true)).toEqual([]);
+});
+test("proofReasons: a visual change with a preview and matching screens needs no test that failed before", () => {
   expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true)).toEqual([]);
   expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), true)).toEqual([]);
   expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), false)).toEqual(["no test failed before the change and passed after it"]);

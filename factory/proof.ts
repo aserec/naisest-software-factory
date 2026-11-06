@@ -146,6 +146,8 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
   }
   const provenTests = testOnly ? proof.tests.length > 0 && proof.tests.every((t) => t.after.exit === 0) : proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0);
   if ((!hasPreview || !proof.visual) && !provenTests) reasons.push(testOnly ? "the change touches only tests, but no test passed after it" : "no test failed before the change and passed after it");
+  // prepare.md: every behavior the ticket asks for gets a test; screens alone are proof only when the note says why no test can see it.
+  else if (proof.tests.length === 0 && !proof.note) reasons.push("the proof has no tests and its note gives no reason");
   if (uploadFailed.length) reasons.push(`image upload failed: ${uploadFailed.join(", ")}`);
   return reasons;
 }

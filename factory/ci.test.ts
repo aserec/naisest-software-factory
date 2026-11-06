@@ -56,6 +56,14 @@ test(".gitlab-ci.yml and local-run.sh run the steps in the order of STEPS", () =
   expect(/^steps=\((.*)\)$/m.exec(local)?.[1].split(" ")).toEqual(BUILD_STEPS);
 });
 
+// A round's event step restores the earlier run's run/, its run-id file too. The run's own number must win before any later step,
+// or a resume after a failed step would save over the earlier run that the change still names.
+test("local-run.sh writes its own run number again right after the event step", () => {
+  const local = readFileSync(new URL("../local-run.sh", import.meta.url), "utf8");
+  const loop = local.slice(local.indexOf('for step in "${steps[@]}"'));
+  expect(loop).toMatch(/\[ "\$step" != event \] \|\| echo "\$run_id" > run\/run-id/);
+});
+
 test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {
   const out = execFileSync("bash", ["-c", `${FACTORY_ENV}\nfactory_env /usr/bin/env`], {
     encoding: "utf8",

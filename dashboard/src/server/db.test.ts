@@ -240,6 +240,15 @@ describe("runs", () => {
     ]);
     expect(db.runs({})[0]).toMatchObject({ round: 2, mergeRisk: 6, mergeRiskMax: 7, changeUrl: "http://gl/mr/9" });
   });
+
+  it("marks a change with conflicts until a later decision: the round pushed a merge that passed the gate", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("run_start", {}), ev("change_state", { conflicts: true })]);
+    expect(db.runs({})[0].conflicts).toBe(true);
+    expect(db.latestRuns([{ target: "react_frontend", ticket: "T-1" }])[0].conflicts).toBe(true);
+    db.addEvents([ev("decision", { auto: false, reasons: ["r"] })]);
+    expect(db.runs({})[0].conflicts).toBe(false);
+  });
 });
 
 describe("prune and backup", () => {

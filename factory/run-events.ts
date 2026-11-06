@@ -1,7 +1,7 @@
 // Event schema shared by the factory (sender) and the dashboard (receiver).
 import { z } from "zod";
 
-export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "error"] as const;
+export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "change_state", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "error"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // The state of a work item, in factory words. factory/seams.ts re-exports it.
@@ -60,6 +60,8 @@ export const EVENT_DATA = {
   triage_outcome: z.object({ kind: z.enum(["go", "ask", "stop"]), title: z.string(), reasons: z.array(z.string()), url: z.string().optional() }),
   // risk: Jev 2's diff_risk, 2 to 10. changeUrl: the merge request. Older events have neither.
   decision: z.object({ auto: z.boolean(), reasons: z.array(z.string()), risk: z.number().optional(), riskMax: z.number().optional(), changeUrl: z.string().optional() }),
+  // conflicts: the change does not merge cleanly into the base branch. A conflict round sends it; a later decision clears it on the dashboard.
+  change_state: z.object({ conflicts: z.boolean() }),
   label_change: z.object({ from: z.string().optional(), to: z.string() }),
   usage: z.object({
     role: z.string(),

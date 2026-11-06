@@ -68,6 +68,8 @@ export interface WorldOptions {
   mrHead?: string; // the change's head; default the reviewed head5
   behind?: number; // how many times develop moves ahead of the change
   rebaseFails?: boolean;
+  conflicts?: boolean; // the change has conflicts with the base branch
+  conflictedFiles?: string[]; // what repo.mergeBase leaves with markers
   diffs?: Record<string, Record<string, string>>; // the change's diff by sha; any other sha gets DIFF
   baseFiles?: Record<string, string>; // files at the base commit, for repo.readBase
   files?: Record<string, string>; // files at the head of the base branch, for codeHost.readFile
@@ -112,6 +114,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     attachFails: o.attachFails,
     behind: o.behind,
     rebaseFails: o.rebaseFails,
+    conflicts: o.conflicts,
     diffs: o.diffs,
     files: o.files,
   });
@@ -165,6 +168,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const names = ((proof as any)?.screens ?? []).flatMap((s: any) => [s.before, s.after]).filter(Boolean);
   const images = o.images ?? Object.fromEntries(names.map((n: string) => [n, PNG]));
   const cloned: string[] = [];
+  const mergedBase: string[] = [];
   const repo: Repo = {
     clone: async (ref) => void cloned.push(ref),
     diff: async () => ({ text: o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
@@ -172,6 +176,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     readBase: async (path) => o.baseFiles?.[path],
     readBytes: (path) => (path.startsWith(PROOF_DIR) ? images[path.slice(PROOF_DIR.length)] : undefined),
     commitAndPush: async (_b, message) => ((commitMessage = message), "head5"),
+    mergeBase: async (branch) => (mergedBase.push(branch), o.conflictedFiles ?? []),
     readFile: (path) =>
       path === PROOF_FILE ? proofText : path === ".factory.yml" ? (o.factoryFile ?? "install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\n") : path === "run/test-changes.md" ? o.testChanges : path === "run/commit-message.md" ? o.commitFile : undefined,
   };
@@ -207,6 +212,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     get mergedSha() { return host.mergedSha; },
     get revertOpened() { return host.revertOpened; },
     get cloned() { return cloned; },
+    get mergedBase() { return mergedBase; },
     get mainPipelineRef() { return host.mainPipelineRef; },
     get commitMessage() { return commitMessage; },
     get cards() { return chat.sent; },
