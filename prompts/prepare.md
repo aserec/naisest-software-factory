@@ -20,7 +20,14 @@ The factory shows a person the proof of your change. Write it to `run/proof/`. F
    ```
    bash run/shoot.sh <url> <name> [width] [playwright dir]
    ```
-   Look at each image. If it shows a loading or error screen and not the app, say so in `note`.
+   A screen behind a login is no reason to skip it. Pass the user as the fifth argument, a name with lowercase letters, digits and dashes (`teacher`):
+   ```
+   bash run/shoot.sh <url> <name> <width> <playwright dir> <user>
+   ```
+   - When the Preview line names a login command, use it. It logs a seeded user in, so the screen shows the seeded data. Pick the seeded user whose role sees the screen.
+   - When there is no login command, or no seeded user can see the screen, make the session yourself: write a Playwright storage state to `run/auth-<user>.json`, for example with the session cookie the repo's own e2e helpers make. Seed the data the screen needs the same way the e2e tests do.
+   Say in `reach` which user you logged in as.
+   Look at each image. If it shows a loading, error or login screen and not the app, say so in `note`.
 3. After lint, test and build pass, shoot the same screens again as `run/proof/after-<screen>-<width>.png`. A screen your change creates has only an after image: set `"isNew": true` and leave out `before`.
 4. For each test you wrote for the ticket, run it before the code change and again after it. Record the exit code and the last lines of output of both runs.
 5. Write `run/proof/proof.json`. Example:

@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { parseProof, proofPrompt, proofReasons, proofSection, readImages, readProof, screenVerdicts } from "./proof";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parseProof, proofPrompt, proofReasons, proofSection, readImages, readProof, screenVerdicts, writeShooter } from "./proof";
 import type { Finding } from "./agents";
 import type { Proof, ProofRecord } from "./proof";
 import { TEST_PROOF, VISUAL_PROOF as VISUAL } from "./steps/test-helpers";
@@ -196,4 +200,44 @@ test("proofReasons: an upload that failed sends the change to a person, last", (
   expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true, ["before-list-1280.png"])).toEqual(["image upload failed: before-list-1280.png"]);
   expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true, ["a.png", "b.png"])).toEqual(["image upload failed: a.png, b.png"]);
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [] }), false, ["a.png"])).toEqual(["no test failed before the change and passed after it", "image upload failed: a.png"]);
+});
+
+// The real script against a stub playwright that records its arguments, and a file:// page curl can reach.
+function shoot(c: { login?: string }, user: string[], before?: (dir: string) => void) {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "shoot-")));
+  writeShooter(dir, { preview: "sleep 30", ...c });
+  mkdirSync(join(dir, "run/proof"), { recursive: true });
+  mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
+  writeFileSync(join(dir, "node_modules/.bin/playwright"), `#!/bin/sh\necho "$@" > "${dir}/args"\n`, { mode: 0o755 });
+  before?.(dir);
+  const r = spawnSync("bash", ["run/shoot.sh", `file://${dir}/args-page`, "page", "1280", ".", ...user], { cwd: dir, encoding: "utf8" });
+  const args = existsSync(join(dir, "args")) ? readFileSync(join(dir, "args"), "utf8") : "";
+  return { code: r.status, out: r.stdout, args, dir };
+}
+const page = (dir: string) => writeFileSync(join(dir, "args-page"), "");
+
+test("shoot.sh logs the user in with the target's login command and shoots with that session", () => {
+  const r = shoot({ login: `printf '{"user":"%s"}' "$FACTORY_USER" > "$FACTORY_STORAGE"` }, ["teacher"], page);
+  expect(r.code).toBe(0);
+  expect(r.args).toContain(`--load-storage ${r.dir}/run/auth-teacher.json`);
+  expect(readFileSync(join(r.dir, "run/auth-teacher.json"), "utf8")).toBe('{"user":"teacher"}');
+});
+
+test("shoot.sh without a login command uses the session file the agent wrote", () => {
+  const r = shoot({}, ["teacher"], (d) => { page(d); writeFileSync(join(d, "run/auth-teacher.json"), "{}"); });
+  expect(r.code).toBe(0);
+  expect(r.args).toContain("--load-storage");
+});
+
+test("shoot.sh takes no anonymous shot when the user has no session", () => {
+  const r = shoot({}, ["teacher"], page);
+  expect(r.code).toBe(1);
+  expect(r.out).toContain("run/auth-teacher.json");
+  expect(r.args).toBe("");
+});
+
+test("shoot.sh with no user shoots without a session", () => {
+  const r = shoot({ login: "exit 1" }, [], page);
+  expect(r.code).toBe(0);
+  expect(r.args).not.toContain("--load-storage");
 });

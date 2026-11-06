@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { FactoryCommands } from "./types";
 import type { Finding } from "./agents";
 import type { Repo } from "./seams";
+import { shellQuote } from "./repo";
 
 export const PROOF_DIR = "run/proof/";
 export const PROOF_FILE = "run/proof/proof.json";
@@ -151,19 +152,28 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
 
 // run/shoot.sh: start the preview, wait for the page, shoot it, stop the preview, in one command the author may run.
 // A chained one-liner needs curl, kill and the rest allowed one by one, and curl is denied.
-export function writeShooter(dir: string, c?: Pick<FactoryCommands, "preview">) {
+// user: shoot logged in. The target's login command (seeded users) writes run/auth-<user>.json; without one the agent writes it.
+export function writeShooter(dir: string, c?: Pick<FactoryCommands, "preview" | "login">) {
   if (!c?.preview) return;
   mkdirSync(join(dir, "run"), { recursive: true });
-  writeFileSync(join(dir, "run/shoot.sh"), `# Usage: bash run/shoot.sh <url> <name> [width] [playwright dir]. Writes run/proof/<name>.png.
+  writeFileSync(join(dir, "run/shoot.sh"), `# Usage: bash run/shoot.sh <url> <name> [width] [playwright dir] [user]. Writes run/proof/<name>.png.
 set -u
-url=$1 name=$2 width=\${3:-1280} dir=\${4:-.} root=$PWD
+url=$1 name=$2 width=\${3:-1280} dir=\${4:-.} user=\${5:-} root=$PWD
 case $name in *[!a-z0-9-]*|"") echo "the name takes lowercase letters, digits and dashes only"; exit 2 ;; esac
+case $user in *[!a-z0-9-]*) echo "the user takes lowercase letters, digits and dashes only"; exit 2 ;; esac
+storage=()
 set -m
 (${c.preview}) > run/preview.log 2>&1 &
 pid=$!
 for i in $(seq 120); do curl -sf -o /dev/null "$url" && break; sleep 1; done
-(cd "$dir" && ./node_modules/.bin/playwright screenshot --viewport-size "$width, 800" --wait-for-timeout 3000 "$url" "$root/run/proof/$name.png")
-code=$?
+code=0
+if [ -n "$user" ]; then
+  auth="$root/run/auth-$user.json"
+${c.login ? `  FACTORY_USER=$user FACTORY_URL=$url FACTORY_STORAGE=$auth bash -c ${shellQuote(c.login)} > run/login.log 2>&1 || { echo "the login failed; the end of run/login.log:"; tail -20 run/login.log; code=1; }\n` : ""}  [ $code = 0 ] && [ ! -s "$auth" ] && { echo "no session for $user: write a Playwright storage state to run/auth-$user.json"; code=1; }
+  storage=(--load-storage "$auth")
+fi
+[ $code = 0 ] && (cd "$dir" && ./node_modules/.bin/playwright screenshot \${storage[@]+"\${storage[@]}"} --viewport-size "$width, 800" --wait-for-timeout 3000 "$url" "$root/run/proof/$name.png")
+code=$((code || $?))
 kill -- -$pid 2>/dev/null
 [ $code = 0 ] || { echo "the shot failed; the end of run/preview.log:"; tail -20 run/preview.log; }
 exit $code
