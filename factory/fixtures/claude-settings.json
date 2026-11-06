@@ -50,7 +50,7 @@
         "/w/run/claude-home",
         "/w/run/pi-home"
       ],
-      "allowRead": ["/home/a/Library/Caches/ms-playwright"]
+      "allowRead": ["/home/a/Library/Caches/ms-playwright", "/home/a/.local/share/uv/python"]
     },
     "network": {
       "strictAllowlist": true,

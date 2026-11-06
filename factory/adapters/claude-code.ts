@@ -37,7 +37,9 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   const prefix = dirname(dirname(execPath));
   // Chromium for the screenshots sits under HOME too: local-run.sh's single-process copy, and the macOS default dir its links point to.
   const browsers = [env.PLAYWRIGHT_BROWSERS_PATH, platform === "darwin" && env.HOME ? join(env.HOME, "Library/Caches/ms-playwright") : undefined];
-  const reads = [prefix, ...browsers].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
+  // A Python target's .venv/bin/python links into uv's Python dir: "Failed to query Python interpreter" without it.
+  const uvPython = env.UV_PYTHON_INSTALL_DIR ?? (env.HOME ? join(env.HOME, ".local/share/uv/python") : undefined);
+  const reads = [prefix, ...browsers, uvPython].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
   if (reads.length) settings.sandbox.filesystem.allowRead = reads;
   if (preview) settings.sandbox.network.allowLocalBinding = true; // the author starts the target's dev server
   // tsx always opens an IPC pipe in TMPDIR (/tmp/claude in the sandbox). macOS allows it through allowUnixSockets;
@@ -93,7 +95,8 @@ export function claudeEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.Pr
 
 // The sandbox hides HOME, so npm's cache (~/.npm) and ~/.gitconfig fail with EPERM: a code agent keeps the cache in the
 // clone's run/, which git excludes, and reads no global git config, as the factory's own git calls (repo.ts).
-export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string): NodeJS.ProcessEnv => (job.tools === "code" ? { npm_config_cache: join(cwd, "run", "npm-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } : {});
+// The sandbox lets the agent write only in the clone, so npm and uv keep their caches there (uv: "Could not acquire lock" in ~/.cache/uv).
+export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string): NodeJS.ProcessEnv => (job.tools === "code" ? { npm_config_cache: join(cwd, "run", "npm-cache"), UV_CACHE_DIR: join(cwd, "run", "uv-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } : {});
 
 // Pairs each tool_use (assistant line) with its tool_result (user line) by id. Feed it the stream line by line.
 export function toolCalls(now: () => number = Date.now): { line(l: string): ToolCall[] } {

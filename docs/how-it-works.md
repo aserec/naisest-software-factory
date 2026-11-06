@@ -56,7 +56,7 @@ A work item has at most one state label at a time.
 | `factory_blocked` | The factory stopped. A person must look. |
 | `factory_done` | Merged and verified. |
 
-An active run is any of `factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`. Adding `factory_ready` to an item that is `factory_needs_info` or `factory_done` starts a new run. On a `factory_blocked` item it continues the blocked run at the step that blocked (prepare patch to decision), with new rounds for that step. It does so only when the factory's newest block comment ends with `Blocked run: pipeline <n>` and that run's record can be loaded and belongs to this item. Otherwise it starts a new run, and if the record was the problem, it comments why.
+An active run is any of `factory_running`, `factory_waiting`, `factory_stopped`, `factory_needs_approval`. Each repo has 2 run slots. `factory_needs_approval` holds none, since the factory's work on it is done. Adding `factory_ready` to an item that is `factory_needs_info` or `factory_done` starts a new run. On a `factory_blocked` item it continues the blocked run at the step that blocked (prepare patch to decision), with new rounds for that step. It does so only when the factory's newest block comment ends with `Blocked run: pipeline <n>` and that run's record can be loaded and belongs to this item. Otherwise it starts a new run, and if the record was the problem, it comments why.
 
 The factory also adds progress labels. They stay next to the state label. A new run removes all of them except `factory_watcher`; a continued run keeps them.
 

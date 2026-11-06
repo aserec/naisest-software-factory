@@ -16,7 +16,7 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
   if (free <= 0) {
     // stderr, so local-factory.sh's list stays clean; a stall must not look like a hang in its log.
     const waiting = (await ctx.tracker.list("ready")).length;
-    if (waiting) console.error(`${waiting} ready ticket(s) wait: ${active} runs are active (running, waiting, stopped or needs approval), the limit is ${MAX_RUNS_PER_REPO}`);
+    if (waiting) console.error(`${waiting} ready ticket(s) wait: ${active} runs are active (running, waiting or stopped), the limit is ${MAX_RUNS_PER_REPO}`);
     return [];
   }
   // A pending restart owns its ticket: handleRequests starts it, also after a failed start.

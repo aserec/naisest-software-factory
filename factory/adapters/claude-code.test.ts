@@ -253,19 +253,24 @@ test("settings allow the target's own commands with any arguments, and nothing e
 
 test("an nvm node under HOME gets its install dir readable in the sandbox; a node elsewhere adds nothing", () => {
   const nvm = factorySettings({ HOME: "/home/a" }, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/home/a/.nvm/versions/node/v22/bin/node");
-  expect(nvm.sandbox.filesystem.allowRead).toEqual(["/home/a/.nvm/versions/node/v22", "/home/a/Library/Caches/ms-playwright"]);
+  expect(nvm.sandbox.filesystem.allowRead).toEqual(["/home/a/.nvm/versions/node/v22", "/home/a/Library/Caches/ms-playwright", "/home/a/.local/share/uv/python"]);
   expect(nvm.permissions.deny).toContain("Read(//home/a/.*/**)");
-  const sys = factorySettings({ HOME: "/home/a" }, "/opt/hooks", "/w/run/target", undefined, false, "linux", [], "/usr/local/bin/node");
+  const sys = factorySettings({ HOME: "/home/a", UV_PYTHON_INSTALL_DIR: "/opt/uv-python" }, "/opt/hooks", "/w/run/target", undefined, false, "linux", [], "/usr/local/bin/node");
   expect(sys.sandbox.filesystem.allowRead).toBeUndefined();
+});
+
+test("uv's Python dir under HOME is readable in the sandbox, since a target's .venv/bin/python links into it", () => {
+  const s = factorySettings({ HOME: "/home/a" }, "/opt/hooks", "/w/run/target", undefined, false, "linux", [], "/usr/local/bin/node");
+  expect(s.sandbox.filesystem.allowRead).toEqual(["/home/a/.local/share/uv/python"]);
 });
 
 test("Chromium under HOME is readable in the sandbox: the browsers dir and, on macOS, the default dir its links point to", () => {
   const s = factorySettings({ HOME: "/home/a", PLAYWRIGHT_BROWSERS_PATH: "/home/a/Library/Caches/ms-playwright-sandbox" }, "/opt/hooks", "/w/run/target", undefined, true, "darwin", [], "/usr/local/bin/node");
-  expect(s.sandbox.filesystem.allowRead).toEqual(["/home/a/Library/Caches/ms-playwright-sandbox", "/home/a/Library/Caches/ms-playwright"]);
+  expect(s.sandbox.filesystem.allowRead).toEqual(["/home/a/Library/Caches/ms-playwright-sandbox", "/home/a/Library/Caches/ms-playwright", "/home/a/.local/share/uv/python"]);
 });
 
-test("a code agent keeps npm's cache in the clone's run dir; an agent without tools gets no extra variable", () => {
-  expect(codeEnv({ tools: "code" }, "/w/run/target")).toEqual({ npm_config_cache: "/w/run/target/run/npm-cache", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
+test("a code agent keeps npm's and uv's caches in the clone's run dir; an agent without tools gets no extra variable", () => {
+  expect(codeEnv({ tools: "code" }, "/w/run/target")).toEqual({ npm_config_cache: "/w/run/target/run/npm-cache", UV_CACHE_DIR: "/w/run/target/run/uv-cache", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
   expect(codeEnv({ tools: "none" }, "/tmp/empty")).toEqual({});
 });
 

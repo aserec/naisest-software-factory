@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { decideStart } from "./run";
+import { activeRuns, decideStart } from "./run";
 import type { FactoryEvent } from "../seams";
 
 const e: FactoryEvent = { kind: "ready", ticket: "8", actor: "devone" };
@@ -28,4 +28,10 @@ test("an untrusted person on a ticket with an active run gets not-member", () =>
 test("a start needs the ready state read live, not only the event", () => {
   expect(decideStart(e, { actorTrusted: true, state: "needs_info", runningInRepo: 0 })).toEqual({ start: false, reason: "not-ready" });
   expect(decideStart(e, { actorTrusted: true, runningInRepo: 0 })).toEqual({ start: false, reason: "not-ready" });
+});
+
+test("a ticket in needs approval holds no run slot: running, waiting and stopped do", async () => {
+  const states: Record<string, string[]> = { running: ["1"], waiting: ["2"], stopped: ["3"], needs_approval: ["4", "5"] };
+  const ctx = { tracker: { list: async (s: string) => states[s] ?? [] } } as any;
+  expect(await activeRuns(ctx)).toBe(3);
 });

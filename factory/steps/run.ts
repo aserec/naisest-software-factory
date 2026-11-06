@@ -37,9 +37,9 @@ export function decideStart(e: FactoryEvent, ctx: { actorTrusted: boolean; state
   return { start: true };
 }
 
-// Tickets in the repo that hold a run slot.
+// Tickets in the repo that hold a run slot. needs_approval does not: the factory's work is done, and a person's change request sets it ready again.
 export async function activeRuns(ctx: StepContext): Promise<number> {
-  const lists = await Promise.all(ACTIVE_STATES.map((s) => ctx.tracker.list(s)));
+  const lists = await Promise.all(ACTIVE_STATES.filter((s) => s !== "needs_approval").map((s) => ctx.tracker.list(s)));
   return lists.reduce((n, l) => n + l.length, 0);
 }
 // How long a dashboard restart owns the ready the factory set for it (readyActor).
