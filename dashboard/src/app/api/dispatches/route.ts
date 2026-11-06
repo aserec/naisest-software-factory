@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { dispatchInput } from "software-factory/run-events";
 import { auth, factoryAuthorized } from "@/server/auth";
 import { getDb } from "@/server/db-instance";
@@ -15,8 +16,9 @@ export async function POST(req: Request) {
   if (!readTargets().some((t) => t.name === r.data.target)) return Response.json({ error: `unknown target ${r.data.target}` }, { status: 400 });
   const db = getDb();
   const { id } = db.addDispatch(r.data);
-  // Saved first: if the start fails, the loop starts the run later. 202, because the ticket comes later.
-  await startDispatches({ db, ci: getCi(), now: new Date() });
+  // Saved first: if the start fails, the loop starts the run later. 202, because the ticket comes later, and the start
+  // runs after the answer, so a slow CI never holds up the caller.
+  after(() => startDispatches({ db, ci: getCi(), now: new Date() }));
   return Response.json({ id }, { status: 202 });
 }
 

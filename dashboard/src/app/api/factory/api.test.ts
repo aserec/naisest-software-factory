@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // The dispatch route starts a run through the CI: the test keeps the targets it was asked to start.
 const started = vi.hoisted(() => [] as string[]);
 vi.mock("@/server/compose", () => ({ getCi: () => ({ startDispatch: async (target: string) => void started.push(target) }) }));
+// after() needs a live request; here it keeps the work, and the test runs it once the answer is back.
+const afterAnswer = vi.hoisted(() => [] as (() => unknown)[]);
+vi.mock("next/server", async (real) => ({ ...(await real<typeof import("next/server")>()), after: (fn: () => unknown) => void afterAnswer.push(fn) }));
 
 process.env.DASHBOARD_DB = ":memory:";
 process.env.FACTORY_DASHBOARD_TOKEN = "secret-token";
@@ -122,6 +125,8 @@ describe("dispatches", async () => {
     expect((await pending({ authorization: "Bearer dispatch-token" })).status).toBe(401);
     const r = await dispatch(body);
     expect(r.status).toBe(202);
+    expect(started).toEqual([]); // the answer does not wait for the CI
+    await Promise.all(afterAnswer.splice(0).map((fn) => fn()));
     expect(started).toEqual(["react_frontend"]); // the run starts at once, not on a schedule
     const { id } = (await r.json()) as { id: string };
     expect(((await (await pending()).json()) as { id: string }[]).map((s) => s.id)).toContain(id);

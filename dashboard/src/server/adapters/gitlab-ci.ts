@@ -11,6 +11,8 @@ const base = () => {
 };
 
 const LOG_BYTES = 200_000;
+// Every GitLab call gives up after this, so a hung GitLab cannot hold up the loop part that waits on it.
+const timeout = () => AbortSignal.timeout(30_000);
 
 const id = (v: string) => {
   if (!/^\d+$/.test(v)) throw new Error(`not a numeric id: ${v}`);
@@ -22,7 +24,7 @@ export function makeGitLabCi(fetchFn: typeof fetch = fetch, now: () => Date = ()
     if (!process.env.FACTORY_PROJECT_ID) throw new NotSetUp("FACTORY_PROJECT_ID is not set. Set it to the factory's GitLab project to see its running jobs.");
     return id(process.env.FACTORY_PROJECT_ID);
   };
-  const get = (path: string) => fetchFn(`${base()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" } });
+  const get = (path: string) => fetchFn(`${base()}/api/v4${path}`, { headers: { "PRIVATE-TOKEN": process.env.GITLAB_READ_TOKEN ?? "" }, signal: timeout() });
   const getJson = async <T>(path: string) => {
     const r = await get(path);
     if (!r.ok) throw new Error(`GitLab ${r.status} for ${path}`);
@@ -71,14 +73,14 @@ export function makeGitLabCi(fetchFn: typeof fetch = fetch, now: () => Date = ()
       const token = process.env.FACTORY_TRIGGER_TOKEN;
       if (!token) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
       const body = new URLSearchParams({ token, ref: "main", "variables[FACTORY_PIPELINE]": "dispatch", "variables[FACTORY_TARGET]": target });
-      const r = await fetchFn(`${base()}/api/v4/projects/${factory()}/trigger/pipeline`, { method: "POST", body });
+      const r = await fetchFn(`${base()}/api/v4/projects/${factory()}/trigger/pipeline`, { method: "POST", body, signal: timeout() });
       if (!r.ok) throw new Error(`GitLab ${r.status} for the dispatch run of ${target}`);
     },
 
     // Besides startDispatch, the only write the dashboard makes to GitLab.
     // `run` is a GitLab pipeline id.
     async cancel(run) {
-      const r = await fetchFn(`${base()}/api/v4/projects/${factory()}/pipelines/${id(run)}/cancel`, { method: "POST", headers: { "PRIVATE-TOKEN": process.env.GITLAB_CANCEL_TOKEN ?? "" } });
+      const r = await fetchFn(`${base()}/api/v4/projects/${factory()}/pipelines/${id(run)}/cancel`, { method: "POST", headers: { "PRIVATE-TOKEN": process.env.GITLAB_CANCEL_TOKEN ?? "" }, signal: timeout() });
       if (!r.ok) throw new Error(`GitLab ${r.status} for the pipeline cancel`);
     },
 

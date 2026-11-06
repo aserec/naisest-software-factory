@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { eventsOfType, type EventData, type EventOf, type RunEvent } from "software-factory/run-events";
 import { Bot, FilePen, FileText, FolderSearch, Globe, ListTodo, type LucideIcon, Search, SquareTerminal, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { duration, usd } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { capitalize, duration, httpUrl, usd } from "@/lib/utils";
 import type { FileLink } from "@/server/compose";
 import { LoadError, SectionHeading } from "./shell";
 
@@ -78,10 +79,12 @@ export function Verdict({ outcome, className = "" }: { outcome: EventData<"triag
           </li>
         ))}
       </ul>
-      {outcome.url && (
+      {httpUrl(outcome.url) ? (
         <a href={outcome.url} target="_blank" rel="noreferrer" className="mt-2 inline-block break-all underline underline-offset-4 hover:decoration-2">
           {outcome.url}
         </a>
+      ) : (
+        outcome.url && <p className="mt-2 break-all">{outcome.url}</p>
       )}
     </section>
   );
@@ -259,7 +262,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
     queryKey: ["log", start.job],
     enabled: !!start.job,
     queryFn: async () => {
-      const r = await fetch(`/api/jobs/${encodeURIComponent(start.job!)}/log`);
+      const r = await api(`/api/jobs/${encodeURIComponent(start.job!)}/log`);
       if (!r.ok) throw new Error(`The job log answered ${r.status}`);
       return r.text();
     },
@@ -309,7 +312,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
               <ul className="mt-2 list-disc divide-y divide-pill-warning-ink/10 pl-5">
                 {decision.reasons.map((r) => (
                   <li key={r} className="py-1.5 text-pretty">
-                    {r[0].toUpperCase() + r.slice(1)}
+                    {capitalize(r)}
                   </li>
                 ))}
               </ul>
@@ -324,9 +327,13 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
               )}
               {decision.changeUrl && (
                 <Fact label="Change">
-                  <a href={decision.changeUrl} target="_blank" rel="noreferrer" className="break-all underline underline-offset-4 hover:decoration-2">
-                    {decision.changeUrl}
-                  </a>
+                  {httpUrl(decision.changeUrl) ? (
+                    <a href={decision.changeUrl} target="_blank" rel="noreferrer" className="break-all underline underline-offset-4 hover:decoration-2">
+                      {decision.changeUrl}
+                    </a>
+                  ) : (
+                    decision.changeUrl
+                  )}
                 </Fact>
               )}
             </dl>

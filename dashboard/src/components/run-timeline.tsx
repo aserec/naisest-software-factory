@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { eventsOfType, STEPS, stepIndex, type EventType, type RunEvent } from "software-factory/run-events";
 import { Badge } from "@/components/ui/badge";
 import { Sheet } from "@/components/ui/sheet";
-import { duration, usd, words } from "@/lib/utils";
+import { capitalize, duration, usd, words } from "@/lib/utils";
 import { CostByModel, Fact, StepDetail, Verdict } from "./step-detail";
 import type { FileLink } from "@/server/compose";
 import type { RunSummary } from "@/server/db";
@@ -343,7 +343,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
           <ul className="divide-y divide-pill-warning-ink/10">
             {why.map((reason) => (
               <li key={reason} className="py-2 text-pretty">
-                {reason[0].toUpperCase() + reason.slice(1)}
+                {capitalize(reason)}
               </li>
             ))}
           </ul>

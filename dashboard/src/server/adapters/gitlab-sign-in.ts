@@ -9,7 +9,7 @@ export function makeGitLabSignIn(fetchFn: typeof fetch = fetch): SignIn {
   const gitlab = () => gitlabUrl() ?? "";
   const api = (path: string) => `${gitlab()}/api/v4${path}`;
 
-  // Reads a user's level on the factory project with the server's read token (Ruling R22), so the user's own GitLab token
+  // Reads a user's level on the factory project with the server's read token, so the user's own GitLab token
   // is needed only once, at sign-in. A user who is not a member (GitLab answers 404) is level 0. A blocked user counts as 0 too.
   // Undefined on any other non-OK answer.
   async function memberLevel(userId: number): Promise<number | undefined> {

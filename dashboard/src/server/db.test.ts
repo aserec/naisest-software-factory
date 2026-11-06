@@ -197,6 +197,27 @@ describe("runs", () => {
     expect(db.runs({})).toHaveLength(2);
   });
 
+  it("latestRuns gives only the newest run of each work item asked for", () => {
+    const db = openDb(":memory:");
+    db.addEvents([
+      ev("run_start", {}, { run: "old", at: at(1) }),
+      ev("run_start", {}, { run: "new", at: at(2) }),
+      ev("step_start", {}, { run: "new", step: "triage", at: at(2, 1) }),
+      ev("run_start", {}, { run: "r2", ticket: "T-2" }),
+      ev("run_start", {}, { run: "r3", ticket: "T-3" }),
+    ]);
+    const runs = db.latestRuns([{ target: "react_frontend", ticket: "T-1" }, { target: "react_frontend", ticket: "T-2" }, { target: "react_frontend", ticket: "T-9" }]);
+    expect(runs.map((r) => r.run).sort()).toEqual(["new", "r2"]);
+    expect(runs.find((r) => r.run === "new")?.lastStep?.step).toBe("triage");
+  });
+
+  it("newestPipeline gives the pipeline of the run's newest step_start", () => {
+    const db = openDb(":memory:");
+    expect(db.newestPipeline("r1")).toBeUndefined();
+    db.addEvents([ev("step_start", {}, { step: "a", pipeline: "7" }), ev("step_end", { outcome: "next" }, { step: "a", pipeline: "8" }), ev("step_start", {}, { step: "b", pipeline: "9" })]);
+    expect(db.newestPipeline("r1")).toBe("9");
+  });
+
   it("keeps code review as the last step while a patch step inside it runs and ends", () => {
     const db = openDb(":memory:");
     db.addEvents([

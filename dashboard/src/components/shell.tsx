@@ -146,7 +146,7 @@ export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
         <ChevronDown className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-56 rounded-lg border bg-background p-1 text-sm shadow-lg">
+        <DropdownMenu.Content align="end" sideOffset={6} className="z-50 min-w-56 rounded-lg border bg-background p-1 text-sm">
           {me && (
             <>
               <DropdownMenu.Label className="px-2.5 py-2">
