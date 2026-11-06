@@ -31,11 +31,11 @@ const ADAPTERS = {
   ci: { gitlab: makeGitLabCi, local: makeLocalCi },
   // The github trackers and code host get FACTORY_GITHUB_TOKEN; the gitlab ones get FACTORY_GITLAB_TOKEN.
   tracker: {
-    gitlab: (token: string, target: Target) => makeGitLabTracker(new GitLab(GITLAB_URL, token), target.projectPath),
-    github: (token: string, target: Target) => makeGitHubTracker(new GitHub(token), needRepo(target), undefined, target.sharedAccount),
+    gitlab: (token: string, target: Target) => makeGitLabTracker(new GitLab(GITLAB_URL, token), target.projectPath, target.teamsRelay),
+    github: (token: string, target: Target) => makeGitHubTracker(new GitHub(token), needRepo(target), undefined, target.sharedAccount, target.teamsRelay),
     "github-project": (token: string, target: Target) => {
       if (!target.githubProject) throw new Error(`Target ${target.name} needs githubProject for the github-project tracker`);
-      return makeGitHubTracker(new GitHub(token), needRepo(target), target.githubProject, target.sharedAccount);
+      return makeGitHubTracker(new GitHub(token), needRepo(target), target.githubProject, target.sharedAccount, target.teamsRelay);
     },
   },
   codeHost: {

@@ -3,12 +3,12 @@ import { githubApi } from "./adapters/github-url";
 import { gitlabUrl } from "./adapters/gitlab-url";
 import { trackerOf } from "./compose";
 import { readTargets, type TargetInfo } from "./targets";
-import { plainText, relayText } from "./teams-relay";
+import { plainText, relayText } from "software-factory/relay";
 
 // The Teams inbound bridge (spec 2026-10-28 §9 Teams, phase 2). A Teams outgoing webhook, one per target, POSTs here when someone
 // @mentions it. The bridge checks the HMAC, finds the first `#123`, and posts the message on that work item as a quoted relay.
-// The relay is posted by the relay bot, a tracker user below Developer (GitLab Reporter, GitHub read). The factory acts only on comments
-// of trusted members, so it never acts on a relay and never gives one to an agent: a Teams message cannot start, stop or steer a run.
+// The relay is posted by the relay bot, a tracker user below Developer (GitLab Reporter, GitHub read), so the comment itself never counts.
+// The factory acts on it only when a trusted member adds 👍 on the tracker, and then as that member's comment (factory/relay.ts).
 // Members who want the factory to act comment on the work item themselves.
 
 // The security token Teams shows once when the outgoing webhook is made, per target: TEAMS_OUTGOING_TOKEN_<TARGET>.
@@ -58,5 +58,5 @@ export async function handleTeams(req: Request, target: string): Promise<Respons
   const res = await fetch(r.url, r.init).catch(() => undefined);
   if (res?.status === 404) return reply(`${target} has no work item #${ticket}. Nothing was posted.`);
   if (!res?.ok) return reply(`The bridge could not post to ${target} #${ticket}${res ? ` (status ${res.status})` : ""}. Try again.`);
-  return reply(`Posted on ${target} #${ticket}: ${trackerOf(t).ticketUrl(t, ticket)}. It is information only: to steer the factory, comment on the work item.`);
+  return reply(`Posted on ${target} #${ticket}: ${trackerOf(t).ticketUrl(t, ticket)}. Add 👍 to it there for the factory to act on it.`);
 }

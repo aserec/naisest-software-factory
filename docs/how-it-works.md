@@ -235,7 +235,7 @@ pip-audit:
 
 ## Teams messages in
 
-Mention the target's outgoing webhook in a Teams channel with a work item number, for example `@factory-web #123 the login page is blank`. The dashboard checks Teams' HMAC signature and posts the message on that work item as a quote, from the relay bot. The comment is for people only. The factory never acts on it and never shows it to an agent, because the relay bot is not a member with Developer rights. A message without a number gets a reply asking for one. To steer a run, comment on the work item. See [the decision](decisions/2026-11-06-dashboard-relays-teams-messages.md).
+Mention the target's outgoing webhook in a Teams channel with a work item number, for example `@factory-web #123 the login page is blank`. The dashboard checks Teams' HMAC signature and posts the message on that work item as a quote, from the relay bot. The relay bot is not a member with Developer rights, so the comment does nothing yet. A member opens the work item and adds 👍 to the comment. The factory then reads the quoted text as that member's comment: `@factory stop` stops the run, `@factory resume` resumes it at the next poll, and a `@factory` request is a request. It goes through the injection check like any comment. A 👍 given before the comment was last edited does not count. A message without a number gets a reply asking for one. See [the decision](decisions/2026-11-06-dashboard-relays-teams-messages.md).
 
 ## Weekly self-improvement
 

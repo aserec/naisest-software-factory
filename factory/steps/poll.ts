@@ -6,7 +6,7 @@ import { makeContext } from "../compose";
 import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
 import { pollRequests, replyOnChanges } from "./requests";
-import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleReadyRequests, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeSwitchedOff } from "./run";
+import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleReadyRequests, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeRelayed, resumeSwitchedOff } from "./run";
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
@@ -71,7 +71,9 @@ export async function main(ctx?: StepContext) {
       console.log(`Replies on changes failed: ${errText(e)}`);
     }
     console.log(`Started build runs for tickets: ${(await pollReady(ctx, handled)).join(", ") || "none"}`);
-    console.log(`Resumed runs a switch stopped: ${(await resumeSwitchedOff(ctx, handled)).join(", ") || "none"}`);
+    const switched = await resumeSwitchedOff(ctx, handled);
+    console.log(`Resumed runs a switch stopped: ${switched.join(", ") || "none"}`);
+    console.log(`Resumed runs on a confirmed Teams resume: ${(await resumeRelayed(ctx, [...handled, ...switched])).join(", ") || "none"}`);
   } finally {
     await ctx.dashboard.flush(); // send() only queues: the restart's run_end must go out before the process ends
   }

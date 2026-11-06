@@ -3,6 +3,7 @@
 import { errText, isNotFound } from "../errors";
 import { AI_LINE, commandIn, fingerprintMarker } from "../conversation";
 import type { GitHub } from "../github";
+import { confirmedRelays, withRelays } from "../relay";
 import { findSecrets } from "../rules";
 import { ENDED_STATES, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
@@ -131,7 +132,8 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
 
 // sharedAccount: the token's account is also a person's (a trial before the factory has its own account). That
 // person's Ready, merges by hand and comments then count; the factory's own comments are told apart by the AI line.
-export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number, sharedAccount = false): Tracker {
+// relayUser: the Teams relay bot (relay.ts). Its comments count only through a person's 👍.
+export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number, sharedAccount = false, relayUser?: string): Tracker {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`GitHub repo must be owner/name, got ${repo}`);
   const base = `/repos/${repo}/issues`;
   let bot: Promise<string> | undefined;
@@ -198,12 +200,15 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
     },
     async comments(ref, since) {
       const name = await botName();
-      // GitHub's since filters on the edit time; keep only comments created after it, newest first.
-      const all = await gh.all(`${base}/${Number(ref)}/comments?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`);
-      return all
-        .filter((c) => !since || Date.parse(c.created_at) > Date.parse(since))
-        .reverse()
-        .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && (!sharedAccount || String(c.body ?? "").startsWith(AI_LINE)), body: c.body ?? "", at: c.created_at }));
+      // GitHub's since filters on the edit time; withRelays keeps only comments created after it, newest first.
+      // A relay comment older than `since` can have a newer 👍, so with a relay bot every comment is read.
+      const all = await gh.all(`${base}/${Number(ref)}/comments?per_page=100${since && !relayUser ? `&since=${encodeURIComponent(since)}` : ""}`);
+      const own = all.map((c) => ({ author: c.user.login, byFactory: c.user.login === name && (!sharedAccount || String(c.body ?? "").startsWith(AI_LINE)), body: c.body ?? "", at: c.created_at })).reverse();
+      const relayed = await Promise.all(all.filter((c) => relayUser && c.user.login === relayUser && c.reactions?.["+1"] > 0).map(async (c) => {
+        const up = await gh.all(`/repos/${repo}/issues/comments/${c.id}/reactions?content=%2B1&per_page=100`);
+        return confirmedRelays({ body: c.body ?? "", editedAt: c.updated_at ?? c.created_at }, up.map((r) => ({ by: r.user.login, at: r.created_at })));
+      }));
+      return withRelays(own, relayed.flat(), since);
     },
     // GitHub webhook payloads: a factory_ready label added, an `@factory stop|resume` comment, a merged factory PR.
     parseEvent(payload) {

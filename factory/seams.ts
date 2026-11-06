@@ -20,7 +20,7 @@ export interface Ticket {
   tags: string[]; // the non-factory labels
   assignees: PersonRef[]; url: string;
 }
-export interface Comment { author: PersonRef; byFactory: boolean; body: string; at: string }
+export interface Comment { author: PersonRef; byFactory: boolean; body: string; at: string; relayed?: true } // relayed: a person's 👍 on a Teams relay comment (relay.ts)
 
 export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }

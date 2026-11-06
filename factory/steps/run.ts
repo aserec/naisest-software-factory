@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { emit, emitFor, runIds, type RunIds } from "../emit";
 import type { PausableStep } from "../record";
-import { conversation, md, type Read } from "../conversation";
+import { commandIn, conversation, md, type Read } from "../conversation";
 import { errText, isNotFound } from "../errors";
 import { STOP_COMMAND } from "../inbox-file";
 import { STEPS, SWITCHES, type ControlRequest } from "../run-events";
@@ -327,6 +327,25 @@ export async function resumeSwitchedOff(ctx: StepContext, skip: TicketRef[] = []
     const name = note?.kind === "stopped" && note.reason && /^switch off (\w+)$/.exec(note.reason)?.[1];
     if (note?.kind !== "stopped" || !name || !control.resumeOn(name as SwitchName)) continue;
     if (await startStopped(ctx, ref, note)) started.push(ref);
+  }
+  return started;
+}
+
+// The poller: a person's 👍 on a relayed `@factory resume` (relay.ts). A 👍 sends no comment webhook, so the event step never
+// sees it; a person's own resume comment does send one and is left to the event step, so a run never starts twice.
+export async function resumeRelayed(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
+  const started: TicketRef[] = [];
+  for (const { ref } of await ctx.tracker.list("stopped")) {
+    if (skip.includes(ref)) continue;
+    try {
+      const note = await conversation(ctx).newest(ref, "stopped");
+      if (note?.kind !== "stopped") continue; // a cancelled run can only be restarted
+      let ok = false;
+      for (const c of await ctx.tracker.comments(ref, note.at)) if (c.relayed && commandIn(c.body) === "resume" && (ok = await ctx.tracker.trusted(c.author))) break;
+      if (ok && (await startStopped(ctx, ref, note))) started.push(ref);
+    } catch (e) {
+      console.log(`Relayed resume of ticket ${ref} failed: ${errText(e)}`);
+    }
   }
   return started;
 }

@@ -16,7 +16,7 @@ import * as preparePatchStep from "./prepare-patch";
 import { conversation, md, noteText } from "../conversation";
 import { pollRequests } from "./requests";
 import { parseFactoryFile } from "../config";
-import { endIfClosed, handleRequests, resumeSwitchedOff } from "./run";
+import { endIfClosed, handleRequests, resumeRelayed, resumeSwitchedOff } from "./run";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GITLAB_URL } from "../gitlab";
@@ -1642,6 +1642,27 @@ test("a person's stop note gives its reason, and the poller does not resume it",
   const w = await stopRecord();
   expect(w.workItemComments.at(-1)).toMatch(/^Reason: stopped by @factory stop$/m);
   expect(await resumeSwitchedOff(w.ctx)).toEqual([]);
+});
+test("the poller resumes a stopped run on a member's 👍 on a relayed @factory resume, and only then", async () => {
+  const w = await stopRecord();
+  const own = w.ctx.tracker.comments;
+  let extra: Awaited<ReturnType<typeof own>> = [];
+  w.ctx.tracker.comments = async (ref, since) => [...extra, ...(await own(ref, since))];
+  const later = new Date(Date.now() + 60_000).toISOString();
+  expect(await resumeRelayed(w.ctx)).toEqual([]);
+  // A person's own resume comment sends a webhook, and the event step resumes it: the poller leaves it.
+  extra = [{ author: "dev", byFactory: false, body: "@factory resume", at: later }];
+  expect(await resumeRelayed(w.ctx)).toEqual([]);
+  extra = [{ author: "dev", byFactory: false, body: "@factory resume", at: later, relayed: true }];
+  expect(await resumeRelayed(w.ctx)).toEqual(["8"]);
+  expect(w.ci.started.at(-1)).toEqual({ kind: "build", ticket: "8", buildRun: "1" });
+});
+test("the poller ignores a relayed resume confirmed by someone the target does not trust", async () => {
+  const w = await stopRecord();
+  const own = w.ctx.tracker.comments;
+  w.ctx.tracker.comments = async (ref, since) => [{ author: "guest", byFactory: false, body: "@factory resume", at: new Date(Date.now() + 60_000).toISOString(), relayed: true }, ...(await own(ref, since))];
+  w.ctx.tracker.trusted = async (a) => a !== "guest";
+  expect(await resumeRelayed(w.ctx)).toEqual([]);
 });
 test("questions off stops before the questions agent, and its resume asks the questions without triage again", async () => {
   const first = fakeWorld({ jev1: { clarity: 4 } });

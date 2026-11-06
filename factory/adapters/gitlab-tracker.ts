@@ -1,5 +1,6 @@
 import { isNotFound } from "../errors";
 import { AI_LINE, commandIn, fingerprintMarker, isRequest, noQuickActions } from "../conversation";
+import { confirmedRelays, withRelays } from "../relay";
 import { GitLab, refuseSecrets } from "../gitlab";
 import { ENDED_STATES, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
@@ -34,7 +35,8 @@ function toTicket(w: any): Ticket {
   };
 }
 
-export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker {
+// relayUser: the Teams relay bot (relay.ts). Its comments count only through a person's 👍.
+export function makeGitLabTracker(gitlab: GitLab, projectPath: string, relayUser?: string): Tracker {
   let project: Promise<number> | undefined;
   let bot: Promise<string> | undefined;
   const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
@@ -109,10 +111,15 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     },
     async comments(ref, since) {
       const bot = await botName();
-      const notes = await gitlab.getJson(`${await issueUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
-      return notes
-        .filter((n: any) => !n.system && (!since || Date.parse(n.created_at) > Date.parse(since)))
-        .map((n: any) => ({ author: n.author.username, byFactory: n.author.username === bot, body: n.body, at: n.created_at }));
+      const url = await issueUrl(ref);
+      const notes = (await gitlab.getJson(`${url}/notes?sort=desc&order_by=created_at&per_page=100`)).filter((n: any) => !n.system);
+      const own = notes.map((n: any) => ({ author: n.author.username, byFactory: n.author.username === bot, body: n.body, at: n.created_at }));
+      // A relay comment older than `since` can have a newer 👍, so relays are read whatever their age.
+      const relayed = await Promise.all(notes.filter((n: any) => relayUser && n.author.username === relayUser).map(async (n: any) => {
+        const awards = await gitlab.getJson(`${url}/notes/${n.id}/award_emoji?per_page=100`);
+        return confirmedRelays({ body: n.body, editedAt: n.updated_at ?? n.created_at }, awards.filter((a: any) => a.name === "thumbsup").map((a: any) => ({ by: a.user.username, at: a.created_at })));
+      }));
+      return withRelays(own, relayed.flat(), since);
     },
     parseEvent(payload) {
       const p = payload as any;

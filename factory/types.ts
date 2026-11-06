@@ -26,6 +26,7 @@ export interface Target {
   tracker?: string; // replaces seams.yml tracker for this target
   codeHost?: string; // replaces seams.yml codeHost for this target
   sharedAccount?: boolean; // github trackers: the token's account is also a person's, whose Ready counts
+  teamsRelay?: string; // the Teams relay bot's tracker username (relay.ts)
   stuckMinutes?: Record<string, number>; // the dashboard reads it; the factory only accepts it
 }
 export interface FactoryCommands { install: string; lint: string; test: string; build: string; smoke?: string; preview?: string; previewUrl?: string }

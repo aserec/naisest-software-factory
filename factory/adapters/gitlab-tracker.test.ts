@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "vitest";
 import { AI_LINE } from "../conversation";
 import { GitLab } from "../gitlab";
+import { relayText } from "../relay";
 import { makeGitLabTracker } from "./gitlab-tracker";
 
 const PATH = "acme/web/react_frontend";
@@ -149,6 +150,19 @@ describe("comments", () => {
     expect((await tracker().comments("8", "2026-01-02T00:00:00Z")).map((c) => c.body)).toEqual(["b"]);
     // Times, not strings: 00:30+01:00 is 2026-01-01T23:30Z, before "a".
     expect((await tracker().comments("8", "2026-01-02T00:30:00+01:00")).map((c) => c.body)).toEqual(["b", "a"]);
+  });
+  test("a 👍 on a relay comment, given after its last edit, is a comment of the person who gave it", async () => {
+    const body = relayText("Ann", "@factory stop");
+    routes["/projects/7/issues/8/notes"] = { body: [{ id: 41, author: { username: "teams-relay" }, body, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }] };
+    routes["/projects/7/issues/8/notes/41/award_emoji"] = { body: [
+      { name: "thumbsup", user: { username: "ann" }, created_at: "2026-01-05T00:00:00Z" },
+      { name: "heart", user: { username: "bob" }, created_at: "2026-01-05T00:00:00Z" },
+    ] };
+    const relayed = makeGitLabTracker(new GitLab("https://gl.example", "tok", fakeFetch), PATH, "teams-relay");
+    // Read after `since` by the 👍's time, though the relay comment is older.
+    expect(await relayed.comments("8", "2026-01-02T00:00:00Z")).toEqual([{ author: "ann", byFactory: false, body: "@factory stop", at: "2026-01-05T00:00:00Z", relayed: true }]);
+    // Without a relay bot, the same comment is only a comment of its author.
+    expect((await tracker().comments("8")).map((c) => c.author)).toEqual(["teams-relay"]);
   });
 });
 

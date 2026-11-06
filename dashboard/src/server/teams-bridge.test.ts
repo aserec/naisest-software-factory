@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleTeams, tokenEnv } from "./teams-bridge";
-import { relayText } from "./teams-relay";
+import { relayText } from "software-factory/relay";
 
 const dir = mkdtempSync(join(tmpdir(), "teams-"));
 writeFileSync(join(dir, "web.yml"), "projectPath: group/web\n");

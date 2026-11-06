@@ -28,7 +28,8 @@ Store each one as a masked, protected CI variable.
 
 ### Teams messages in (optional)
 
-- [ ] Make a relay bot user. On GitLab, give it Reporter on each target project and a token with the `api` scope, saved in the dashboard's `deploy/.env` as `TEAMS_RELAY_GITLAB_TOKEN`. On GitHub, give it read access to each target repo and a token that can write issue comments, saved as `TEAMS_RELAY_GITHUB_TOKEN`. Never make it Developer or give it write access, because then Teams users could command the factory.
+- [ ] Make a relay bot user. On GitLab, give it Reporter on each target project and a token with the `api` scope, saved in the dashboard's `deploy/.env` as `TEAMS_RELAY_GITLAB_TOKEN`. On GitHub, give it read access to each target repo and a token that can write issue comments, saved as `TEAMS_RELAY_GITHUB_TOKEN`. Never make it Developer or give it write access, because then its own comments would count without a 👍.
+- [ ] Put the relay bot's username in each target file as `teamsRelay: <username>`. Without it, a 👍 on a relay comment does nothing.
 - [ ] For each target, in Teams, open the team, then Manage team, Apps, and Create an outgoing webhook. Name it, for example `factory-web`. Set the callback URL to `https://<DASHBOARD_HOST>/api/teams/<target>`. Teams shows a security token once. Put it in `deploy/.env` as `TEAMS_OUTGOING_TOKEN_<TARGET>`, with the target name in capitals and `-` as `_`, for example `TEAMS_OUTGOING_TOKEN_REACT_FRONTEND`. Restart the dashboard.
 
 ## 3. Runner files (done in the repo)

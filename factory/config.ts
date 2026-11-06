@@ -57,6 +57,7 @@ const targetSchema = z.object({
   tracker: z.string().min(1).optional(),
   codeHost: z.string().min(1).optional(),
   sharedAccount: z.boolean().optional(),
+  teamsRelay: z.string().min(1).optional(), // the relay bot's tracker username; its comments count only with a person's 👍 (relay.ts)
   stuckMinutes: z.record(z.number().positive()).optional(),
 });
 

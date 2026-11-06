@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { AI_LINE } from "../conversation";
 import { GitHub } from "../github";
+import { relayText } from "../relay";
 import { makeGitHubTracker } from "./github-tracker";
 
 const REPO = "acme/web";
@@ -73,6 +74,18 @@ describe("labels", () => {
       { user: { login: "ann" }, body: "b", created_at: "2026-01-02T00:00:00Z" },
     ];
     expect((await t().comments("8", since)).map((c) => c.body)).toEqual(["b"]);
+  });
+
+  test("a 👍 on a relay comment counts as its giver's comment, and not when the comment was edited after it", async () => {
+    const body = relayText("Ann", "@factory resume");
+    rest[`GET /repos/${REPO}/issues/8/comments?per_page=100`] = [
+      { id: 5, user: { login: "teams-relay" }, body, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", reactions: { "+1": 1 } },
+      { id: 6, user: { login: "teams-relay" }, body, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-09T00:00:00Z", reactions: { "+1": 1 } },
+    ];
+    rest[`GET /repos/${REPO}/issues/comments/5/reactions?content=%2B1&per_page=100`] = [{ user: { login: "ann" }, created_at: "2026-01-05T00:00:00Z" }];
+    rest[`GET /repos/${REPO}/issues/comments/6/reactions?content=%2B1&per_page=100`] = [{ user: { login: "ann" }, created_at: "2026-01-05T00:00:00Z" }];
+    const relayed = makeGitHubTracker(gh, REPO, undefined, false, "teams-relay");
+    expect(await relayed.comments("8", "2026-01-02T00:00:00Z")).toEqual([{ author: "ann", byFactory: false, body: "@factory resume", at: "2026-01-05T00:00:00Z", relayed: true }]);
   });
 
   test("with a shared account, the account's person is trusted and only its comments with the AI line are the factory's", async () => {
