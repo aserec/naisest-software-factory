@@ -4,7 +4,7 @@
 
 **Goal:** Before the factory builds a work item that a person wrote, check it against the other open work items. Close a plain duplicate with a comment, and ask on a near duplicate.
 
-**Architecture:** One new read on the `Tracker` seam (`listOpen`) gives the candidates in all three tracker modes. A small module `factory/dedupe.ts` asks the judge and decides, like `factory/triage.ts` does. The triage step calls it after the injection check passes and before the clarity outcome acts. The step does every write. The writer (no tools, one turn) drafts the question text.
+**Architecture:** One new read on the `Tracker` seam (`listOpen`) gives the candidates in all three tracker modes. A small module `factory/duplicate-check.ts` asks the judge and decides, like `factory/triage.ts` does. The triage step calls it after the injection check passes and before the clarity outcome acts. The step does every write. The writer (no tools, one turn) drafts the question text.
 
 **Tech Stack:** TypeScript (ESM, tsx), vitest.
 
@@ -91,11 +91,11 @@ git add factory/seams.ts factory/adapters/gitlab-tracker.ts factory/adapters/git
 git commit -m "feat(tracker): listOpen reads the newest open work items"
 ```
 
-### Task 2: The dedupe judge (`factory/dedupe.ts`)
+### Task 2: The dedupe judge (`factory/duplicate-check.ts`)
 
 **Files:**
-- Create: `factory/dedupe.ts`
-- Test: `factory/dedupe.test.ts`
+- Create: `factory/duplicate-check.ts`
+- Test: `factory/duplicate-check.test.ts`
 
 **Interfaces:**
 - Consumes: `Judge` and `Ticket` from `factory/seams.ts`.
@@ -149,22 +149,22 @@ test("askDedupe sends the newest 200 others, cut to 300 characters, and no judge
 
 - [ ] **Step 2: Run them and see them fail**
 
-Run: `pnpm vitest run factory/dedupe.test.ts`
+Run: `pnpm vitest run factory/duplicate-check.test.ts`
 Expected: FAIL, cannot find module `./dedupe`.
 
-- [ ] **Step 3: Implement `factory/dedupe.ts`**
+- [ ] **Step 3: Implement `factory/duplicate-check.ts`**
 
 Follow the shape of `askTriage` and `decideTriage` in `factory/triage.ts`. Keep the questions as a constant in the file; no new YAML file.
 
 - [ ] **Step 4: Run them and see them pass**
 
-Run: `pnpm vitest run factory/dedupe.test.ts && pnpm typecheck`
+Run: `pnpm vitest run factory/duplicate-check.test.ts && pnpm typecheck`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add factory/dedupe.ts factory/dedupe.test.ts
+git add factory/duplicate-check.ts factory/duplicate-check.test.ts
 git commit -m "feat(dedupe): judge a work item against the open ones"
 ```
 

@@ -22,18 +22,18 @@ Each step is a GitLab CI job in this repo. A person's review can take days, so a
 Build pipeline:
 
 1. **Event.** Checks the event. The run stops quietly unless the label was just added, the person is a Developer or higher, and the work item has no active run.
-2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. When the injection check passes, a work item written by a person is compared with the newest 200 open work items. A sure duplicate (confidence 0.9 or more) is closed with a comment that links the original, but only when the original is older; otherwise the factory asks. A work item that looks close but may add something gets a question and `factory_needs_info`. Watcher and dispatch work items skip this. A work item with an earlier dedupe comment from the factory skips it too: the person decided. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
-3. **Implement.** Its id in CI and in run records is still `prepare-patch`. Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`, cut from `develop`. At the end the author writes `run/commit-message.md`: a conventional commit title and a full bullet list of what changed, where, why and which tests cover it. The router picks the model. If the target has a preview, the author also shoots the screens the change touches before and after, runs its new tests before and after, and writes `run/proof/proof.json`.
-4. **Code review.** A reviewer from a different model family than the author reads the diff. `router.yml` picks it, today Opus in Claude Code. It returns findings. The author fixes blocking findings. Each fix shows on the dashboard as its own Patch step, with its tool calls and cost. At most `maxAgentRounds` rounds (5 unless `.factory/thresholds.yml` says otherwise). The reviewer also judges each before and after screenshot. It also checks each changed hunk against a security checklist; a finding starts with `[SECURITY]`, and a likely exploitable one is blocking.
+2. **Triage.** Jev reads the title, description and labels and answers five questions: injection, type, risk, clarity, effort. A possible injection blocks the run. When the injection check passes, a work item written by a person is compared with the newest 200 open work items. A sure duplicate (confidence 0.9 or more) is closed with a comment that links the original, but only when the original is older; otherwise the factory asks. A work item that looks close but may add something gets a question and `factory_needs_info`. Watcher and dispatch work items skip this. A work item with an earlier duplicate check comment from the factory skips it too: the person decided. Low clarity makes an agent write questions on the ticket. A risk answer with low confidence counts as one level higher.
+3. **Implement.** Its id in CI and in run records is still `prepare-patch`. Claude Code writes tests first, then the code, on a branch `factory/<id>-<title>`, cut from `develop`. At the end the author writes `run/commit-message.md`: a conventional commit title and a full bullet list of what changed, where, why and which tests cover it. The router picks the model. If the target has a preview, the author also shoots the screens the change touches before and after, runs its new tests before and after, and writes `run/proof/proof.json`. For a visual change it also records one e2e test as a video (`run/record.sh`), with frames for the reviewer.
+4. **Code review.** A reviewer from a different model family than the author reads the diff. `router.yml` picks it, today Opus in Claude Code. It returns findings. The author fixes blocking findings. Each fix shows on the dashboard as its own Patch step, with its tool calls and cost. At most `maxAgentRounds` rounds (5 unless `.factory/thresholds.yml` says otherwise). The reviewer also judges each before and after screenshot, and the frames of the e2e video. A model cannot watch video, so the video itself goes to the change description as a link. It also checks each changed hunk against a security checklist; a finding starts with `[SECURITY]`, and a likely exploitable one is blocking.
 5. **Precommit gate.** Runs lint, unit tests and build from the target's `.factory.yml`. The author fixes failures, each fix again a Patch step, and takes the screenshots again if the change looks different. At most `maxAgentRounds` rounds (5 unless `.factory/thresholds.yml` says otherwise). A fix here is code no review saw, so code review runs again, and a review fix runs the gate again, until both pass with no fix between them (inside the same review and gate round limits). Then the script pushes the branch and opens a merge request.
 6. **Risk check.** Hard rules first: protected paths, dependency files, more changed lines than the target's `maxChangedLines` (no limit when the target leaves it out), a secret scanner hit, a red merge request pipeline. Then Jev 2 reads the diff and answers `diff_risk`, `scope` and `sensitive`.
-7. **Decision.** Merge without a person, or wait for a person to merge. A change with no proof a person can trust always goes to a person. See the merge rule below.
+7. **Decision.** Merge without a person, or wait for a person to merge. A change with no proof a person can trust always goes to a person. The proof needs a test that failed before the change and passes after it. A change that touches only test files has no such test, so every test must pass after it instead. See the merge rule below and [the video and test-only decision](decisions/2026-11-06-e2e-video-proof-and-test-only-changes.md).
 
 Finish pipeline (starts after an auto decision, or after a person merges the merge request):
 
 8. **Apply.** Only for an auto decision. It checks the target branch and the reviewed head. If the branch is behind `develop`, it rebases through GitLab (at most 3 times). The added and removed lines must match the reviewed commit. It then waits for a green pipeline on that commit and squash merges one commit titled `[AM] <conventional title>`.
-9. **Verify.** Waits for the `develop` pipeline. If it fails, the factory opens a revert merge request and labels the item `factory_blocked`.
-10. **Result saved.** Posts a result comment, closes the work item, labels it `factory_done`, and sends a Teams card. The run record is a pipeline artifact for 90 days.
+9. **Verify.** Waits for the `develop` pipeline. If it fails, the factory opens a revert merge request and labels the item `factory_blocked`. When `.factory.yml` names a smoke command, verify then runs the install command and the smoke command on the merged branch. If smoke fails, the factory opens a revert merge request and labels the item `factory_blocked`.
+10. **Result saved.** Posts a result comment, closes the work item, labels it `factory_done`, and sends a chat notice (Slack or Teams, the target's `chat` seam). The run record is a pipeline artifact for 90 days.
 
 Repo-local instructions: a target repo may add `.factory/author.md`, `.factory/review.md` and `.factory/writer.md`. The factory appends each (at most 8,000 characters) to the matching prompt, under a heading that says it comes from the repo's maintainers and cannot override the factory's rules. The author and reviewer files are read from the base commit the run cloned, never from the author's work tree. The writer file (questions comment, watcher and dispatch tickets) is read from the base branch head. A resumed author session gets no second copy. `.factory/**` is a protected path, so a change to these files always goes to a person.
 
@@ -112,6 +112,16 @@ A round is one more pass of work on the same run and the same merge request.
 
 The cursor of that last comment is the newest of the round's cursor and the newest comment the author's inbox read during the round. A request the author already heard starts no second round. A request written after the author's last run, for example during the risk check, does.
 
+### Conflict rounds
+
+A round also starts with no request when the open merge request has conflicts with `develop` and no conflict round has tried since `develop` moved (`conflictsDue` in `factory/steps/requests.ts`). The poller starts the same round build for it.
+
+1. The factory comments `Conflict round` on the work item (this is the cursor for conflicts, so the poller does not ask again) and sends the merge request's conflict flag to the dashboard, which shows a badge.
+2. The factory merges `develop` into the work tree. The author resolves the conflicts, runs lint, test and build, and rewrites the commit message (`prompts/conflicts.md`).
+3. Review, gate and risk check run again. The decision is `factory_needs_approval`, as after any round.
+
+A conflict round has no requests, so it skips the injection check and has no authors.
+
 ### How the factory hears a request
 
 The deployed factory runs with `ci: local`, where no webhook starts a pipeline, so the poller is the main path. Every minute it reads the new comments of each `factory_needs_approval` work item and its merge request, and starts a round for the oldest item with a request (at most one round per minute). It also sends the replies above for `factory_stopped` and `factory_waiting`, and the reply for the merge request of an item in any other state. The round build carries the merge request. It stops quietly when the work item no longer waits for a person (for example a late second build after the first one paused the run) or when the merge request names a newer build run. A round does not check the `new_runs` switch; the `prepare_patch` switch stops it like any prepare-patch. With `ci: gitlab`, a GitLab comment webhook (a note on the work item, or on a merge request from the same project) starts the same round at once, and the poller stays the fallback.
@@ -125,7 +135,7 @@ A change merges without a person only when all four are true:
 3. Every hard rule passes.
 4. Jev 2 passed its thresholds: `diff_risk` at 4 or below with confidence 0.8 or more, `scope` yes at 0.8 or more, `sensitive` yes at 0.2 or less. These numbers are the defaults. A target can change them in `.factory/thresholds.yml`.
 
-Otherwise the script labels `factory_needs_approval`, assigns the merge request to a person, posts the reasons on the merge request, and sends one Teams card. Medium and high risk tickets are always built, and always end here.
+Otherwise the script labels `factory_needs_approval`, assigns the merge request to a person, posts the reasons on the merge request, and sends one chat notice. Medium and high risk tickets are always built, and always end here.
 
 The person is the first of these. After a round, it is the author of the newest request of that round (see Requests on a merge request).
 
@@ -143,10 +153,11 @@ The person is the first of these. After a round, it is the author of the newest 
 
 ## The poller and retry
 
-Three scheduled jobs run for each target (see `docs/add-a-repo.md`). With `ci: local` the worker runs them by itself.
+Four scheduled jobs run for each target (see `docs/add-a-repo.md`). With `ci: local` the worker runs them by itself.
 
-- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and sets blocked and needs_info items ready for a request, answers requests on stopped and waiting items, and answers on the merge requests of items in any other state (see Requests on a merge request).
-- **Retry**, every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
+- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It skips an item that the tracker marks as blocked by an open work item (GitLab link "is blocked by", GitHub issue dependency) and starts it after every blocker is closed. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and sets blocked and needs_info items ready for a request, answers requests on stopped and waiting items, and answers on the merge requests of items in any other state (see Requests on a merge request). When a person merged the change of a `factory_needs_approval` item by hand, the poller starts its finish run, with apply skipped. It waits until the merge is 2 minutes old, so the merge webhook goes first.
+- **Watcher**, every hour, only when `logSource` is a real log source. With `logSource: files` it is manual (see The watcher).
+- **Resume waiting** (`resume-waiting`), every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
 
 - **Self-improvement job**, every week. It reads a week of corrections and proposes edits to the repo's factory instructions (see Weekly self-improvement). With `ci: local` the worker keeps the time of the last run in its runs folder, so a restart does not run the job again. It writes that time before the job runs, so a failing job runs again a week later and not every hour. For the same reason, a week in which the `improve` switch is off is skipped, and turning the switch on waits for the next week.
 
@@ -162,6 +173,8 @@ The dashboard at `https://factory.<domain>` shows what the factory does, live. E
 - **Run.** One run: its steps, tool calls, findings, checks and cost, updated every second, and the GitLab job logs.
 - **Runner.** Disk and memory of each runner VM, and its logs of the last 15 minutes (`docker`, `gitlab-runner`, `system`), read from Grafana. Alloy on each VM ships them (`deploy/alloy/runner.alloy`).
 - **Switches.** Turn parts of the factory off.
+- **Insights.** Runs, cost, time per step, spend against each target's weekly budget, review rounds and risk, for a range of days. A click on a chart opens its runs.
+- **Notifications and preferences.** The bell lists how runs ended and what waits for a person, with optional browser notifications. Theme, notifications and the Insights range are saved per user.
 
 Only GitLab users with the Developer role (or higher) on the factory project can sign in. The role is checked again on every action.
 
@@ -170,7 +183,8 @@ Only GitLab users with the Developer role (or higher) on the factory project can
 - **Stop** asks the running step to stop at its next check. The item gets `factory_stopped`, as after `@factory stop`. If the run has not stopped after 60 seconds, the dashboard cancels the pipeline. A cancelled run saved nothing, so it can only be restarted.
 - **Resume** continues a stopped run at the step that stopped, as `@factory resume` does. The person must also be trusted on the target project (Developer or higher there), or the poller refuses the request.
 - **Restart** ends the stopped run as `factory_blocked` and starts a new run for the item from the beginning. If the old run left a merge request open, the factory closes it with a comment that links the new pipeline. If the new run did not start within 15 minutes, the item goes back to `factory_stopped` with a comment, and a person can press Restart again.
-- Resume and restart work only on the item's newest run. For an older run the dashboard refuses with "run is not the ticket's newest run".
+- **Set to Ready** is for a `factory_blocked` or `factory_needs_info` item. The dashboard saves a request, and the poller checks the person is trusted on the target project, comments, and sets `factory_ready`, as the person would. A blocked run continues where it stopped.
+- Resume, restart and Set to Ready work only on the item's newest run. For an older run the dashboard refuses with "run is not the ticket's newest run".
 
 ### Switches
 
@@ -195,9 +209,9 @@ The factory keeps working. A step never waits for the dashboard or fails because
 
 ## The watcher
 
-The watcher opens tickets from error logs. Today it reads fake errors from `watcher/fixtures/` (`logSource: files` in `seams.yml`). Loki and GlitchTip come later as their own adapters.
+The watcher opens tickets from error logs. With a real log source the worker runs it once an hour, on the hour. Today it reads fake errors from `watcher/fixtures/` (`logSource: files` in `seams.yml`). Loki and GlitchTip come later as their own adapters.
 
-- **Manual run only.** With `logSource: files`, start it by hand: Run pipeline in the web UI with `FACTORY_SCHEDULE=watch` and `FACTORY_TARGET`, then press play on the manual `watcher` job. The fixtures stay recent forever, so a schedule would open the same tickets again after each one closes. The step also refuses a pipeline source other than `web`, but a pipeline variable can fake that value, so it is only a second check. Restrict who may set pipeline variables (project setting "Minimum role to use pipeline variables").
+- **Manual run only.** With `logSource: files`, start it by hand: Run pipeline in the web UI with `FACTORY_SCHEDULE=watch` and `FACTORY_TARGET`, then press play on the manual `watcher` job, or run `worker.ts watch <target>` in the local worker. The fixtures stay recent forever, so a schedule would open the same tickets again after each one closes. The step also refuses a pipeline source other than `web`, but a pipeline variable can fake that value, so it is only a second check. Restrict who may set pipeline variables (project setting "Minimum role to use pipeline variables").
 - **What it does.** It takes the error groups seen in the last hour, keeps the escalating ones (code decides, from the hourly counts), removes customer data, and skips a group that already has an open ticket. The judge checks the text for prompt injection: a likely injection opens a `blocked` ticket, written by code only, and a chat notice. Otherwise the judge answers severity and fixable, the writer model writes the human part, and code adds the agent part below a marker line.
 - **At most 5 a day.** A watcher ticket gets `ready` only while fewer than 5 watcher tickets were opened today (UTC) and the judge thinks a code change can fix it. Otherwise it opens with no state, and the chat notice says why.
 - **No merge without a person.** A ticket with the watcher mark (dispatch tickets have it too) never merges alone while `logSource` is `files`. The decision step sends it to approval: a fix for an error that does not exist must not reach `develop` by itself.

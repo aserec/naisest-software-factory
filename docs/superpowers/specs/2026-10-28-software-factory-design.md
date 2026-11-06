@@ -78,6 +78,8 @@ The factory has failed, even if it runs, when any of these happen:
 
 - Jev is TypeSafe's decision model. It answers yes/no, choice and score questions about a JSON state in about 300 ms, with a probability for each answer.
 - **Decided:** the factory does not call TypeSafe, which hosts Jev only in the US. It calls Berget AI in Sweden, which serves the same `/v1/systemone` API with open decision models, with `BERGET_API_KEY`. The key comes later; until then, build and test with the client's mock provider, named as the mock on purpose.
+
+> Later decision: the judge is now Celeris, and Berget is gone. See [Celeris is the only Jev host](../../decisions/2026-11-06-celeris-is-the-jev-host.md).
 - Price: €0.042 per million input tokens, and output is free.
 - Berget's decision models are marked preview. Before the factory relies on them, run the Jev 1 and Jev 2 questions on real past tickets and check the answers by hand, then set the thresholds in 6.2 and 6.6 from that test.
 - Use the client from the `hyper-jev` skill in `disler/ten-levels-of-jev`. Import that skill into agent-config through `upstream/upstream.json`.
@@ -321,6 +323,8 @@ Each source is turned on by itself.
 How it works:
 
 - A scheduled pipeline runs every 10 minutes.
+
+> Later change: the watcher runs once an hour, not every 10 minutes. See [how it works](../../how-it-works.md#the-watcher).
 - For each source, it fetches error groups that are new or changed since the last run.
 - Code decides from the counts whether an error is escalating, for example events in the last hour against the hourly average of the last 24 hours, or a new error after a deploy. Jev does not do this arithmetic.
 - For an escalating error, Jev answers `severity` (choice: low, medium, high, critical) and `fixable` (yes/no: can a code change fix this?).
@@ -477,6 +481,8 @@ These came from the design conversation as proposals, not as your decisions:
 4. Changes to dependency files and agent config always go to a person.
 5. The first Jev thresholds and the first hard rules, including the 300-line limit.
 6. The watcher runs every 10 minutes and starts at most 5 fixes a day.
+
+> Later change: the watcher runs once an hour, not every 10 minutes. See [how it works](../../how-it-works.md#the-watcher).
 7. On a failed verify, the factory opens a revert merge request and a person merges it.
 8. No deploys.
 9. The router table, the effort score of 8 that moves a ticket up a row, and a reviewer that is never Claude while the author is Claude.

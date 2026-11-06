@@ -158,6 +158,8 @@ Real adapter: a file adapter that reads log files from `watcher/fixtures/` in th
 
 One file, `seams.yml` at the repo root, picks the adapter per seam and lists the providers:
 
+> Later decision: the judge is now `jev-celeris`, and `jev-berget` is gone. See [Celeris is the only Jev host](../../decisions/2026-11-06-celeris-is-the-jev-host.md).
+
 ```yaml
 tracker: gitlab
 codeHost: gitlab
@@ -204,6 +206,8 @@ Pi has no built-in sandbox. The Pi author adapter must get one. One option is to
 Flow, from the 2026-10-28 spec section 10, with the log source as a seam:
 
 1. A scheduled pipeline runs every 10 minutes.
+
+> Later change: the watcher runs once an hour, not every 10 minutes. See [how it works](../../how-it-works.md#the-watcher).
 2. The log source returns error groups that are new or changed since the last run.
 3. Code decides which groups are escalating from the hourly counts. Jev does no arithmetic.
 4. A script removes customer data from messages and samples.

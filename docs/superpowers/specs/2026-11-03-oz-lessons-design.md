@@ -23,7 +23,7 @@ The owner decided to keep our own gate model: no spec step before code. The fact
 - A product or tech spec step before code. The owner prefers our triage and gates.
 - Inline review comments on the merge request. Our reviewer's findings stay internal, so oz's diff-line validation and stale-review dismissal do not apply.
 - oz's Vercel and KV control plane. Our worker and poller already do that job.
-- Dedupe for watcher and dispatch work items. Their fingerprint already does it.
+- A duplicate check for watcher and dispatch work items. Their fingerprint already does it.
 
 ## Anti-goals
 
@@ -98,7 +98,7 @@ Decided by the owner: each target repo can tune the agents, as oz's `*-local` sk
 - Add `.factory/**` to `protectedPaths` in every file under `targets/` and in the default, so a change that touches these files always goes to a person.
 - Builder's call: whether the questions comment and the dispatch writer read `writer.md` too. The author's commit message and the merge request text follow `author.md`.
 
-## F. Dedupe for work items written by people
+## F. Duplicate check for work items written by people
 
 Decided by the owner:
 
@@ -111,7 +111,7 @@ Details, my calls:
 - It compares the new work item with the open work items of the same target project, up to the newest 200, the work item itself excluded. Watcher and dispatch work items skip the check.
 - A judge call answers `same`, `adds` or `different`, with the closest work item and a confidence. `same` closes only with confidence 0.9 or more. `same` below 0.9 counts as `adds`, because closing a person's work item by mistake is worse than one extra question.
 - The question names the similar work item and what the new one adds, for example "Does this belong in #12, or is it a separate change?".
-- When a person adds `factory_ready` again after a dedupe question, or reopens a work item the factory closed as a duplicate and adds `factory_ready`, triage skips the dedupe check: the person decided.
+- When a person adds `factory_ready` again after a duplicate question, or reopens a work item the factory closed as a duplicate and adds `factory_ready`, triage skips the duplicate check: the person decided.
 - The `Tracker` seam gets one new read: the open work items of the project, newest first, with a limit.
 - Builder's call: how to pick candidates before the judge call (for example by title search) if 200 items do not fit one call.
 

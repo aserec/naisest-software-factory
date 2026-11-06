@@ -32,6 +32,8 @@ Two readers use the proof:
 - A mapping from acceptance criteria to screenshots. The user chose proof grouped by screen, judged against the ticket as a whole.
 - Asking for acceptance criteria when a ticket has none. This follows from user decision 7: each screen is judged against the ticket as a whole, so proof by screen does not need them.
 - Videos or recordings.
+
+> Later decision: the proof now has an e2e video that the reviewer judges from frames, and a test-only change needs no fail-before test. See [the decision](../../decisions/2026-11-06-e2e-video-proof-and-test-only-changes.md).
 - Using Jev to judge the screenshots. The Jev client sends text to Berget and gets back probabilities, so it cannot look at an image.
 - Obscura as the browser. We tried it on `react_frontend` in mock mode: the dashboard, documents and settings pages at 1280 x 800, driven by Playwright. Chromium rendered all three pages. Obscura, reached over CDP, showed only the "Opening your workspace" loading screen on all three. In a second run React loaded with no page errors, but the loading screen stayed. Playwright's wait for the page also failed at once over Obscura's CDP, so that run did not show whether more time would help. Obscura never rendered the app, so the browser is Chromium (user decision 12).
 

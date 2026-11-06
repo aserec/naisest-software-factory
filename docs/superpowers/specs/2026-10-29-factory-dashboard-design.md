@@ -18,6 +18,8 @@ Today a person sees a run only through labels, comments and CI job logs, and onl
 
 - Production logs. They wait for the watcher sign-off.
 - Trends across runs, search and filters (v2).
+
+> Later decision: Insights (trends), notifications, preferences and a Set to Ready control now exist. See [the dashboard decision](../../decisions/2026-11-06-dashboard-insights-and-set-to-ready.md).
 - Alerts. A step that runs too long gets a stuck mark, nothing more.
 - Any GitLab write by the dashboard except a pipeline cancel.
 - An event-driven design (a message bus or stream). Recorded as a later option in the data ownership decision.
@@ -48,6 +50,7 @@ Every event has an id (UUID, made by the sender), the run ID, an optional parent
 | `usage` | role, model, tokens (input, output, cache read, cache write), cost, context tokens |
 | `stop`, `resume`, `restart`, `switch_change` | user, and the switch name and value for a switch change |
 | `error` | message |
+| `prompt` | role, the agent's prompt, cut to 20 KB |
 
 My call: tool call input and result are cut to 20 KB each before sending. A file read can be megabytes.
 
@@ -71,6 +74,8 @@ The event sender is a new seam with a real HTTP adapter, a fake and a contract t
 The UI polls every second with a cursor (the row number of the last event it has). Live and history use the same query. GitLab reads are cached for 15 seconds on the server (my call), so a second-by-second poll does not hit GitLab rate limits.
 
 Everything else links to GitLab. The dashboard is read-only except for stop, resume, restart and switches.
+
+> Later decision: Set to Ready is a fourth control, and preferences are saved per user. See [the dashboard decision](../../decisions/2026-11-06-dashboard-insights-and-set-to-ready.md).
 
 ## 6. Control
 
