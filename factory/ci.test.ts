@@ -1,7 +1,7 @@
 // Trigger callers can set any CI variable. Every factory job must start node and pnpm through `env -i`
 // with a fixed allowlist, so NODE_OPTIONS, npm_config_*, PATH and the like never reach them.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
 import { loadSeams, providerKeys } from "./config";
@@ -13,7 +13,7 @@ const ci = parse(readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "ut
 const STEPS = [...RUN_STEPS, "poll", "retry-waiting", "dispatch", "watcher", "improve"];
 const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const passed = (name: string) => `${name}="$${name}"`;
-const STEP_PREFIX = [
+const STEP_ENV = [
   "env -i", PATH, "HOME=/root", 'CLAUDE_CONFIG_DIR="$PWD/run/claude-home"', "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright",
   ...["CI_SERVER_URL", "CI_PROJECT_ID", "CI_PIPELINE_ID", "CI_PIPELINE_URL", "CI_COMMIT_REF_NAME", "CI_JOB_IMAGE", "CI_PIPELINE_SOURCE", "CI_JOB_ID"].map(passed),
   ...["FACTORY_PIPELINE", "FACTORY_TARGET", "FACTORY_WORK_ITEM_IID", "FACTORY_MR_IID", "FACTORY_BUILD_PIPELINE_ID", "FACTORY_SKIP_APPLY", "FACTORY_SCHEDULE"].map(passed),
@@ -21,16 +21,30 @@ const STEP_PREFIX = [
   ...["TRIGGER_PAYLOAD", "FACTORY_GITLAB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN", "FACTORY_TRIGGER_TOKEN"].map(passed),
   ...providerKeys(loadSeams()).map(passed),
 ].join(" ");
+// The one copy of the allowlist: a shell function in .factory's before_script, which every step's script calls.
+const FACTORY_ENV = `factory_env() { ${STEP_ENV} "$@"; }`;
 const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile --filter software-factory`;
 
 test("every factory job starts its step through the env -i allowlist", () => {
   const jobs = Object.keys(ci).filter((k) => !k.startsWith(".") && ["build", "finish", "factory"].some((t) => ci[k]?.extends === `.${t}`));
   expect(jobs.sort()).toEqual([...STEPS].sort());
-  expect(ci[".factory"].before_script).toEqual([INSTALL]);
+  expect(ci[".factory"].before_script).toEqual([INSTALL, FACTORY_ENV]);
   expect(ci[".factory"].variables).toBeUndefined();
   for (const job of jobs) {
     expect(ci[job].before_script, job).toBeUndefined();
-    expect(ci[job].script, job).toEqual([`${STEP_PREFIX} node --import tsx factory/steps/${job}.ts`]);
+    expect(ci[job].script, job).toEqual([`factory_env node --import tsx factory/steps/${job}.ts`]);
+  }
+  // No job keeps an inline copy of the allowlist, and every provider key passes through the shared one.
+  const text = readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "utf8");
+  for (const key of providerKeys(loadSeams())) expect(text.split(passed(key)).length - 1, key).toBe(1);
+  expect(text.split("env -i PATH=").length - 1).toBe(2); // the install line and factory_env
+});
+
+test("every target names the .factory image, the runner image with Chromium", () => {
+  const image = ci[".factory"].image as string;
+  expect(image).toMatch(/\/ceresa\/software-factory\/job[:@]/);
+  for (const f of readdirSync(new URL("../targets/", import.meta.url))) {
+    expect(parse(readFileSync(new URL(`../targets/${f}`, import.meta.url), "utf8")).jobImage, f).toBe(image);
   }
 });
 
@@ -43,7 +57,7 @@ test(".gitlab-ci.yml and local-run.sh run the steps in the order of STEPS", () =
 });
 
 test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {
-  const out = execFileSync("bash", ["-c", `${STEP_PREFIX} /usr/bin/env`], {
+  const out = execFileSync("bash", ["-c", `${FACTORY_ENV}\nfactory_env /usr/bin/env`], {
     encoding: "utf8",
     env: { PATH: "/evil:/usr/bin:/bin", NODE_OPTIONS: "--require /evil.js", npm_config_registry: "https://evil", FACTORY_HOOKS_DIR: "/evil", PLAYWRIGHT_BROWSERS_PATH: "/evil", FACTORY_TARGET: "react_frontend", FACTORY_MR_IID: "5" },
   });

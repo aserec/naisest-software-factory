@@ -9,7 +9,7 @@ baseBranch: main
 defaultApprover: aserec
 # The token is aserec's own until the factory gets its own GitHub account: aserec's Ready counts. Remove it then.
 sharedAccount: true
-jobImage: node:22
+jobImage: gitlab.example.com:5050/ceresa/software-factory/job:main
 protectedPaths:
   - ".github/**"
   - "**/.env*"

@@ -479,7 +479,7 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
   expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
   expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir, seams)).toThrow(/image/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "node:22" }), dir, seams)).not.toThrow();
+  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "gitlab.example.com:5050/ceresa/software-factory/job:main" }), dir, seams)).not.toThrow();
 });
 test("a target on GitHub needs only the GitHub token and builds the GitHub tracker and code host", () => {
   const dir = tmp();

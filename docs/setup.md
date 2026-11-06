@@ -37,7 +37,7 @@ Store each one as a masked, protected CI variable.
   - Runner tag: `factory`. Every job in `.gitlab-ci.yml` must use it.
 - `runner/cloud-init.yml`: installs Docker and Grafana Alloy on each new VM and lets user namespaces keep their capabilities. Alloy ships the VM's logs and disk and memory to Grafana (section 10). Copy it to `/etc/gitlab-runner/cloud-init.yml` (the path in `user_data_file`).
 
-- `runner/Dockerfile` also installs Chromium in `/ms-playwright`, for the before and after screenshots. Manual follow-up: after this merges to main, the `job-image` job prints the image digest. Put it in the `.factory` image of `.gitlab-ci.yml` and in `jobImage` of `targets/react_frontend.yml` in one reviewed change (`compose.ts` needs them equal). Until then CI has no Chromium, so every visual change in CI goes to a person.
+- `runner/Dockerfile` also installs Chromium in `/ms-playwright`, for the before and after screenshots. Manual follow-up: after this merges to main, the `job-image` job prints the image digest. Until then, the `.factory` image and every target's `jobImage` use the moving tag `job:main`. Pin them all to that digest in one reviewed change, because `compose.ts` needs them equal. CI has no Chromium until `job-image` has run once on a `factory` runner, so until then every visual change in CI goes to a person.
 
 ### Hetzner Cloud firewall
 
