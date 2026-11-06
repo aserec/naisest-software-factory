@@ -1,6 +1,10 @@
 // Reads the inbox file for the agent side (the Claude hook and the Pi extension). Node modules only, so both can load it.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
+// The comment lines that stop or resume a run.
+export const STOP_COMMAND = "@factory stop";
+export const RESUME_COMMAND = "@factory resume";
+
 // The inbox file has one JSON line per poll with news. `<file>.read` holds how many lines were read.
 export function readNew(file: string): { comments: string[]; stop: boolean } {
   const out = { comments: [] as string[], stop: false };

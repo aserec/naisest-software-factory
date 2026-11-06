@@ -1,17 +1,15 @@
 // Tickets are GitHub issues. Marks are always labels. The state is a factory_* label, or, with a board,
 // the issue's Status column on a GitHub Projects board (column "Needs info" is state needs_info).
-import { AI_LINE, fingerprintMarker } from "../conversation";
+import { errText, isNotFound } from "../errors";
+import { AI_LINE, commandIn, fingerprintMarker } from "../conversation";
 import type { GitHub } from "../github";
 import { findSecrets } from "../rules";
-import { ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
+import { ENDED_STATES, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
 const READY = "factory_ready";
 const MARKS: Mark[] = ["watcher", "triaged", "risk_trivial", "risk_low", "risk_medium", "risk_high", "implemented", "reviewed", "checked", "risk_checked", "merged", "reverted"];
 const markLabel = (m: Mark) => `factory_${m}`;
 const labelOf = (state: FactoryState) => `factory_${state}`;
-const ENDED = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
-// Same order as the GitLab tracker: an active run wins over ready, ready wins over an ended run.
-const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", ...ENDED] as const satisfies readonly FactoryState[];
 const STATE_LABELS = STATE_ORDER.map(labelOf);
 const columnState = (name: string) => name.trim().toLowerCase().replace(/\s+/g, "_") as FactoryState;
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
@@ -32,7 +30,7 @@ function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
   const state = boardState === undefined ? fromLabels : boardState ?? undefined;
   return {
     ref: String(i.number), title: i.title, body: i.body ?? "", open: i.open, state,
-    ended: boardState === undefined && state === "ready" ? ENDED.find((s) => i.labels.includes(labelOf(s))) : undefined,
+    ended: boardState === undefined && state === "ready" ? ENDED_STATES.find((s) => i.labels.includes(labelOf(s))) : undefined,
     marks: MARKS.filter((m) => i.labels.includes(markLabel(m))),
     tags: i.labels.filter((l) => !l.startsWith("factory_")),
     assignees: i.assignees, url: i.url,
@@ -144,7 +142,7 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
   const addLabels = (ref: string, labels: string[]) => gh.call("POST", `${base}/${Number(ref)}/labels`, { labels });
   const removeLabel = async (ref: string, label: string) => {
     await gh.call("DELETE", `${base}/${Number(ref)}/labels/${encodeURIComponent(label)}`).catch((e) => {
-      if (!String(e).includes("status 404")) throw e; // the label was not there
+      if (!isNotFound(e)) throw e; // the label was not there
     });
   };
 
@@ -185,7 +183,12 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
     isFactory: async (actor) => actor === (await botName()),
     async trusted(actor) {
       if (actor === (await botName()) && !sharedAccount) return false;
-      const p = await gh.json("GET", `/repos/${repo}/collaborators/${encodeURIComponent(actor)}/permission`).catch(() => undefined);
+      // 404: no such user. Any other failure (a 5xx, a rate limit) throws, so the caller tries again next poll.
+      const p = await gh.json("GET", `/repos/${repo}/collaborators/${encodeURIComponent(actor)}/permission`).catch((e) => {
+        if (isNotFound(e)) return undefined;
+        console.log(`Reading the permission of ${actor} failed: ${errText(e)}`);
+        throw e;
+      });
       return p?.permission === "admin" || p?.permission === "write"; // maintain shows as write
     },
     async startedBy(ref) {
@@ -198,7 +201,7 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       // GitHub's since filters on the edit time; keep only comments created after it, newest first.
       const all = await gh.all(`${base}/${Number(ref)}/comments?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`);
       return all
-        .filter((c) => !since || c.created_at > since)
+        .filter((c) => !since || Date.parse(c.created_at) > Date.parse(since))
         .reverse()
         .map((c) => ({ author: c.user.login, byFactory: c.user.login === name && (!sharedAccount || String(c.body ?? "").startsWith(AI_LINE)), body: c.body ?? "", at: c.created_at }));
     },
@@ -212,8 +215,8 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       if (p.issue && !p.issue.pull_request && typeof p.issue.number === "number") {
         if (p.action === "labeled" && p.label?.name === READY && !board) return { kind: "ready", ticket: String(p.issue.number), actor };
         if (p.action === "created" && p.comment) {
-          const command = String(p.comment.body ?? "").split("\n").map((l) => l.trim().toLowerCase()).find((l) => l === "@factory stop" || l === "@factory resume");
-          if (command) return { kind: "command", ticket: String(p.issue.number), actor, command: command === "@factory stop" ? "stop" : "resume" };
+          const command = commandIn(String(p.comment.body ?? ""));
+          if (command) return { kind: "command", ticket: String(p.issue.number), actor, command };
         }
       }
       if (p.pull_request && p.action === "closed" && p.pull_request.merged) {

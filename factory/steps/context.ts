@@ -1,5 +1,6 @@
 // Shared parts of the CI steps: the context, the dashboard controls and agent runs. Pausing a run lives in run.ts.
 // Steps see the factory's outside tools only through the seams. makeContext (factory/compose.ts) picks the adapters.
+import { errText } from "../errors";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -116,11 +117,13 @@ export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<bool
 export const inbox = (ctx: StepContext) => {
   const f = facts(ctx);
   const change = f.change;
-  return makeInbox(conversation(ctx), ticketRef(ctx), (f.roundStart ? f.openRound?.cursor : undefined) ?? f.eventAt ?? new Date().toISOString(), async () => {
-    const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
-    if (stop) ctx.dashboardStop = true;
-    return stop;
-  }, () => closedByPerson(ctx), {
+  return makeInbox(conversation(ctx), ticketRef(ctx), (f.roundStart ? f.openRound?.cursor : undefined) ?? f.eventAt ?? new Date().toISOString(), {
+    stopCheck: async () => {
+      const stop = (await ctx.dashboard.control(ctx.target.name, ctx.record.runId)).stop;
+      if (stop) ctx.dashboardStop = true;
+      return stop;
+    },
+    closedCheck: () => closedByPerson(ctx),
     change,
     onRead: (t) => void (ctx.record = { ...ctx.record, heardUntil: later(ctx.record.heardUntil, t) }),
   });
@@ -262,8 +265,8 @@ export async function runStep(
   takeSnapshot(ctx);
   // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
   const fail = async (e: unknown) => {
-    emit(ctx, "error", { message: String(e).slice(0, 500) });
-    await block(ctx, `The \`${name}\` step failed:\n\n\`\`\`\n${String(e).slice(0, 500)}\n\`\`\``, false).catch(() => {});
+    emit(ctx, "error", { message: errText(e, 500) });
+    await block(ctx, `The \`${name}\` step failed:\n\n\`\`\`\n${errText(e, 500)}\n\`\`\``, { continuable: false }).catch(() => {});
   };
   let result: StepResult;
   try {
@@ -276,7 +279,7 @@ export async function runStep(
         await fail(e);
         throw e;
       }
-      save(ctx, "event", { start: false, reason: "record-unavailable", error: String(e).slice(0, 500) });
+      save(ctx, "event", { start: false, reason: "record-unavailable", error: errText(e, 500) });
       mkdirSync(dir, { recursive: true });
       writeFileSync(stopFile, name);
       return;

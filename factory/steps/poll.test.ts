@@ -4,6 +4,7 @@ import { md, noteText } from "../conversation";
 import { endClosedRuns, finishCancelledStops, handleReadyRequests, handleRequests } from "./run";
 import { retryWaiting } from "./retry-waiting";
 import { BOT, fakeCtx, noteIn } from "./test-helpers";
+import { HttpError } from "../errors";
 import { fakeDashboard } from "../fakes";
 import { SWITCHES, type SwitchName } from "../run-events";
 
@@ -183,7 +184,7 @@ test("a ready request sets a blocked ticket ready for a trusted person, and the 
 // A ticket deleted on GitHub: its GraphQL error must refuse the request once, not fail it every minute.
 test("a ready request for a deleted GitHub issue is refused", async () => {
   const ctx = stoppedCtx([]);
-  ctx.tracker.ticket = async () => { throw new Error("GitHub GraphQL failed: Could not resolve to an Issue with the number of 326."); };
+  ctx.tracker.ticket = async () => { throw new HttpError("GitHub GraphQL failed: Could not resolve to an Issue with the number of 326.", 404); };
   const dash = fakeDashboard({ requests: [request("ready", "326")] });
   ctx.dashboard = dash;
   expect(await handleReadyRequests(ctx)).toEqual([]);
@@ -345,7 +346,7 @@ test("a restart retry older than 15 minutes starts nothing, stops the ticket aga
   expect(dash.events.filter((e) => e.type === "run_end")).toEqual([]);
 });
 
-// Part C: the poller ends runs with no step running whose work item or change a person closed.
+// The poller ends runs with no step running whose work item or change a person closed.
 const closedWorld = (state: "needs_approval" | "stopped" | "waiting" | "running" | "done", o: { open?: boolean; note?: string } = {}) => {
   const ctx = fakeCtx({ running: 0 });
   const w = ctx.world;
@@ -417,7 +418,7 @@ test("a closed waiting ticket ends, and one failed ticket does not stop the othe
   expect(t.state).toBeUndefined();
 });
 
-// Part G: the poller answers a request on the change of a ticket in any other state.
+// The poller answers a request on the change of a ticket in any other state.
 test("in one poll, a request on the change of a blocked ticket sets it ready and gets no reply on the change", async () => {
   vi.stubEnv("FACTORY_SCHEDULE", "poll");
   const log = vi.spyOn(console, "log").mockImplementation(() => {});

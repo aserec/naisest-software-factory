@@ -53,7 +53,9 @@ export function readProof(readFile: (path: string) => string | undefined): { pro
   return { ...parseProof(raw), raw };
 }
 
-export type Verdict = "matches" | "does_not_match" | "unsure";
+const VERDICTS = ["matches", "does_not_match", "unsure"] as const;
+export type Verdict = (typeof VERDICTS)[number];
+const isVerdict = (v: unknown): v is Verdict => (VERDICTS as readonly unknown[]).includes(v);
 export interface ScreenVerdict { screen?: string; verdict: Verdict; note: string } // no screen: about the proof as a whole
 export interface ProofRecord { proof?: Proof; error?: string; verdicts: ScreenVerdict[]; readsImages: boolean; reviewer: string } // reviewer: "<harness>/<model>"
 
@@ -77,8 +79,6 @@ export function proofPrompt(r: { proof?: Proof; error?: string }, attached: stri
   return `${JSON.stringify(r.proof, null, 2)}\n${attached.length ? `Images, in the order attached: ${attached.join(", ")}` : "No images are attached."}`;
 }
 
-const VERDICTS: string[] = ["matches", "does_not_match", "unsure"];
-
 // One verdict per screen. A screen is "matches" only when the reviewer said so and read the images that judge it. Every other case is "unsure".
 export function screenVerdicts(findings: Finding[], proof: Proof | undefined, loaded: string[], readsImages: boolean): ScreenVerdict[] {
   const screens = (proof?.screens ?? []).map((s): ScreenVerdict => {
@@ -87,10 +87,10 @@ export function screenVerdicts(findings: Finding[], proof: Proof | undefined, lo
     const mine = findings.filter((f) => f.screen === s.name);
     const f = mine.find((x) => x.verdict !== "matches") ?? mine[0]; // two answers for one screen: the one that is not "matches" counts
     if (!f) return unsure("the reviewer gave no verdict");
-    if (!f.verdict || !VERDICTS.includes(f.verdict)) return unsure(`the reviewer gave an unknown verdict: ${f.verdict}`);
+    if (!isVerdict(f.verdict)) return unsure(`the reviewer gave an unknown verdict: ${f.verdict}`);
     if (!s.after || !loaded.includes(s.after)) return unsure("no after image");
     if (!s.isNew && (!s.before || !loaded.includes(s.before))) return unsure("no before image");
-    return { screen: s.name, verdict: f.verdict as Verdict, note: f.text };
+    return { screen: s.name, verdict: f.verdict, note: f.text };
   });
   const whole = findings.filter((f) => !f.screen && (f.verdict === "unsure" || f.verdict === "does_not_match")).map((f): ScreenVerdict => ({ verdict: "unsure", note: f.text }));
   return [...screens, ...whole];

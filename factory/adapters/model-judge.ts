@@ -1,5 +1,6 @@
 // Judge by one plain model call. The state goes to the model as data, never as instructions.
 // Fails closed: an answer that is not valid throws, and the caller blocks.
+import { setTimeout as wait } from "node:timers/promises";
 import { fromApiAnswer, type ApiAnswer, type JevAnswer, type JevQuestion } from "../jev";
 import type { Judge, ModelChoice } from "../seams";
 
@@ -66,7 +67,7 @@ export function makeModelJudge({ provider, model }: ModelChoice, env: NodeJS.Pro
           if (last) throw e;
         }
         if ((res && res.status < 500) || last) break;
-        await new Promise((r) => setTimeout(r, retryMs * (attempt + 1)));
+        await wait(retryMs * (attempt + 1));
       }
       if (!res) throw new Error("Model judge call failed: no response");
       // No body in the message: it could echo the request.

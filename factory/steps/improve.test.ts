@@ -182,11 +182,10 @@ test("a fix that also adds a sentence goes into the change, says so, and no fix 
   expect(w.host.merged).toBe(false);
 });
 
-test("a fix that also adds a sentence reaches the change even with no evidence, because its path is gone", async () => {
+test("a fix that also adds a sentence is dropped without 3 cases, though its path is gone", async () => {
   const text = "Run `scripts/new.sh` first.\nThen run the tests.\n";
   const { w, out } = await run({ reply: proposal({ ...authorFix, text }) });
-  expect(out).toEqual({ change: "8" });
-  expect(w.host.mrDescription).toContain("Proposed as a fix, but the factory could not confirm");
+  expect(out).toEqual({});
   expect(branches(w)).not.toContain("fix-");
 });
 

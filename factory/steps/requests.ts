@@ -1,4 +1,5 @@
-// Part G: a `@factory` request from a trusted person starts a round on a ticket that waits for a person, or gets a reply.
+// A `@factory` request from a trusted person starts a round on a ticket that waits for a person, or gets a reply.
+import { errText } from "../errors";
 import { conversation, later, md, refusal, stateReply } from "../conversation";
 import type { ChangeRef, FactoryState, Ticket, TicketRef } from "../seams";
 import { facts, save, type StepContext, type StepResult } from "./context";
@@ -51,7 +52,7 @@ export async function pollRequests(ctx: StepContext, skip: TicketRef[] = []): Pr
       try {
         if ((await answerRequests(ctx, t)) === "started") started.push(t.ref);
       } catch (e) {
-        console.log(`Request of ticket ${t.ref} failed: ${String(e).slice(0, 300)}`);
+        console.log(`Request of ticket ${t.ref} failed: ${errText(e)}`);
       }
     }
   }
@@ -62,23 +63,23 @@ export async function pollRequests(ctx: StepContext, skip: TicketRef[] = []): Pr
 // ponytail: the poller starts the same round build every minute until this step sets factory_running or writes a cursor line, and
 // the event job runs one at a time per target: the second build finds no needs_approval and stops quietly. Add a start marker if that is too noisy.
 export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: string, changeRef: ChangeRef): Promise<StepResult> {
-  const quiet = (reason: string, error?: string) => (save(ctx, "event", { start: false, reason, ticket: ref, ...(error ? { error } : {}) }), "stop" as const);
+  const noStart = (reason: string, error?: string) => (save(ctx, "event", { start: false, reason, ticket: ref, ...(error ? { error } : {}) }), "stop" as const);
   const t = await ctx.tracker.ticket(ref);
-  if (t.state !== "needs_approval") return quiet("not-waiting");
+  if (t.state !== "needs_approval") return noStart("not-waiting");
   // A late duplicate: a round already ran and its change names a newer build run.
-  if (buildRunOf((await ctx.codeHost.change(changeRef)).body) !== buildRun) return quiet("stale-build");
+  if (buildRunOf((await ctx.codeHost.change(changeRef)).body) !== buildRun) return noStart("stale-build");
   const why = facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
   if (why) return block(ctx, `The factory could not start a round: ${why}. Add factory_ready to start again.`);
-  // Requests wait for a change that is open. A quiet stop writes nothing: there is nothing to answer.
+  // Requests wait for a change that is open. A noStart stop writes nothing: there is nothing to answer.
   const conv = conversation(ctx);
   const { requests, change } = await conv.requests(ref);
-  if (!change || requests.length === 0) return quiet("no-request");
+  if (!change || requests.length === 0) return noStart("no-request");
   const newest = requests.at(-1)!.at;
   const authors = [...new Set(requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
   // The change stays open and waiting, so a person can still merge it. The cursor line stops the poller from asking again.
   if (change.ref !== facts(ctx).change) {
     await conv.write(ref, { kind: "cursor", text: md("⚠️", "Round not started", `${authors} The factory could not start a round. The open change ${change.ref} is not the change of pipeline ${buildRun}. The change still waits for a person.`), at: newest });
-    return quiet("change-mismatch");
+    return noStart("change-mismatch");
   }
   // From here the ticket either starts running or gets a cursor line, so the poller does not start the same round again.
   // A judge that fails refuses nothing and writes no cursor: the next poll tries again.
@@ -87,12 +88,12 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
       // One request that looks like an injection refuses the whole round.
       if (await conv.isInjection(r)) {
         await conv.write(ref, refusal(requests.map((r) => r.author), newest, " The change still waits for a person."));
-        return quiet("injection");
+        return noStart("injection");
       }
     }
   } catch (e) {
-    console.log(`Judge failed for the requests of ticket ${ref}: ${String(e).slice(0, 300)}`);
-    return quiet("judge-error", String(e).slice(0, 500));
+    console.log(`Judge failed for the requests of ticket ${ref}: ${errText(e)}`);
+    return noStart("judge-error", errText(e, 500));
   }
   await ctx.ci.restoreRun(buildRun);
   await conv.write(ref, { kind: "cursor", text: md("🔁", "New round", `The factory started another round for the requests of ${authors}.`), at: newest });
@@ -123,7 +124,7 @@ export async function replyOnChanges(ctx: StepContext, skip: TicketRef[] = []): 
       await conv.writeOnChange(ref, { kind: "cursor", text: md("💬", "Request not taken up", ...authors.map((a) => stateReply(a, t.state))), at: newest });
       replied.push(ticket);
     } catch (e) {
-      console.log(`Reply on change ${ref} failed: ${String(e).slice(0, 300)}`);
+      console.log(`Reply on change ${ref} failed: ${errText(e)}`);
     }
   }
   return replied;

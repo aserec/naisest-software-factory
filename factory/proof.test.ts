@@ -90,7 +90,7 @@ test("proofPrompt lists the manifest and the images in order, or why there is no
   expect(proofPrompt({ error: "no run/proof/proof.json" }, [])).toBe("No valid proof: no run/proof/proof.json");
 });
 
-// Spec 6.4: the reasons a change without proof goes to a person.
+// The reasons a change without proof goes to a person.
 const rec = (proof: Proof | undefined, over: Partial<ProofRecord> = {}): ProofRecord => ({ proof, verdicts: [], readsImages: true, reviewer: "pi/model-x", ...over });
 const VISUAL_PROOF: Proof = { ...VISUAL, screens: VISUAL.screens.map((s) => ({ ...s, isNew: false })) };
 const matches = [{ screen: "list page", verdict: "matches" as const, note: "ok" }];
@@ -126,7 +126,7 @@ test("proofReasons: a visual change with a preview and matching screens needs no
   expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), false)).toEqual(["no test failed before the change and passed after it"]);
 });
 
-// Spec 6.5: the Proof section of the change.
+// The Proof section of the change.
 const links = { "before-list-1280.png": "/uploads/1/before-list-1280.png", "after-list-1280.png": "/uploads/2/after-list-1280.png", "after-settings-1280.png": "/uploads/3/after-settings-1280.png" };
 test("proofSection: two screens and a test render as the B2 mockup", () => {
   const settings = { name: "settings page", reach: "http://localhost:3000/settings", width: 1280, isNew: true, after: "after-settings-1280.png" };

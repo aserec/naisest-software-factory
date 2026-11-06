@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import type { Harness, HarnessJob, ModelChoice, ToolCall } from "../seams";
 
 // `model` is a model the harness serves; `unserved` is one it does not.
-// `author: false` is for a harness that cannot run an author yet (Pi, until Task 7).
+// `author: false` is for a harness that cannot run an author yet (Pi).
 export function harnessContract(make: () => Harness, o: { model: ModelChoice; unserved: ModelChoice; author?: boolean }) {
   const job = (over: Partial<HarnessJob> = {}): HarnessJob => ({
     role: "writer", prompt: "Answer with the single word: pong", model: o.model, cwd: mkdtempSync(join(tmpdir(), "contract-harness-")), tools: "none", maxTurns: 3, ...over,

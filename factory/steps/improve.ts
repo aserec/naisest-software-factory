@@ -1,6 +1,7 @@
 // The weekly improve job: reads a week of corrections people made to the factory in one target, asks the writer for edits
 // to the target's .factory/ files, checks them in code, and opens at most one change and one fix for people to read.
 // Only a confirmed fix (a pure rename of a path that is gone) merges without a person.
+import { errText } from "../errors";
 import { lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { makeContext } from "../compose";
@@ -89,7 +90,7 @@ async function mergeFix(ctx: StepContext, fix: Pushed): Promise<boolean> {
       await ctx.codeHost.merge(fix.ref, fix.sha, FIX_TITLE);
       return true;
     } catch (e) {
-      why = `The merge failed, so the factory did not merge this fix. The code host said: ${String(e).slice(0, 300)}`;
+      why = `The merge failed, so the factory did not merge this fix. The code host said: ${errText(e)}`;
     }
   }
   await ctx.codeHost.commentChange(fix.ref, md("👀", "Needs a person", why));

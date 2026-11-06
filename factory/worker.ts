@@ -5,6 +5,8 @@
 // - hetzner: a new Hetzner VM per run, deleted after it (HETZNER_TOKEN; FACTORY_HETZNER_TYPE and _LOCATION).
 // Only run/ passes from one step to the next: a Docker volume per run. The worker alone writes RUNS_DIR
 // (the finished runs) and mounts a run's earlier build run read-only, so the record still needs decision's checks.
+import { setTimeout as wait } from "node:timers/promises";
+import { errText } from "./errors";
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -17,14 +19,14 @@ import { QUEUE_DIR, RUNS_DIR, type QueuedRun } from "./adapters/local-ci";
 import { Hetzner, type Vm } from "./hetzner";
 import { loadSeams, providerKeys } from "./config";
 import { FACTORY_ROOT } from "./repo";
-import { FILE_SECRETS } from "./secrets";
+import { FILE_SECRETS, WORKER_ENV_NAMES } from "./secrets";
 import { BUILD_STEPS, FINISH_STEPS } from "./steps/run";
 
 export type Exec = (cmd: string, args: string[], env?: Record<string, string>, cwd?: string) => Promise<{ code: number; out: string }>;
 const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
-// File secrets: a step reads each file and deletes it before any agent runs. Values never go on a command line.
-// The worker keeps the GitLab token under GL_TOKEN.
-const WORKER_SECRETS = Object.fromEntries(FILE_SECRETS.map((n) => [n, n === "FACTORY_GITLAB_TOKEN" ? "GL_TOKEN" : n]));
+// File secrets: a step reads each file and deletes it before any agent runs. Values never go on a command line:
+// provider keys go to docker by name (`-e K`), with the value in docker's own env.
+const WORKER_SECRETS = Object.fromEntries(FILE_SECRETS.map((n) => [n, WORKER_ENV_NAMES[n] ?? n]));
 const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
 export const realExec: Exec = (cmd, args, env = {}, cwd) =>
@@ -136,7 +138,7 @@ export function hetznerHost(exec: Exec, base: NodeJS.ProcessEnv, image: string, 
       for (let i = 0; i < 60 && !ready; i++) {
         const r = await exec("ssh", ["-F", join(dir, "ssh_config"), alias, "cloud-init status --wait"]);
         ready = r.code === 0 || r.code === 2;
-        if (!ready) await new Promise((res) => setTimeout(res, 10_000));
+        if (!ready) await wait(10_000);
       }
       if (!ready) throw new Error(`VM ${vm.ip} did not finish cloud-init`);
       const env = { DOCKER_HOST: `ssh://${alias}` };
@@ -207,8 +209,10 @@ export async function runOne(exec: Exec, base: NodeJS.ProcessEnv, open: OpenHost
           writeFileSync(join(local, "ca.crt"), readFileSync(env.NODE_EXTRA_CA_CERTS));
           env.NODE_EXTRA_CA_CERTS = join(SECRET_DIR, "ca.crt");
         }
-        const envArgs = Object.entries({ ...env, ...files }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-        const created = await docker("create", "--name", c, ...SECURITY, ...(host.network ? ["--network", host.network] : []), ...mounts, ...envArgs, image, "node", "--import", "tsx", `factory/steps/${step}.ts`);
+        const keys = new Set(providerKeys(loadSeams()));
+        const envArgs = Object.entries({ ...env, ...files }).flatMap(([k, v]) => ["-e", keys.has(k) ? k : `${k}=${v}`]);
+        const keyEnv = Object.fromEntries(Object.entries(env).filter(([k]) => keys.has(k)));
+        const created = await exec("docker", ["create", "--name", c, ...SECURITY, ...(host.network ? ["--network", host.network] : []), ...mounts, ...envArgs, image, "node", "--import", "tsx", `factory/steps/${step}.ts`], { ...host.env, ...keyEnv });
         if (created.code !== 0) return false;
         await docker("cp", `${local}/.`, `${c}:${SECRET_DIR}`);
         live.kill = () => docker("kill", c);
@@ -260,7 +264,7 @@ export function takeQueue(queueDir = QUEUE_DIR): QueuedRun[] {
       out.push({ kind: q.kind, target: String(q.target), ticket: q.ticket, change: q.change, buildRun: q.buildRun, skipApply: !!q.skipApply });
       rmSync(p);
     } catch (e) {
-      console.log(`Queued run ${f} is not valid (${String(e).slice(0, 200)}), moved to ${f}.bad`);
+      console.log(`Queued run ${f} is not valid (${errText(e, 200)}), moved to ${f}.bad`);
       renameSync(p, `${p}.bad`);
     }
   }
@@ -287,9 +291,9 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
   mkdirSync(SECRET_DIR, { recursive: true, mode: 0o700 });
   const runs = new Map<string, Live>();
   // Two dispatch runs at once could both find no open ticket for the same dispatch and open two.
-  const dispatch = (t: string) => lock(`dispatch:${t}`, () => runShort(exec, base, "dispatch", t).then(() => true));
+  const dispatch = (t: string) => void lock(`dispatch:${t}`, () => runShort(exec, base, "dispatch", t).then(() => true)).catch((e) => console.log(`dispatch for ${t} failed: ${errText(e, 500)}`));
   // The improve job can wait up to an hour for a fix pipeline, so it runs beside the poller, one at a time per target.
-  const improve = (t: string) => void lock(`improve:${t}`, () => runImprove(exec, base, t).then(() => true)).catch((e) => console.log(`improve for ${t} failed: ${String(e).slice(0, 500)}`));
+  const improve = (t: string) => void lock(`improve:${t}`, () => runImprove(exec, base, t).then(() => true)).catch((e) => console.log(`improve for ${t} failed: ${errText(e, 500)}`));
   createServer(handler(base.FACTORY_DASHBOARD_TOKEN, {
     cancel: async (run) => {
       const l = runs.get(run);
@@ -298,7 +302,7 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
       await l.kill?.();
       return true;
     },
-    dispatch: (t) => targets.includes(t) && (void dispatch(t), true),
+    dispatch: (t) => targets.includes(t) && (dispatch(t), true),
   })).listen(Number(base.FACTORY_WORKER_PORT ?? 8080));
   // With logSource files (fake errors) the watcher runs only when a person starts it: `worker.ts watch <target>`.
   const watch = loadSeams().logSource !== "files";
@@ -312,19 +316,24 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
       console.log(`run ${id}: ${q.kind} of ticket ${q.ticket} in ${q.target}`);
       // ponytail: a run in progress is lost when the worker stops; its ticket keeps factory_running, as on a killed CI job.
       void runOne(exec, base, open, image, q, id, lock, RUNS_DIR, QUEUE_DIR, live)
-        .catch((e) => console.log(`run ${id} failed: ${String(e).slice(0, 500)}`))
+        .catch((e) => console.log(`run ${id} failed: ${errText(e, 500)}`))
         .finally(() => runs.delete(id));
     }
-    await new Promise((r) => setTimeout(r, 60_000));
+    await wait(60_000);
   }
 }
 // One minute of one target: poll every tick; retry, the watcher and a due improve job on the hour.
+// A failure is logged and ends only this target's tick: the other targets still poll.
 export async function tickTarget(exec: Exec, base: NodeJS.ProcessEnv, t: string, tick: number, o: { watch: boolean; improve: (t: string) => void; now?: Date; runsDir?: string }) {
-  await runShort(exec, base, "poll", t);
-  if (tick % 60 !== 0) return;
-  await runShort(exec, base, "retry-waiting", t);
-  if (o.watch) await runShort(exec, base, "watcher", t);
-  if (improveDue(t, o.now ?? new Date(), o.runsDir)) o.improve(t);
+  try {
+    await runShort(exec, base, "poll", t);
+    if (tick % 60 !== 0) return;
+    await runShort(exec, base, "retry-waiting", t);
+    if (o.watch) await runShort(exec, base, "watcher", t);
+    if (improveDue(t, o.now ?? new Date(), o.runsDir)) o.improve(t);
+  } catch (e) {
+    console.log(`tick of ${t} failed: ${errText(e, 500)}`);
+  }
 }
 
 // The dashboard's calls (dashboard/src/server/worker.ts), on the compose network only, with the dashboard token.

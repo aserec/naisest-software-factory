@@ -182,14 +182,14 @@ export function checkEdits(edits: Edit[], o: { links: Set<string>; current: Part
         continue;
       }
     }
-    // The path is gone, so the edit is a fix if it only renames. If not, it is a change that needs no 3 cases.
+    // The path is gone, so the edit is a fix if it only renames. Anything else is a change: at least 3 cases, each one linked.
     const goneConfirmed = e.kind === "fix" && !isThresholds && !!e.gone && current !== undefined && current.includes(e.gone) && confirmGone(e.gone, o.dir);
     if (goneConfirmed && onlyRenames(current!, e.text, e.gone!, o.dir)) {
       out.fixes.push(e);
       continue;
     }
     const cases = new Set(e.evidence);
-    if (!goneConfirmed && cases.size < 3) drop(`it cites ${cases.size} cases and needs at least 3`);
+    if (cases.size < 3) drop(`it cites ${cases.size} cases and needs at least 3`);
     else if ([...cases].some((l) => !o.links.has(l))) drop("it cites a link that is not in the evidence");
     else out.changes.push({ ...e, kind: "change" });
   }

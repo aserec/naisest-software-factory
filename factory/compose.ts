@@ -1,4 +1,5 @@
 // The composition root: builds the step context from seams.yml. The one place that knows which tool fills each seam.
+import { setTimeout as wait } from "node:timers/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -119,7 +120,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     router,
     dir,
     repo: codeHost.cloneAt(dir),
-    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    sleep: (ms) => wait(ms),
   };
 }
 

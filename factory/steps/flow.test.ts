@@ -201,7 +201,7 @@ test("unclear ticket: questions are posted and the label is needs_info", async (
   expect(w.cards.map((c) => c.kind)).toEqual(["needs_info"]);
 });
 
-// Spec 6.5: only a person's merge starts the finish run.
+// Only a person's merge starts the finish run.
 test("a person's merge of a waiting MR starts the finish pipeline with the build record and apply skipped", async () => {
   const w = await runBuildPipeline(fakeWorld({ payload: mrEvent(), state: "needs_approval" }));
   expect(w.finishVars).toEqual({ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true });
@@ -296,7 +296,7 @@ test("apply does not merge a change that was closed or merged while it waited fo
   }
 });
 
-// Spec 6.4: rebase before an auto merge.
+// Rebase before an auto merge.
 test("a change behind develop is rebased, checked on the rebased head, then merged", async () => {
   const w = fakeWorld({ behind: 1 });
   const seen: string[] = [];
@@ -527,7 +527,7 @@ test("finish waits while the decision job is still running, then loads the recor
   expect(seen).toBe("from-build");
 });
 
-// Task 13: poller starts and resumed runs. Both come as trigger variables with no webhook payload.
+// Poller starts and resumed runs. Both come as trigger variables with no webhook payload.
 test("a poller start with no payload claims the run from live labels", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   await w.ci.start({ kind: "build", ticket: "8" });
@@ -848,7 +848,7 @@ test("seams.yml judge: model-call builds the model judge from judgeModel, and ne
   expect(makeContext({ ...env, TENSORX_API_KEY: "tx-key-0123456789" }, dir, seams).judge.provider).toBe("model");
 });
 
-// Task 8: the inbox. A stop comment ends an author run; a resume comment continues it.
+// The inbox. A stop comment ends an author run; a resume comment continues it.
 const stopRecord = async (o: WorldOptions = {}) => runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "stop", ...o }));
 const command = (c: "stop" | "resume", actor = "dev"): WorldOptions["payload"] => ({ kind: "command", ticket: "8", actor, command: c });
 // The resume run: the ticket is stopped, the factory's own comment names the run, and that run's record is loadable.
@@ -1028,7 +1028,7 @@ test("a watcher ticket set ready by the factory starts a run; another ticket set
   expect(polled.record.steps[0]).toMatchObject({ step: "event", data: { start: true } });
 });
 
-// Part F: dedupe for work items written by people.
+// Dedupe for work items written by people.
 test("a sure duplicate of an older work item is closed with a link and never built", async () => {
   const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "same", confidence: 0.95, closest: "7" } }));
   expect(w.closed).toBe(true);
@@ -1331,7 +1331,7 @@ test("a resumed gate job reviews the change again", async () => {
   expect(w.finishTriggered).toBe(true);
 });
 
-// Spec 12: a screen the reviewer says does not match blocks the change.
+// A screen the reviewer says does not match blocks the change.
 const PREVIEW = "install: pnpm install\nlint: pnpm lint\ntest: pnpm test:unit\nbuild: pnpm build\npreview: pnpm dev\npreviewUrl: http://localhost:3000\n";
 const reviewOf = (verdict: string): Finding => ({ blocking: false, screen: "list page", verdict, text: "no spinner" });
 const reviewData = (w: ReturnType<typeof fakeWorld>) => w.record.steps.find((s) => s.step === "code-review")?.data as any;
@@ -1392,7 +1392,7 @@ test("a does_not_match for a screen with no after image does not block", async (
   expect(reviewData(w).proof).toMatchObject({ verdicts: [{ screen: "list page", verdict: "unsure", note: "no after image" }] });
 });
 
-// Spec 12: a change without proof goes to a person.
+// A change without proof goes to a person.
 const approvalReasons = (w: ReturnType<typeof fakeWorld>) => (w.record.steps.find((s) => s.step === "decision")?.data as any).reasons as string[];
 test("an unsure verdict sends the change to a person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[{ ...reviewOf("unsure"), text: "cannot see the spinner" }]] }));
@@ -1423,7 +1423,7 @@ test("a change with no proof file goes to a person", async () => {
   expect(approvalReasons(w)).toContain("no proof: no run/proof/proof.json");
 });
 
-// Spec 6.5 and 12: the Proof section of the change, and the screenshots it links.
+// The Proof section of the change, and the screenshots it links.
 const visual = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]], ...o });
 test("the Proof section appears in the description", async () => {
   const w = await runBuildPipeline(visual());
@@ -1806,7 +1806,7 @@ test("@factory resume after a cancel from the dashboard starts nothing", async (
   expect(w.states).toEqual(["stopped"]);
 });
 
-// Part E: repo-local instructions. The author, the reviewer and the writers read them from the base commit or the base branch.
+// Repo-local instructions. The author, the reviewer and the writers read them from the base commit or the base branch.
 test("the author's prepare and fix prompts hold the base commit's author.md, never the work tree's", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/author.md": "BASE RULE" }, reviews: [[{ ...reviewOf("matches"), blocking: true }], []] });
   w.ctx.repo.readFile = ((read) => (path: string) => (path === ".factory/author.md" ? "AGENT EDIT" : read(path)))(w.ctx.repo.readFile);
@@ -1840,7 +1840,7 @@ test("with no .factory files the prompts are the factory's own, with nothing add
   expect(reviewerPrompt("T", "D")).toBe(`${prompt("review")}\n\nT\n\n<diff>\nD\n</diff>`);
 });
 
-// Part D: a change that goes to a person goes to the ticket assignee, else the top trusted code owner of its files, else the default approver.
+// A change that goes to a person goes to the ticket assignee, else the top trusted code owner of its files, else the default approver.
 const medium = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass", ...o });
 const assignedTo = (w: ReturnType<typeof fakeWorld>) => w.host.assigned.map((a) => a.person);
 test("a change goes to the code owner of its files", async () => {
@@ -1891,7 +1891,7 @@ test("a failed CODEOWNERS read or diff read goes to the default approver and doe
   expect(b.states).toEqual(["needs_approval"]);
 });
 
-// Part C: a person closes the work item or the merge request while a run is on.
+// A person closes the work item or the merge request while a run is on.
 const CLOSED_NOTE = md("🚫", "Change closed", "This merge request was closed because a person closed work item #8.");
 const ends = (w: ReturnType<typeof fakeWorld>) => (w.ctx.dashboard as ReturnType<typeof fakeDashboard>).events.filter((e) => e.type === "run_end").map((e) => e.data.outcome);
 // The author run polls its inbox once, as the tool hook would, and stops on a stop. before: what happens first.
@@ -2006,7 +2006,7 @@ test("a ticket whose old change a person closed runs again and is not blocked be
   expect(w.finishTriggered).toBe(true);
 });
 
-// Part G: the author's inbox hears the comments on the run's change. No code starts a round yet,
+// The author's inbox hears the comments on the run's change. No code starts a round yet,
 // so the record is built by hand: an event step with `round`, and the round's cursor.
 const CURSOR = "2020-01-01T00:00:00.000Z";
 async function roundWorld() {
@@ -2044,7 +2044,7 @@ test("a round resumed after @factory stop and @factory resume does not stop agai
   expect((await inbox(w.ctx).poll()).stop).toBe(false);
 });
 
-// Part G: a person's @factory request on a change that waits for a person starts a round on the same run.
+// A person's @factory request on a change that waits for a person starts a round on the same run.
 const T0 = "2026-10-01T10:00:00Z";
 const T1 = "2026-10-01T11:00:00Z";
 const T2 = "2026-10-01T12:00:00Z";
@@ -2087,7 +2087,7 @@ test("a request round restores the run, tells the work item, clears the marks an
   await runStep("prepare-patch", preparePatchStep.run, { dir, make: () => w.ctx });
   expect(w.claudeRuns[0]).toMatchObject({ resume: runFacts(first.record).session });
 });
-// The author works on the round's requests (Task 7).
+// The author works on the round's requests.
 const REQUESTS = `<request author="dev">@factory add a screenshot</request>`;
 async function roundPrepare(o: WorldOptions = {}, script?: (job: HarnessJob) => Partial<HarnessResult> | undefined) {
   const { first, w } = await requestWorld(o);
@@ -2265,7 +2265,7 @@ test("a request round whose open change is not the record's change replies, keep
   expect((await conversation(w.ctx).requests("8")).requests).toEqual([]);
 });
 
-// The end of a round (Task 8): a ticket that would merge alone still goes back to the person who asked.
+// The end of a round: a ticket that would merge alone still goes back to the person who asked.
 const T3 = "2026-10-01T13:00:00Z";
 const ROUND_JOBS = [["prepare-patch", preparePatchStep], ["code-review", codeReviewStep], ["precommit-gate", precommitGateStep], ["risk-check", riskCheckStep], ["decision", decision]] as const;
 async function finishedRound(answer = "- @dev: added the screenshot") {

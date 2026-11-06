@@ -188,7 +188,7 @@ test("a stop from the dashboard stops, and two polls 1 s apart read the tracker 
     const comments = t.comments;
     t.comments = (...a) => (reads++, comments(...a));
     let checks = 0;
-    const inbox = makeInbox(conv(t), "8", SINCE, async () => (checks++, true));
+    const inbox = makeInbox(conv(t), "8", SINCE, { stopCheck: async () => (checks++, true) });
     expect(await inbox.poll()).toEqual({ comments: [], stop: true });
     vi.setSystemTime(Date.now() + 1000);
     expect((await inbox.poll()).stop).toBe(true);
@@ -201,7 +201,7 @@ test("a stop from the dashboard stops, and two polls 1 s apart read the tracker 
   }
 });
 test("a dashboard check that throws does not stop", async () => {
-  const inbox = makeInbox(conv(world()), "8", SINCE, async () => { throw new Error("dashboard is down"); });
+  const inbox = makeInbox(conv(world()), "8", SINCE, { stopCheck: async () => { throw new Error("dashboard is down"); } });
   expect(await inbox.poll()).toEqual({ comments: [], stop: false });
 });
 test("the pump polls every 10 s by default", async () => {
@@ -217,19 +217,19 @@ test("the pump polls every 10 s by default", async () => {
   }
 });
 
-// Part C: a person closed the work item or the run's change.
+// A person closed the work item or the run's change.
 test("a closed check that says closed stops; one that throws does not", async () => {
-  expect((await makeInbox(conv(world()), "8", SINCE, undefined, async () => true).poll()).stop).toBe(true);
-  expect((await makeInbox(conv(world()), "8", SINCE, undefined, async () => { throw new Error("status 502"); }).poll()).stop).toBe(false);
+  expect((await makeInbox(conv(world()), "8", SINCE, { closedCheck: async () => true }).poll()).stop).toBe(true);
+  expect((await makeInbox(conv(world()), "8", SINCE, { closedCheck: async () => { throw new Error("status 502"); } }).poll()).stop).toBe(false);
 });
 
-// Part G: the comments on the run's change come with the ticket's.
+// The comments on the run's change come with the ticket's.
 async function withChange() {
   const t = world();
   const host = fakeCodeHost();
   const ref = (await host.openChange("b", "title", "body", "8")).ref;
   const reads: string[] = [];
-  const poll = (since = SINCE) => makeInbox(conv(t, host), "8", since, undefined, undefined, { change: ref, onRead: (u) => reads.push(u) });
+  const poll = (since = SINCE) => makeInbox(conv(t, host), "8", since, { change: ref, onRead: (u) => reads.push(u) });
   return { t, host, ref, reads, poll };
 }
 test("a trusted comment on the change reaches the agent wrapped, merged with the ticket's, oldest first", async () => {

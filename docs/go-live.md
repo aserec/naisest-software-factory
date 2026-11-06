@@ -81,7 +81,7 @@ The dashboard must be up before the first run: while the factory cannot reach it
 
 ## 8. Acceptance runs
 
-- [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 7). The mock Jev never passes Jev 2 (its scores have confidence 0.6), so with the mock every change goes to a person and run 1 cannot auto-merge.
+- [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 7). With judge `jev-berget` and no key, every step that asks Jev stops with an error.
 - [ ] **Run 1:** label a trivial ticket in `react_frontend`. Expected: merged into `develop` with a green `develop` pipeline, `factory_done`, a result comment, no person involved.
 - [ ] **Run 2:** label a medium-risk ticket. Expected: `factory_needs_approval`, reasons on the merge request, one Teams card.
 

@@ -206,7 +206,7 @@ test("readBytes returns plain small files and undefined for everything else", ()
   expect(repo.readBytes("run/proof/missing.png", MAX)).toBeUndefined();
 });
 
-// Part D and E read the target's own files. The agent edits the work tree, so they must come from the base commit.
+// The code-owner and repo-local instruction reads use the target's own files. The agent edits the work tree, so they must come from the base commit.
 test("readBase returns the committed file, not the edited work tree, and undefined for a missing path", async () => {
   const root = mkdtempSync(join(tmpdir(), "repo-base-"));
   const seed = join(root, "seed");

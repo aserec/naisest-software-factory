@@ -1,3 +1,6 @@
+import { setTimeout as wait } from "node:timers/promises";
+import { HttpError } from "./errors";
+
 export const GITHUB_API = "https://api.github.com";
 
 // A small GitHub REST and GraphQL client. A failed call names the status and endpoint, never the token.
@@ -10,7 +13,7 @@ const GQL_TRIES = 5;
 const NET_TRIES = 8; // waits 5, 10, ... 35 s between tries: 140 s in all, plus each connect timeout
 
 export class GitHub {
-  constructor(private token: string, private fetchFn: typeof fetch = fetch, private sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))) {}
+  constructor(private token: string, private fetchFn: typeof fetch = fetch, private sleep: (ms: number) => Promise<unknown> = wait) {}
 
   // once: GraphQL does its own retries, so a 502 is not tried 3 × 3 times.
   async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, once = false): Promise<Response> {
@@ -30,7 +33,7 @@ export class GitHub {
         continue;
       }
       if (res.ok) return res;
-      if (method !== "GET" || once || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) throw new Error(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}`);
+      if (method !== "GET" || once || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) throw new HttpError(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}`, res.status);
       await this.sleep(1000 * attempt);
     }
   }
@@ -66,6 +69,8 @@ export class GitHub {
       }
       if (!r.errors?.length) return r.data;
       const message = String(r.errors[0].message);
+      // A missing issue or project: NOT_FOUND, "Could not resolve to an Issue ...". Callers check it as a 404.
+      if (r.errors[0].type === "NOT_FOUND" || message.startsWith("Could not resolve to ")) throw new HttpError(`GitHub GraphQL failed: ${message.slice(0, 200)}`, 404);
       if (attempt === GQL_TRIES || !message.startsWith("Something went wrong")) throw new Error(`GitHub GraphQL failed: ${message.slice(0, 200)}`);
       await this.sleep(1000 * 2 ** attempt);
     }

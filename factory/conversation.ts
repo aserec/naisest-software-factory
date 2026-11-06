@@ -2,6 +2,8 @@
 // The factory's notes are the only place a paused run's state and the request cursor live, so every note is written and read here:
 // the writer and its reader sit side by side, and no other module knows a note's text. The same goes for the rule for a request:
 // a comment by a trusted person, not by the factory, that mentions `@factory`, after the cursor.
+import { errText } from "./errors";
+import { RESUME_COMMAND, STOP_COMMAND } from "./inbox-file";
 import type { Request } from "./record";
 import type { ChangeRef, CodeHost, Comment, FactoryState, Judge, PersonRef, Tracker, TicketRef } from "./seams";
 import { INJECTION_LIMIT, buildTriageState, injectionQuestion } from "./triage";
@@ -21,7 +23,7 @@ const hidden = (...lines: string[]) => `<!--\n${lines.join("\n")}\n-->`;
 
 // --- requests -------------------------------------------------------------------------------------------------
 
-const COMMANDS = ["@factory stop", "@factory resume"];
+const COMMANDS = [STOP_COMMAND, RESUME_COMMAND];
 const MENTION = /(^|[^\w@.-])@factory(?![\w-])/i;
 
 export function isRequest(body: string): boolean {
@@ -31,6 +33,11 @@ export function isRequest(body: string): boolean {
 
 // A line that stops the run, and the bare stop or resume comment: commands to the factory, not requests.
 export const hasStopLine = (body: string) => body.split("\n").some((l) => l.trim().toLowerCase() === COMMANDS[0]);
+// The command a comment gives: its first line that is a stop or resume command.
+export function commandIn(body: string): "stop" | "resume" | undefined {
+  const line = body.split("\n").map((l) => l.trim().toLowerCase()).find((l) => COMMANDS.includes(l));
+  return line === undefined ? undefined : line === STOP_COMMAND ? "stop" : "resume";
+}
 export const isBareCommand = (body: string) => COMMANDS.includes(body.trim());
 
 // The comments people wrote: the factory's own are left out, even when they quote a command.
@@ -278,7 +285,7 @@ export function conversation(seams: { tracker: Tracker; codeHost: CodeHost; judg
       try {
         for (const c of kept) comments.push({ ...c, injection: await isInjection(c) });
       } catch (e) {
-        console.log(`Judge failed for the comments of ticket ${ref}: ${String(e).slice(0, 300)}`);
+        console.log(`Judge failed for the comments of ticket ${ref}: ${errText(e)}`);
         return { stop, comments: [] };
       }
       const refused = comments.filter((c) => c.injection && isRequest(c.body));

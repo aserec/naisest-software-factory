@@ -14,7 +14,7 @@ const fakeFetch = (async (url: string, init: RequestInit) => {
   if (path === "/graphql") return Response.json({ data: graph(body.query, body.variables) });
   const key = `${init.method} ${path.replace(/[?&]page=1$/, "").replace(/&page=\d+$/, "")}`;
   if (!(key in rest)) return new Response("{}", { status: init.method === "GET" ? 404 : 200 });
-  return Response.json(rest[key]);
+  return rest[key] instanceof Response ? rest[key] : Response.json(rest[key]);
 }) as unknown as typeof fetch;
 const gh = new GitHub("tok", fakeFetch, async () => {});
 const issue = (o: object = {}) => ({ number: 8, title: "T", body: "D", state: "open", labels: [], assignees: [], html_url: "u8", created_at: "2026-01-01", ...o });
@@ -59,6 +59,20 @@ describe("labels", () => {
     rest[`GET /repos/${REPO}/collaborators/bob/permission`] = { permission: "read" };
     rest[`GET /repos/${REPO}/collaborators/factory-bot/permission`] = { permission: "admin" };
     expect([await t().trusted("ann"), await t().trusted("bob"), await t().trusted("eve"), await t().trusted("factory-bot")]).toEqual([true, false, false, false]);
+  });
+
+  test("a failed permission read throws, so a member's command is tried again next poll", async () => {
+    rest[`GET /repos/${REPO}/collaborators/ann/permission`] = new Response("", { status: 500 });
+    await expect(t().trusted("ann")).rejects.toThrow("status 500");
+  });
+
+  test("comments since a time compare times, not strings", async () => {
+    const since = "2026-01-02T00:30:00+01:00"; // 2026-01-01T23:30Z
+    rest[`GET /repos/${REPO}/issues/8/comments?per_page=100&since=${encodeURIComponent(since)}`] = [
+      { user: { login: "ann" }, body: "a", created_at: "2026-01-01T23:00:00Z" },
+      { user: { login: "ann" }, body: "b", created_at: "2026-01-02T00:00:00Z" },
+    ];
+    expect((await t().comments("8", since)).map((c) => c.body)).toEqual(["b"]);
   });
 
   test("with a shared account, the account's person is trusted and only its comments with the AI line are the factory's", async () => {

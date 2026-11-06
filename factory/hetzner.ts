@@ -1,12 +1,14 @@
 // A small Hetzner Cloud client for the worker's hetzner mode: one VM per run, deleted after it.
 // A failed call names the status and endpoint, never the token.
+import { setTimeout as wait } from "node:timers/promises";
+
 export const HETZNER_API = "https://api.hetzner.cloud/v1";
 
 export interface VmSpec { name: string; serverType: string; location: string; userData: string; sshPublicKey: string }
 export interface Vm { id: number; ip: string; keyId: number }
 
 export class Hetzner {
-  constructor(private token: string, private fetchFn: typeof fetch = fetch, private sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))) {}
+  constructor(private token: string, private fetchFn: typeof fetch = fetch, private sleep: (ms: number) => Promise<unknown> = wait) {}
 
   private async json(method: string, path: string, body?: unknown) {
     const res = await this.fetchFn(`${HETZNER_API}${path}`, {

@@ -15,14 +15,16 @@ const base = { GL_TOKEN: "glpat-x", FACTORY_DASHBOARD_TOKEN: "dash", TENSORX_API
 // decision's queue copy leaves a finish request, as decision's start() would.
 function fakeDocker(codes: Record<string, number> = {}) {
   const calls: string[][] = [];
-  const exec: Exec = async (_cmd, args) => {
+  const envs: (Record<string, string> | undefined)[] = [];
+  const exec: Exec = async (_cmd, args, env) => {
     calls.push(args);
+    envs.push(env);
     if (args[0] === "start") return { code: codes[args[2].split("-").slice(2).join("-")] ?? 0, out: "" };
     if (args[0] === "cp" && args[1].endsWith(`:${FACTORY_ROOT}/run`)) mkdirSync(join(args[2], "run"), { recursive: true });
     if (args[0] === "cp" && args[1].includes("-decision:")) writeFileSync(join(args[2], "1-a.json"), JSON.stringify({ kind: "finish", target: "react_frontend", ticket: "8", buildRun: "7" }));
     return { code: 0, out: "" };
   };
-  return { calls, exec, started: () => calls.filter((a) => a[0] === "start").map((a) => a[2].split("-").slice(2).join("-")) };
+  return { calls, envs, exec, started: () => calls.filter((a) => a[0] === "start").map((a) => a[2].split("-").slice(2).join("-")) };
 }
 const run = (d: ReturnType<typeof fakeDocker>, runs: string, queue: string, q: QueuedRun = { kind: "build", target: "react_frontend", ticket: "8" }) =>
   runOne(d.exec, base, machineHost(), "factory-worker", q, "7", targetLock(), runs, queue);
@@ -35,6 +37,10 @@ test("a build run starts each step in its own container, saves run/ and marks it
   expect(create).toContain(`factory-run-7:${FACTORY_ROOT}/run`);
   expect(create).toContain(`FACTORY_GITLAB_TOKEN=${FACTORY_ROOT}.tmp/FACTORY_GITLAB_TOKEN`); // a path, never the token
   expect(create.join(" ")).not.toContain("glpat-x");
+  // A provider key goes by name only: its value is in docker's env, never on the command line.
+  expect(create).toContain("TENSORX_API_KEY");
+  expect(create.join(" ")).not.toContain("TENSORX_API_KEY=");
+  expect(d.envs[d.calls.indexOf(create)]).toMatchObject({ TENSORX_API_KEY: "tx" });
   expect(existsSync(join(runs, "7", "ok"))).toBe(true);
   expect(readdirSync(queue)).toEqual(["1-a.json"]);
   expect(d.calls.at(-1)).toEqual(["volume", "rm", "-f", "factory-run-7", "factory-ref-7"]);
@@ -185,6 +191,9 @@ test("each tick polls; the hourly tick also retries, watches and starts a due im
     await tickTarget(exec, base, "a", 120, { ...o, watch: false });
     expect(steps.slice(4)).toEqual(["poll", "retry-waiting"]);
     expect(improved).toEqual(["a"]); // not due again within the week
+    // A failing target is logged, and the tick goes on to the next target.
+    const failing: Exec = async () => { throw new Error("docker down"); };
+    await expect(tickTarget(failing, base, "a", 1, o)).resolves.toBeUndefined();
   } finally {
     if (made) rmSync(secrets, { recursive: true, force: true });
   }

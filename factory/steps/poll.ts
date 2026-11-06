@@ -1,6 +1,7 @@
 // Fallback for a webhook that did not fire: a schedule every minute starts build runs for
 // tickets in the ready state. It sets no state. The build's event step re-checks the live state and
 // claims the run, as it does for a webhook.
+import { errText } from "../errors";
 import { makeContext } from "../compose";
 import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
@@ -32,7 +33,7 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
       await ctx.ci.start({ kind: "build", ticket: t.ref });
       start.push(t.ref);
     } catch (e) {
-      console.log(`Start of ticket ${t.ref} failed: ${String(e).slice(0, 300)}`);
+      console.log(`Start of ticket ${t.ref} failed: ${errText(e)}`);
     }
   }
   return start;
@@ -67,7 +68,7 @@ export async function main(ctx?: StepContext) {
     try {
       console.log(`Replied to requests on changes of tickets: ${(await replyOnChanges(ctx, answered)).join(", ") || "none"}`);
     } catch (e) {
-      console.log(`Replies on changes failed: ${String(e).slice(0, 300)}`);
+      console.log(`Replies on changes failed: ${errText(e)}`);
     }
     console.log(`Started build runs for tickets: ${(await pollReady(ctx, handled)).join(", ") || "none"}`);
     console.log(`Resumed runs a switch stopped: ${(await resumeSwitchedOff(ctx, handled)).join(", ") || "none"}`);

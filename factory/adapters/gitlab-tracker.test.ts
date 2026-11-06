@@ -147,6 +147,8 @@ describe("comments", () => {
       { author: "ann", byFactory: false, body: "a", at: "2026-01-02T00:00:00Z" },
     ]);
     expect((await tracker().comments("8", "2026-01-02T00:00:00Z")).map((c) => c.body)).toEqual(["b"]);
+    // Times, not strings: 00:30+01:00 is 2026-01-01T23:30Z, before "a".
+    expect((await tracker().comments("8", "2026-01-02T00:30:00+01:00")).map((c) => c.body)).toEqual(["b", "a"]);
   });
 });
 

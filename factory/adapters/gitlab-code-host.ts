@@ -1,9 +1,11 @@
+import { setTimeout as wait } from "node:timers/promises";
+import { isNotFound } from "../errors";
 import { AI_LINE, noQuickActions } from "../conversation";
 import { GitLab, GITLAB_URL, refuseSecrets } from "../gitlab";
 import { FACTORY_GIT_EMAIL, gitRepo } from "../repo";
 import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "../seams";
 
-export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
+export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<unknown> = wait): CodeHost {
   let project: Promise<number> | undefined;
   const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
   const mrUrl = async (ref: string) => `/projects/${await projectId()}/merge_requests/${Number(ref)}`;
@@ -85,7 +87,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       try {
         return await (await gitlab.call("GET", `/projects/${await projectId()}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(baseBranch)}`)).text();
       } catch (e) {
-        if (String(e).includes("failed with status 404")) return undefined;
+        if (isNotFound(e)) return undefined;
         throw e;
       }
     },
