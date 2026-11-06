@@ -7,7 +7,7 @@ codeHost: gitlab
 ci: local
 judge: model-call
 # chat is console (notices go to the job log), teams (TEAMS_WEBHOOK_URL) or slack (SLACK_WEBHOOK_URL).
-chat: console
+chat: slack
 logSource: files
 dashboard: http
 # The dashboard's address, e.g. https://factory.<domain>. makeContext refuses the placeholder.
