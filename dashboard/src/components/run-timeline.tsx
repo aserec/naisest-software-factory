@@ -11,7 +11,8 @@ import type { FileLink } from "@/server/compose";
 import type { RunSummary } from "@/server/db";
 import { runView } from "@/server/run-view";
 import type { FactoryState } from "@/server/seams";
-import { RiskPills, STATE } from "./board";
+import { RiskPills } from "./board";
+import { STATE } from "@/lib/state";
 import { LoadError, SectionHeading } from "./shell";
 
 export type SeqEvent = RunEvent & { seq: number };

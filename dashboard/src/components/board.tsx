@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { DIFF_RISK_MAX, STEPS, stepIndex } from "software-factory/run-events";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { STATE } from "@/lib/state";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { BoardRow, FactoryState } from "@/server/seams";
@@ -39,18 +40,6 @@ export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }
     </>
   );
 }
-
-// The board's name for each state.
-export const STATE: Record<FactoryState, string> = {
-  needs_approval: "Needs approval",
-  needs_info: "Needs info",
-  stopped: "Stopped",
-  blocked: "Blocked",
-  running: "Running",
-  waiting: "Waiting",
-  ready: "Ready",
-  done: "Done",
-};
 
 // Left: the states that wait for a person. Right: the ones the factory is working through.
 const WAITING: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked"];

@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 import { ago, cn } from "@/lib/utils";
-import { type BoardItem, needsYou, newlyWaiting, STATE, useBoard } from "./board";
+import { type BoardItem, needsYou, newlyWaiting, useBoard } from "./board";
+import { STATE } from "@/lib/state";
 import { SectionHeading } from "./shell";
 import { usePreferences } from "./use-preferences";
 
