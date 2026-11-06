@@ -89,7 +89,9 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   if (t.state !== "needs_approval") return noStart("not-waiting");
   // A late duplicate: a round already ran and its change names a newer build run.
   if (buildRunOf((await ctx.codeHost.change(changeRef)).body) !== buildRun) return noStart("stale-build");
-  const why = facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
+  // An empty record: the build run was never saved (local runs before local-run.sh saved them), so there is nothing to continue.
+  const saved = ctx.record.workItem !== "";
+  const why = saved && facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
   if (why) return block(ctx, `The factory could not start a round: ${why}. Add factory_ready to start again.`);
   // Requests wait for a change that is open. A noStart stop writes nothing: there is nothing to answer.
   const conv = conversation(ctx);
@@ -100,10 +102,11 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   const newest = conflicts ? new Date().toISOString() : requests.at(-1)!.at;
   const authors = [...new Set(requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
   // The change stays open and waiting, so a person can still merge it. The cursor line, or for conflicts the conflict note, stops the poller from asking again.
-  if (change.ref !== facts(ctx).change) {
-    const text = md("⚠️", "Round not started", `${conflicts ? "" : `${authors} `}The factory could not start a round. The open change ${change.ref} is not the change of pipeline ${buildRun}. The change still waits for a person.`);
+  if (!saved || change.ref !== facts(ctx).change) {
+    const why = saved ? `The open change ${change.ref} is not the change of pipeline ${buildRun}.` : `It has no saved copy of pipeline ${buildRun}.`;
+    const text = md("⚠️", "Round not started", `${conflicts ? "" : `${authors} `}The factory could not start a round. ${why} The change still waits for a person.`);
     await conv.write(ref, conflicts ? { kind: "conflictRound", text } : { kind: "cursor", text, at: newest });
-    return noStart("change-mismatch");
+    return noStart(saved ? "change-mismatch" : "no-saved-run");
   }
   // From here the ticket either starts running or gets a cursor line, so the poller does not start the same round again.
   // A judge that fails refuses nothing and writes no cursor: the next poll tries again.

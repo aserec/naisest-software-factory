@@ -281,7 +281,11 @@ export async function runStep(
   let result: StepResult;
   try {
     try {
-      ctx.record = await loadRunRecord(ctx, dir);
+      ctx.record = await loadRunRecord(ctx, dir).catch((e) => {
+        // A round on a change whose build run was never saved: requestRound sees the empty record, leaves a note and starts nothing.
+        if (name === "event" && ctx.ci.vars.change && e instanceof NotFactoryRunError) return newRecord();
+        throw e;
+      });
     } catch (e) {
       // A resume whose record cannot be read now (a server 5xx or a network error) waits for the next hourly retry.
       // Anything else (forged, 404, no decision job, a bad record) will not get better: block, so a person hears.
