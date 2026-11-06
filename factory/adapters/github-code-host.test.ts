@@ -93,10 +93,10 @@ describe("checks", () => {
     withChecks([{ status: "in_progress", conclusion: null }]);
     expect(await host().checks({ branch: "develop", sha: "h" })).toBe("running");
   });
-  test("no checks and no active workflow is none at once; a workflow list it cannot read counts as active", async () => {
+  test("no checks and no active workflow is absent at once; a workflow list it cannot read counts as active", async () => {
     withChecks([]);
     routes[`${R}/actions/workflows`] = { workflows: [{ state: "disabled_manually" }] };
-    expect(await host().checks({ change: "5", sha: "h" })).toBe("none");
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("absent");
     delete routes[`${R}/actions/workflows`];
     expect(await host().checks({ change: "5", sha: "h" })).toBe("running");
   });

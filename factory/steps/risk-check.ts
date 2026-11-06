@@ -1,18 +1,23 @@
 import { emit } from "../emit";
 import { askRisk, riskReasons } from "../decision";
 import { need } from "../record";
-import { checkHardRules, parseNumstat, type RuleResult } from "../rules";
+import { checkHardRules, parseNumstat, testOnly, type ChangedFile, type RuleResult } from "../rules";
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { Target } from "../types";
 import { facts, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
 // Fails closed: if the changed files cannot be read, the three rules that need them fail.
-function hardRules(numstat: string, diffText: string, target: Target, pipelineGreen: boolean): RuleResult[] {
+function hardRules(files: ChangedFile[] | Error, diffText: string, target: Target, pipelineGreen: boolean, pipelineDetail?: string): RuleResult[] {
+  if (!(files instanceof Error)) return checkHardRules(files, diffText, target, pipelineGreen, pipelineDetail);
+  const needsFiles = ["protected-path", "dependency-file", "size"];
+  return checkHardRules([], diffText, target, pipelineGreen, pipelineDetail).map((r) => (needsFiles.includes(r.rule) ? { ...r, passed: false, detail: `Could not read the changed files: ${String(files)}` } : r));
+}
+
+function changedFiles(numstat: string): ChangedFile[] | Error {
   try {
-    return checkHardRules(parseNumstat(numstat), diffText, target, pipelineGreen);
+    return parseNumstat(numstat);
   } catch (e) {
-    const needsFiles = ["protected-path", "dependency-file", "size"];
-    return checkHardRules([], diffText, target, pipelineGreen).map((r) => (needsFiles.includes(r.rule) ? { ...r, passed: false, detail: `Could not read the changed files: ${String(e)}` } : r));
+    return e instanceof Error ? e : new Error(String(e));
   }
 }
 
@@ -23,7 +28,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const headSha = need(f.gateHead, "pushed commit");
   const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: headSha }));
   const diff = await ctx.repo.diff();
-  const rules = hardRules(diff.numstat, diff.text, ctx.target, checks === "green");
+  const files = changedFiles(diff.numstat);
+  // A repo with no CI: the precommit gate, which ran the target's lint, test and build on this head, stands in for the pipeline.
+  const gateStandsIn = checks === "absent" && f.gatePassed === true;
+  const rules = hardRules(files, diff.text, ctx.target, checks === "green" || gateStandsIn, gateStandsIn ? "The repo has no CI, so the green precommit gate counts as the pipeline" : undefined);
+  const tests = !(files instanceof Error) && testOnly(files);
   for (const r of rules) emit(ctx, "rule_check", { rule: r.rule, passed: r.passed, detail: r.detail });
   // The base commit, so the agent cannot change its own thresholds. A bad value sends the change to a person in the decision step.
   const { values: thresholds, errors: thresholdErrors } = readThresholds(await ctx.repo.readBase(THRESHOLDS_PATH));
@@ -32,10 +41,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     risk = await askRisk(ctx.judge, ctx.record.ticket!, diff.text);
   } catch (e) {
     // No guessing: the decision step sends this change to a person.
-    save(ctx, "risk-check", { headSha, checks, rules, riskError: String(e), thresholds, thresholdErrors });
+    save(ctx, "risk-check", { headSha, checks, rules, riskError: String(e), thresholds, thresholdErrors, testOnly: tests });
     return "next";
   }
-  save(ctx, "risk-check", { headSha, checks, rules, risk, thresholds, thresholdErrors });
+  save(ctx, "risk-check", { headSha, checks, rules, risk, thresholds, thresholdErrors, testOnly: tests });
   if (thresholdErrors.length === 0 && riskReasons(risk, thresholds).length === 0) await ctx.tracker.mark(ticketRef(ctx), "risk_checked");
   return "next";
 }

@@ -66,7 +66,8 @@ export interface Repo {
   readBytes(path: string, maxBytes: number): Buffer | undefined;
 }
 
-export type Checks = "green" | "red" | "running" | "none";
+// absent: the repo has no CI at all, so no check will ever come.
+export type Checks = "green" | "red" | "running" | "none" | "absent";
 export interface Change { ref: ChangeRef; open: boolean; merged: boolean; mergedAt?: string; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean } // behind: the target branch has commits the change lacks
 export interface CodeHost {
   baseBranch(): Promise<string>;

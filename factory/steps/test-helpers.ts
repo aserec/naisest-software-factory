@@ -36,7 +36,7 @@ export const VISUAL_PROOF = {
   tests: [TEST],
 };
 
-type Status = "success" | "failed" | "running" | "none";
+type Status = "success" | "failed" | "running" | "none" | "absent"; // absent: the repo has no CI
 export interface WorldOptions {
   jev1?: { risk?: Risk; injectionYes?: number; clarity?: number } | "throw";
   jev2?: "pass" | "throw";
@@ -57,7 +57,7 @@ export interface WorldOptions {
   actorLevel?: number; // below 30 the actor may not command the factory
   mrState?: "opened" | "merged";
   existingMr?: boolean;
-  mrPipeline?: "success" | "failed";
+  mrPipeline?: "success" | "failed" | "absent";
   mainPipeline?: Status;
   baseBranch?: string;
   mrTarget?: string; // the branch the change targets; default the base branch
@@ -84,7 +84,7 @@ export const COMMIT: CommitMessage = {
 export const BOT = FAKE_FACTORY;
 export const mrEvent = (actor: PersonRef = "dev"): FactoryEvent => ({ kind: "merged", ticket: "8", change: "5", actor });
 const READY: FactoryEvent = { kind: "ready", ticket: "8", actor: "dev" };
-const CHECKS: Record<Status, Checks> = { success: "green", failed: "red", running: "running", none: "none" };
+const CHECKS: Record<Status, Checks> = { success: "green", failed: "red", running: "running", none: "none", absent: "absent" };
 const DEDUPE = ["dedupe", "closest", "candidates_injection"];
 const TRIAGE = ["injection", "type", "risk", "clarity", "effort"];
 

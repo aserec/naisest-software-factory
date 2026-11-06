@@ -50,7 +50,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       if (results.includes("cancelled")) return "change" in at ? "red" : "none";
       // A repo with no active Actions workflow gets no check: say so now, not after the hour waitFor would wait.
       // ponytail: an outside app (Vercel and others) that posts statuses late is missed; it counts as no checks.
-      if (results.length === 0 && !(await hasWorkflows())) return "none";
+      if (results.length === 0 && !(await hasWorkflows())) return "absent";
       if (results.length === 0 || results.some((s) => s === "pending" || s === "queued" || s === "in_progress")) return "running";
       return "green";
     },

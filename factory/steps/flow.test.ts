@@ -168,6 +168,22 @@ test("a red merge request pipeline sends the change to a person", async () => {
   expect(w.finishTriggered).toBe(false);
   expect(w.mrComments.at(-1)).toContain("pipeline");
 });
+test("a repo with no CI merges alone on a green precommit gate, and finish merges with no pipeline to wait for", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, mrPipeline: "absent" }));
+  expect(w.finishTriggered).toBe(true);
+  expect(w.record.steps.find((s) => s.step === "risk-check")?.data).toMatchObject({ rules: expect.arrayContaining([{ rule: "pipeline", passed: true, detail: "The repo has no CI, so the green precommit gate counts as the pipeline" }]) });
+  const f = await runFinishPipeline(fakeWorld({ mrPipeline: "absent", mainPipeline: "absent" }));
+  expect(f.merged).toBe(true);
+  expect(f.states).not.toContain("blocked");
+});
+test("a diff of test files only is proven by its tests passing after, though they passed before too", async () => {
+  const passesBoth = { visual: false, screens: [], tests: [{ name: "list spinner", command: "pnpm test", before: { exit: 0, tail: "ok" }, after: { exit: 0, tail: "ok" } }] };
+  const testsOnly = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, numstat: "10\t2\tsrc/List.test.tsx\0", proof: passesBoth }));
+  expect(testsOnly.finishTriggered).toBe(true);
+  const withCode = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, numstat: "10\t2\tsrc/List.test.tsx\0" + "1\t1\tsrc/List.tsx\0", proof: passesBoth }));
+  expect(withCode.finishTriggered).toBe(false);
+  expect(withCode.mrComments.at(-1)).toContain("no test failed before the change and passed after it");
+});
 test("apply does not merge while the merge request pipeline is not green", async () => {
   const w = await runFinishPipeline(fakeWorld({ mrPipeline: "failed" }));
   expect(w.merged).toBe(false);

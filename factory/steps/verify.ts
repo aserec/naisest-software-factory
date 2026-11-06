@@ -7,7 +7,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const sha = need(facts(ctx).mergedSha, "merged commit");
   const status = await waitFor(ctx, () => ctx.codeHost.checks({ branch, sha }));
   save(ctx, "verify", { status });
-  if (status === "green") {
+  // A repo with no CI runs no main pipeline: the gate on the change was the last check.
+  if (status === "green" || status === "absent") {
     // ponytail: no smoke step yet; a target that names one goes to a person until it is built.
     if (facts(ctx).commands?.smoke) return block(ctx, "The target's .factory.yml names a smoke test, but the factory cannot run smoke tests yet. A person must run it.");
     return "next";

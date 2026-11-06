@@ -57,6 +57,11 @@ export function parseNumstat(gitNumstatZ: string): ChangedFile[] {
   return files;
 }
 
+// ponytail: fixed test globs; a target config list when a target names its tests differently.
+const isTest = picomatch(["**/*.{test,spec}.*", "**/__tests__/**", "**/tests/**", "**/test/**", "**/e2e/**"], { dot: true });
+/** The diff changes test files only. */
+export const testOnly = (files: ChangedFile[]) => files.length > 0 && files.every((f) => isTest(f.newPath) && isTest(f.oldPath));
+
 function pathRule(rule: RuleResult["rule"], files: ChangedFile[], globs: string[], what: string): RuleResult {
   const match = picomatch(globs, { dot: true });
   const hits = [...new Set(files.flatMap((f) => [f.oldPath, f.newPath]).filter((p) => match(p)))];
@@ -64,7 +69,7 @@ function pathRule(rule: RuleResult["rule"], files: ChangedFile[], globs: string[
 }
 
 /** Runs all five hard rules. Every rule always returns one result. */
-export function checkHardRules(files: ChangedFile[], diffText: string, target: Target, pipelineGreen: boolean): RuleResult[] {
+export function checkHardRules(files: ChangedFile[], diffText: string, target: Target, pipelineGreen: boolean, pipelineDetail?: string): RuleResult[] {
   const lines = files.reduce((sum, f) => sum + f.added + f.removed, 0);
   const secrets = findSecrets(diffText);
   return [
@@ -74,6 +79,6 @@ export function checkHardRules(files: ChangedFile[], diffText: string, target: T
       ? { rule: "size", passed: true, detail: `${lines} lines changed, no limit` }
       : { rule: "size", passed: lines <= target.maxChangedLines, detail: `${lines} lines changed, the limit is ${target.maxChangedLines}` },
     { rule: "secret", passed: secrets.length === 0, detail: secrets.length ? `Found ${secrets.length} secret-looking value(s) in the diff` : "No secrets found in the diff" },
-    { rule: "pipeline", passed: pipelineGreen, detail: pipelineGreen ? "Pipeline is green" : "Pipeline is not green" },
+    { rule: "pipeline", passed: pipelineGreen, detail: pipelineDetail ?? (pipelineGreen ? "Pipeline is green" : "Pipeline is not green") },
   ];
 }

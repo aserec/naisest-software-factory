@@ -50,9 +50,9 @@ export async function mergeReviewed(ctx: StepContext, change: ChangeRef, reviewe
       if (!sameChange(reviewed, await ctx.codeHost.branchDiff(r.head))) return block(ctx, `The rebased change ${change} is not the change that was reviewed, so the factory did not merge it.`);
       rebased.push((head = r.head));
     }
-    // Merge only after the change's own checks are green on the head that merges.
+    // Merge only after the change's own checks are green on the head that merges. A repo with no CI has none to wait for.
     const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: head }));
-    if (checks !== "green") return block(ctx, `The change's pipeline is ${checks}, so the factory did not merge.`);
+    if (checks !== "green" && checks !== "absent") return block(ctx, `The change's pipeline is ${checks}, so the factory did not merge.`);
     // The wait can take an hour: a person may have retargeted, pushed to or closed the change since the checks above.
     const endedNow = await endIfClosed(ctx);
     if (endedNow) return endedNow;
