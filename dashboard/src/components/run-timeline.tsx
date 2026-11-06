@@ -49,7 +49,12 @@ export interface Lane {
   tools: Extract<SeqEvent, { type: "tool_call" }>[];
   events: SeqEvent[]; // the step's other events (findings, checks, usage ...)
   costUsd: number;
+  round?: number; // a code review or gate round, or the patch that fixed it
+  stepAt?: string; // for a round: when its step started
 }
+
+// The name on a row: "Code review 2", "Patch 2", "Precommit gate 1".
+export const laneName = (l: Lane) => `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}`;
 
 // One lane per step_start. A step_end closes the first open lane of its step. Tool calls hang on their lane by parent.
 export function lanes(events: SeqEvent[]): Lane[] {
@@ -64,10 +69,50 @@ export function lanes(events: SeqEvent[]): Lane[] {
     lane.events = sorted.filter((e) => !own.has(e.type) && e.step === lane.start.step && e.at >= lane.start.at && (!lane.end || e.at <= lane.end.at));
     lane.costUsd = eventsOfType(lane.events, "usage").reduce((sum, e) => sum + e.data.costUsd, 0);
   }
+  const kids = (c: Lane) => children(c, out);
+  return out.flatMap((l) => (out.some((c) => kids(c).includes(l)) ? [] : split(l, kids)));
+}
+
+const within = (l: Lane, c: Lane) => l !== c && l.start.at >= c.start.at && (l.start.at > c.start.at || l.start.seq > c.start.seq) && (!c.end || l.start.at <= c.end.at);
+
+// The steps run inside a code review or the gate: their patches, and the code review the gate runs after a fix.
+// A patch inside that inner review belongs to the review, not to the gate.
+function children(c: Lane, all: Lane[]): Lane[] {
+  const kind = (l: Lane) => l.start.step === "patch" || (c.start.step === "precommit-gate" && l.start.step === "code-review");
+  if (c.start.step !== "code-review" && c.start.step !== "precommit-gate") return [];
+  const mine = all.filter((l) => kind(l) && within(l, c));
+  return mine.filter((l) => !mine.some((m) => m.start.step === "code-review" && within(l, m)));
+}
+
+// A code review or gate step shows as its rounds with the steps between them: Code review 1, Patch 1, Code review 2 ...
+// Each round runs from the step's start or the last inner step's end to the next inner step's start or the step's end.
+function split(c: Lane, kids: (c: Lane) => Lane[]): Lane[] {
+  const inner = kids(c);
+  if (inner.length === 0) return [c];
+  const out: Lane[] = [];
+  let from: SeqEvent = c.start;
+  for (const [i, k] of inner.entries()) {
+    // A round a patch followed ends "blocking": it found what the patch fixed. A gate round before a review passed.
+    const r = round(c, i + 1, from, { ...k.start, type: "step_end", data: { outcome: "next" } }, k.start.step === "patch" ? "blocking" : "next");
+    out.push(r, ...(k.start.step === "patch" ? [{ ...k, round: r.round }] : split(k, kids)));
+    if (!k.end) return out;
+    from = k.end;
+  }
+  out.push(round(c, inner.length + 1, from, c.end, c.outcome));
   return out;
 }
 
-const PILL: Record<string, "destructive" | "warning" | "secondary" | "positive"> = { next: "positive", error: "destructive", stop: "warning", stopped: "warning", waiting: "warning" };
+// n counts the rounds in this step. A review round takes its findings' round, which goes on across the review and gate jobs.
+function round(c: Lane, n: number, from: SeqEvent, end: Lane["end"], outcome?: string): Lane {
+  const start = { ...c.start, id: n === 1 ? c.start.id : `${c.start.id}-${n}`, at: from.at, seq: from.seq };
+  const during = <E extends SeqEvent>(e: E) => e.at >= start.at && (!end || e.at <= end.at);
+  const events = c.events.filter(during);
+  const costUsd = eventsOfType(events, "usage").reduce((sum, e) => sum + e.data.costUsd, 0);
+  const found = eventsOfType(events, "review_finding").at(-1)?.data.round;
+  return { start, end, outcome, tools: c.tools.filter(during), events, costUsd, round: found ?? n, stepAt: c.start.at };
+}
+
+const PILL: Record<string, "destructive" | "warning" | "secondary" | "positive"> = { blocking: "warning", next: "positive", error: "destructive", stop: "warning", stopped: "warning", waiting: "warning" };
 
 // The step_end outcome in the words docs/how-it-works.md uses.
 const OUTCOME: Record<string, string> = { next: "passed" };
@@ -100,7 +145,7 @@ function LaneRow({ lane, from, span, stuck, state, selected, onSelect }: { lane:
         onClick={onSelect}
         className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] @xl:flex"
       >
-        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{words(lane.start.step ?? "")}</span>
+        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{laneName(lane)}</span>
         <span className="flex justify-end gap-1 @xl:order-4 @xl:w-32">
           <Pills lane={lane} stuck={stuck} state={state} />
         </span>
@@ -305,13 +350,14 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   const span = Math.max(Math.max(last, over ? 0 : nowMs) - from, 1);
   const live = rows.find((l) => !l.end);
   const { lastStep } = view;
-  const stuck = (l: Lane) => view.stuck && !!lastStep && l.start.step === lastStep.step && l.start.at === lastStep.startedAt;
+  // A split step is stuck in its open round.
+  const stuck = (l: Lane) => view.stuck && !!lastStep && l.start.step === lastStep.step && (l.stepAt ?? l.start.at) === lastStep.startedAt && (!l.stepAt || !l.end);
   const open = rows.find((l) => l.start.id === openId);
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => stepIndex(l.start.step)));
   const first = Math.min(...rows.map((l) => stepIndex(l.start.step)).filter((i) => i >= 0));
   const at = live ? stepIndex(live.start.step) : reached; // the last row can be a review that ran inside the gate
-  const nowText = live ? words(live.start.step ?? "") : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
+  const nowText = live ? laneName(live) : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-base text-muted-foreground">{at + 1} of {STEPS.length}</span>;
   const waited = paused && !view.ended && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
   const time = (
@@ -411,7 +457,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
         title={
           open && (
             <span className="flex flex-wrap items-center gap-2">
-              {words(open.start.step ?? "")} <Pills lane={open} stuck={stuck(open)} state={open === rows.at(-1) ? state : undefined} />
+              {laneName(open)} <Pills lane={open} stuck={stuck(open)} state={open === rows.at(-1) ? state : undefined} />
             </span>
           )
         }

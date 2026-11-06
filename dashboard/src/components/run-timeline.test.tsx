@@ -295,3 +295,49 @@ test("Earlier runs lists the work item's other runs with a link each, and is hid
   await screen.findByRole("button", { name: /Implement/ });
   expect(screen.queryByRole("heading", { name: "Earlier runs" })).toBeNull();
 });
+
+test("a code review with fixes shows each round, then the patch that fixed it, in turn", async () => {
+  stream([
+    ev("step_start", "00", { step: "code-review", id: "cr" }),
+    ev("review_finding", "01", { step: "code-review", data: { text: "a", blocking: true, round: 1 } }),
+    ev("step_start", "02", { step: "patch" }),
+    ev("step_end", "03", { step: "patch", data: { outcome: "next" } }),
+    ev("review_finding", "04", { step: "code-review", data: { text: "b", blocking: true, round: 2 } }),
+    ev("step_start", "05", { step: "patch" }),
+    ev("step_end", "06", { step: "patch", data: { outcome: "next" } }),
+    ev("review_finding", "07", { step: "code-review", data: { text: "c", blocking: false, round: 3 } }),
+    ev("step_end", "08", { step: "code-review", data: { outcome: "next" } }),
+  ]);
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /Code review 1/ });
+  const rows = [...document.querySelectorAll("[data-lane]")].map((b) => b.textContent);
+  expect(rows.map((t) => t?.match(/^(Code review|Patch) \d/)?.[0])).toEqual(["Code review 1", "Patch 1", "Code review 2", "Patch 2", "Code review 3"]);
+  expect(rows[0]).toContain("blocking");
+  expect(rows[4]).toContain("passed");
+  fireEvent.click(screen.getByRole("button", { name: /Code review 2/ }));
+  const panel = await screen.findByRole("dialog");
+  expect(panel.textContent).toContain("Round 2");
+  expect(panel.textContent).not.toContain("Round 1");
+});
+
+test("the gate shows its rounds with its patches, and the code review it runs after a fix splits into its own rounds", async () => {
+  stream([
+    ev("step_start", "00", { step: "precommit-gate" }),
+    ev("gate_check", "01", { step: "precommit-gate", data: { command: "test", exitCode: 1, outputTail: "x" } }),
+    ev("step_start", "02", { step: "patch" }),
+    ev("step_end", "03", { step: "patch", data: { outcome: "next" } }),
+    ev("gate_check", "04", { step: "precommit-gate", data: { command: "test", exitCode: 0, outputTail: "" } }),
+    ev("step_start", "05", { step: "code-review" }),
+    ev("review_finding", "06", { step: "code-review", data: { text: "a", blocking: true, round: 3 } }),
+    ev("step_start", "07", { step: "patch" }),
+    ev("step_end", "08", { step: "patch", data: { outcome: "next" } }),
+    ev("review_finding", "09", { step: "code-review", data: { text: "b", blocking: false, round: 4 } }),
+    ev("step_end", "10", { step: "code-review", data: { outcome: "next" } }),
+    ev("gate_check", "11", { step: "precommit-gate", data: { command: "test", exitCode: 0, outputTail: "" } }),
+    ev("step_end", "12", { step: "precommit-gate", data: { outcome: "next" } }),
+  ]);
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /Precommit gate 1/ });
+  const rows = [...document.querySelectorAll("[data-lane]")].map((b) => b.textContent?.match(/^(Code review|Patch|Precommit gate) \d/)?.[0]);
+  expect(rows).toEqual(["Precommit gate 1", "Patch 1", "Precommit gate 2", "Code review 3", "Patch 3", "Code review 4", "Precommit gate 3"]);
+});
