@@ -19,12 +19,32 @@ test("renders a section per label, empty ones with 0, and a Stuck badge", async 
   renderWithQuery(<Board />);
   expect(await screen.findByText("Fix login")).toBeTruthy();
   expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Waiting on you", "With the factory"]);
-  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Needs approval 0", "Needs info 0", "Stopped 0", "Blocked 0", "Running 1", "Waiting 0", "Ready 0", "Done 1"]);
+  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Needs approval 0", "Needs info 0", "Stopped 0", "Blocked 0", "Running 1", "Waiting 0", "Ready 0"]);
   expect(screen.queryByText(/are empty/)).toBeNull();
   expect(screen.getAllByText("Stuck")).toHaveLength(1);
   expect(screen.getByText("$1.50")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Fix login" }).getAttribute("href")).toBe("/runs/r1");
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Finished 1" }));
   expect(screen.getByRole("link", { name: "Add docs" }).getAttribute("href")).toBe("http://gl/7"); // no run: links to GitLab
+});
+
+test("Finished holds done work items and the ones closed before done; they leave Ongoing and wait for no one", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([
+    item({}),
+    item({ ticket: "8", title: "Shipped", state: "done", closed: true }),
+    item({ ticket: "9", title: "Dropped", state: "needs_approval", closed: true, stuck: true }),
+  ])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Fix login");
+  expect(screen.getByRole("tab", { name: "Ongoing 1" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Needs approval 0" })).toBeTruthy();
+  expect(screen.queryByText("Dropped")).toBeNull();
+  expect(document.title).toBe("Factory");
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "Finished 2" }));
+  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Done 1", "Closed 1"]);
+  expect(within(screen.getByRole("heading", { name: "Closed 1" }).closest("section")!).getByText("Dropped")).toBeTruthy();
+  expect(window.location.search).toBe("?tab=finished");
+  expect(screen.queryByText("Fix login")).toBeNull();
 });
 
 test("a card shows the live step, the round and both risks", async () => {
@@ -94,7 +114,7 @@ test("a failed board load says so in plain words, keeps the last board with its 
 test("every state keeps its section, an empty one with 0", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([])));
   renderWithQuery(<Board />);
-  for (const name of ["Needs approval", "Waiting", "Done"]) expect((await screen.findByRole("heading", { name: `${name} 0` })).tagName).toBe("H3");
+  for (const name of ["Needs approval", "Waiting", "Ready"]) expect((await screen.findByRole("heading", { name: `${name} 0` })).tagName).toBe("H3");
 });
 
 test("durations and ages read as people say them", () => {
@@ -106,6 +126,7 @@ test("durations and ages read as people say them", () => {
 test("Done shows its ten newest tickets, and Show older shows the rest", async () => {
   const done = Array.from({ length: 12 }, (_, n) => item({ ticket: String(n), title: `T${n}`, state: "done", updatedAt: `2026-11-01T10:${String(n).padStart(2, "0")}:00Z` }));
   vi.stubGlobal("fetch", vi.fn(async () => json(done)));
+  window.history.replaceState(null, "", "/?tab=finished");
   renderWithQuery(<Board />);
   expect(await screen.findByText("T11")).toBeTruthy();
   expect(screen.queryByText("T1")).toBeNull();

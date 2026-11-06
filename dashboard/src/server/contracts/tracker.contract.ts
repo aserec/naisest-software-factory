@@ -4,7 +4,7 @@ import { STATES, type FactoryState, type Risk, type Tracker } from "../seams";
 import type { TargetInfo } from "../targets";
 
 // A work item the adapter's world holds before the test.
-export type Seed = { ticket: string; title: string; state: FactoryState; risk?: Risk };
+export type Seed = { ticket: string; title: string; state: FactoryState; risk?: Risk; closed?: boolean };
 
 // Every board Tracker must pass this. `make` gives the tracker and one target whose tracker holds `seed`; with setUp false, its address or read token is missing.
 export function trackerContract(name: string, make: (seed: Seed[], o: { setUp: boolean }) => { tracker: Tracker; target: TargetInfo }) {
@@ -21,6 +21,12 @@ export function trackerContract(name: string, make: (seed: Seed[], o: { setUp: b
       const rows = await tracker.rows([target]);
       expect(rows.find((r) => r.ticket === "1")?.risk).toBe("high");
       expect(rows.find((r) => r.ticket === "2")?.risk).toBeUndefined();
+    });
+
+    test("a row says whether the tracker closed the work item", async () => {
+      const { tracker, target } = make([{ ticket: "1", title: "A", state: "running", closed: true }, { ticket: "2", title: "B", state: "running" }], { setUp: true });
+      const rows = await tracker.rows([target]);
+      expect(rows.map((r) => [r.ticket, !!r.closed]).sort()).toEqual([["1", true], ["2", false]]);
     });
 
     test("a row's url is the work item link that ticketUrl gives", async () => {

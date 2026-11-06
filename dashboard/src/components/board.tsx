@@ -9,6 +9,7 @@ import { CircleDot, GitPullRequest, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { STATE } from "@/lib/state";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import type { BoardRow, FactoryState, Risk } from "@/server/seams";
 import { ago, cn, usd, words, workItemKey } from "@/lib/utils";
@@ -49,15 +50,17 @@ export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }
   );
 }
 
-// Left: the states that wait for a person. Right: the ones the factory is working through.
+// Ongoing tab. Left: the states that wait for a person. Right: the ones the factory is working through.
 const WAITING: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked"];
 const SIDES: [string, FactoryState[]][] = [
   ["Waiting on you", WAITING],
-  ["With the factory", ["running", "waiting", "ready", "done"]],
+  ["With the factory", ["running", "waiting", "ready"]],
 ];
+// Finished tab: done, and work items a person closed in the tracker before they were done.
+const finished = (i: BoardItem) => i.state === "done" || !!i.closed;
 
-// What waits for a person: the left side, plus stuck runs on the right.
-export const needsYou = (items: BoardItem[]) => items.filter((i) => WAITING.includes(i.state) || i.stuck);
+// What waits for a person: the left side, plus stuck runs on the right. A finished work item waits for no one.
+export const needsYou = (items: BoardItem[]) => items.filter((i) => !finished(i) && (WAITING.includes(i.state) || i.stuck));
 export const waitingCount = (items: BoardItem[]) => needsYou(items).length;
 
 // The ten steps as one line of segments: reached in ink, the live one in the data hue, a stuck or failed run's step in red.
@@ -147,12 +150,11 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
   );
 }
 
-const DONE_SHOWN = 10; // Done only grows; the board shows the newest ones.
+const FINISHED_SHOWN = 10; // Finished columns only grow; the board shows the newest ones.
 
-function Column({ state, items, now }: { state: FactoryState; items: BoardItem[]; now: number }) {
-  const name = STATE[state];
+function Column({ name, items, now, newest }: { name: string; items: BoardItem[]; now: number; newest?: boolean }) {
   const [all, setAll] = useState(false);
-  const shown = state === "done" && !all ? [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, DONE_SHOWN) : items;
+  const shown = newest && !all ? [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, FINISHED_SHOWN) : items;
   return (
     <section>
       <SectionHeading as="h3">
@@ -182,18 +184,18 @@ export function useBoard() {
   return useQuery({ queryKey: ["board"], refetchInterval: 15_000, queryFn: () => loadBoard() });
 }
 
-// The filter lives in the URL (?q=, ?target=), so a link or a reload keeps it.
+// The filter and the tab live in the URL (?q=, ?target=, ?tab=), so a link or a reload keeps them.
 function useFilter() {
-  const [f, setF] = useState({ q: "", target: "" });
+  const [f, setF] = useState({ q: "", target: "", tab: "" });
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    setF({ q: p.get("q") ?? "", target: p.get("target") ?? "" });
+    setF({ q: p.get("q") ?? "", target: p.get("target") ?? "", tab: p.get("tab") ?? "" });
   }, []);
   const set = (next: Partial<typeof f>) => {
     const v = { ...f, ...next };
     setF(v);
     const url = new URL(window.location.href);
-    for (const k of ["q", "target"] as const) {
+    for (const k of ["q", "target", "tab"] as const) {
       if (v[k]) url.searchParams.set(k, v[k]);
       else url.searchParams.delete(k);
     }
@@ -260,6 +262,8 @@ export function Board() {
   }, []);
   const targets = [...new Set(all?.map((i) => i.target))].sort();
   const data = all?.filter((i) => matches(i, filter));
+  const tab = filter.tab === "finished" ? "finished" : "ongoing";
+  const count = (done: boolean) => data?.filter((i) => finished(i) === done).length;
   return (
     <>
       {error && <LoadError what="the board" query={board} className="mb-6" />}
@@ -286,6 +290,18 @@ export function Board() {
           </Button>
         </div>
       )}
+      {!error && (
+        <Tabs value={tab} onValueChange={(v) => setFilter({ tab: v === "finished" ? v : "" })} className="mb-6">
+          <TabsList>
+            <TabsTrigger value="ongoing">
+              Ongoing <span className="ml-1.5 font-normal text-muted-foreground">{count(false)}</span>
+            </TabsTrigger>
+            <TabsTrigger value="finished">
+              Finished <span className="ml-1.5 font-normal text-muted-foreground">{count(true)}</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
       {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">No work item matches the filter.</p>}
       {!error && !data && (
         <div aria-busy="true" className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
@@ -309,17 +325,23 @@ export function Board() {
           ))}
         </div>
       )}
-      {data && (all?.length === 0 || data.length > 0) && (
+      {data && (all?.length === 0 || data.length > 0) && tab === "finished" && (
+        <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
+          <Column name={STATE.done} items={data.filter((i) => i.state === "done")} now={now} newest />
+          <Column name="Closed" items={data.filter((i) => i.closed && i.state !== "done")} now={now} newest />
+        </div>
+      )}
+      {data && (all?.length === 0 || data.length > 0) && tab === "ongoing" && (
         <LayoutGroup>
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
           {SIDES.map(([side, states]) => {
-            const of = (s: FactoryState) => data.filter((i) => i.state === s);
+            const of = (s: FactoryState) => data.filter((i) => i.state === s && !finished(i));
             return (
               <div key={side} className="flex flex-col gap-6">
                 <h2 className="text-lg leading-7 font-semibold">{side}</h2>
                 {/* Every state keeps its section, an empty one with its 0, so the columns never move. */}
                 {states.map((s) => (
-                  <Column key={s} state={s} items={of(s)} now={now} />
+                  <Column key={s} name={STATE[s]} items={of(s)} now={now} />
                 ))}
               </div>
             );

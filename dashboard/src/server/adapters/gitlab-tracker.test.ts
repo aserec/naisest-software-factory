@@ -19,7 +19,7 @@ function fakeGitLab(seed: Seed[]) {
     const label = new URL(url).searchParams.get("labels");
     const project = decodeURIComponent(/projects\/([^/]+)\/issues/.exec(url)![1]);
     return Response.json(seed.filter((s) => `factory_${s.state}` === label).map((s) => ({
-      iid: Number(s.ticket), title: s.title, web_url: `https://gitlab.test/${project}/-/issues/${s.ticket}`, updated_at: "2026-10-29T10:00:00Z",
+      iid: Number(s.ticket), title: s.title, web_url: `https://gitlab.test/${project}/-/issues/${s.ticket}`, updated_at: "2026-10-29T10:00:00Z", state: s.closed ? "closed" : "opened",
       labels: [label, ...(s.risk ? [`factory_risk_${s.risk}`] : [])],
     })));
   }) as unknown as typeof fetch;
@@ -35,7 +35,7 @@ it("makes one call per state label per target, newest update first, all with the
   const { fn, calls } = fakeGitLab([{ ticket: "5", title: "Fix it", state: "ready", risk: "high" }]);
   const rows = await makeGitLabTracker(fn).rows([target("t1"), target("t2")]);
   expect(calls).toHaveLength(16);
-  expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high", boardUrl: "https://gitlab.test/g/t1/-/boards" });
+  expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high", boardUrl: "https://gitlab.test/g/t1/-/boards", closed: false });
   expect(calls[0].url).toBe("https://gitlab.test/api/v4/projects/g%2Ft1/issues?labels=factory_ready&order_by=updated_at&per_page=100");
   expect(calls.every((c) => c.token === "read-token" && c.signal instanceof AbortSignal)).toBe(true);
 });

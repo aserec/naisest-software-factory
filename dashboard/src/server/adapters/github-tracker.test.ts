@@ -16,9 +16,9 @@ const riskLabels = (s: Seed) => (s.risk ? [`factory_risk_${s.risk}`] : []);
 // A fake GitHub holding `seed` in o/r: as labeled issues, and as cards in board columns ("needs_approval" -> "Needs approval").
 const fakeGitHub = (seed: Seed[]) =>
   vi.fn(async (url: string) => {
-    if (url.endsWith("/graphql")) return graphql(seed.map((s) => card("o/r", Number(s.ticket), s.state[0].toUpperCase() + s.state.slice(1).replace("_", " "), "OPEN", riskLabels(s), s.title)));
+    if (url.endsWith("/graphql")) return graphql(seed.map((s) => card("o/r", Number(s.ticket), s.state[0].toUpperCase() + s.state.slice(1).replace("_", " "), s.closed ? "CLOSED" : "OPEN", riskLabels(s), s.title)));
     const label = new URL(url).searchParams.get("labels");
-    return Response.json(seed.filter((s) => `factory_${s.state}` === label).map((s) => ({ number: Number(s.ticket), title: s.title, html_url: `https://github.com/o/r/issues/${s.ticket}`, updated_at: "2026-11-03T10:00:00Z", labels: [label, ...riskLabels(s)].map((name) => ({ name })) })));
+    return Response.json(seed.filter((s) => `factory_${s.state}` === label).map((s) => ({ number: Number(s.ticket), title: s.title, html_url: `https://github.com/o/r/issues/${s.ticket}`, updated_at: "2026-11-03T10:00:00Z", state: s.closed ? "closed" : "open", labels: [label, ...riskLabels(s)].map((name) => ({ name })) })));
   }) as unknown as typeof fetch;
 
 for (const project of [undefined, 2])
