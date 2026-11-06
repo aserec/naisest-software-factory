@@ -32,6 +32,17 @@ test("a tail keeps its last 1000 chars and a name becomes one line", () => {
 test("an image name must be a plain lowercase png directly in run/proof/", () => {
   for (const after of ["../../.git/config", "sub/after.png", "After.PNG"]) expect(parseProof(screen({ after })).error).toBeDefined();
 });
+test("two screens cannot share a name", () => {
+  const two = (b: object) => JSON.stringify({ ...VALID, screens: [VALID.screens[0], { ...VALID.screens[0], before: "before-list-375.png", after: "after-list-375.png", width: 375, ...b }] });
+  expect(parseProof(two({ name: "list page" })).error).toMatch(/unique/);
+  expect(parseProof(two({ name: "list  page" })).error).toBeDefined(); // compared after the one-line cleanup
+  expect(parseProof(two({ name: "list page 375" })).error).toBeUndefined();
+});
+test("an image file is used once: not twice on a screen and not on two screens", () => {
+  expect(parseProof(screen({ before: "after-list-1280.png" })).error).toMatch(/once/);
+  const other = { ...VALID.screens[0], name: "other", after: "after-other.png" };
+  expect(parseProof(JSON.stringify({ ...VALID, screens: [VALID.screens[0], other] })).error).toMatch(/once/);
+});
 test("readProof reports a link and returns the raw text", () => {
   expect(readProof(() => { throw new Error("Refused"); }).error).toMatch(/link/);
   expect(readProof(() => JSON.stringify(VALID)).raw).toBe(JSON.stringify(VALID));
@@ -109,6 +120,13 @@ test("proofReasons: a reviewer that cannot read images judged no screen", () => 
 test("proofReasons: each unsure verdict, with or without a screen", () => {
   const verdicts = [{ screen: "list page", verdict: "unsure" as const, note: "cannot see the spinner" }, { verdict: "unsure" as const, note: "odd" }];
   expect(proofReasons(rec(VISUAL_PROOF, { verdicts }), true)).toEqual(["screen list page: the reviewer is unsure: cannot see the spinner", "the reviewer is unsure: odd"]);
+});
+test("proofReasons: a saved does_not_match is a reason, and a note is cut to one line of 200 chars", () => {
+  const verdicts = [{ screen: "list page", verdict: "does_not_match" as const, note: "no spinner\n| <b>x</b> " + "y".repeat(300) }];
+  const [reason] = proofReasons(rec(VISUAL_PROOF, { verdicts }), true);
+  expect(reason).toMatch(/^screen list page: the reviewer says it does not match: no spinner/);
+  expect(reason).not.toContain("\n");
+  expect(reason.length).toBeLessThan("screen list page: the reviewer says it does not match: ".length + 201);
 });
 test("proofReasons: a change with no visual part needs a test that failed before and passed after", () => {
   expect(proofReasons(rec(TEST_PROOF), false)).toEqual([]);

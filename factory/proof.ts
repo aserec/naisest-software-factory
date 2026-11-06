@@ -30,6 +30,12 @@ const proofSchema = z.object({
   })).max(5).default([]),
   tests: z.array(z.object({ name: oneLine, command: oneLine, before: run, after: run })).max(20).default([]),
   note: oneLine.optional(),
+}).superRefine((p, ctx) => {
+  // Verdicts are matched by screen name, and a reused file could stand for both before and after.
+  const names = p.screens.map((s) => s.name);
+  if (new Set(names).size !== names.length) ctx.addIssue({ code: "custom", message: "screen names must be unique" });
+  const files = p.screens.flatMap((s) => [s.before, s.after]).filter((f): f is string => !!f);
+  if (new Set(files).size !== files.length) ctx.addIssue({ code: "custom", message: "each image file must be used once" });
 });
 
 export function parseProof(text: string | undefined): { proof?: Proof; error?: string } {
@@ -132,7 +138,11 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
   const cannotRead = proof.screens.length > 0 && !r.readsImages;
   if (cannotRead) reasons.push(`the reviewer ${r.reviewer} cannot read images, so no screen was judged`);
   // With a blind reviewer the per-screen lines say nothing new; a whole-proof unsure still counts.
-  for (const v of r.verdicts) if (v.verdict === "unsure" && !(v.screen && cannotRead)) reasons.push(v.screen ? `screen ${v.screen}: the reviewer is unsure: ${v.note}` : `the reviewer is unsure: ${v.note}`);
+  for (const v of r.verdicts) {
+    if (v.verdict === "matches" || (v.screen && cannotRead)) continue;
+    const said = v.verdict === "unsure" ? "is unsure" : "says it does not match";
+    reasons.push(`${v.screen ? `screen ${v.screen}: ` : ""}the reviewer ${said}: ${text(v.note)}`);
+  }
   const provenTests = testOnly ? proof.tests.length > 0 && proof.tests.every((t) => t.after.exit === 0) : proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0);
   if ((!hasPreview || !proof.visual) && !provenTests) reasons.push(testOnly ? "the change touches only tests, but no test passed after it" : "no test failed before the change and passed after it");
   if (uploadFailed.length) reasons.push(`image upload failed: ${uploadFailed.join(", ")}`);

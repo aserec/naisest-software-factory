@@ -1339,7 +1339,7 @@ test("a does_not_match verdict blocks", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: Array.from({ length: 5 }, () => [reviewOf("does_not_match")]) }));
   expect(w.states).toEqual(["blocked"]);
   expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 5 rounds");
-  expect(w.workItemComments.at(-1)).toContain("no spinner");
+  expect(w.workItemComments.at(-1)).toContain("screen list page: no spinner");
 });
 test("the reviewer gets the screenshots and the verdicts are saved", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("matches")]] }));
@@ -1457,7 +1457,10 @@ test("a resume at the decision step changes and uploads nothing", async () => {
   expect(w.host.attached).toHaveLength(uploads);
 });
 test("an image upload that keeps failing still opens the change and sends it to a person", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
   const w = await runBuildPipeline(visual({ attachFails: 99 }));
+  expect(err).toHaveBeenCalledWith(expect.stringContaining("failed with status 500")); // the cause is printed, not hidden
+  err.mockRestore();
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.mrOpened).toBe(true);
   expect(w.mrDescription).toContain("image upload failed");
@@ -1470,7 +1473,9 @@ test("an image upload that keeps failing still opens the change and sends it to 
   expect(w.mrDescription).toContain("image upload failed");
 });
 test("an upload that works on its last retry adds no reason", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
   const w = await runBuildPipeline(visual({ attachFails: 3 }));
+  err.mockRestore();
   expect(w.host.attached.map((a) => a.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
   expect(w.mrDescription).not.toContain("image upload failed");
   expect(w.finishTriggered).toBe(true);

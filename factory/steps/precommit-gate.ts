@@ -39,7 +39,7 @@ async function attachAll(ctx: StepContext, images: Record<string, Buffer>) {
   const links: Record<string, string> = {};
   const failed: string[] = [];
   for (const [name, bytes] of Object.entries(images)) {
-    for (let tries = 0; tries < 4 && !links[name]; tries++) links[name] = await ctx.codeHost.attach(name, bytes).catch(() => "");
+    for (let tries = 0; tries < 4 && !links[name]; tries++) links[name] = await ctx.codeHost.attach(name, bytes).catch((e) => (console.error(e.message), ""));
     if (!links[name]) failed.push(name);
   }
   return { links, failed };
