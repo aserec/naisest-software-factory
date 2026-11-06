@@ -1,6 +1,6 @@
 import type { Notice } from "./seams";
 
-const KIND_TEXT: Record<Notice, string> = { needs_info: "Needs info", needs_approval: "Needs review and merge", blocked: "Blocked", done: "Done", waiting: "Waiting", watcher_ticket: "New watcher ticket" };
+export const KIND_TEXT: Record<Notice, string> = { needs_info: "Needs info", needs_approval: "Needs review and merge", blocked: "Blocked", done: "Done", waiting: "Waiting", watcher_ticket: "New watcher ticket" };
 
 // Adaptive Card message for a Teams Workflows webhook.
 export function buildCard(kind: Notice, title: string, lines: string[], url: string): object {
@@ -25,14 +25,14 @@ export function buildCard(kind: Notice, title: string, lines: string[], url: str
   };
 }
 
-// The webhook URL holds a secret, so it never goes into an error.
-export async function sendCard(webhookUrl: string, card: object, fetchFn: typeof fetch = fetch): Promise<void> {
+// The webhook URL holds a secret, so it never goes into an error. Teams and Slack webhooks both take a JSON POST.
+export async function sendCard(webhookUrl: string, card: object, fetchFn: typeof fetch = fetch, app = "Teams"): Promise<void> {
   let res: Response;
   try {
     res = await fetchFn(webhookUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(card) });
   } catch {
     // Drop the original error: its message can hold the URL.
-    throw new Error("Teams webhook request failed");
+    throw new Error(`${app} webhook request failed`);
   }
-  if (!res.ok) throw new Error(`Teams webhook failed with status ${res.status}`);
+  if (!res.ok) throw new Error(`${app} webhook failed with status ${res.status}`);
 }

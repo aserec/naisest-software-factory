@@ -11,6 +11,7 @@ import { makeFileLogs } from "./adapters/file-logs";
 import { makeModelJudge } from "./adapters/model-judge";
 import { HARNESSES } from "./harnesses";
 import { makeTeamsChat } from "./adapters/teams-chat";
+import { makeSlackChat } from "./adapters/slack-chat";
 import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, providerKeys } from "./config";
 import { makeLocalCi } from "./adapters/local-ci";
 import { makeGitHubTracker } from "./adapters/github-tracker";
@@ -48,6 +49,7 @@ const ADAPTERS = {
   },
   chat: {
     teams: makeTeamsChat,
+    slack: makeSlackChat,
     // Local trials: notices go to the job log.
     console: (): Chat => ({ notify: async (kind, title, lines, url) => console.log(`[chat ${kind}] ${title}\n${lines.join("\n")}\n${url}`) }),
   },

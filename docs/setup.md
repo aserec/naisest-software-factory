@@ -21,10 +21,11 @@ Store each one as a masked, protected CI variable.
 
 - [ ] `CLAUDE_CODE_OAUTH_TOKEN`: from Kirill's `claude setup-token`.
 - [ ] `TENSORX_API_KEY`
-- [ ] `TEAMS_WEBHOOK_URL` of type **File**: from a Teams Workflows flow "Post to a channel when a webhook request is received".
+- [ ] `TEAMS_WEBHOOK_URL` of type **File**, when `seams.yml` picks chat `teams`: from a Teams Workflows flow "Post to a channel when a webhook request is received".
+- [ ] `SLACK_WEBHOOK_URL` of type **File**, when `seams.yml` picks chat `slack`: from a Slack app with Incoming Webhooks on, added to the channel for factory notices.
 - [ ] `BERGET_API_KEY`: needed only when `seams.yml` picks judge `jev-berget`, or for the Jev shadow test. Without it those stop with an error.
 
-`FACTORY_GITLAB_TOKEN`, `FACTORY_TRIGGER_TOKEN`, `FACTORY_DASHBOARD_TOKEN` (section 10) and `TEAMS_WEBHOOK_URL` must be type File, not Variable. The step code reads each file and deletes it before any agent or target command runs. A step stops with an error if one of them is a plain Variable.
+`FACTORY_GITLAB_TOKEN`, `FACTORY_TRIGGER_TOKEN`, `FACTORY_DASHBOARD_TOKEN` (section 10), `TEAMS_WEBHOOK_URL` and `SLACK_WEBHOOK_URL` must be type File, not Variable. The step code reads each file and deletes it before any agent or target command runs. A step stops with an error if one of them is a plain Variable.
 
 ### Teams messages in (optional)
 

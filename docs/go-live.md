@@ -23,7 +23,7 @@ One list for everything people must do before and during go-live on `react_front
 
 - [ ] `CLAUDE_CODE_OAUTH_TOKEN` from Kirill's `claude setup-token`. Put a one-year reminder in the team calendar.
 - [ ] `TENSORX_API_KEY`.
-- [ ] `TEAMS_WEBHOOK_URL`, type **File**, from a Teams Workflows flow "Post to a channel when a webhook request is received".
+- [ ] `TEAMS_WEBHOOK_URL`, type **File**, from a Teams Workflows flow "Post to a channel when a webhook request is received". Or, when `seams.yml` picks chat `slack`, `SLACK_WEBHOOK_URL`, type **File**, from a Slack incoming webhook.
 - [ ] `BERGET_API_KEY`, when it exists.
 - [ ] Do not set `ANTHROPIC_API_KEY` in the runner while the OAuth token is used. Never set both, because the API key wins.
 

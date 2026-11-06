@@ -9,5 +9,5 @@ test("every tracker, code host and chat adapter in compose has a secret entry or
 });
 
 test("FILE_SECRETS keeps today's list", () => {
-  expect(FILE_SECRETS).toEqual(["FACTORY_GITLAB_TOKEN", "FACTORY_GITHUB_TOKEN", "TEAMS_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN"]);
+  expect(FILE_SECRETS).toEqual(["FACTORY_GITLAB_TOKEN", "FACTORY_GITHUB_TOKEN", "TEAMS_WEBHOOK_URL", "SLACK_WEBHOOK_URL", "FACTORY_DASHBOARD_TOKEN"]);
 });
