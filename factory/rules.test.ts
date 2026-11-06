@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { loadTarget } from "./config";
-import { addKnownSecrets, checkHardRules, findSecrets, maskSecrets, parseNumstat } from "./rules";
+import { addKnownSecrets, checkHardRules, findSecrets, maskSecrets, parseNumstat, testOnly } from "./rules";
 
 test("finds a GitLab token and a private key header", () => {
   expect(findSecrets("x glpat-abcdefghijklmnopqrst y")).toEqual(["glpat-abcdefghijklmnopqrst"]);
@@ -84,4 +84,12 @@ test("maskSecrets hides secret patterns and the secret values this process holds
   addKnownSecrets("known-value-0123456789abc");
   expect(maskSecrets("a known-value-0123456789abc b known-value-0123456789abc")).toBe("a [secret] b [secret]");
   expect(maskSecrets("plain words")).toBe("plain words");
+});
+
+test("testOnly: every changed path, old and new, is a test file", () => {
+  const f = (oldPath: string, newPath = oldPath) => ({ oldPath, newPath, added: 1, removed: 0, binary: false });
+  expect(testOnly([f("src/a.test.ts"), f("e2e/login.spec.ts"), f("src/__tests__/b.ts")])).toBe(true);
+  expect(testOnly([f("src/a.test.ts"), f("src/a.ts")])).toBe(false);
+  expect(testOnly([f("src/a.ts", "src/a.test.ts")])).toBe(false);
+  expect(testOnly([])).toBe(false);
 });

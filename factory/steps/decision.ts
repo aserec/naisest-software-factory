@@ -27,7 +27,7 @@ function decideByChecks(ctx: StepContext): MergeDecision {
   const f = facts(ctx);
   const rc = need(f.riskCheck, "risk check");
   const failedRules = rc.rules.filter((r) => !r.passed).map((r) => `hard rule ${r.rule} failed: ${r.detail}`);
-  const proof = proofReasons(f.proof, !!need(f.commands, ".factory.yml commands").preview, f.uploadFailed ?? []);
+  const proof = proofReasons(f.proof, !!need(f.commands, ".factory.yml commands").preview, f.uploadFailed ?? [], rc.testOnly === true);
   if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules, ...proof] };
   const d = decideMerge({
     triageRisk: need(f.triageRisk, "triage risk"),

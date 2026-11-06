@@ -115,6 +115,11 @@ test("proofReasons: a change with no visual part needs a test that failed before
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [passingTest(0)] }), false)).toEqual(["no test failed before the change and passed after it"]);
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [] }), true)).toEqual(["no test failed before the change and passed after it"]);
 });
+test("proofReasons: a test-only diff needs its tests to pass after, not to fail before", () => {
+  expect(proofReasons(rec({ ...TEST_PROOF, tests: [passingTest(0)] }), false, [], true)).toEqual([]);
+  expect(proofReasons(rec({ ...TEST_PROOF, tests: [passingTest(0), { ...passingTest(0), after: { exit: 1, tail: "1 failed" } }] }), false, [], true)).toEqual(["the change touches only tests, but no test passed after it"]);
+  expect(proofReasons(rec({ ...TEST_PROOF, tests: [] }), false, [], true)).toEqual(["the change touches only tests, but no test passed after it"]);
+});
 test("proofReasons: a visual change with a preview and matching screens needs no test", () => {
   expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true)).toEqual([]);
   expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [passingTest(0)] }, { verdicts: matches }), true)).toEqual([]);

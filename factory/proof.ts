@@ -120,7 +120,8 @@ export function proofSection(r: ProofRecord | undefined, links: Record<string, s
 }
 
 // Why a change has no proof a person can trust. Empty means the proof is enough.
-export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, uploadFailed: string[] = []): string[] {
+// testOnly: the diff changes test files only, so its tests pass before too; new tests that pass after are the proof.
+export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, uploadFailed: string[] = [], testOnly = false): string[] {
   const proof = r?.proof;
   if (!r || !proof) return [`no proof: ${r?.error ?? "code review saved no proof"}`];
   const reasons: string[] = [];
@@ -129,7 +130,8 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
   if (cannotRead) reasons.push(`the reviewer ${r.reviewer} cannot read images, so no screen was judged`);
   // With a blind reviewer the per-screen lines say nothing new; a whole-proof unsure still counts.
   for (const v of r.verdicts) if (v.verdict === "unsure" && !(v.screen && cannotRead)) reasons.push(v.screen ? `screen ${v.screen}: the reviewer is unsure: ${v.note}` : `the reviewer is unsure: ${v.note}`);
-  if ((!hasPreview || !proof.visual) && !proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0)) reasons.push("no test failed before the change and passed after it");
+  const provenTests = testOnly ? proof.tests.length > 0 && proof.tests.every((t) => t.after.exit === 0) : proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0);
+  if ((!hasPreview || !proof.visual) && !provenTests) reasons.push(testOnly ? "the change touches only tests, but no test passed after it" : "no test failed before the change and passed after it");
   if (uploadFailed.length) reasons.push(`image upload failed: ${uploadFailed.join(", ")}`);
   return reasons;
 }

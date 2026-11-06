@@ -51,7 +51,7 @@ export interface StepData {
   "precommit-gate":
     | { passed: true; rounds: number; branch: string; sha: string; change: ChangeRef; changeUrl: string; images?: Record<string, string>; uploadFailed?: string[]; commit?: CommitMessage }
     | PauseData;
-  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string; thresholds?: Thresholds; thresholdErrors?: string[] };
+  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string; thresholds?: Thresholds; thresholdErrors?: string[]; testOnly?: boolean }; // testOnly: the diff changes test files only
   decision: MergeDecision | PauseData;
   apply: { change: ChangeRef; sha: string; skipped?: true; reviewed?: string; rebased?: string[] } | PauseData;
   verify: { status: Checks };
