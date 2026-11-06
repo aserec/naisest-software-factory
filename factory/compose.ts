@@ -94,10 +94,16 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   const secrets: Record<string, string> = {};
   for (const n of FILE_SECRETS.filter((n) => picked.includes(n))) {
     const v = ci.secret(n);
+    // A missing chat webhook only costs the notices: the step logs them to the console instead of failing.
+    if (!v && n === ADAPTER_SECRETS.chat[seams.chat]) {
+      console.warn(`${n} is not set: chat notices go to the console`);
+      continue;
+    }
     if (!v) throw new Error(`${n} is not set`);
     secrets[n] = v;
   }
   const dashboardToken = secrets.FACTORY_DASHBOARD_TOKEN;
+  const chatSecret = secrets[ADAPTER_SECRETS.chat[seams.chat]];
   const dashboardUrl = checkDashboardUrl(seams, env);
   // No comment, change text or pushed diff may carry any of these.
   addKnownSecrets(...Object.values(secrets), ...providerKeys(seams).map((k) => env[k]));
@@ -109,7 +115,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     codeHost,
     ci,
     judge: make.judge(env, seams),
-    chat: make.chat(secrets[ADAPTER_SECRETS.chat[seams.chat]] ?? ""),
+    chat: chatSecret ? make.chat(chatSecret) : ADAPTERS.chat.console(),
     dashboard: make.dashboard(dashboardUrl, dashboardToken),
     harnesses: HARNESSES,
     seams,

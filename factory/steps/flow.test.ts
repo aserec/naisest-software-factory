@@ -491,7 +491,7 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir, seams)).toThrow(/image/);
   expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "gitlab.example.com:5050/ceresa/software-factory/job:main" }), dir, seams)).not.toThrow();
 });
-test("a target on GitHub needs only the GitHub token and builds the GitHub tracker and code host", () => {
+test("a target on GitHub needs only the GitHub token and builds the GitHub tracker and code host", async () => {
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gh", "chat", "dash"]) writeFileSync(join(dir, k), "x");
@@ -501,6 +501,13 @@ test("a target on GitHub needs only the GitHub token and builds the GitHub track
   const ctx = makeContext(env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") }), dir, seamsFile(dir));
   expect(ctx.seams).toMatchObject({ tracker: "github-project", codeHost: "github" });
   expect(ctx.repo).toBeDefined();
+  // A missing chat webhook does not stop the step: notices go to the console.
+  const { SLACK_WEBHOOK_URL: _, ...noChat } = env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") });
+  const quiet = makeContext(noChat, dir, seamsFile(dir));
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  await quiet.chat.notify("blocked", "t", ["l"], "u");
+  expect(log).toHaveBeenCalledWith(expect.stringContaining("[chat blocked] t"));
+  log.mockRestore();
 });
 test("a build record that fails the provenance check is not retried", async () => {
   const w = fakeWorld();
