@@ -1,8 +1,9 @@
 import { wrapRequest } from "../agents";
 import { parseFactoryFile } from "../config";
 import { localPath, localSection } from "../local-instructions";
+import { writeShooter } from "../proof";
 import type { FactoryCommands } from "../types";
-import { agent, agentCommands, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { agent, agentCommands, rootLine, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
@@ -28,10 +29,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
   const stop = await install(ctx, commands);
   if (stop) return stop;
+  writeShooter(ctx.dir, commands);
   const job = { tools: "code", maxTurns: 60, cwd: ctx.dir, commands: agentCommands(commands), ...(commands.preview && { preview: true }) } as const;
   const author = modelRow(ctx).author;
   // A new session has no memory: it gets the repo's instructions and the ticket, then the requests if this is a round.
-  const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}${requests ? `\n\n${requests}` : ""}`;
+  const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${rootLine(ctx.dir)}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}${requests ? `\n\n${requests}` : ""}`;
   // A resumed session already has the repo's instructions, and a round's session already has the ticket.
   const text = !resumeSessionId ? await fresh() : requests ? `${prompt("request")}\n${requests}` : CONTINUE;
   let r = await agent(ctx, "author", author, { ...job, prompt: text, resume: resumeSessionId });

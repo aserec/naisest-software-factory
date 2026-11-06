@@ -36,7 +36,10 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   // node/vX) then still starts, but npm, npx and global tools are unreadable: "operation not permitted: npm".
   // allowRead wins over both, for that one install dir only.
   const prefix = dirname(dirname(execPath));
-  if (env.HOME && prefix.startsWith(`${env.HOME}${sep}`)) settings.sandbox.filesystem.allowRead = [prefix];
+  // Chromium for the screenshots sits under HOME too: local-run.sh's single-process copy, and the macOS default dir its links point to.
+  const browsers = [env.PLAYWRIGHT_BROWSERS_PATH, platform === "darwin" && env.HOME ? join(env.HOME, "Library/Caches/ms-playwright") : undefined];
+  const reads = [prefix, ...browsers].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
+  if (reads.length) settings.sandbox.filesystem.allowRead = reads;
   if (preview) settings.sandbox.network.allowLocalBinding = true; // the author starts the target's dev server
   // tsx always opens an IPC pipe in TMPDIR (/tmp/claude in the sandbox). macOS allows it through allowUnixSockets;
   // Linux ignores those paths and needs every unix socket allowed. The worker's step containers mount no host socket.

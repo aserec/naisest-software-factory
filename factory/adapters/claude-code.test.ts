@@ -253,10 +253,15 @@ test("settings allow the target's own commands with any arguments, and nothing e
 
 test("an nvm node under HOME gets its install dir readable in the sandbox; a node elsewhere adds nothing", () => {
   const nvm = factorySettings({ HOME: "/home/a" }, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/home/a/.nvm/versions/node/v22/bin/node");
-  expect(nvm.sandbox.filesystem.allowRead).toEqual(["/home/a/.nvm/versions/node/v22"]);
+  expect(nvm.sandbox.filesystem.allowRead).toEqual(["/home/a/.nvm/versions/node/v22", "/home/a/Library/Caches/ms-playwright"]);
   expect(nvm.permissions.deny).toContain("Read(//home/a/.*/**)");
-  const sys = factorySettings({ HOME: "/home/a" }, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/usr/local/bin/node");
+  const sys = factorySettings({ HOME: "/home/a" }, "/opt/hooks", "/w/run/target", undefined, false, "linux", [], "/usr/local/bin/node");
   expect(sys.sandbox.filesystem.allowRead).toBeUndefined();
+});
+
+test("Chromium under HOME is readable in the sandbox: the browsers dir and, on macOS, the default dir its links point to", () => {
+  const s = factorySettings({ HOME: "/home/a", PLAYWRIGHT_BROWSERS_PATH: "/home/a/Library/Caches/ms-playwright-sandbox" }, "/opt/hooks", "/w/run/target", undefined, true, "darwin", [], "/usr/local/bin/node");
+  expect(s.sandbox.filesystem.allowRead).toEqual(["/home/a/Library/Caches/ms-playwright-sandbox", "/home/a/Library/Caches/ms-playwright"]);
 });
 
 test("a code agent keeps npm's cache in the clone's run dir; an agent without tools gets no extra variable", () => {

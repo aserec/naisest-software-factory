@@ -9,7 +9,7 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { CONTINUE, inbox, prompt, runStep, save, ticketText } from "./context";
+import { CONTINUE, agentCommands, inbox, prompt, rootLine, runStep, save, ticketText } from "./context";
 import type { HarnessJob, HarnessResult } from "../seams";
 import { previewLine } from "./prepare-patch";
 import * as preparePatchStep from "./prepare-patch";
@@ -1836,7 +1836,7 @@ test("a resumed author session gets no section again", async () => {
 test("with no .factory files the prompts are the factory's own, with nothing added", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   const first = w.harness.jobs.find((j) => j.role === "author" && !j.resume)!;
-  expect(first.prompt).toBe(`${prompt("prepare")}\n\n${previewLine(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b"))}\n\n${ticketText(w.ctx)}`);
+  expect(first.prompt).toBe(`${prompt("prepare")}\n\n${rootLine(w.ctx.dir)}\n\n${previewLine(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b"))}\n\n${ticketText(w.ctx)}`);
   expect(reviewerPrompt("T", "D")).toBe(`${prompt("review")}\n\nT\n\n<diff>\nD\n</diff>`);
 });
 
@@ -2394,4 +2394,9 @@ test("the finish pipeline loads the record its build pipeline saved, and a recor
   expect([...w.ci.runs.keys()]).toEqual(["1"]); // the build run is on record, its finish run (2) is not: the real CIs refuse both a finish run and a crashed one
   await w.ci.start({ kind: "finish", ticket: "8", change: "5", buildRun: "41" }); // nothing saved a run 41
   await expect(drain(w)).rejects.toThrow(/Run 41 is not a factory build run/);
+});
+
+test("the author may run each part of a chained gate command, and the screenshot script only with a preview", () => {
+  expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: npm run test && PORT=1 npm run e2e\nbuild: b"))).toEqual(["l", "npm run test", "PORT=1 npm run e2e", "b"]);
+  expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b\npreview: p\npreviewUrl: http://127.0.0.1:1/"))).toEqual(["l", "t", "b", "p", "bash run/shoot.sh"]);
 });

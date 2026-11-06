@@ -9,6 +9,7 @@ import { conversation, later } from "../conversation";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
+import { writeShooter } from "../proof";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
@@ -145,8 +146,15 @@ export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, jo
   return r;
 }
 
-// The commands the author may run: the gate's own, so it can check its work as the gate will.
-export const agentCommands = (c?: FactoryCommands) => (c ? [c.lint, c.test, c.build, c.preview].filter((x): x is string => !!x) : []);
+// The commands the author may run: the gate's own, so it can check its work as the gate will, and the screenshot script.
+// Claude Code checks a chained command part by part, so each part of `a && b` is its own allow entry.
+export const SHOOT = "bash run/shoot.sh";
+export const agentCommands = (c?: FactoryCommands) =>
+  c ? [c.lint, c.test, c.build, c.preview].filter((x): x is string => !!x).flatMap((x) => x.split(/&&|\|\||;/).map((p) => p.trim()).filter(Boolean)).concat(c.preview ? [SHOOT] : []) : [];
+
+// The clone sits in a folder named run/, so an agent took the factory's run/ for its own. The absolute path settles it.
+export const rootLine = (dir: string) => `This repo's root is \`${dir}\`. Every \`run/\` path in these rules is under \`${join(dir, "run")}/\`.`;
+
 
 // Resume the author session with feedback from the reviewer or the gate.
 export async function fix(ctx: StepContext, feedback: string): Promise<HarnessResult> {
@@ -154,7 +162,8 @@ export async function fix(ctx: StepContext, feedback: string): Promise<HarnessRe
   const resume = f.session;
   if (!resume) throw new Error("The run record has no author session to fix");
   const preview = !!f.commands?.preview;
-  const job = { tools: "code" as const, resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, commands: agentCommands(f.commands), ...(preview && { preview }) };
+  writeShooter(ctx.dir, f.commands);
+  const job = { tools: "code" as const, resume, prompt: `${prompt("fix")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${rootLine(ctx.dir)}\n\n<feedback>\n${feedback}\n</feedback>`, cwd: ctx.dir, maxTurns: 30, commands: agentCommands(f.commands), ...(preview && { preview }) };
   // Each fix is its own "patch" step on the dashboard, inside the review or gate step that asked for it.
   // Its tool calls and usage go to the patch step.
   return withStep(ctx, "patch", () => agent(ctx, "author", modelRow(ctx).author, job), {

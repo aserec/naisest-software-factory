@@ -229,16 +229,11 @@ pnpm tsx factory/steps/<step>.ts
 
 A target with `preview` and `previewUrl` in its `.factory.yml` gets screenshots of a visual change. Install Chromium once from the target: `(cd <target> && npx playwright install chromium)`. On macOS the sandbox denies `mach-register`, and Chromium then dies at start with `bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer: Permission denied`. `local-run.sh` therefore builds `~/Library/Caches/ms-playwright-sandbox`, a copy of `~/Library/Caches/ms-playwright` whose headless shells run with `--single-process`, and sets `PLAYWRIGHT_BROWSERS_PATH` to it. A single-process browser dies when a page's context closes, so this serves one screenshot per launch and not a `playwright test` suite. For a test suite, every sandboxed gate command and agent run on macOS gets a browser server outside the sandbox (`factory/browser-server.ts`) when the clone has Playwright. The factory installs that Playwright version from npm into `software-factory.cache/playwright/<version>`, starts it under a macOS profile that allows only localhost traffic and temp-dir writes, and passes its endpoint to the tests as `PW_TEST_CONNECT_WS_ENDPOINT`. `FACTORY_BROWSER_TEST=1 pnpm vitest run factory/browser-server.test.ts` checks it on a Mac. Next's dev server also needs the `com.apple.FSEvents` lookup, which the sandbox settings allow on macOS.
 
-The author takes each shot with one shell command (`prompts/prepare.md` holds it). It starts the preview in the background, waits up to 120 s for `previewUrl`, shoots, and stops the server:
-
-```bash
-root=$PWD; set -m; (<preview>) > run/preview.log 2>&1 & pid=$!
-for i in $(seq 120); do curl -sf <previewUrl> > /dev/null && break; sleep 1; done
-(cd apps/web && pnpm exec playwright screenshot --viewport-size "1280, 800" --wait-for-timeout 3000 <previewUrl> "$root/run/proof/after-x-1280.png"); kill -- -$pid
-```
+The author takes each shot with `bash run/shoot.sh <url> <name> [width] [playwright dir]`. The factory writes that script into the clone from the `preview` command (`writeShooter` in `factory/proof.ts`). It starts the preview in the background, waits up to 120 s for the page, shoots it with the clone's own Playwright, and stops the server. The author may run only allowed commands, and a chained one-liner would need `curl`, which the agent settings deny, so the script is one allowed command.
 
 Not yet proven in the sandbox. The spike (this command under `srt` on macOS, under `srt` in the runner image on Linux, and under Claude Code's sandbox) is still to run. A good result is a PNG of the app, not the "Opening your workspace" screen. Results:
 
 - [x] macOS under `srt` with `allowLocalBinding`: the target's own `npx playwright screenshot` (Playwright 1.64.1) shot a localhost page through `ms-playwright-sandbox`, on 2026-11-06. Without it, Chromium dies on `bootstrap_check_in`.
+- [x] macOS under `srt`: `bash run/shoot.sh` in the webapp clone started `npm run dev`, shot `/es/login` and stopped the server, on 2026-11-06.
 - [ ] Linux, runner image under `srt`: not run yet
 - [ ] Claude Code sandbox: not run yet

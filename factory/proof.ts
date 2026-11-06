@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { FactoryCommands } from "./types";
 import type { Finding } from "./agents";
 import type { Repo } from "./seams";
 
@@ -134,4 +137,25 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
   if ((!hasPreview || !proof.visual) && !provenTests) reasons.push(testOnly ? "the change touches only tests, but no test passed after it" : "no test failed before the change and passed after it");
   if (uploadFailed.length) reasons.push(`image upload failed: ${uploadFailed.join(", ")}`);
   return reasons;
+}
+
+// run/shoot.sh: start the preview, wait for the page, shoot it, stop the preview, in one command the author may run.
+// A chained one-liner needs curl, kill and the rest allowed one by one, and curl is denied.
+export function writeShooter(dir: string, c?: Pick<FactoryCommands, "preview">) {
+  if (!c?.preview) return;
+  mkdirSync(join(dir, "run"), { recursive: true });
+  writeFileSync(join(dir, "run/shoot.sh"), `# Usage: bash run/shoot.sh <url> <name> [width] [playwright dir]. Writes run/proof/<name>.png.
+set -u
+url=$1 name=$2 width=\${3:-1280} dir=\${4:-.} root=$PWD
+case $name in *[!a-z0-9-]*|"") echo "the name takes lowercase letters, digits and dashes only"; exit 2 ;; esac
+set -m
+(${c.preview}) > run/preview.log 2>&1 &
+pid=$!
+for i in $(seq 120); do curl -sf -o /dev/null "$url" && break; sleep 1; done
+(cd "$dir" && ./node_modules/.bin/playwright screenshot --viewport-size "$width, 800" --wait-for-timeout 3000 "$url" "$root/run/proof/$name.png")
+code=$?
+kill -- -$pid 2>/dev/null
+[ $code = 0 ] || { echo "the shot failed; the end of run/preview.log:"; tail -20 run/preview.log; }
+exit $code
+`);
 }
