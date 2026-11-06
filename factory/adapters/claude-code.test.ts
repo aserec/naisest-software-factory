@@ -272,8 +272,15 @@ test("Chromium under HOME is readable in the sandbox: the browsers dir and, on m
 });
 
 test("a code agent keeps npm's and uv's caches in the clone's run dir; an agent without tools gets no extra variable", () => {
-  expect(codeEnv({ tools: "code" }, "/w/run/target")).toEqual({ npm_config_cache: "/w/run/target/run/npm-cache", UV_CACHE_DIR: "/w/run/target/run/uv-cache", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
-  expect(codeEnv({ tools: "none" }, "/tmp/empty")).toEqual({});
+  expect(codeEnv({ tools: "code" }, "/w/run/target", {})).toEqual({ npm_config_cache: "/w/run/target/run/npm-cache", UV_CACHE_DIR: "/w/run/target/run/uv-cache", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" });
+  expect(codeEnv({ tools: "none" }, "/tmp/empty", {})).toEqual({});
+});
+
+test("on a local run the agent reads the Mac's Corepack cache, since Corepack cannot download pnpm through the sandbox", () => {
+  const local = { HOME: "/home/a", FACTORY_PNPM_STORE: "/w/pnpm-store" };
+  expect(codeEnv({ tools: "code" }, "/w/run/target", local).COREPACK_HOME).toBe("/home/a/.cache/node/corepack");
+  expect(factorySettings(local, "/opt/hooks", "/w/run/target", undefined, false, "linux", [], "/usr/local/bin/node").sandbox.filesystem.allowRead).toContain("/home/a/.cache/node/corepack");
+  expect(codeEnv({ tools: "code" }, "/w/run/target", { HOME: "/home/a" })).not.toHaveProperty("COREPACK_HOME"); // CI: Corepack keeps its own cache
 });
 
 test("on macOS the agent may open unix sockets in Claude Code's per-user TMPDIR too", () => {

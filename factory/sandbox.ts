@@ -10,6 +10,13 @@ export const SANDBOX_RULES_PATH = fileURLToPath(new URL("./sandbox-rules.json", 
 const RULES = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
 export const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
+// A local run's Corepack cache: the Mac's own, read-only. Every sandbox gets a throwaway HOME, and Corepack cannot download
+// a pnpm binary through the sandbox's proxy ("fetch failed"), so a target with packageManager pnpm@N failed its install (ticket 457).
+// ponytail: the target's pnpm version must already be in this cache; run `corepack install` in the target on the Mac if not.
+// CI (no FACTORY_PNPM_STORE) keeps Corepack's own cache under the sandbox HOME.
+export const localCorepackHome = (env: NodeJS.ProcessEnv): string | undefined =>
+  env.FACTORY_PNPM_STORE && env.HOME ? (env.COREPACK_HOME ?? join(env.HOME, ".cache/node/corepack")) : undefined;
+
 // A harness's home and session dir for one run, next to the clone.
 export const harnessHome = (h: Harness, cwd: string) => join(dirname(cwd), h.home);
 

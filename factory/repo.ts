@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFile
 import { tmpdir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SANDBOX_RULES_PATH, sandboxDenyRead } from "./sandbox";
+import { SANDBOX_RULES_PATH, localCorepackHome, sandboxDenyRead } from "./sandbox";
 import { SRT } from "./srt";
 import { withBrowserServer } from "./browser-server";
 import type { Repo } from "./seams";
@@ -63,7 +63,8 @@ async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
     // The factory never uses the clone's own .git, so the clone loses nothing it relies on.
     const script = store ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
     // The target's Playwright tests reach a browser outside the sandbox (see browser-server.ts).
-    return await withBrowserServer(dir, env, (browser) => sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }), ...browser }));
+    const corepack = localCorepackHome(env);
+    return await withBrowserServer(dir, env, (browser) => sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }), ...(corepack && { COREPACK_HOME: corepack }), ...browser }));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

@@ -4,7 +4,7 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
-import { SANDBOX_RULES_PATH, rootReads, sandboxDenyRead } from "../sandbox";
+import { SANDBOX_RULES_PATH, localCorepackHome, rootReads, sandboxDenyRead } from "../sandbox";
 import { MAC_LOOKUPS, shellQuote } from "../repo";
 import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
@@ -39,7 +39,7 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   const browsers = [env.PLAYWRIGHT_BROWSERS_PATH, platform === "darwin" && env.HOME ? join(env.HOME, "Library/Caches/ms-playwright") : undefined];
   // A Python target's .venv/bin/python links into uv's Python dir: "Failed to query Python interpreter" without it.
   const uvPython = env.UV_PYTHON_INSTALL_DIR ?? (env.HOME ? join(env.HOME, ".local/share/uv/python") : undefined);
-  const reads = [prefix, ...browsers, uvPython].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
+  const reads = [prefix, ...browsers, uvPython, localCorepackHome(env)].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
   if (reads.length) settings.sandbox.filesystem.allowRead = reads;
   // A preview: the author starts the target's dev server. A local run (local-run.sh sets FACTORY_PNPM_STORE): the author's
   // tests reach the Mac's services such as Postgres, as the gate's do (sandboxSettings). Ticket 101 got PermissionError without it.
@@ -98,7 +98,12 @@ export function claudeEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.Pr
 // The sandbox hides HOME, so npm's cache (~/.npm) and ~/.gitconfig fail with EPERM: a code agent keeps the cache in the
 // clone's run/, which git excludes, and reads no global git config, as the factory's own git calls (repo.ts).
 // The sandbox lets the agent write only in the clone, so npm and uv keep their caches there (uv: "Could not acquire lock" in ~/.cache/uv).
-export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string): NodeJS.ProcessEnv => (job.tools === "code" ? { npm_config_cache: join(cwd, "run", "npm-cache"), UV_CACHE_DIR: join(cwd, "run", "uv-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } : {});
+// A local run also reads pnpm from the Mac's Corepack cache (localCorepackHome).
+export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => {
+  if (job.tools !== "code") return {};
+  const corepack = localCorepackHome(env);
+  return { npm_config_cache: join(cwd, "run", "npm-cache"), UV_CACHE_DIR: join(cwd, "run", "uv-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...(corepack && { COREPACK_HOME: corepack }) };
+};
 
 // Pairs each tool_use (assistant line) with its tool_result (user line) by id. Feed it the stream line by line.
 export function toolCalls(now: () => number = Date.now): { line(l: string): ToolCall[] } {
