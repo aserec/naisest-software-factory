@@ -7,6 +7,10 @@ export type TicketRef = string; // opaque to steps; the GitLab adapter uses the 
 export type PersonRef = string; // a username
 export type ChangeRef = string;
 export type { FactoryState }; // in run-events, so the dashboard can import it without the rest of the factory
+// The states of an ended run. A person can set the ready state next to one of them, or next to another state:
+// a tracker reads the states in STATE_ORDER, so an active run wins over ready, and ready wins over an ended run.
+export const ENDED_STATES = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
+export const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", ...ENDED_STATES] as const satisfies readonly FactoryState[];
 // Progress marks: labels next to the state. A new run removes all but watcher.
 export type Mark = "watcher" | "triaged" | "risk_trivial" | "risk_low" | "risk_medium" | "risk_high" | "implemented" | "reviewed" | "checked" | "risk_checked" | "merged" | "reverted";
 
@@ -16,7 +20,7 @@ export interface Ticket {
   tags: string[]; // the non-factory labels
   assignees: PersonRef[]; url: string;
 }
-export interface Comment { author: PersonRef; byFactory: boolean; body: string; at: string }
+export interface Comment { author: PersonRef; byFactory: boolean; body: string; at: string; relayed?: true } // relayed: a person's 👍 on a Teams relay comment (relay.ts)
 
 export type FactoryEvent =
   | { kind: "ready"; ticket: TicketRef; actor: PersonRef }

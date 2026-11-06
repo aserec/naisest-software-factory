@@ -1,5 +1,5 @@
 // Jev client: Berget AI serves the TypeSafe Jev /v1/systemone API.
-// Without BERGET_API_KEY we use a mock, and say so. A failed Berget call never falls back to the mock.
+// Without BERGET_API_KEY it refuses to start. A failed Berget call throws.
 
 export type JevQuestion =
   | { id: string; kind: "noul"; text: string }
@@ -12,14 +12,6 @@ export interface JevClient { readonly provider: "berget" | "mock" | "model"; ask
 export const BERGET_BASE_URL = "https://api.berget.ai";
 // Berget does not serve jev-latest. This is one of its three "system-one" models (preview).
 export const BERGET_MODEL = "Cloudflare/clef-flash";
-
-// Fixed mock answers. Task 5 can change these. `byId` wins over the defaults for a kind.
-export const MOCK_ANSWERS = {
-  byId: {} as Record<string, Omit<JevAnswer, "id">>,
-  noul: { value: false, probability: 0.1, confidence: 0.9 },
-  choice: { probability: 0.8, confidence: 0.8 }, // value is the first option
-  score: { value: 7, probability: 0.6, confidence: 0.6 },
-};
 
 export type ApiAnswer = {
   type: "noul" | "choice" | "score";
@@ -55,24 +47,8 @@ export function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnsw
 
 export function makeJevClient(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch): JevClient {
   const key = env.BERGET_API_KEY;
-  if (!key) {
-    console.warn("Jev mock in use: BERGET_API_KEY is not set. Answers are fixed, not real.");
-    return {
-      provider: "mock",
-      async ask(state, questions) {
-        const emptyDescription = (state as { description?: unknown } | null)?.description === "";
-        return questions.map((q) => {
-          // Like a real model, the mock cannot build from an empty description: clarity is the lowest score.
-          if (q.id === "clarity" && emptyDescription) return { id: q.id, ...MOCK_ANSWERS.score, value: 2 };
-          const own = MOCK_ANSWERS.byId[q.id];
-          if (own) return { id: q.id, ...own };
-          if (q.kind === "noul") return { id: q.id, ...MOCK_ANSWERS.noul };
-          if (q.kind === "choice") return { id: q.id, value: q.options[0], ...MOCK_ANSWERS.choice };
-          return { id: q.id, ...MOCK_ANSWERS.score };
-        });
-      },
-    };
-  }
+  // No silent stand-in: a judge with fixed answers would build or close tickets on answers nobody gave.
+  if (!key) throw new Error("BERGET_API_KEY is not set. seams.yml picks judge jev-berget, which needs it.");
   return {
     provider: "berget",
     async ask(state, questions) {

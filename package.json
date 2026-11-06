@@ -8,7 +8,8 @@
   },
   "exports": {
     "./run-events": "./factory/run-events.ts",
-    "./config": "./factory/config.ts"
+    "./config": "./factory/config.ts",
+    "./relay": "./factory/relay.ts"
   },
   "scripts": {
     "test": "vitest run",

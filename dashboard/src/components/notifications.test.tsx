@@ -28,7 +28,10 @@ test("the bell counts what waits on a person and its panel links to each one", a
     item({ ticket: "3", title: "Just running" }),
   ]);
   renderWithQuery(<Notifications />);
-  fireEvent.click(await screen.findByRole("button", { name: "Notifications, 2 new" }));
+  const bell = await screen.findByRole("button", { name: "Notifications, 2 new" });
+  // The count is a pale pill: DESIGN.md allows no solid red fill.
+  expect(bell.querySelector("span")!.className).not.toMatch(/(^|\s)bg-destructive(\s|$)/);
+  fireEvent.click(bell);
   expect(screen.getByRole("link", { name: /Approve me/ }).getAttribute("href")).toBe("/runs/r1");
   expect(screen.getByRole("link", { name: /Stuck run/ }).getAttribute("href")).toBe("/runs/r2");
   expect(screen.queryByText("Just running")).toBeNull();

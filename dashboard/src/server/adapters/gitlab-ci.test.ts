@@ -65,6 +65,23 @@ describe("the base URL", () => {
   });
 });
 
+describe("timeouts", () => {
+  it("gives every GitLab call a timeout, so a hung GitLab cannot hold up the loop", async () => {
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const fn = (async (_url: string | URL | Request, init?: RequestInit) => {
+      signals.push(init?.signal);
+      return Response.json([]);
+    }) as typeof fetch;
+    const ci = makeGitLabCi(fn);
+    await ci.cancel("1");
+    await ci.startDispatch("demo");
+    await ci.runningJobs();
+    await ci.importEvents(openDb(":memory:"));
+    expect(signals).toHaveLength(4);
+    for (const s of signals) expect(s).toBeInstanceOf(AbortSignal);
+  });
+});
+
 describe("ids", () => {
   it("refuses an id that is not all digits", async () => {
     const { fn, calls } = fakeFetch({});

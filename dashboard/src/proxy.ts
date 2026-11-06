@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/server/auth";
 
-// Pages need a session. The factory and dispatch routes use their own bearer tokens, so they and the sign-in routes pass through.
+// Pages need a session. The factory and dispatch routes use their own bearer tokens, the Teams bridge its HMAC, so they and the sign-in routes pass through.
 // An API call without a session gets a 401: a fetch would follow a redirect and read the sign-in page as data.
 export default auth((req) => {
   if (req.auth) return;
@@ -10,5 +10,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!api/events|api/dispatches|api/factory|api/auth|sign-in|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api/events|api/dispatches|api/factory|api/teams|api/auth|sign-in|_next/static|_next/image|favicon.ico).*)"],
 };

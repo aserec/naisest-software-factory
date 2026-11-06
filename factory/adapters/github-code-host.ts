@@ -1,4 +1,6 @@
 // Changes are GitHub pull requests. Checks are the commit's check runs and commit statuses (GitHub Actions and others).
+import { setTimeout as wait } from "node:timers/promises";
+import { isNotFound } from "../errors";
 import { AI_LINE, noQuickActions } from "../conversation";
 import type { GitHub } from "../github";
 import { FACTORY_GIT_EMAIL, gitRepo } from "../repo";
@@ -7,7 +9,7 @@ import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "
 
 const ASSETS = "factory-assets"; // the branch that holds attached images, so they never enter a change
 
-export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): CodeHost {
+export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<unknown> = wait): CodeHost {
   const r = `/repos/${repo}`;
   const pr = (ref: string) => `${r}/pulls/${Number(ref)}`;
   let bot: Promise<string> | undefined;
@@ -81,7 +83,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
         const url = `${r}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(baseBranch)}`;
         return await (await gh.call("GET", url, undefined, { Accept: "application/vnd.github.raw" })).text();
       } catch (e) {
-        if (String(e).includes("failed with status 404")) return undefined;
+        if (isNotFound(e)) return undefined;
         throw e;
       }
     },
@@ -182,7 +184,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       try {
         await branchSha(ASSETS);
       } catch (e) {
-        if (!String(e).includes("status 404")) throw e;
+        if (!isNotFound(e)) throw e;
         await newBranch(ASSETS, await branchSha(baseBranch));
       }
       const path = `${ASSETS}/${Date.now()}-${name.replace(/[^\w.-]/g, "_")}`;

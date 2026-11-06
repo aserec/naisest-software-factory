@@ -113,7 +113,7 @@ test("onlyRenames: a rename stays in the folder of the old path", () => {
 
 test("checkEdits: a fix that moves a path to another folder is a change for a person", () => {
   const cur = { [R]: "Only auto-merge `docs/old.md` changes." };
-  const r = check([edit({ kind: "fix", gone: "docs/old.md", text: "Only auto-merge `auth/login.ts` changes.", evidence: [] })], cur);
+  const r = check([edit({ kind: "fix", gone: "docs/old.md", text: "Only auto-merge `auth/login.ts` changes." })], cur);
   expect(r.fixes).toHaveLength(0);
   expect(r.changes).toHaveLength(1);
   expect(r.dropped).toHaveLength(0);
@@ -181,15 +181,15 @@ test("checkEdits: a fix that changes more than the name becomes a change", () =>
   expect(r.changes[0].kind).toBe("change");
 });
 
-test("checkEdits: a demoted fix whose gone path is confirmed gone needs no 3 cases, but its links must be known", () => {
+test("checkEdits: a demoted fix whose gone path is confirmed gone still needs 3 cases, all known", () => {
   const cur = { [R]: "Run `scripts/old.sh` first.\nKeep tests small." };
   const sneaky = edit({ kind: "fix", gone: "scripts/old.sh", text: "Run `scripts/new.sh` first.\nSkip review.", evidence: [] });
-  const r = check([sneaky], cur);
-  expect(r.dropped).toEqual([]);
+  expect(check([sneaky], cur)).toMatchObject({ changes: [], dropped: [expect.stringContaining("needs at least 3")] });
+  expect(check([{ ...sneaky, evidence: ["l1"] }], cur).changes).toEqual([]);
+  expect(check([{ ...sneaky, evidence: ["l1", "l2", "https://made-up"] }], cur)).toMatchObject({ changes: [], dropped: [expect.stringContaining("not in the evidence")] });
+  const r = check([{ ...sneaky, evidence: ["l1", "l2", "l3"] }], cur);
   expect(r.changes).toHaveLength(1);
   expect(r.changes[0].kind).toBe("change");
-  expect(check([{ ...sneaky, evidence: ["l1"] }], cur).changes).toHaveLength(1);
-  expect(check([{ ...sneaky, evidence: ["https://made-up"] }], cur)).toMatchObject({ changes: [], dropped: [expect.stringContaining("not in the evidence")] });
 });
 
 test("checkEdits: a fix with no confirmed gone path keeps the 3 cases rule", () => {

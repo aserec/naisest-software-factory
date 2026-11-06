@@ -59,7 +59,7 @@ describe("sign-in role check", () => {
   });
 });
 
-describe("canAct (Ruling R22)", () => {
+describe("canAct", () => {
   it("is true at 30 and active, read with the server's read token", async () => {
     const f = fakeGitlab(30);
     expect(await makeGitLabSignIn(f).canAct(user)).toBe(true);

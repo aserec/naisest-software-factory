@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   // ponytail: reads every request of the target. A human clicks these, so the table stays small; add a done_at filter to Db.requests if it grows.
   const all = db.requests({ target });
   const since = Date.now() - RESTART_MS;
-  // A cancelled stop stays pending (Ruling R4), so a pending stop only means "stop" when it is not cancelled.
+  // A cancelled stop stays pending (the poller still has to see it), so a pending stop only means "stop" when it is not cancelled.
   const stop = all.some((r) => r.kind === "stop" && !r.doneAt && r.run === q.get("run") && r.outcome !== "cancelled");
   const requests = all.filter((r) =>
     r.doneAt ? (r.kind === "restart" || r.kind === "ready") && Date.parse(r.doneAt) > since : r.kind !== "stop" || r.outcome === "cancelled",

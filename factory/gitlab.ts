@@ -1,3 +1,5 @@
+import { setTimeout as wait } from "node:timers/promises";
+import { HttpError } from "./errors";
 import { findSecrets } from "./rules";
 
 export const GITLAB_URL = "https://gitlab.example.com";
@@ -9,7 +11,7 @@ export function refuseSecrets(text: string, what: string): void {
 
 // The transport to one GitLab: auth, retries, paging and errors. Each adapter knows its own endpoints.
 export class GitLab {
-  constructor(private baseUrl: string, private token: string, private fetchFn: typeof fetch = fetch, private sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))) {}
+  constructor(private baseUrl: string, private token: string, private fetchFn: typeof fetch = fetch, private sleep: (ms: number) => Promise<unknown> = wait) {}
 
   // A failed call names the status and endpoint, never the token.
   // Retries a busy or unreachable GitLab a few times. 429/502/503 mean the request was not handled, so any
@@ -34,7 +36,7 @@ export class GitLab {
         continue;
       }
       if (res.ok) return res;
-      if (last || !([429, 502, 503].includes(res.status) || (get && res.status === 504))) throw new Error(`GitLab ${method} ${endpoint} failed with status ${res.status}`);
+      if (last || !([429, 502, 503].includes(res.status) || (get && res.status === 504))) throw new HttpError(`GitLab ${method} ${endpoint} failed with status ${res.status}`, res.status);
       await this.sleep(1000 * attempt);
     }
   }

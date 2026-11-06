@@ -15,7 +15,7 @@ export interface TargetInfo {
 }
 
 // A raw read of targets/*.yml. It does not use the factory's loadTarget, which refuses placeholder approvers.
-// The default dir is TARGETS_DIR, else ../targets from the dashboard cwd (Ruling R8).
+// The default dir is TARGETS_DIR, else ../targets: the dashboard runs from dashboard/, next to the repo's targets/.
 export function readTargets(dir = process.env.TARGETS_DIR ?? "../targets"): TargetInfo[] {
   const root = resolve(dir);
   return readdirSync(root)

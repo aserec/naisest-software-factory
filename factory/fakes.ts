@@ -1,5 +1,6 @@
 import type { RunRecord } from "./record";
 import { AI_LINE, later, noQuickActions } from "./conversation";
+import { HttpError } from "./errors";
 import { findSecrets } from "./rules";
 import { SWITCHES, type EventType } from "./run-events";
 import { changeBranchPrefix, ticketOfBranch, NotFactoryRunError } from "./seams";
@@ -24,7 +25,7 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
   seed.forEach(add);
   const get = (ref: TicketRef) => {
     const t = tickets.get(ref);
-    if (!t) throw new Error(`No ticket ${ref}`);
+    if (!t) throw new HttpError(`No ticket ${ref}`, 404);
     return t;
   };
 

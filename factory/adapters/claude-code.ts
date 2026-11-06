@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
 import { SANDBOX_RULES_PATH, rootReads, sandboxDenyRead } from "../sandbox";
-import { MAC_LOOKUPS } from "../repo";
+import { MAC_LOOKUPS, shellQuote } from "../repo";
 import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
 
@@ -23,9 +23,8 @@ export const INBOX_HOOK = fileURLToPath(new URL("./claude-inbox-hook.ts", import
 export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: string, inboxFile?: string, preview = false, platform = process.platform, commands: string[] = [], execPath = process.execPath, uid?: number): any {
   const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf8"));
   const rules = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
-  const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`; // safe for spaces, quotes and backslashes
-  settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: quote(`${hooksDir}/deny-dangerous.sh`) }] }] };
-  if (inboxFile) settings.hooks.PostToolUse = [{ hooks: [{ type: "command", command: `node --import ${quote(TSX_IMPORT)} ${quote(INBOX_HOOK)} ${quote(inboxFile)}` }] }];
+  settings.hooks = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: shellQuote(`${hooksDir}/deny-dangerous.sh`) }] }] };
+  if (inboxFile) settings.hooks.PostToolUse = [{ hooks: [{ type: "command", command: `node --import ${shellQuote(TSX_IMPORT)} ${shellQuote(INBOX_HOOK)} ${shellQuote(inboxFile)}` }] }];
   // The target's own lint, test and build: an npm or yarn target cannot use the pnpm entries in the file.
   settings.permissions.allow.push(...commands.map((c) => `Bash(${c}*)`));
   if (env.CLAUDE_CONFIG_DIR) settings.permissions.deny.push(`Read(/${env.CLAUDE_CONFIG_DIR}/**)`);
@@ -82,7 +81,7 @@ export function claudeInput(prompt: string, images: { data: Buffer }[]): string 
 
 // Keep only these variables, and only when they are set. No GitLab, Teams or other secrets.
 // The provider's key goes in under the name Claude Code reads.
-export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.ProcessEnv {
+export function claudeEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.ProcessEnv {
   const oauth = provider.keyEnv === "CLAUDE_CODE_OAUTH_TOKEN";
   const out: NodeJS.ProcessEnv = {
     ...Object.fromEntries(["PATH", "HOME", "LANG", "CLAUDE_CONFIG_DIR", "PLAYWRIGHT_BROWSERS_PATH"].map((k) => [k, env[k]])),
@@ -175,7 +174,7 @@ export const claudeCode: Harness = {
       const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
       // An agent with tools may run the target's Playwright tests: they reach a browser outside the sandbox (see browser-server.ts).
       const { code, out, err } = await withBrowserServer(job.tools === "code" ? cwd : "", process.env, (browser) =>
-        runCommand("claude", buildClaudeArgs(run, path), { ...agentEnv(process.env, job.model.provider), ...codeEnv(job, cwd), ...browser }, cwd, run.images ? claudeInput(job.prompt, job.images!) : undefined, onLine));
+        runCommand("claude", buildClaudeArgs(run, path), { ...claudeEnv(process.env, job.model.provider), ...codeEnv(job, cwd), ...browser }, cwd, run.images ? claudeInput(job.prompt, job.images!) : undefined, onLine));
       // The hook stops the agent at its next tool call after a stop line. A run that was stopped is never ok.
       const stopped = (await pump?.end()) ?? false;
       pump = undefined;

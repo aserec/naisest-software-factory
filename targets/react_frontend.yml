@@ -2,7 +2,7 @@ name: react_frontend
 projectPath: acme/web/react_frontend
 baseBranch: develop
 defaultApprover: Ceresa
-jobImage: node:22
+jobImage: gitlab.example.com:5050/ceresa/software-factory/job:main
 protectedPaths:
   - "**/migrations/**"
   - "**/auth/**"

@@ -122,7 +122,7 @@ export function Notifications() {
       >
         <Bell className="size-4" strokeWidth={1.5} aria-hidden="true" />
         {n > 0 && (
-          <span aria-hidden="true" className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-semibold text-background">
+          <span aria-hidden="true" className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-pill-warning-ink/20 bg-pill-warning px-1 text-[10px] leading-none font-semibold text-pill-warning-ink">
             {n > 99 ? "99+" : n}
           </span>
         )}

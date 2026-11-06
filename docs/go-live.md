@@ -33,7 +33,7 @@ One list for everything people must do before and during go-live on `react_front
 - [ ] Create the Hetzner firewall: no inbound rules, outbound internet only, no internal networks. Attach it.
 - [ ] Push the repo. Check that the `smoke` job runs on a fresh VM and the VM is deleted after the job.
 - [ ] Run `sync.sh` from agent-config to copy `.agents/`.
-- [ ] Job image: turn on the container registry for the factory project. Merge `runner/Dockerfile` to `main`. The `job-image` job prints the image with its digest. Put that exact string in the `.factory` image in `.gitlab-ci.yml` and in `jobImage` in `targets/react_frontend.yml`.
+- [ ] Job image: turn on the container registry for the factory project. Merge `runner/Dockerfile` to `main`. The `job-image` job prints the image with its digest. A runner with the `factory` tag must exist first, or the job waits forever. Put that exact string in place of `job:main` in the `.factory` image in `.gitlab-ci.yml` and in `jobImage` in all three `targets/*.yml`.
 - [ ] In a job on a fresh VM, run `bwrap --unshare-user --dev-bind / / true` in the job image. It must exit 0. The runner's `security_opt` and the sysctl in `runner/cloud-init.yml` allow it. Then check `enableWeakerNestedSandbox` and the `/proc` read deny against Node and pnpm.
 - [ ] Check the image user, HOME, PATH and proxy settings with the `env -i` line in `.gitlab-ci.yml`.
 - [ ] Check the runner's `<project>.tmp` secret directory layout, and the `TRIGGER_PAYLOAD` path.
@@ -81,7 +81,7 @@ The dashboard must be up before the first run: while the factory cannot reach it
 
 ## 8. Acceptance runs
 
-- [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 7). The mock Jev never passes Jev 2 (its scores have confidence 0.6), so with the mock every change goes to a person and run 1 cannot auto-merge.
+- [ ] Before run 1: set `BERGET_API_KEY` and tune the thresholds from the Jev shadow test (section 7). With judge `jev-berget` and no key, every step that asks Jev stops with an error.
 - [ ] **Run 1:** label a trivial ticket in `react_frontend`. Expected: merged into `develop` with a green `develop` pipeline, `factory_done`, a result comment, no person involved.
 - [ ] **Run 2:** label a medium-risk ticket. Expected: `factory_needs_approval`, reasons on the merge request, one Teams card.
 

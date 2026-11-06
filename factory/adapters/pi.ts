@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
 import { SRT } from "../srt";
-import { sandboxSettings } from "../repo";
+import { sandboxSettings, shellQuote } from "../repo";
 import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type ModelChoice, type Provider, type ToolCall } from "../seams";
 
@@ -26,7 +26,7 @@ export const piArgs = (provider: string, model: string, prompt: string, files: s
 ];
 
 // Nothing secret except the provider key, which Pi reads through models.json. No Claude token, no GitLab token.
-export function agentEnv(env: NodeJS.ProcessEnv, provider: Provider, dir: string): NodeJS.ProcessEnv {
+export function piEnv(env: NodeJS.ProcessEnv, provider: Provider, dir: string): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv], pnpm_config_store_dir: env.FACTORY_PNPM_STORE, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH };
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
@@ -42,7 +42,6 @@ export function piSandboxSettings(cwd: string, home: string, provider: Provider,
 }
 
 const EXTENSION = fileURLToPath(new URL("./pi-extension.ts", import.meta.url));
-const quote = (a: string) => `'${a.replaceAll("'", `'\\''`)}'`;
 // Pi or srt can fail before Pi writes a message. The exit code and stderr then hold the only reason.
 const exitText = (code: number | null, err: string) => `Pi exited with code ${code}. The end of its error output:\n${err.trim() || "(empty)"}`;
 
@@ -117,7 +116,7 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
     // The target's Playwright tests reach a browser outside the sandbox (see browser-server.ts).
     const { code, out, err } = await withBrowserServer(job.cwd, process.env, (browser) =>
-      runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], { ...agentEnv(process.env, job.model.provider, home), ...browser }, job.cwd, undefined, onLine));
+      runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(shellQuote).join(" ")], { ...piEnv(process.env, job.model.provider, home), ...browser }, job.cwd, undefined, onLine));
     const stopped = (await pump?.end()) ?? false; // the extension aborts the agent at its next tool result after a stop line
     pump = undefined;
     const r = parsePiOutput(out);
@@ -141,7 +140,7 @@ export const pi: Harness = {
     try {
       writeFileSync(join(dir, "models.json"), JSON.stringify(piModels(job.model)));
       const files = (job.images ?? []).map((i) => { const f = join(dir, i.name); writeFileSync(f, i.data); return f; });
-      const { code, out, err } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt, files), agentEnv(process.env, job.model.provider, dir), dir);
+      const { code, out, err } = await runCommand("pi", piArgs(job.model.provider.name, job.model.model, job.prompt, files), piEnv(process.env, job.model.provider, dir), dir);
       // Pi has no session to resume here. It has no tools, so the inbox is not used and it is never stopped.
       const r = parsePiOutput(out);
       return { session: "", ok: code === 0 && !r.error, limitHit: r.limitHit, stopped: false, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.error || code === 0 ? r.text : exitText(code, err) };

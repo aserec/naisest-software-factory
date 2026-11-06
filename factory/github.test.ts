@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { isNotFound } from "./errors";
 import { GitHub } from "./github";
 
 // Each call to fetch returns the next response; the count of calls is what the tests check.
@@ -29,6 +30,11 @@ test("graphql tries a 502 again, 5 times in all", async () => {
   const down = client(Array(6).fill(new Response("", { status: 502 })));
   await expect(down.gh.graphql("{ viewer { login } }", {})).rejects.toThrow("status 502");
   expect(down.calls()).toBe(5);
+});
+
+test("a GraphQL NOT_FOUND is a 404", async () => {
+  const { gh } = client([Response.json({ errors: [{ type: "NOT_FOUND", message: "Could not resolve to an Issue with the number of 326." }] })]);
+  expect(isNotFound(await gh.graphql("{ viewer { login } }", {}).catch((e) => e))).toBe(true);
 });
 
 test("graphql does not try a query error again", async () => {

@@ -1,4 +1,5 @@
 // The composition root: builds the step context from seams.yml. The one place that knows which tool fills each seam.
+import { setTimeout as wait } from "node:timers/promises";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,11 +31,11 @@ const ADAPTERS = {
   ci: { gitlab: makeGitLabCi, local: makeLocalCi },
   // The github trackers and code host get FACTORY_GITHUB_TOKEN; the gitlab ones get FACTORY_GITLAB_TOKEN.
   tracker: {
-    gitlab: (token: string, target: Target) => makeGitLabTracker(new GitLab(GITLAB_URL, token), target.projectPath),
-    github: (token: string, target: Target) => makeGitHubTracker(new GitHub(token), needRepo(target), undefined, target.sharedAccount),
+    gitlab: (token: string, target: Target) => makeGitLabTracker(new GitLab(GITLAB_URL, token), target.projectPath, target.teamsRelay),
+    github: (token: string, target: Target) => makeGitHubTracker(new GitHub(token), needRepo(target), undefined, target.sharedAccount, target.teamsRelay),
     "github-project": (token: string, target: Target) => {
       if (!target.githubProject) throw new Error(`Target ${target.name} needs githubProject for the github-project tracker`);
-      return makeGitHubTracker(new GitHub(token), needRepo(target), target.githubProject, target.sharedAccount);
+      return makeGitHubTracker(new GitHub(token), needRepo(target), target.githubProject, target.sharedAccount, target.teamsRelay);
     },
   },
   codeHost: {
@@ -119,7 +120,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     router,
     dir,
     repo: codeHost.cloneAt(dir),
-    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    sleep: (ms) => wait(ms),
   };
 }
 

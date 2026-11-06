@@ -28,3 +28,8 @@ export function ago(iso: string, now = Date.now()) {
 export const words = (id: string) => (/^prepare[-_]patch$/.test(id) ? "Implement" : id[0].toUpperCase() + id.slice(1).replace(/[-_]/g, " "));
 
 export const usd = (n: number) => `$${n.toFixed(2)}`;
+
+export const capitalize = (s: string) => s[0].toUpperCase() + s.slice(1);
+
+// The url when it is http(s), else undefined: a url from an event is not trusted as an href (javascript: and the like).
+export const httpUrl = (u?: string) => (u && /^https?:\/\//i.test(u) ? u : undefined);

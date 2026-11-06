@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import type { HarnessJob, Provider } from "../seams";
 import { sandboxDenyRead } from "../sandbox";
-import { agentEnv, pi, piArgs, piModels, piSandboxSettings, piToolCalls } from "./pi";
+import { piEnv, pi, piArgs, piModels, piSandboxSettings, piToolCalls } from "./pi";
 import { readNew } from "../inbox-file";
 import piExtension, { guardCheck } from "./pi-extension";
 
@@ -40,13 +40,13 @@ test("a model with a price gets it as cost in models.json, so Pi reports what a 
   expect(piModels({ provider: tensorx, model: "m1" }).providers.tensorx.models[0].cost).toBeUndefined();
 });
 test("Pi env holds only the allowed keys and the provider key", () => {
-  const e = agentEnv({ PATH: "/bin", HOME: "/h", FACTORY_GITLAB_TOKEN: "g", TEAMS_WEBHOOK_URL: "w", BERGET_API_KEY: "b", CLAUDE_CODE_OAUTH_TOKEN: "t", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
+  const e = piEnv({ PATH: "/bin", HOME: "/h", FACTORY_GITLAB_TOKEN: "g", TEAMS_WEBHOOK_URL: "w", BERGET_API_KEY: "b", CLAUDE_CODE_OAUTH_TOKEN: "t", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
   expect(e).toEqual({ PATH: "/bin", HOME: "/tmp/d", PI_CODING_AGENT_DIR: "/tmp/d", PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", TENSORX_API_KEY: "k" });
   expect(Object.keys(e).sort()).toEqual(["HOME", "PATH", "PI_CODING_AGENT_DIR", "PI_SKIP_VERSION_CHECK", "PI_TELEMETRY", "TENSORX_API_KEY"]);
 });
 
 test("Pi env keeps the browser path when it is set", () => {
-  const e = agentEnv({ PATH: "/bin", PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
+  const e = piEnv({ PATH: "/bin", PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", TENSORX_API_KEY: "k" }, tensorx, "/tmp/d");
   expect(e.PLAYWRIGHT_BROWSERS_PATH).toBe("/ms-playwright");
 });
 

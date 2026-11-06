@@ -8,3 +8,6 @@ export const ADAPTER_SECRETS: { tracker: Record<string, string>; codeHost: Recor
 
 // Secrets that arrive as File-type CI variables: every adapter secret once, then the dashboard token.
 export const FILE_SECRETS: string[] = [...new Set([...Object.values(ADAPTER_SECRETS).flatMap((m) => Object.values(m)), "FACTORY_DASHBOARD_TOKEN"])];
+
+// A secret the worker's own env holds under another name: deploy/compose.yml and install.sh name the GitLab token GL_TOKEN.
+export const WORKER_ENV_NAMES: Record<string, string> = { FACTORY_GITLAB_TOKEN: "GL_TOKEN" };

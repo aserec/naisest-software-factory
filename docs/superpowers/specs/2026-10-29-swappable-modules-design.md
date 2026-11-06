@@ -128,7 +128,7 @@ Each harness adapter declares which API styles it can use. Config loading fails 
 
 Rule: the Team plan token works only with the Claude Code harness. See `docs/decisions/2026-10-29-claude-team-plan-auth.md`.
 
-Rule, my call: config loading fails when the author and the reviewer of one router row use the same model family. This replaces today's rule "the reviewer is never Claude while the author is Claude", now that any harness can fill any role.
+Rule, my call: config loading fails when the author and the reviewer of one router row use the same model family. This replaces today's rule "the reviewer is never Claude while the author is Claude", now that any harness can fill any role. A family is a model line, as `seams.yml` labels it, so Sonnet and Opus are two families. The author and the reviewer may come from the same company.
 
 Real providers: the Team plan and TensorX. TensorX still needs written GDPR proof (see `docs/go-live.md`). Berget AI and Scaleway are the EU fallbacks if TensorX fails that check.
 

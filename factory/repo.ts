@@ -1,6 +1,7 @@
 // The real Repo: the target clone the agent works in, plus a git dir that only the factory controls.
 // The factory never runs git with the clone's own .git: a hostile .git/config there could leak the token
 // (insteadOf, extraHeader) or run code (fsmonitor, diff.external, textconv, filters, hooks).
+import { setTimeout as wait } from "node:timers/promises";
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,6 +11,9 @@ import { SANDBOX_RULES_PATH, sandboxDenyRead } from "./sandbox";
 import { SRT } from "./srt";
 import { withBrowserServer } from "./browser-server";
 import type { Repo } from "./seams";
+
+// One word for sh, safe for spaces, quotes and backslashes.
+export const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 // Paths come from this file's place, not from env, which a trigger caller can set.
 // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL; the runner keeps File-type variables in <project dir>.tmp.
@@ -57,7 +61,7 @@ async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
     // srt on macOS denies writes to every .idea, .vscode and .git/hooks under its cwd, and some packages ship an .idea dir
     // (iconv-lite 0.6.3). Local runs start srt in the throwaway HOME, so those rules cover HOME and not the clone.
     // The factory never uses the clone's own .git, so the clone loses nothing it relies on.
-    const script = store ? `cd '${dir.replaceAll("'", `'\\''`)}' && ${cmd}` : cmd;
+    const script = store ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
     // The target's Playwright tests reach a browser outside the sandbox (see browser-server.ts).
     return await withBrowserServer(dir, env, (browser) => sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }), ...browser }));
   } finally {
@@ -121,7 +125,7 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
           return sha;
         } catch (e) {
           if (attempt === 3 || !TRANSIENT_PUSH.test(String(e))) throw e;
-          await new Promise((r) => setTimeout(r, retryMs * attempt));
+          await wait(retryMs * attempt);
         }
       }
     },

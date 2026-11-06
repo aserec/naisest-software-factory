@@ -22,7 +22,7 @@ export interface RunView {
 export interface RunViewInput {
   events: RunEvent[]; // of the run, oldest first; other event types are ignored
   requests?: ControlRequest[]; // of the run
-  newer?: boolean; // a newer run of the same work item exists (Ruling R46)
+  newer?: boolean; // a newer run of the same work item exists
   limits?: Record<string, number>; // minutes per step; a step without a limit is never stuck
   now?: Date;
   fallback?: FactoryState; // the work item's tracker state, for a run that sent no label_change
@@ -71,9 +71,9 @@ export function runView({ events, requests = [], newer = false, limits = {}, now
     if (restarted) return "run already restarted"; // a done restart ended this run: a new run carries on
     if (pending.length) return "a request is already waiting";
     if (kind === "stop") return state === "running" ? undefined : "run is not running";
-    // The poller acts on the work item, so the run must be its newest (Ruling R46).
+    // The poller acts on the work item, not the run, so only the work item's newest run may be acted on.
     if (newer) return "run is not the ticket's newest run";
-    // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted (spec 6.1, Ruling R18).
+    // A run ended by a pipeline cancel saved nothing to resume from, but it can be restarted.
     if (cancelled) return kind === "resume" ? "the run was cancelled, use Restart" : undefined;
     return state === "stopped" ? undefined : "run is not stopped";
   };

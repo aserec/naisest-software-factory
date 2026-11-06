@@ -4,10 +4,8 @@ import SAMPLE_RESPONSE from "./fixtures/systemone-response.json";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("no BERGET_API_KEY gives the mock and says so", () => {
-  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
-  expect(makeJevClient({}).provider).toBe("mock");
-  expect(log).toHaveBeenCalledWith(expect.stringContaining("Jev mock"));
+test("no BERGET_API_KEY fails at once, with no stand-in answers", () => {
+  expect(() => makeJevClient({})).toThrow(/BERGET_API_KEY is not set/);
 });
 
 test("berget client posts to /v1/systemone and never logs the key", async () => {
@@ -31,17 +29,11 @@ test("berget client posts to /v1/systemone and never logs the key", async () => 
   expect(JSON.stringify(out.map((s) => s.mock.calls))).not.toContain("secret-key");
 });
 
-test("a failed Berget call throws and does not fall back to the mock", async () => {
+test("a failed Berget call throws", async () => {
   const fake = (async () => new Response("down", { status: 503 })) as typeof fetch;
   await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, [])).rejects.toThrow(/503/);
 });
 
-test("the mock gives the same answers every time", async () => {
-  vi.spyOn(console, "warn").mockImplementation(() => {});
-  const qs: JevQuestion[] = [{ id: "a", kind: "noul", text: "?" }, { id: "b", kind: "choice", text: "?", options: ["x", "y"] }];
-  const c = makeJevClient({});
-  expect(await c.ask({}, qs)).toEqual(await c.ask({}, qs));
-});
 
 test("a score question with 9 levels answers on a 2 to 10 scale", async () => {
   const reply = (top: number) => {

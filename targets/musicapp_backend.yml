@@ -10,7 +10,7 @@ defaultApprover: aserec
 # The token is aserec's own until the factory gets its own GitHub account: aserec's Ready counts. Remove it then.
 sharedAccount: true
 # The runner image (runner/Dockerfile) has uv and Python 3.15. A local run needs python3.15 on PATH: uv python install 3.15.
-jobImage: node:22
+jobImage: gitlab.example.com:5050/ceresa/software-factory/job:main
 protectedPaths:
   - ".github/**"
   - "**/.env*"

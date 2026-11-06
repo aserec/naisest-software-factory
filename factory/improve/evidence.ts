@@ -1,5 +1,6 @@
 // A week of corrections people made to the factory in one target: the evidence for the weekly improve job.
 // Text written by people reaches models as data, after scrub and the injection check.
+import { errText } from "../errors";
 import { byPeople, isBareCommand, isRequest, newestNote } from "../conversation";
 import { eventsOfType, HISTORY_LIMIT } from "../run-events";
 import type { RunEvent } from "../seams";
@@ -110,7 +111,7 @@ export async function collectEvidence(ctx: Pick<StepContext, "tracker" | "codeHo
       }
       found.push(...out.filter((e) => !/^too_/.test(e.kind) || (!once.has(e.kind + e.link) && !!once.add(e.kind + e.link))));
     } catch (e) {
-      console.log(`Evidence of ticket ${ref} failed: ${String(e).slice(0, 300)}`);
+      console.log(`Evidence of ticket ${ref} failed: ${errText(e)}`);
     }
   }
 

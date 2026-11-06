@@ -1,11 +1,11 @@
 // Claude Code runs this after every tool call: `node --import tsx claude-inbox-hook.ts <inbox file>`.
 // It prints the comments that came in since the last call, or stops the agent. It uses only node modules and ../inbox-file.
 import { fileURLToPath } from "node:url";
-import { readNew } from "../inbox-file";
+import { readNew, STOP_COMMAND } from "../inbox-file";
 
 export function hookOutput(file: string): object | undefined {
   const { comments, stop } = readNew(file);
-  if (stop) return { continue: false, stopReason: "@factory stop" };
+  if (stop) return { continue: false, stopReason: STOP_COMMAND };
   if (comments.length > 0) return { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: comments.join("\n\n") } };
   return undefined;
 }

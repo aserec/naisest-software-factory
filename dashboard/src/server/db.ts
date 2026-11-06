@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
 import { runView, trackStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
@@ -33,6 +33,10 @@ export interface Db {
   /** The newest events of the types across every target, newest first. */
   recent(q: { types: EventType[]; limit: number }): (RunEvent & { seq: number })[];
   runs(q: { target?: string; ticket?: string }): RunSummary[];
+  /** The newest run of each work item given, by when it was saved; a work item with no run is left out. */
+  latestRuns(items: { target: string; ticket: string }[]): RunSummary[];
+  /** The CI run (pipeline field) of the run's newest step_start, or undefined when that step_start names none. */
+  newestPipeline(run: string): string | undefined;
   switches(target: string): Record<SwitchName, boolean>;
   setSwitch(scope: string, name: SwitchName, on: boolean, user: string): void;
   /** The newest switch changes first, from their switch_change events. */
@@ -119,7 +123,7 @@ export function openDb(path: string): Db {
   if (!db.prepare("SELECT 1 FROM pragma_table_info('dispatches') WHERE name = 'work_item'").get()) db.exec("ALTER TABLE dispatches ADD COLUMN work_item TEXT");
 
   const insertEvent = db.prepare("INSERT OR IGNORE INTO events (id, run, parent, at, target, ticket, pipeline, job, step, type, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-  // A pending request is one with no done_at. "cancelled" keeps it pending (Ruling R4) and is never overwritten.
+  // A pending request is one with no done_at. "cancelled" keeps it pending, so the poller still sees the stop, and is never overwritten.
   const finishStmt = db.prepare("UPDATE requests SET done_at = ?, outcome = CASE WHEN outcome = 'cancelled' THEN outcome ELSE ? END WHERE id = ?");
   const cancelStmt = db.prepare("UPDATE requests SET outcome = 'cancelled' WHERE id = ?");
   const ended = (run: string) => db.prepare("SELECT 1 FROM events WHERE run = ? AND type = 'run_end'").get(run) !== undefined;
@@ -134,10 +138,41 @@ export function openDb(path: string): Db {
   function view(run: string, o: { limits?: Record<string, number>; now?: Date; fallback?: FactoryState } = {}): RunView | undefined {
     const first = db.prepare("SELECT target, ticket FROM events WHERE run = ? ORDER BY seq LIMIT 1").get(run) as Row | undefined;
     if (!first) return undefined;
-    // The poller acts on the work item, so a run must be its newest (Ruling R46).
+    // The poller acts on the work item, not the run, so only the work item's newest run may be acted on.
     const newer = db.prepare("SELECT 1 FROM events WHERE type = 'run_start' AND target = ? AND ticket = ? AND run != ? AND seq > (SELECT MIN(seq) FROM events WHERE run = ? AND type = 'run_start')").get(first.target as string, first.ticket as string, run, run) !== undefined;
     const requests = (db.prepare("SELECT * FROM requests WHERE run = ? ORDER BY at, rowid").all(run) as Row[]).map(toRequest);
     return runView({ events: (viewEvents.all(run) as Row[]).map(toEvent), requests, newer, ...o });
+  }
+
+  // Run summaries of the runs `runSql` selects (one column of run ids), newest first.
+  function summaries(runSql: string, params: SQLInputValue[]): RunSummary[] {
+    const sql = `SELECT seq, id, run, target, ticket, at, step, type, data FROM events
+      WHERE +type IN ('run_start','run_end','usage','step_start','step_end','review_finding','decision') -- "+" stops SQLite scanning the type index; the run index is better
+        AND run IN (${runSql})
+      ORDER BY seq`;
+    const rows = stmt(sql).all(...params) as Row[];
+    const byRun = new Map<string, RunSummary>();
+    for (const r of rows) {
+      const e = toEvent(r);
+      const id = e.run;
+      let s = byRun.get(id);
+      if (e.type === "run_start") {
+        s = { run: id, target: e.target, ticket: e.ticket, startedAt: e.at, costUsd: 0 };
+        byRun.set(id, s);
+      } else if (!s) continue;
+      else if (e.type === "run_end") {
+        s.endedAt = e.at;
+        s.outcome = e.data.outcome;
+      } else if (e.type === "usage") s.costUsd += e.data.costUsd;
+      else if (e.type === "step_start" || e.type === "step_end") s.lastStep = trackStep(s.lastStep, e);
+      else if (e.type === "review_finding") s.round = Math.max(s.round ?? 0, e.data.round);
+      else if (e.type === "decision") {
+        if (e.data.risk !== undefined) s.mergeRisk = e.data.risk;
+        if (e.data.riskMax !== undefined) s.mergeRiskMax = e.data.riskMax;
+        if (e.data.changeUrl !== undefined) s.changeUrl = e.data.changeUrl;
+      }
+    }
+    return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
   }
 
   function inTransaction<T>(fn: () => T): T {
@@ -187,33 +222,17 @@ export function openDb(path: string): Db {
 
     runs({ target, ticket }) {
       const starts = [target != null && "target = ?", ticket != null && "ticket = ?"].filter(Boolean);
-      const sql = `SELECT seq, id, run, target, ticket, at, step, type, data FROM events
-        WHERE +type IN ('run_start','run_end','usage','step_start','step_end','review_finding','decision') -- "+" stops SQLite scanning the type index; the run index is better
-          AND run IN (SELECT run FROM events WHERE type = 'run_start'${starts.map((c) => ` AND ${c}`).join("")})
-        ORDER BY seq`;
-      const rows = stmt(sql).all(...[target, ticket].filter((v) => v != null)) as Row[];
-      const byRun = new Map<string, RunSummary>();
-      for (const r of rows) {
-        const e = toEvent(r);
-        const id = e.run;
-        let s = byRun.get(id);
-        if (e.type === "run_start") {
-          s = { run: id, target: e.target, ticket: e.ticket, startedAt: e.at, costUsd: 0 };
-          byRun.set(id, s);
-        } else if (!s) continue;
-        else if (e.type === "run_end") {
-          s.endedAt = e.at;
-          s.outcome = e.data.outcome;
-        } else if (e.type === "usage") s.costUsd += e.data.costUsd;
-        else if (e.type === "step_start" || e.type === "step_end") s.lastStep = trackStep(s.lastStep, e);
-        else if (e.type === "review_finding") s.round = Math.max(s.round ?? 0, e.data.round);
-        else if (e.type === "decision") {
-          if (e.data.risk !== undefined) s.mergeRisk = e.data.risk;
-          if (e.data.riskMax !== undefined) s.mergeRiskMax = e.data.riskMax;
-          if (e.data.changeUrl !== undefined) s.changeUrl = e.data.changeUrl;
-        }
-      }
-      return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
+      return summaries(`SELECT run FROM events WHERE type = 'run_start'${starts.map((c) => ` AND ${c}`).join("")}`, [target, ticket].filter((v) => v != null));
+    },
+
+    latestRuns(items) {
+      const newest = "SELECT (SELECT run FROM events WHERE type = 'run_start' AND target = j.value ->> 0 AND ticket = j.value ->> 1 ORDER BY seq DESC LIMIT 1) FROM json_each(?) j";
+      return summaries(newest, [JSON.stringify(items.map((i) => [i.target, i.ticket]))]);
+    },
+
+    newestPipeline(run) {
+      const r = stmt("SELECT pipeline FROM events WHERE run = ? AND type = 'step_start' ORDER BY seq DESC LIMIT 1").get(run) as Row | undefined;
+      return (r?.pipeline as string | null | undefined) ?? undefined;
     },
 
     switches(target) {

@@ -1,4 +1,5 @@
 // Run events: one line in run/events.jsonl and one send to the dashboard. Nothing happens before the run has an ID.
+import { errText } from "./errors";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -66,7 +67,7 @@ export function emitFor<T extends EventType>(ids: RunIds, to: { dir: string; das
     mkdirSync(runDir, { recursive: true });
     appendFileSync(join(runDir, "events.jsonl"), `${JSON.stringify(e)}\n`);
   } catch (err) {
-    console.warn(`events.jsonl: could not write ${type} ${e.id}: ${String(err).slice(0, 200)}`);
+    console.warn(`events.jsonl: could not write ${type} ${e.id}: ${errText(err, 200)}`);
   }
   to.dashboard.send(e);
   return e.id;

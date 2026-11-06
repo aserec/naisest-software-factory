@@ -7,7 +7,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { HOOKS_DIR, TSX_IMPORT } from "../agents";
 import { sandboxSettings } from "../repo";
 import type { HarnessJob, Provider } from "../seams";
-import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, agentEnv, buildClaudeArgs, claudeCode, claudeInput, factorySettings, codeEnv, withRootReads, parseStream, toolCalls } from "./claude-code";
+import { CLAUDE_SETTINGS_PATH, INBOX_HOOK, claudeEnv, buildClaudeArgs, claudeCode, claudeInput, factorySettings, codeEnv, withRootReads, parseStream, toolCalls } from "./claude-code";
 
 const load = (f: string) => readFileSync(new URL(`../fixtures/${f}`, import.meta.url), "utf8");
 const teamPlan: Provider = { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", models: { "claude-sonnet-5-5": "claude" } };
@@ -41,14 +41,14 @@ test("no tools turns every built-in tool off", () => {
 
 test("agents never get the GitLab token or another provider's key", () => {
   const env = { PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", FACTORY_GITLAB_TOKEN: "x", TEAMS_WEBHOOK_URL: "y", BERGET_API_KEY: "b", TENSORX_API_KEY: "tx", ANTHROPIC_API_KEY: "z", CLAUDE_CODE_OAUTH_TOKEN: "t" };
-  expect(agentEnv(env, teamPlan)).toEqual({ PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", CLAUDE_CODE_OAUTH_TOKEN: "t" });
+  expect(claudeEnv(env, teamPlan)).toEqual({ PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", CLAUDE_CODE_OAUTH_TOKEN: "t" });
 });
 test("agents keep the browser path when it is set", () => {
-  expect(agentEnv({ PATH: "/bin", PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", CLAUDE_CODE_OAUTH_TOKEN: "t" }, teamPlan).PLAYWRIGHT_BROWSERS_PATH).toBe("/ms-playwright");
+  expect(claudeEnv({ PATH: "/bin", PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright", CLAUDE_CODE_OAUTH_TOKEN: "t" }, teamPlan).PLAYWRIGHT_BROWSERS_PATH).toBe("/ms-playwright");
 });
 test("another Anthropic-style provider's key is passed as ANTHROPIC_API_KEY with its base URL", () => {
   const p: Provider = { name: "gw", api: "anthropic", baseUrl: "https://gw.example", keyEnv: "GW_KEY", models: {} };
-  expect(agentEnv({ PATH: "/bin", GW_KEY: "k", CLAUDE_CODE_OAUTH_TOKEN: "t", FACTORY_GITLAB_TOKEN: "g" }, p)).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "k", ANTHROPIC_BASE_URL: "https://gw.example" });
+  expect(claudeEnv({ PATH: "/bin", GW_KEY: "k", CLAUDE_CODE_OAUTH_TOKEN: "t", FACTORY_GITLAB_TOKEN: "g" }, p)).toEqual({ PATH: "/bin", ANTHROPIC_API_KEY: "k", ANTHROPIC_BASE_URL: "https://gw.example" });
 });
 
 test("the stream gives session id, cost and tokens", () => expect(parseStream(load("stream-ok.jsonl"))).toMatchObject({ isError: false, limitHit: false, costUsd: 0.0042, tokens: { input: 120, output: 8 }, resultText: "ok", sessionId: "11111111-1111-4111-8111-111111111111" }));

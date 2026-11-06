@@ -3,6 +3,14 @@ import { afterEach, expect, test, vi } from "vitest";
 import { StepDetail, usageByModel } from "./step-detail";
 import { ev, renderWithQuery } from "./test-utils";
 
+// The real api(), watched, so a test can see the job log goes through it (a 401 there sends the user to sign-in).
+const api = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api", async (real) => {
+  const m = await real<typeof import("@/lib/api")>();
+  api.mockImplementation(m.api);
+  return { api };
+});
+
 afterEach(() => (cleanup(), vi.unstubAllGlobals()));
 
 const start = ev("step_start", "00", { step: "precommit-gate", job: "42", data: { prompt: "Fix the bug" } });
@@ -22,8 +30,17 @@ test("shows everything about the step and asks GitLab for its job log once", asy
   for (const text of ["Fix the bug", "Missing test", "Blocking", "pnpm test", "exit 1", "no-secrets", "clean", "Which API?", "v2 · high confidence", "$0.50"]) {
     expect(document.body.textContent).toContain(text);
   }
-  expect(fetchFn).toHaveBeenCalledWith("/api/jobs/42/log");
+  expect(api).toHaveBeenCalledWith("/api/jobs/42/log");
   expect(fetchFn).toHaveBeenCalledTimes(1);
+});
+
+test("a triage outcome url that is not http(s) shows as text, not as a link", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  const step = ev("step_start", "00", { step: "triage", data: {} });
+  const outcome = ev("triage_outcome", "01", { step: "triage", data: { kind: "stop", title: "Stopped", reasons: ["r"], url: "javascript:alert(1)" } });
+  renderWithQuery(<StepDetail start={step} events={[outcome]} />);
+  expect(screen.queryByRole("link")).toBeNull();
+  expect(document.body.textContent).toContain("javascript:alert(1)");
 });
 
 test("a step without a CI job shows the log its step_end event sent, and asks nothing", async () => {

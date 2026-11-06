@@ -1,6 +1,8 @@
-import { AI_LINE, fingerprintMarker, isRequest, noQuickActions } from "../conversation";
+import { isNotFound } from "../errors";
+import { AI_LINE, commandIn, fingerprintMarker, isRequest, noQuickActions } from "../conversation";
+import { confirmedRelays, withRelays } from "../relay";
 import { GitLab, refuseSecrets } from "../gitlab";
-import { ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
+import { ENDED_STATES, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
 const READY = "factory_ready";
 // GitLab access level of the Developer role. Developers and above may command the factory.
@@ -12,9 +14,6 @@ const MARK_LABELS: Record<Mark, string> = {
 };
 const labelOf = (state: FactoryState) => `factory_${state}`;
 const titles = (v: unknown): string[] => (Array.isArray(v) ? v.flatMap((l) => (typeof l?.title === "string" ? [l.title] : [])) : []);
-// A person can add factory_ready next to another state label. An active run wins over ready, ready wins over an ended run.
-const ENDED = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
-const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", ...ENDED] as const satisfies readonly FactoryState[];
 // A work item holds at most one state label: setting one removes all the others.
 const STATE_LABELS = STATE_ORDER.map(labelOf);
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
@@ -28,7 +27,7 @@ function toTicket(w: any): Ticket {
     body: w.description ?? "",
     open: w.state === "opened",
     state,
-    ended: state === "ready" ? ENDED.find((s) => labels.includes(labelOf(s))) : undefined,
+    ended: state === "ready" ? ENDED_STATES.find((s) => labels.includes(labelOf(s))) : undefined,
     marks: (Object.keys(MARK_LABELS) as Mark[]).filter((m) => labels.includes(MARK_LABELS[m])),
     tags: labels.filter((l) => !l.startsWith("factory_")),
     assignees: (w.assignees ?? []).map((a: { username: string }) => a.username),
@@ -36,7 +35,8 @@ function toTicket(w: any): Ticket {
   };
 }
 
-export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker {
+// relayUser: the Teams relay bot (relay.ts). Its comments count only through a person's 👍.
+export function makeGitLabTracker(gitlab: GitLab, projectPath: string, relayUser?: string): Tracker {
   let project: Promise<number> | undefined;
   let bot: Promise<string> | undefined;
   const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
@@ -99,7 +99,7 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
       try {
         return (await gitlab.getJson(`/projects/${project}/members/all/${id}`)).access_level >= DEVELOPER;
       } catch (e) {
-        if (String(e).includes("status 404")) return false; // not a member
+        if (isNotFound(e)) return false; // not a member
         throw e;
       }
     },
@@ -111,10 +111,15 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
     },
     async comments(ref, since) {
       const bot = await botName();
-      const notes = await gitlab.getJson(`${await issueUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
-      return notes
-        .filter((n: any) => !n.system && (!since || n.created_at > since))
-        .map((n: any) => ({ author: n.author.username, byFactory: n.author.username === bot, body: n.body, at: n.created_at }));
+      const url = await issueUrl(ref);
+      const notes = (await gitlab.getJson(`${url}/notes?sort=desc&order_by=created_at&per_page=100`)).filter((n: any) => !n.system);
+      const own = notes.map((n: any) => ({ author: n.author.username, byFactory: n.author.username === bot, body: n.body, at: n.created_at }));
+      // A relay comment older than `since` can have a newer 👍, so relays are read whatever their age.
+      const relayed = await Promise.all(notes.filter((n: any) => relayUser && n.author.username === relayUser).map(async (n: any) => {
+        const awards = await gitlab.getJson(`${url}/notes/${n.id}/award_emoji?per_page=100`);
+        return confirmedRelays({ body: n.body, editedAt: n.updated_at ?? n.created_at }, awards.filter((a: any) => a.name === "thumbsup").map((a: any) => ({ by: a.user.username, at: a.created_at })));
+      }));
+      return withRelays(own, relayed.flat(), since);
     },
     parseEvent(payload) {
       const p = payload as any;
@@ -130,8 +135,8 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string): Tracker 
       }
       // A person's note with the line `@factory stop` or `@factory resume`, or a `@factory` request. The event step decides who may.
       if (p.object_kind === "note" && a?.noteable_type === "Issue" && !a.system && typeof p.issue?.iid === "number") {
-        const command = String(a.note ?? "").split("\n").map((l) => l.trim().toLowerCase()).find((l) => l === "@factory stop" || l === "@factory resume");
-        if (command) return { kind: "command", ticket: String(p.issue.iid), actor, command: command === "@factory stop" ? "stop" : "resume" };
+        const command = commandIn(String(a.note ?? ""));
+        if (command) return { kind: "command", ticket: String(p.issue.iid), actor, command };
         if (isRequest(String(a.note ?? ""))) return { kind: "request", ticket: String(p.issue.iid), actor };
         return ignored("not-added");
       }
