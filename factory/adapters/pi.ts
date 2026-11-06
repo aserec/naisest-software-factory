@@ -6,6 +6,7 @@ import { HOOKS_DIR, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
 import { SRT } from "../srt";
 import { sandboxSettings } from "../repo";
+import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type ModelChoice, type Provider, type ToolCall } from "../seams";
 
 // Pi config for one job: the job's provider is the only provider. Tools are turned off by flags in piArgs.
@@ -114,7 +115,9 @@ async function runAuthor(job: HarnessJob): Promise<HarnessResult> {
     if (job.inbox) pump = pumpInbox(job.inbox, inboxFile);
     const calls = piToolCalls();
     const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
-    const { code, out, err } = await runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], agentEnv(process.env, job.model.provider, home), job.cwd, undefined, onLine);
+    // The target's Playwright tests reach a browser outside the sandbox (see browser-server.ts).
+    const { code, out, err } = await withBrowserServer(job.cwd, process.env, (browser) =>
+      runCommand(SRT, ["--settings", settings, "-c", ["pi", ...args].map(quote).join(" ")], { ...agentEnv(process.env, job.model.provider, home), ...browser }, job.cwd, undefined, onLine));
     const stopped = (await pump?.end()) ?? false; // the extension aborts the agent at its next tool result after a stop line
     pump = undefined;
     const r = parsePiOutput(out);

@@ -8,7 +8,7 @@ import { HARNESS_HOMES, type Harness } from "./seams";
 // Absolute paths in the factory checkout. Never relative to the agent cwd, which is the target clone.
 export const SANDBOX_RULES_PATH = fileURLToPath(new URL("./sandbox-rules.json", import.meta.url));
 const RULES = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
-const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+export const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
 // A harness's home and session dir for one run, next to the clone.
 export const harnessHome = (h: Harness, cwd: string) => join(dirname(cwd), h.home);

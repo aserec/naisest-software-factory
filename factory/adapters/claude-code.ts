@@ -6,6 +6,7 @@ import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
 import { SANDBOX_RULES_PATH, rootReads, sandboxDenyRead } from "../sandbox";
 import { MAC_LOOKUPS } from "../repo";
+import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string; images?: boolean }
@@ -169,7 +170,9 @@ export const claudeCode: Harness = {
       const run: ClaudeRun & { tools: "code" | "none" } = { prompt: job.prompt, model: job.model.model, effort: job.model.effort ?? "medium", maxTurns: job.maxTurns, cwd, resumeSessionId: job.resume, tools: job.tools, images: Boolean(job.images?.length) };
       const calls = toolCalls();
       const onLine = job.onToolCall && ((l: string) => calls.line(l).forEach(job.onToolCall!));
-      const { code, out, err } = await runCommand("claude", buildClaudeArgs(run, path), { ...agentEnv(process.env, job.model.provider), ...codeEnv(job, cwd) }, cwd, run.images ? claudeInput(job.prompt, job.images!) : undefined, onLine);
+      // An agent with tools may run the target's Playwright tests: they reach a browser outside the sandbox (see browser-server.ts).
+      const { code, out, err } = await withBrowserServer(job.tools === "code" ? cwd : "", process.env, (browser) =>
+        runCommand("claude", buildClaudeArgs(run, path), { ...agentEnv(process.env, job.model.provider), ...codeEnv(job, cwd), ...browser }, cwd, run.images ? claudeInput(job.prompt, job.images!) : undefined, onLine));
       // The hook stops the agent at its next tool call after a stop line. A run that was stopped is never ok.
       const stopped = (await pump?.end()) ?? false;
       pump = undefined;
