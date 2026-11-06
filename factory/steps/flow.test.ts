@@ -2478,5 +2478,5 @@ test("the finish pipeline loads the record its build pipeline saved, and a recor
 
 test("the author may run each part of a chained gate command, and the screenshot script only with a preview", () => {
   expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: npm run test && PORT=1 npm run e2e\nbuild: b"))).toEqual(["l", "npm run test", "PORT=1 npm run e2e", "b"]);
-  expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b\npreview: p\npreviewUrl: http://127.0.0.1:1/"))).toEqual(["l", "t", "b", "p", "bash run/shoot.sh"]);
+  expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b\npreview: p\npreviewUrl: http://127.0.0.1:1/"))).toEqual(["l", "t", "b", "p", "bash run/shoot.sh", "bash run/record.sh"]);
 });

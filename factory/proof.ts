@@ -12,11 +12,13 @@ export const PROOF_FILE = "run/proof/proof.json";
 export interface ProofRun { exit: number; tail: string }
 export interface ProofTest { name: string; command: string; before: ProofRun; after: ProofRun }
 export interface ProofScreen { name: string; reach: string; width: number; isNew: boolean; before?: string; after?: string } // image names inside run/proof/
-export interface Proof { visual: boolean; screens: ProofScreen[]; tests: ProofTest[]; note?: string } // visual: the agent expects the change to look different
+export interface ProofVideo { name: string; file: string } // an e2e test's recording, run/proof/<file>.webm
+export interface Proof { visual: boolean; screens: ProofScreen[]; tests: ProofTest[]; video?: ProofVideo; note?: string } // visual: the agent expects the change to look different
 
 const oneLine = z.string().transform((s) => s.replace(/\s+/g, " ").trim());
 // No slash, so the file sits directly in run/proof/.
 const image = z.string().regex(/^[a-z0-9][a-z0-9-]{0,60}\.png$/);
+const webm = z.string().regex(/^[a-z0-9][a-z0-9-]{0,60}\.webm$/);
 const run = z.object({ exit: z.number().int(), tail: z.string().transform((s) => s.slice(-1000)) });
 
 const proofSchema = z.object({
@@ -30,6 +32,7 @@ const proofSchema = z.object({
     after: image.optional(),
   })).max(5).default([]),
   tests: z.array(z.object({ name: oneLine, command: oneLine, before: run, after: run })).max(20).default([]),
+  video: z.object({ name: oneLine, file: webm }).optional(),
   note: oneLine.optional(),
 }).superRefine((p, ctx) => {
   // Verdicts are matched by screen name, and a reused file could stand for both before and after.
@@ -84,6 +87,16 @@ export function readImages(readBytes: Repo["readBytes"], proof: Proof | undefine
   return images;
 }
 
+export const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+const WEBM_SIGNATURE = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
+
+// The manifest's video, when it is a real WebM file. It goes to the change description, never to a model.
+export function readVideo(readBytes: Repo["readBytes"], proof: Proof | undefined): Record<string, Buffer> {
+  const name = proof?.video?.file;
+  const bytes = name && readBytes(PROOF_DIR + name, MAX_VIDEO_BYTES);
+  return name && bytes && bytes.subarray(0, 4).equals(WEBM_SIGNATURE) ? { [name]: bytes } : {};
+}
+
 export function proofPrompt(r: { proof?: Proof; error?: string }, attached: string[]): string {
   if (!r.proof) return `No valid proof: ${r.error}`;
   return `${JSON.stringify(r.proof, null, 2)}\n${attached.length ? `Images, in the order attached: ${attached.join(", ")}` : "No images are attached."}`;
@@ -120,11 +133,13 @@ export function proofSection(r: ProofRecord | undefined, links: Record<string, s
     const table = s.isNew ? ["| After |", "| --- |", `| ${cell("after", s.after)} |`] : ["| Before | After |", "| --- | --- |", `| ${cell("before", s.before)} | ${cell("after", s.after)} |`];
     return [`### Screen ${i + 1}: ${text(s.name)}, ${s.width} px${s.isNew ? ", new screen" : ""}: ${v?.verdict ?? "unsure"}`, ...table, ...(v?.note ? ["", `Reviewer: ${text(v.note)}`] : [])].join("\n");
   });
+  const video = proof.video && (links[proof.video.file] ? `[Video of the e2e test: ${text(proof.video.name)}](${links[proof.video.file]})` : failed.includes(proof.video.file) ? "video upload failed" : "no video");
   const tests = proof.tests.map((t) => `- ${text(t.name)}: ${t.before.exit !== 0 ? "failed" : "passed"} before, ${t.after.exit === 0 ? "passes" : "fails"} after`);
   return [
     "## Proof",
     ...screens,
     ...(!screens.length && proof.note ? [`No screenshots: ${text(proof.note)}`] : []),
+    ...(video ? [`### Video\n${video}`] : []),
     `### Tests\n${tests.length ? tests.join("\n") : "No test proof."}`,
   ].join("\n\n");
 }
@@ -136,6 +151,7 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
   if (!r || !proof) return [`no proof: ${r?.error ?? "code review saved no proof"}`];
   const reasons: string[] = [];
   if (hasPreview && proof.visual && proof.screens.length === 0) reasons.push(`a visual change was expected but there are no screenshots: ${proof.note ?? "no reason given"}`);
+  if (hasPreview && proof.visual && !proof.video) reasons.push(`a visual change was expected but there is no video of an e2e test: ${proof.note ?? "no reason given"}`);
   const cannotRead = proof.screens.length > 0 && !r.readsImages;
   if (cannotRead) reasons.push(`the reviewer ${r.reviewer} cannot read images, so no screen was judged`);
   // With a blind reviewer the per-screen lines say nothing new; a whole-proof unsure still counts.
@@ -155,7 +171,7 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
 // run/shoot.sh: start the preview, wait for the page, shoot it, stop the preview, in one command the author may run.
 // A chained one-liner needs curl, kill and the rest allowed one by one, and curl is denied.
 // user: shoot logged in. The target's login command (seeded users) writes run/auth-<user>.json; without one the agent writes it.
-export function writeShooter(dir: string, c?: Pick<FactoryCommands, "preview" | "login">) {
+export function writeShooter(dir: string, c?: Pick<FactoryCommands, "preview" | "login"> & Partial<Pick<FactoryCommands, "test">>) {
   if (!c?.preview) return;
   mkdirSync(join(dir, "run"), { recursive: true });
   writeFileSync(join(dir, "run/shoot.sh"), `# Usage: bash run/shoot.sh <url> <name> [width] [playwright dir] [user]. Writes run/proof/<name>.png.
@@ -178,6 +194,33 @@ fi
 code=$((code || $?))
 kill -- -$pid 2>/dev/null
 [ $code = 0 ] || { echo "the shot failed; the end of run/preview.log:"; tail -20 run/preview.log; }
+exit $code
+`);
+  // The test command's env, such as PLAYWRIGHT_PORT: the author may run "bash run/record.sh" with no prefix.
+  const env = (c.test?.match(/\b[A-Z_][A-Z0-9_]*=[^\s;&|]+/g) ?? []).map((a) => `export ${a.split("=")[0]}=${shellQuote(a.slice(a.indexOf("=") + 1))}`).join("\n");
+  writeFileSync(join(dir, "run/record.sh"), `# Usage: bash run/record.sh <test file[:line]> <name> [playwright dir]. Runs that e2e test with video on, writes run/proof/<name>.webm.
+set -u
+spec=$1 name=$2 dir=\${3:-.} root=$PWD out=$PWD/run/video-out
+case $name in *[!a-z0-9-]*|"") echo "the name takes lowercase letters, digits and dashes only"; exit 2 ;; esac
+case $spec in *..*|-*|*[!A-Za-z0-9_./:-]*|"") echo "the test takes a file path, with :line for one test"; exit 2 ;; esac
+${env}
+cd "$dir" || exit 2
+base=$(ls playwright.config.ts playwright.config.mts playwright.config.js playwright.config.mjs 2>/dev/null | head -1)
+[ -n "$base" ] || { echo "no playwright.config in $dir"; exit 2; }
+# Next to the target's config, so testDir and webServer resolve as they do there. Removed on exit: it must not reach the diff.
+cfg=playwright.factory-video.config.ts
+trap 'rm -f "$cfg"' EXIT
+cat > "$cfg" <<CFG
+import base from "./\${base%.*}";
+const video = (u: object = {}) => ({ ...u, video: "on" as const });
+export default { ...base, outputDir: "$out", use: video(base.use), ...(base.projects && { projects: base.projects.map((p) => ({ ...p, use: video(p.use) })) }) };
+CFG
+rm -rf "$out"
+./node_modules/.bin/playwright test --config "$cfg" --workers=1 --retries=0 "$spec"
+code=$?
+video=$(find "$out" -name '*.webm' 2>/dev/null | head -1)
+[ -n "$video" ] || { echo "the test wrote no video"; exit 1; }
+cp "$video" "$root/run/proof/$name.webm"
 exit $code
 `);
 }

@@ -160,7 +160,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     // The returned url works in the Markdown of a change of this project.
     async attach(name, data) {
       const form = new FormData();
-      form.append("file", new Blob([new Uint8Array(data)], { type: "image/png" }), name);
+      form.append("file", new Blob([new Uint8Array(data)], { type: name.endsWith(".webm") ? "video/webm" : "image/png" }), name);
       return (await (await gitlab.call("POST", `/projects/${await projectId()}/uploads`, form)).json()).url as string;
     },
     async closeChange(ref) {

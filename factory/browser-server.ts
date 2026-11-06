@@ -24,13 +24,19 @@ const PROFILE = `(version 1)
 `;
 
 // The clone's Playwright version. The agent can write the file, so only a plain x.y.z counts.
+// pnpm without shamefullyHoist links only direct dependencies at the top, so playwright-core may be missing there
+// (the webapp after its pnpm move: every e2e test ran inside the sandbox and failed). playwright and @playwright/test
+// share playwright-core's version.
 export function playwrightVersion(clone: string): string | undefined {
-  try {
-    const v = JSON.parse(readFileSync(join(clone, "node_modules/playwright-core/package.json"), "utf8")).version;
-    return typeof v === "string" && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v) ? v : undefined;
-  } catch {
-    return undefined;
+  for (const pkg of ["playwright-core", "playwright", "@playwright/test"]) {
+    try {
+      const v = JSON.parse(readFileSync(join(clone, "node_modules", pkg, "package.json"), "utf8")).version;
+      return typeof v === "string" && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v) ? v : undefined;
+    } catch {
+      // not installed under this name
+    }
   }
+  return undefined;
 }
 
 // Our own copy of that version from npm, never the clone's: the server runs outside the sandbox.

@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { BROWSER_ENDPOINT, playwrightVersion, withBrowserServer } from "./browser-server";
 
-const clone = (version?: unknown) => {
+const clone = (version?: unknown, pkg = "playwright-core") => {
   const dir = mkdtempSync(join(tmpdir(), "bs-"));
   if (version !== undefined) {
-    mkdirSync(join(dir, "node_modules/playwright-core"), { recursive: true });
-    writeFileSync(join(dir, "node_modules/playwright-core/package.json"), JSON.stringify({ version }));
+    mkdirSync(join(dir, "node_modules", pkg), { recursive: true });
+    writeFileSync(join(dir, "node_modules", pkg, "package.json"), JSON.stringify({ version }));
   }
   return dir;
 };
@@ -19,6 +19,10 @@ test("playwrightVersion takes only a plain x.y.z from the clone", () => {
   expect(playwrightVersion(clone("latest"))).toBeUndefined();
   expect(playwrightVersion(clone(7))).toBeUndefined();
   expect(playwrightVersion(clone())).toBeUndefined();
+});
+
+test("a pnpm clone with only @playwright/test at the top still gets its Playwright version", () => {
+  expect(playwrightVersion(clone("1.64.1", "@playwright/test"))).toBe("1.64.1");
 });
 
 test("no server off macOS, without Playwright in the clone, or without a clone", async () => {

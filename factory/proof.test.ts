@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseProof, proofPrompt, proofReasons, proofSection, readImages, readProof, screenVerdicts, writeShooter } from "./proof";
+import { parseProof, proofPrompt, proofReasons, proofSection, readImages, readProof, readVideo, screenVerdicts, writeShooter } from "./proof";
 import type { Finding } from "./agents";
 import type { Proof, ProofRecord } from "./proof";
 import { TEST_PROOF, VISUAL_PROOF as VISUAL } from "./steps/test-helpers";
@@ -115,8 +115,21 @@ test("proofReasons: no record, or no valid proof, gives only the no proof reason
   expect(proofReasons(rec(undefined, { error: "no run/proof/proof.json" }), true)).toEqual(["no proof: no run/proof/proof.json"]);
 });
 test("proofReasons: a visual change with a preview and no screens", () => {
-  expect(proofReasons(rec({ visual: true, screens: [], tests: [], note: "the dev server did not start" }), true)).toEqual(["a visual change was expected but there are no screenshots: the dev server did not start"]);
-  expect(proofReasons(rec({ visual: true, screens: [], tests: [] }), true)).toEqual(["a visual change was expected but there are no screenshots: no reason given", "the proof has no tests and its note gives no reason"]);
+  expect(proofReasons(rec({ visual: true, screens: [], tests: [], note: "the dev server did not start" }), true)).toEqual(["a visual change was expected but there are no screenshots: the dev server did not start", "a visual change was expected but there is no video of an e2e test: the dev server did not start"]);
+  expect(proofReasons(rec({ visual: true, screens: [], tests: [] }), true)[0]).toBe("a visual change was expected but there are no screenshots: no reason given");
+});
+test("proofReasons: a visual change with a preview needs a video, a change with no preview does not", () => {
+  const { video: _, ...noVideo } = VISUAL_PROOF;
+  expect(proofReasons(rec(noVideo, { verdicts: matches }), true)).toEqual(["a visual change was expected but there is no video of an e2e test: no reason given"]);
+  expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true)).toEqual([]);
+  expect(proofReasons(rec(noVideo, { verdicts: matches }), false)).toEqual([]);
+});
+test("readVideo takes only a real WebM file, and proofSection links it", () => {
+  const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 1]);
+  expect(readVideo((p) => (p === "run/proof/list.webm" ? webm : undefined), VISUAL_PROOF)).toEqual({ "list.webm": webm });
+  expect(readVideo(() => Buffer.from("not a video"), VISUAL_PROOF)).toEqual({});
+  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), { "list.webm": "/uploads/3/list.webm" })).toContain("### Video\n[Video of the e2e test: teacher opens the list](/uploads/3/list.webm)");
+  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), {}, ["list.webm"])).toContain("video upload failed");
 });
 test("proofReasons: a reviewer that cannot read images judged no screen", () => {
   expect(proofReasons(rec(VISUAL_PROOF, { readsImages: false, verdicts: [{ screen: "list page", verdict: "unsure", note: "the reviewer cannot read images" }, { verdict: "unsure", note: "odd" }] }), true)).toEqual(["the reviewer pi/model-x cannot read images, so no screen was judged", "the reviewer is unsure: odd"]);
@@ -172,6 +185,9 @@ Reviewer: the list now shows the spinner.
 | ![after](/uploads/3/after-settings-1280.png) |
 
 Reviewer: ...
+
+### Video
+no video
 
 ### Tests
 - list-spinner: failed before, passes after`);
@@ -244,4 +260,21 @@ test("shoot.sh with no user shoots without a session", () => {
   const r = shoot({ login: "exit 1" }, [], page);
   expect(r.code).toBe(0);
   expect(r.args).not.toContain("--load-storage");
+});
+
+// The real record.sh against a stub playwright that writes a video where Playwright would.
+test("record.sh runs one test with video on next to the target's config, keeps the test env, and leaves no config behind", () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "record-")));
+  writeShooter(dir, { preview: "sleep 30", test: "pnpm test && PLAYWRIGHT_PORT=3910 pnpm run test:e2e" });
+  mkdirSync(join(dir, "run/proof"), { recursive: true });
+  mkdirSync(join(dir, "node_modules/.bin"), { recursive: true });
+  writeFileSync(join(dir, "playwright.config.ts"), "export default {}");
+  writeFileSync(join(dir, "node_modules/.bin/playwright"), `#!/bin/sh\necho "$PLAYWRIGHT_PORT $@" > "${dir}/args"\ncp playwright.factory-video.config.ts "${dir}/cfg"\nmkdir -p "${dir}/run/video-out/t1" && printf webm > "${dir}/run/video-out/t1/video.webm"\n`, { mode: 0o755 });
+  const r = spawnSync("bash", ["run/record.sh", "e2e/list.spec.ts:12", "list"], { cwd: dir, encoding: "utf8" });
+  expect(r.status).toBe(0);
+  expect(readFileSync(join(dir, "args"), "utf8")).toContain("3910 test --config playwright.factory-video.config.ts --workers=1 --retries=0 e2e/list.spec.ts:12");
+  expect(readFileSync(join(dir, "cfg"), "utf8")).toContain('import base from "./playwright.config"');
+  expect(readFileSync(join(dir, "run/proof/list.webm"), "utf8")).toBe("webm");
+  expect(existsSync(join(dir, "playwright.factory-video.config.ts"))).toBe(false);
+  expect(spawnSync("bash", ["run/record.sh", "../x.spec.ts", "list"], { cwd: dir }).status).toBe(2);
 });

@@ -34,6 +34,7 @@ export const VISUAL_PROOF = {
   visual: true,
   screens: [{ name: "list page", reach: "http://localhost:3000/list", width: 1280, before: "before-list-1280.png", after: "after-list-1280.png" }],
   tests: [TEST],
+  video: { name: "teacher opens the list", file: "list.webm" },
 };
 
 type Status = "success" | "failed" | "running" | "none" | "absent"; // absent: the repo has no CI

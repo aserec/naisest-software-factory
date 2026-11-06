@@ -1,7 +1,7 @@
 import { emit } from "../emit";
 import { changeBranchPrefix } from "../seams";
 import { precommitGate } from "../loops";
-import { readImages, readProof, proofSection } from "../proof";
+import { readImages, readProof, readVideo, proofSection } from "../proof";
 import { need } from "../record";
 import { findSecrets } from "../rules";
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
@@ -82,7 +82,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // Before attachAll: it uploads images, which is a write.
   const end = await endIfClosed(ctx);
   if (end) return end;
-  const { links, failed } = await attachAll(ctx, readImages(ctx.repo.readBytes, facts(ctx).proof?.proof));
+  const { links, failed } = await attachAll(ctx, { ...readImages(ctx.repo.readBytes, facts(ctx).proof?.proof), ...readVideo(ctx.repo.readBytes, facts(ctx).proof?.proof) });
   const { body } = changeText(ctx, links, failed, commit);
   const branch = `${changeBranchPrefix(ref)}${slug(withoutMarks(ctx.record.ticket!.title))}`;
   const sha = await ctx.repo.commitAndPush(branch, commit.message);

@@ -30,6 +30,12 @@ The factory shows a person the proof of your change. Write it to `run/proof/`. F
    Say in `reach` which user you logged in as.
    Look at each image. If it shows a loading, error or login screen and not the app, say so in `note`.
 3. After lint, test and build pass, shoot the same screens again as `run/proof/after-<screen>-<width>.png`. A screen your change creates has only an after image: set `"isNew": true` and leave out `before`. Each after image must show the change. If it does not, add the seed data and shoot again. Only when no seed data can show the change, write why in `note`.
+
+   Then record a video of one e2e test that clicks from screen to screen through the change, as a person would, and checks the result. Use the e2e test you wrote for rule 4, or add one. Pass the test file with `:line` so only that test runs, a name for the file without `.webm`, and in a monorepo the folder with playwright in its `package.json`:
+   ```
+   bash run/record.sh <test file:line> <name> [playwright dir]
+   ```
+   It runs the test with Playwright's video on and writes `run/proof/<name>.webm`. Set `video` in the manifest. When the repo has no e2e test setup, or the recording fails, write why in `note`.
 4. Each behavior the ticket asks for has a test that fails before the change and passes after it. Run each test before the code change and again after it. Record the exit code and the last lines of output of both runs. Leave `tests` empty only when no test can see the change, and write why in `note`.
 5. Write `run/proof/proof.json`. Example:
    ```json
@@ -41,6 +47,7 @@ The factory shows a person the proof of your change. Write it to `run/proof/`. F
      "tests": [
        { "name": "shows a spinner while loading", "command": "pnpm test:unit list", "before": { "exit": 1, "tail": "1 failed" }, "after": { "exit": 0, "tail": "1 passed" } }
      ],
+     "video": { "name": "teacher opens the list and sees the spinner", "file": "list-spinner.webm" },
      "note": "optional"
    }
    ```
