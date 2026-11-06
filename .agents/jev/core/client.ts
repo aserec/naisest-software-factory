@@ -1,6 +1,6 @@
 /**
  * JevClient — a provider and credential snapshot, with no runtime fallback.
- * Auto-selection prefers DecisionModels, then Berget, then TypeSafe, then OpenRouter. Mock requires an explicit
+ * Auto-selection prefers DecisionModels, then TypeSafe, then OpenRouter. Mock requires an explicit
  * selection or node:test isolation; missing production credentials fail closed.
  */
 import { MockJev } from "./mock.ts";
@@ -13,11 +13,9 @@ import {
   type SystemOneResponse,
 } from "./types.ts";
 
-export type JevProvider = "mock" | "berget" | "decisionmodels" | "openrouter" | "typesafe";
+export type JevProvider = "mock" | "decisionmodels" | "openrouter" | "typesafe";
 
 const ENDPOINTS = {
-  // Berget AI serves the TypeSafe /v1/systemone API from the EU.
-  berget: "https://api.berget.ai/v1/systemone",
   openrouter: "https://openrouter.ai/api/alpha/decisions",
   typesafe: "https://api.typesafe.ai/v1/systemone",
 } as const;
@@ -25,14 +23,11 @@ const ENDPOINTS = {
 const DEFAULT_MODELS = {
   // DecisionModels has no jev-latest; reax-1 takes the 3 questions the hooks send per request.
   decisionmodels: process.env.DECISIONMODELS_MODEL?.trim() || "reax-1",
-  // Berget does not serve jev-latest; this is one of its system-one models (preview).
-  berget: "Cloudflare/clef-flash",
   openrouter: "~typesafe/jev-latest",
   typesafe: "jev-latest",
 } as const;
 
 const KEY_ENV = {
-  berget: "BERGET_API_KEY",
   decisionmodels: "DECISIONMODELS_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   typesafe: "TYPESAFE_API_KEY",
@@ -119,8 +114,8 @@ export class JevClient {
   calls = 0;
 
   constructor(opts: JevClientOptions = {}) {
-    if (opts.apiKey !== undefined && opts.provider !== "berget" && opts.provider !== "decisionmodels" && opts.provider !== "typesafe" && opts.provider !== "openrouter") {
-      throw new Error("apiKey requires an explicit live opts.provider (berget, decisionmodels, typesafe or openrouter).");
+    if (opts.apiKey !== undefined && opts.provider !== "decisionmodels" && opts.provider !== "typesafe" && opts.provider !== "openrouter") {
+      throw new Error("apiKey requires an explicit live opts.provider (decisionmodels, typesafe or openrouter).");
     }
     this.provider = selectProvider(opts.provider);
     this.model = opts.model;
@@ -269,14 +264,13 @@ function selectProvider(explicit?: JevProvider): JevProvider {
   const isolated = process.env.NODE_TEST_CONTEXT && process.env.JEV_LIVE !== "1";
   const selected = explicit ?? (isolated ? "mock" : process.env.JEV_BACKEND?.trim() || undefined);
   if (selected !== undefined) {
-    if (selected === "mock" || selected === "berget" || selected === "decisionmodels" || selected === "typesafe" || selected === "openrouter") return selected;
-    throw new Error(`Unknown JEV backend "${selected}"; use mock, berget, decisionmodels, openrouter, or typesafe.`);
+    if (selected === "mock" || selected === "decisionmodels" || selected === "typesafe" || selected === "openrouter") return selected;
+    throw new Error(`Unknown JEV backend "${selected}"; use mock, decisionmodels, openrouter, or typesafe.`);
   }
   if (process.env.DECISIONMODELS_API_KEY?.trim()) return "decisionmodels";
-  if (process.env.BERGET_API_KEY?.trim()) return "berget";
   if (process.env.TYPESAFE_API_KEY?.trim()) return "typesafe";
   if (process.env.OPENROUTER_API_KEY?.trim()) return "openrouter";
-  throw new Error("No Jev credentials: set DECISIONMODELS_API_KEY, BERGET_API_KEY, TYPESAFE_API_KEY or OPENROUTER_API_KEY, or explicitly select provider: mock / JEV_BACKEND=mock for offline use.");
+  throw new Error("No Jev credentials: set DECISIONMODELS_API_KEY, TYPESAFE_API_KEY or OPENROUTER_API_KEY, or explicitly select provider: mock / JEV_BACKEND=mock for offline use.");
 }
 
 function resultCost(response: SystemOneResponse, provider: JevProvider, pricing?: JevPricing): JevCost {

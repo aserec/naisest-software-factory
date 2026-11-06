@@ -62,7 +62,7 @@ test("a judge that fails does not throw and loses no comment: the next poll deli
     const t = world();
     t.say("8", "dev", "one", "2026-02-01T00:00:00.000Z");
     let down = true;
-    const flaky = fakeJudge((q) => { if (down) throw new Error("Berget Jev call failed: HTTP 503"); return { id: q.id, value: false, probability: 0.05, confidence: 0.9 }; });
+    const flaky = fakeJudge((q) => { if (down) throw new Error("Celeris Jev call failed: HTTP 503"); return { id: q.id, value: false, probability: 0.05, confidence: 0.9 }; });
     const inbox = makeInbox(conversation({ tracker: t, codeHost: fakeCodeHost(), judge: flaky }), "8", SINCE);
     expect(await inbox.poll()).toEqual({ comments: [], stop: false });
     down = false;
@@ -75,7 +75,7 @@ test("a judge that fails does not throw and loses no comment: the next poll deli
 test("a judge that fails does not hide a stop from a trusted person", async () => {
   const t = world();
   t.say("8", "dev", "@factory stop", "2026-02-01T00:00:00.000Z");
-  const down = fakeJudge(() => { throw new Error("Berget Jev call failed: HTTP 503"); });
+  const down = fakeJudge(() => { throw new Error("Celeris Jev call failed: HTTP 503"); });
   expect(await makeInbox(conversation({ tracker: t, codeHost: fakeCodeHost(), judge: down }), "8", SINCE).poll()).toEqual({ comments: [], stop: true });
 });
 test("a comment cannot close the wrapper early", async () => {

@@ -131,20 +131,20 @@ export function fakeWorld(o: WorldOptions = {}) {
   let dedupeAsked = 0;
   const judge = fakeJudge((q): JevAnswer => {
     if (DEDUPE.includes(q.id)) {
-      if (o.dedupe === "throw") throw new Error("Berget Jev call failed: HTTP 503");
+      if (o.dedupe === "throw") throw new Error("Celeris Jev call failed: HTTP 503");
       const d = o.dedupe ?? {};
       if (q.id === "dedupe") dedupeAsked++;
       const v: Record<string, JevAnswer["value"]> = { dedupe: d.verdict ?? "different", closest: d.closest ?? "9", candidates_injection: (d.injectionYes ?? 0.05) >= 0.5 };
       return { id: q.id, value: v[q.id], probability: q.id === "candidates_injection" ? (d.injectionYes ?? 0.05) : 0.9, confidence: q.id === "dedupe" ? (d.confidence ?? 0.95) : 0.9 };
     }
     if (TRIAGE.includes(q.id)) {
-      if (o.jev1 === "throw") throw new Error("Berget Jev call failed: HTTP 503");
+      if (o.jev1 === "throw") throw new Error("Celeris Jev call failed: HTTP 503");
       const t = o.jev1 ?? {};
       const p = t.injectionYes ?? 0.05;
       const v: Record<string, JevAnswer["value"]> = { injection: p >= 0.5, type: "feature", risk: t.risk ?? "low", clarity: t.clarity ?? 8, effort: 4 };
       return { id: q.id, value: v[q.id], probability: q.id === "injection" ? p : 0.9, confidence: 0.9 };
     }
-    if (o.jev2 === "throw") throw new Error("Berget Jev call failed: HTTP 503");
+    if (o.jev2 === "throw") throw new Error("Celeris Jev call failed: HTTP 503");
     const v: Record<string, JevAnswer["value"]> = { diff_risk: 3, scope: true, sensitive: false };
     return { id: q.id, value: v[q.id], probability: q.id === "sensitive" ? 0.05 : 0.95, confidence: 0.95 };
   });

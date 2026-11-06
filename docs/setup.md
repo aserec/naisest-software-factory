@@ -24,7 +24,6 @@ Store each one as a masked, protected CI variable.
 - [ ] `TEAMS_WEBHOOK_URL` of type **File**, when `seams.yml` picks chat `teams`: from a Teams Workflows flow "Post to a channel when a webhook request is received".
 - [ ] `SLACK_WEBHOOK_URL` of type **File**, when `seams.yml` picks chat `slack`: from a Slack app with Incoming Webhooks on, added to the channel for factory notices.
 - [ ] `CELERIS_API_KEY`: needed when `seams.yml` picks judge `jev-celeris` (the default), and for the Jev shadow test. Without it those stop with an error.
-- [ ] `BERGET_API_KEY`: needed only when `seams.yml` picks judge `jev-berget`.
 
 `FACTORY_GITLAB_TOKEN`, `FACTORY_TRIGGER_TOKEN`, `FACTORY_DASHBOARD_TOKEN` (section 10), `TEAMS_WEBHOOK_URL` and `SLACK_WEBHOOK_URL` must be type File, not Variable. The step code reads each file and deletes it before any agent or target command runs. A step stops with an error if one of them is a plain Variable.
 
@@ -90,7 +89,7 @@ Remaining risk. The webhook URL holds the trigger token. Anyone who can see the 
 
 - Every step starts through `env -i` with a fixed list of variables (see `.gitlab-ci.yml`). Variables such as `NODE_OPTIONS`, `npm_config_*` or `PATH` never reach node or pnpm.
 - Step code accepts each `FACTORY_*` value only if it matches its pattern, and only targets with a `targets/<name>.yml`.
-- The Berget and TensorX URLs and the Claude hook dir are fixed in code. No variable changes them.
+- The Celeris and TensorX URLs and the Claude hook dir are fixed in code. No variable changes them.
 - Step code accepts only `CI_SERVER_URL=https://gitlab.example.com` (fixed in code), so the GitLab token never goes to another host. `CI_PROJECT_ID` must be digits.
 - Step code reads a File-type secret only from the runner's temp dir for this job (`<project dir>.tmp`), and deletes only files there. A variable that points anywhere else stops the step.
 

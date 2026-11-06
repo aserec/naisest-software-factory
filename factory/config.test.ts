@@ -119,8 +119,8 @@ test("a target may set stuckMinutes, and a zero or negative value is refused", (
   expect(() => loadTarget("react_frontend", { defaultApprover: "kirill", stuckMinutes: { verify: 0 } })).toThrow(/stuckMinutes/);
 });
 
-test("providerKeys lists every provider key once, then the Jev host keys", () => {
+test("providerKeys lists every provider key once, then the Jev key", () => {
   const seams = loadSeams();
   const twice = { ...seams, providers: { ...seams.providers, again: { ...seams.providers.tensorx } } };
-  expect(providerKeys(twice)).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "BERGET_API_KEY", "CELERIS_API_KEY"]);
+  expect(providerKeys(twice)).toEqual(["CLAUDE_CODE_OAUTH_TOKEN", "TENSORX_API_KEY", "CELERIS_API_KEY"]);
 });

@@ -126,8 +126,8 @@ test("the watcher gets the person's source only when one is given", () => {
 
 test("a step gets the key of every provider in seams.yml, and no other variable", () => {
   const seams = { ...loadSeams(), providers: { other: { name: "other", api: "openai" as const, keyEnv: "OTHER_API_KEY", models: {} } } };
-  const e = stepEnv({ ...base, OTHER_API_KEY: "o", BERGET_API_KEY: "b", UNRELATED: "u" }, { schedule: "poll", target: "react_frontend" }, seams);
-  expect(e).toMatchObject({ OTHER_API_KEY: "o", BERGET_API_KEY: "b" });
+  const e = stepEnv({ ...base, OTHER_API_KEY: "o", CELERIS_API_KEY: "b", UNRELATED: "u" }, { schedule: "poll", target: "react_frontend" }, seams);
+  expect(e).toMatchObject({ OTHER_API_KEY: "o", CELERIS_API_KEY: "b" });
   expect(e.TENSORX_API_KEY).toBeUndefined();
   expect(e.UNRELATED).toBeUndefined();
 });

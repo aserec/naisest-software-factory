@@ -40,7 +40,7 @@ test("no tools turns every built-in tool off", () => {
 });
 
 test("agents never get the GitLab token or another provider's key", () => {
-  const env = { PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", FACTORY_GITLAB_TOKEN: "x", TEAMS_WEBHOOK_URL: "y", BERGET_API_KEY: "b", TENSORX_API_KEY: "tx", ANTHROPIC_API_KEY: "z", CLAUDE_CODE_OAUTH_TOKEN: "t" };
+  const env = { PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", FACTORY_GITLAB_TOKEN: "x", TEAMS_WEBHOOK_URL: "y", CELERIS_API_KEY: "b", TENSORX_API_KEY: "tx", ANTHROPIC_API_KEY: "z", CLAUDE_CODE_OAUTH_TOKEN: "t" };
   expect(claudeEnv(env, teamPlan)).toEqual({ PATH: "/bin", HOME: "/h", LANG: "C", CLAUDE_CONFIG_DIR: "/c", CLAUDE_CODE_OAUTH_TOKEN: "t" });
 });
 test("agents keep the browser path when it is set", () => {

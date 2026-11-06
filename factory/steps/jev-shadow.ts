@@ -36,7 +36,7 @@ export async function main(env = process.env, argv = process.argv.slice(2)) {
   if (!targetName || !Number.isInteger(count) || count < 1 || count > 100) throw new Error("Usage: pnpm tsx factory/steps/jev-shadow.ts <target> <count> (count is at most 100)");
   // A shadow test with the mock would tell us nothing, so refuse it.
   // It throws when CELERIS_API_KEY is not set.
-  const jev = makeJevClient(env, fetch, "celeris");
+  const jev = makeJevClient(env);
   const tokenName = ADAPTER_SECRETS.tracker[loadSeams().tracker]; // the token of the tracker seams.yml picks
   const token = env[tokenName];
   if (!token) throw new Error(`${tokenName} is not set. It is needed to read closed tickets.`);

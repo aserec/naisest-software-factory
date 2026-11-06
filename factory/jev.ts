@@ -1,4 +1,4 @@
-// Jev client: Berget AI and Celeris both serve the TypeSafe Jev /v1/systemone API.
+// Jev client: Celeris serves the TypeSafe Jev /v1/systemone API.
 // Without the host's key it refuses to start. A failed call throws.
 
 export type JevQuestion =
@@ -6,15 +6,11 @@ export type JevQuestion =
   | { id: string; kind: "choice"; text: string; options: string[] }
   | { id: string; kind: "score"; text: string; levels: number; min?: number };
 export interface JevAnswer { id: string; value: string | number | boolean; probability: number; confidence: number }
-export interface JevClient { readonly provider: "berget" | "celeris" | "mock" | "model"; ask(state: unknown, questions: JevQuestion[]): Promise<JevAnswer[]> }
+export interface JevClient { readonly provider: "celeris" | "mock" | "model"; ask(state: unknown, questions: JevQuestion[]): Promise<JevAnswer[]> }
 
 // Fixed, never from an env variable: trigger callers can set any variable, and the key goes to this host.
-export const JEV_HOSTS = {
-  // Berget does not serve jev-latest. This is one of its three "system-one" models (preview).
-  berget: { url: "https://api.berget.ai/v1/systemone", model: "Cloudflare/clef-flash", keyEnv: "BERGET_API_KEY" },
-  // docs.celeris.ai/models.md: the URL keeps celeris-1-decision, the body names celeris-1.1-decision.
-  celeris: { url: "https://inference.celeris.ai/celeris-1-decision/v1/systemone", model: "celeris-1.1-decision", keyEnv: "CELERIS_API_KEY" },
-} as const;
+// docs.celeris.ai/models.md: the URL keeps celeris-1-decision, the body names celeris-1.1-decision.
+export const JEV_HOST = { url: "https://inference.celeris.ai/celeris-1-decision/v1/systemone", model: "celeris-1.1-decision", keyEnv: "CELERIS_API_KEY" } as const;
 
 export type ApiAnswer = {
   type: "noul" | "choice" | "score";
@@ -48,13 +44,13 @@ export function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnsw
   return { id: q.id, value, probability: p, confidence: a.confidence ?? p };
 }
 
-export function makeJevClient(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch, provider: keyof typeof JEV_HOSTS = "berget"): JevClient {
-  const host = JEV_HOSTS[provider];
+export function makeJevClient(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch): JevClient {
+  const host = JEV_HOST;
   const key = env[host.keyEnv];
   // No silent stand-in: a judge with fixed answers would build or close tickets on answers nobody gave.
-  if (!key) throw new Error(`${host.keyEnv} is not set. seams.yml picks judge jev-${provider}, which needs it.`);
+  if (!key) throw new Error(`${host.keyEnv} is not set. seams.yml picks judge jev-celeris, which needs it.`);
   return {
-    provider,
+    provider: "celeris",
     async ask(state, questions) {
       const res = await fetchFn(host.url, {
         method: "POST",
@@ -65,7 +61,7 @@ export function makeJevClient(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fe
           questions: Object.fromEntries(questions.map((q) => [q.id, toApiQuestion(q)])),
         }),
       });
-      if (!res.ok) throw new Error(`${provider} Jev call failed: HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`Celeris Jev call failed: HTTP ${res.status}`);
       const body = (await res.json()) as { answers: Record<string, ApiAnswer> };
       return questions.map((q) => fromApiAnswer(q, body.answers?.[q.id]));
     },

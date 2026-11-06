@@ -256,7 +256,7 @@ test("news: the trusted comments on the item and the change after `since`, oldes
 // The judge is not on the stop path: a stop line orders the factory, not the agent.
 test("news: a judge that fails still reports a stop, holds the comments back and moves nothing", async () => {
   const w = await world();
-  w.judge.ask = async () => { throw new Error("Berget Jev call failed: HTTP 503"); };
+  w.judge.ask = async () => { throw new Error("Celeris Jev call failed: HTTP 503"); };
   w.tracker.say("8", "dev", "also fix the 409", T1);
   w.tracker.say("8", "dev", "@factory stop", T2);
   w.tracker.say("8", "stranger", "@factory stop", T3);

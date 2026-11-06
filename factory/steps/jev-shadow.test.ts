@@ -4,7 +4,7 @@ import { csvField, shadowRow, main } from "./jev-shadow";
 
 const answers = { injection: 0.05, type: "bug", risk: "low", clarity: 8, effort: 4 };
 const fakeJev: JevClient = {
-  provider: "berget",
+  provider: "celeris",
   async ask(_s, qs) {
     return qs.map((q) => ({ id: q.id, value: (answers as any)[q.id], probability: q.id === "injection" ? 0.05 : 0.9, confidence: 0.8 }));
   },

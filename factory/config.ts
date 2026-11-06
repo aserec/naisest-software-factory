@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { z } from "zod";
 import { HARNESSES, HARNESS_NAMES } from "./harnesses";
 import type { ModelChoice } from "./seams";
-import { JEV_HOSTS } from "./jev";
+import { JEV_HOST } from "./jev";
 import type { FactoryCommands, RoleChoice, Router, SeamsConfig, Target } from "./types";
 
 // Repo root, found from this file, so tests and CI agree whatever the cwd is.
@@ -84,7 +84,7 @@ function validate<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, raw: unknown, 
 }
 
 // The key variable of every model provider in seams.yml, then the Jev key. Each name once.
-export const providerKeys = (seams: SeamsConfig): string[] => [...new Set([...Object.values(seams.providers).map((p) => p.keyEnv), ...Object.values(JEV_HOSTS).map((h) => h.keyEnv)])];
+export const providerKeys = (seams: SeamsConfig): string[] => [...new Set([...Object.values(seams.providers).map((p) => p.keyEnv), JEV_HOST.keyEnv])];
 
 // The family of a provider's model, or an error naming the field.
 function family(seams: SeamsConfig, c: { provider: string; model: string }, field: string): string {

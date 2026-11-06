@@ -473,7 +473,7 @@ test("makeContext rejects a target with no targets/<name>.yml, and a job image t
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x");
-    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", BERGET_API_KEY: "k", CELERIS_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+    return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", CELERIS_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   const seams = seamsFile(dir);
   expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
@@ -722,10 +722,10 @@ test("makeContext registers the secrets it holds, so no comment or push can carr
   const dir = tmp();
   const file = (name: string, v: string) => (writeFileSync(join(dir, name), `${v}\n`), join(dir, name));
   const chat = "https://hooks.slack.example/services/0123456789";
-  makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", BERGET_API_KEY: "berget-key-0123456789", CELERIS_API_KEY: "celeris-key-0123456789",
+  makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", CELERIS_API_KEY: "celeris-key-0123456789",
     TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
     FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), SLACK_WEBHOOK_URL: file("chat", chat), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir, (t) => t.replace(/^ci: local$/m, "ci: gitlab")));
-  for (const v of ["berget-key-0123456789", "celeris-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", chat, "dashboard-token-0123456789", "trigger-0123456789"]) {
+  for (const v of ["celeris-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", chat, "dashboard-token-0123456789", "trigger-0123456789"]) {
     expect(findSecrets(`text ${v} text`), v).toHaveLength(1);
   }
 });
@@ -941,7 +941,7 @@ test("a stop comment posted during code review still stops when the judge is dow
   let down = false;
   const ask = w.judge.ask;
   w.judge.ask = async (state, qs) => {
-    if (down && qs.some((q) => q.id === "injection")) throw new Error("Berget Jev call failed: HTTP 503");
+    if (down && qs.some((q) => q.id === "injection")) throw new Error("Celeris Jev call failed: HTTP 503");
     return ask(state, qs);
   };
   w.harness.run = async (job) => {

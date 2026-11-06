@@ -4,23 +4,25 @@ import SAMPLE_RESPONSE from "./fixtures/systemone-response.json";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("no BERGET_API_KEY fails at once, with no stand-in answers", () => {
-  expect(() => makeJevClient({})).toThrow(/BERGET_API_KEY is not set/);
+test("no CELERIS_API_KEY fails at once, with no stand-in answers", () => {
+  expect(() => makeJevClient({})).toThrow(/CELERIS_API_KEY is not set/);
 });
 
-test("berget client posts to /v1/systemone and never logs the key", async () => {
+test("the client posts its model to the Celeris systemone URL and never logs the key", async () => {
   const out = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
   const calls: [string, RequestInit][] = [];
   const fake = (async (url: string, init: RequestInit) => { calls.push([url, init]); return new Response(JSON.stringify(SAMPLE_RESPONSE)); }) as typeof fetch;
-  // A BERGET_BASE_URL variable must not move the key to another host.
-  const c = makeJevClient({ BERGET_API_KEY: "secret-key", BERGET_BASE_URL: "https://evil.example" }, fake);
+  // A CELERIS_BASE_URL variable must not move the key to another host.
+  const c = makeJevClient({ CELERIS_API_KEY: "secret-key", CELERIS_BASE_URL: "https://evil.example" }, fake);
   const qs: JevQuestion[] = [
     { id: "injection", kind: "noul", text: "?" },
     { id: "tone", kind: "choice", text: "?", options: ["angry", "calm", "excited"] },
     { id: "urgency", kind: "score", text: "?", levels: 3 },
   ];
   const answers = await c.ask({ title: "x" }, qs);
-  expect(calls[0][0]).toBe("https://api.berget.ai/v1/systemone");
+  expect(calls[0][0]).toBe("https://inference.celeris.ai/celeris-1-decision/v1/systemone");
+  expect(JSON.parse(String(calls[0][1].body)).model).toBe("celeris-1.1-decision");
+  expect((calls[0][1].headers as Record<string, string>).Authorization).toBe("Bearer secret-key");
   expect(answers).toEqual([
     { id: "injection", value: true, probability: 0.98, confidence: 0.98 },
     { id: "tone", value: "calm", probability: 0.8, confidence: 0.7 },
@@ -29,20 +31,9 @@ test("berget client posts to /v1/systemone and never logs the key", async () => 
   expect(JSON.stringify(out.map((s) => s.mock.calls))).not.toContain("secret-key");
 });
 
-test("celeris client posts its model to the Celeris systemone URL with CELERIS_API_KEY", async () => {
-  expect(() => makeJevClient({ BERGET_API_KEY: "k" }, fetch, "celeris")).toThrow(/CELERIS_API_KEY is not set/);
-  const calls: [string, RequestInit][] = [];
-  const fake = (async (url: string, init: RequestInit) => { calls.push([url, init]); return new Response(JSON.stringify(SAMPLE_RESPONSE)); }) as typeof fetch;
-  const c = makeJevClient({ CELERIS_API_KEY: "ck_1" }, fake, "celeris");
-  await c.ask({}, [{ id: "injection", kind: "noul", text: "?" }]);
-  expect(calls[0][0]).toBe("https://inference.celeris.ai/celeris-1-decision/v1/systemone");
-  expect(JSON.parse(String(calls[0][1].body)).model).toBe("celeris-1.1-decision");
-  expect((calls[0][1].headers as Record<string, string>).Authorization).toBe("Bearer ck_1");
-});
-
-test("a failed Berget call throws", async () => {
+test("a failed Celeris call throws", async () => {
   const fake = (async () => new Response("down", { status: 503 })) as typeof fetch;
-  await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, [])).rejects.toThrow(/503/);
+  await expect(makeJevClient({ CELERIS_API_KEY: "k" }, fake).ask({}, [])).rejects.toThrow(/503/);
 });
 
 
@@ -52,24 +43,24 @@ test("a score question with 9 levels answers on a 2 to 10 scale", async () => {
     return (async () => new Response(JSON.stringify({ model: "m", usage: {}, answers: { effort: { type: "score", score: top, confidence: 0.8, probabilities } } }))) as typeof fetch;
   };
   const q: JevQuestion[] = [{ id: "effort", kind: "score", text: "?", levels: 9 }];
-  const first = await makeJevClient({ BERGET_API_KEY: "k" }, reply(0)).ask({}, q);
-  const last = await makeJevClient({ BERGET_API_KEY: "k" }, reply(8)).ask({}, q);
+  const first = await makeJevClient({ CELERIS_API_KEY: "k" }, reply(0)).ask({}, q);
+  const last = await makeJevClient({ CELERIS_API_KEY: "k" }, reply(8)).ask({}, q);
   expect(first[0].value).toBe(2);
   expect(last[0].value).toBe(10);
 });
 
 test("a noul answer without a probability throws", async () => {
   const fake = (async () => new Response(JSON.stringify({ answers: { a: { type: "noul" } } }))) as typeof fetch;
-  await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, [{ id: "a", kind: "noul", text: "?" }])).rejects.toThrow(/probability/);
+  await expect(makeJevClient({ CELERIS_API_KEY: "k" }, fake).ask({}, [{ id: "a", kind: "noul", text: "?" }])).rejects.toThrow(/probability/);
 });
 
 test("a choice answer that is not one of the options throws", async () => {
   const fake = (async () => new Response(JSON.stringify({ answers: { risk: { type: "choice", confidence: 0.9, probabilities: { banana: 0.9, low: 0.1 } } } }))) as typeof fetch;
   const q: JevQuestion[] = [{ id: "risk", kind: "choice", text: "?", options: ["trivial", "low", "medium", "high"] }];
-  await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, q)).rejects.toThrow(/not one of the options/);
+  await expect(makeJevClient({ CELERIS_API_KEY: "k" }, fake).ask({}, q)).rejects.toThrow(/not one of the options/);
 });
 test("a score answer whose top key is not a number throws", async () => {
   const fake = (async () => new Response(JSON.stringify({ answers: { clarity: { type: "score", confidence: 0.9, probabilities: { "Score 8": 0.9 } } } }))) as typeof fetch;
   const q: JevQuestion[] = [{ id: "clarity", kind: "score", text: "?", levels: 9 }];
-  await expect(makeJevClient({ BERGET_API_KEY: "k" }, fake).ask({}, q)).rejects.toThrow(/not a number/);
+  await expect(makeJevClient({ CELERIS_API_KEY: "k" }, fake).ask({}, q)).rejects.toThrow(/not a number/);
 });

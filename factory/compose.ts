@@ -44,8 +44,7 @@ const ADAPTERS = {
     github: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitHubCodeHost(new GitHub(token), needRepo(target), token, env, target.baseBranch),
   },
   judge: {
-    "jev-berget": (env: NodeJS.ProcessEnv) => makeJevClient(env),
-    "jev-celeris": (env: NodeJS.ProcessEnv) => makeJevClient(env, fetch, "celeris"),
+    "jev-celeris": (env: NodeJS.ProcessEnv) => makeJevClient(env),
     "model-call": (env: NodeJS.ProcessEnv, seams: SeamsConfig) => makeModelJudge(modelChoice(seams.judgeModel, seams), env),
   },
   chat: {
