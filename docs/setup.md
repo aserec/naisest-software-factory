@@ -227,7 +227,7 @@ pnpm tsx factory/steps/<step>.ts
 
 ### Before and after screenshots
 
-A target with `preview` and `previewUrl` in its `.factory.yml` gets screenshots of a visual change. Install Chromium once: `(cd react_frontend/apps/web && pnpm exec playwright install chromium)`. `local-run.sh` sets `PLAYWRIGHT_BROWSERS_PATH` to `~/Library/Caches/ms-playwright`.
+A target with `preview` and `previewUrl` in its `.factory.yml` gets screenshots of a visual change. Install Chromium once from the target: `(cd <target> && npx playwright install chromium)`. On macOS the sandbox denies `mach-register`, and Chromium then dies at start with `bootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer: Permission denied`. `local-run.sh` therefore builds `~/Library/Caches/ms-playwright-sandbox`, a copy of `~/Library/Caches/ms-playwright` whose headless shells run with `--single-process`, and sets `PLAYWRIGHT_BROWSERS_PATH` to it.
 
 The author takes each shot with one shell command (`prompts/prepare.md` holds it). It starts the preview in the background, waits up to 120 s for `previewUrl`, shoots, and stops the server:
 
@@ -239,6 +239,6 @@ for i in $(seq 120); do curl -sf <previewUrl> > /dev/null && break; sleep 1; don
 
 Not yet proven in the sandbox. The spike (this command under `srt` on macOS, under `srt` in the runner image on Linux, and under Claude Code's sandbox) is still to run. A good result is a PNG of the app, not the "Opening your workspace" screen. Results:
 
-- [ ] macOS, Pi under `srt`: not run yet
+- [x] macOS under `srt` with `allowLocalBinding`: the target's own `npx playwright screenshot` (Playwright 1.64.1) shot a localhost page through `ms-playwright-sandbox`, on 2026-11-06. Without it, Chromium dies on `bootstrap_check_in`.
 - [ ] Linux, runner image under `srt`: not run yet
 - [ ] Claude Code sandbox: not run yet
