@@ -10,8 +10,6 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
   const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
   const mrUrl = async (ref: string) => `/projects/${await projectId()}/merge_requests/${Number(ref)}`;
   const opened = (m: { iid: number; web_url: string }) => ({ ref: String(m.iid), url: m.web_url });
-  let bot: Promise<string> | undefined;
-  const botName = () => (bot ??= gitlab.getJson("/user").then((u: { username: string }) => u.username));
   const notesOf = async (ref: string): Promise<any[]> => gitlab.getJson(`${await mrUrl(ref)}/notes?sort=desc&order_by=created_at&per_page=100`);
   const put = async (endpoint: string, body?: unknown) => gitlab.call("PUT", endpoint, body);
   const userId = async (username: string): Promise<number> => {
@@ -43,6 +41,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       return {
         ref, open: m.state === "opened", merged: m.state === "merged", mergedAt: m.merged_at ?? undefined, head: m.sha, url: m.web_url, title: m.title ?? "", body: m.description ?? "", target: m.target_branch,
         landedSha: m.merge_commit_sha ?? m.squash_commit_sha ?? m.sha, behind: (m.diverged_commits_count ?? 0) > 0, conflicts: !!m.has_conflicts,
+        closedBy: m.state === "closed" ? m.closed_by?.username : undefined,
       };
     },
     async checks(at): Promise<Checks> {
@@ -121,7 +120,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
       await gitlab.call("POST", `${await mrUrl(ref)}/notes`, { body });
     },
     async changeComments(ref, since) {
-      const name = await botName();
+      const name = await gitlab.botName();
       const notes = await notesOf(ref);
       return notes
         .filter((n: any) => !n.system && (!since || Date.parse(n.created_at) > Date.parse(since)))
@@ -130,19 +129,19 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     // GitLab writes an edit as a system note: "changed title from ..." or "changed the description".
     // ponytail: edits among the newest 100 notes; page notesOf if a change gets more
     async changeEdits(ref, since) {
-      const name = await botName();
+      const name = await gitlab.botName();
       return (await notesOf(ref)).flatMap((n: any) => {
         const field = n.system ? (String(n.body).startsWith("changed title") ? "title" : String(n.body).startsWith("changed the description") ? "body" : undefined) : undefined;
         return field && (!since || Date.parse(n.created_at) > Date.parse(since)) ? [{ author: n.author.username, byFactory: n.author.username === name, field, at: n.created_at }] : [];
       });
     },
     async changeCommits(ref) {
-      const commits = await gitlab.all(`${await mrUrl(ref)}/commits?per_page=100`);
+      const commits = await gitlab.all<{ id: string; author_email: string }>(`${await mrUrl(ref)}/commits?per_page=100`);
       return commits.map((c) => ({ sha: c.id, byFactory: c.author_email === FACTORY_GIT_EMAIL }));
     },
     // Every revert that reached the base branch is a commit here: a revert commit, a merged revert change, or a Revert button.
     async baseCommits(since) {
-      const commits = await gitlab.all(`/projects/${await projectId()}/repository/commits?ref_name=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
+      const commits = await gitlab.all<{ id: string; title: string; message: string; committed_date: string }>(`/projects/${await projectId()}/repository/commits?ref_name=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
       return commits.map((c) => ({ sha: c.id, title: c.title, message: c.message, at: c.committed_date }));
     },
     async recentChanges(since) {

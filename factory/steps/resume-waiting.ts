@@ -6,7 +6,7 @@ import type { TicketRef } from "../seams";
 import { isMain, switchOn, type StepContext } from "./context";
 import { activeRuns, block, MAX_RUNS_PER_REPO } from "./run";
 
-export async function retryWaiting(ctx: StepContext): Promise<TicketRef[]> {
+export async function resumeWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if (!(await switchOn(ctx, "retry"))) return [];
   // A waiting run already holds its slot, so resuming it adds no run. Only more than 2 other runs stop it.
   if ((await activeRuns(ctx)) - 1 >= MAX_RUNS_PER_REPO) return [];
@@ -25,6 +25,6 @@ export async function retryWaiting(ctx: StepContext): Promise<TicketRef[]> {
 
 export async function main() {
   if (process.env.FACTORY_SCHEDULE !== "retry") throw new Error("FACTORY_SCHEDULE must be retry");
-  console.log(`Resumed tickets: ${(await retryWaiting(makeContext(process.env))).join(", ") || "none"}`);
+  console.log(`Resumed tickets: ${(await resumeWaiting(makeContext(process.env))).join(", ") || "none"}`);
 }
 if (isMain(import.meta.url)) await main();

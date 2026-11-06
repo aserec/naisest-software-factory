@@ -9,11 +9,11 @@ import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "
 
 const ASSETS = "factory-assets"; // the branch that holds attached images, so they never enter a change
 
+// The fields of a GitHub commit the factory reads.
+type Commit = { sha: string; commit?: { message?: string; author?: { email?: string; date?: string }; committer?: { date?: string } } };
 export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<unknown> = wait): CodeHost {
   const r = `/repos/${repo}`;
   const pr = (ref: string) => `${r}/pulls/${Number(ref)}`;
-  let bot: Promise<string> | undefined;
-  const botName = () => (bot ??= gh.json("GET", "/user").then((u) => u.login as string));
   const opened = (p: any) => ({ ref: String(p.number), url: p.html_url as string });
   let workflows: Promise<boolean> | undefined;
   const hasWorkflows = () => (workflows ??= gh.json("GET", `${r}/actions/workflows?per_page=100`).then((w) => w.workflows.some((x: any) => x.state === "active"), () => true));
@@ -41,6 +41,8 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
         landedSha: p.merge_commit_sha ?? p.head.sha, behind: cmp.behind_by > 0,
         // GitHub computes mergeable later and gives null until then: no conflict yet, the next poll reads it again.
         conflicts: p.mergeable === false || p.mergeable_state === "dirty",
+        // Only the issue API names who closed a pull request.
+        closedBy: p.state === "closed" && !p.merged ? (await gh.json("GET", `${r}/issues/${ref}`)).closed_by?.login : undefined,
       };
     },
     // Only checks of the head count. No check yet is running, as on GitLab: waitFor gives up after an hour.
@@ -125,11 +127,12 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     // With since both are short. If the rate limit bites, read the repo-wide issues/comments and pulls/comments once per poll.
     // Without a shared account the code host cannot tell the factory's comments from its token user's own, so it asks for both: the token user and the AI line.
     async changeComments(ref, since) {
-      const name = await botName();
+      const name = await gh.botName();
       // GitHub's since filters on the edit time; keep only comments created after it, newest first.
       // Issue comments and inline review comments are two lists, so merge them by time.
       const q = `?per_page=100${since ? `&since=${encodeURIComponent(since)}` : ""}`;
-      const all = [...(await gh.all(`${r}/issues/${Number(ref)}/comments${q}`)), ...(await gh.all(`${pr(ref)}/comments${q}`))];
+      type Comment = { user: { login: string }; body: string | null; created_at: string };
+      const all = [...(await gh.all<Comment>(`${r}/issues/${Number(ref)}/comments${q}`)), ...(await gh.all<Comment>(`${pr(ref)}/comments${q}`))];
       return all
         .filter((c) => !since || Date.parse(c.created_at) > Date.parse(since))
         .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
@@ -138,7 +141,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     // Body edits come from the pull request's edit history, renames from its timeline; both newest first.
     // ponytail: the newest 100 body edits and 100 renames; page with before: if a change is edited more
     async changeEdits(ref, since) {
-      const name = await botName();
+      const name = await gh.botName();
       const [owner, repoName] = repo.split("/");
       const d = await gh.graphql(
         `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) {
@@ -159,12 +162,12 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     },
     // GitHub lists at most 250 commits of a pull request.
     async changeCommits(ref) {
-      const commits = await gh.all(`${pr(ref)}/commits?per_page=100`);
+      const commits = await gh.all<Commit>(`${pr(ref)}/commits?per_page=100`);
       return commits.map((c) => ({ sha: c.sha, byFactory: c.commit?.author?.email === FACTORY_GIT_EMAIL }));
     },
     // Every revert that reached the base branch is a commit here: a revert commit, a merged revert pull request, or a Revert button.
     async baseCommits(since) {
-      const commits = await gh.all(`${r}/commits?sha=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
+      const commits = await gh.all<Commit>(`${r}/commits?sha=${encodeURIComponent(baseBranch)}&since=${encodeURIComponent(since)}&per_page=100`);
       return commits.map((c) => {
         const message = String(c.commit?.message ?? "");
         return { sha: c.sha, title: message.split("\n")[0], message, at: c.commit?.committer?.date ?? c.commit?.author?.date ?? "" };

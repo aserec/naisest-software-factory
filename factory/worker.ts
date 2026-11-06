@@ -66,8 +66,8 @@ function secretFiles(base: NodeJS.ProcessEnv, dir: string, seen: string): Record
   return paths;
 }
 
-// poll, retry-waiting, dispatch, watcher and improve: short steps with no code tools, run in the worker container itself.
-const SHORT = { poll: { schedule: "poll" }, "retry-waiting": { schedule: "retry" }, dispatch: { pipeline: "dispatch" }, watcher: { schedule: "watch" }, improve: { schedule: "improve" } } as const;
+// poll, resume-waiting, dispatch, watcher and improve: short steps with no code tools, run in the worker container itself.
+const SHORT = { poll: { schedule: "poll" }, "resume-waiting": { schedule: "retry" }, dispatch: { pipeline: "dispatch" }, watcher: { schedule: "watch" }, improve: { schedule: "improve" } } as const;
 export type ShortStep = keyof typeof SHORT;
 // cwd: a folder for the step to work in. Then the step and tsx are named by absolute path, as a bare `tsx` or a relative path would not be found.
 export async function runShort(exec: Exec, base: NodeJS.ProcessEnv, step: ShortStep, target: string, source?: string, cwd?: string) {
@@ -170,7 +170,8 @@ const stepsOf = (q: QueuedRun) => (q.kind === "build" ? BUILD_STEPS : FINISH_STE
 // A run in progress, for a cancel from the dashboard: no next step starts, and kill ends the step's container.
 export interface Live { cancelled: boolean; kill?: () => Promise<unknown> }
 
-export async function runOne(exec: Exec, base: NodeJS.ProcessEnv, open: OpenHost, image: string, q: QueuedRun, id: string, lock: (target: string, f: () => Promise<boolean>) => Promise<boolean>, runsDir = RUNS_DIR, queueDir = QUEUE_DIR, live: Live = { cancelled: false }) {
+export interface RunOptions { exec: Exec; base: NodeJS.ProcessEnv; open: OpenHost; image: string; lock: (target: string, f: () => Promise<boolean>) => Promise<boolean>; runsDir?: string; queueDir?: string; live?: Live }
+export async function runOne(q: QueuedRun, id: string, { exec, base, open, image, lock, runsDir = RUNS_DIR, queueDir = QUEUE_DIR, live = { cancelled: false } }: RunOptions) {
   const pipeline = q.kind;
   stepEnv(base, { pipeline, target: q.target, run: q, id }); // refuses a bad queued run before a VM is made
   const host = await open(id);
@@ -315,7 +316,7 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
       runs.set(id, live);
       console.log(`run ${id}: ${q.kind} of ticket ${q.ticket} in ${q.target}`);
       // ponytail: a run in progress is lost when the worker stops; its ticket keeps factory_running, as on a killed CI job.
-      void runOne(exec, base, open, image, q, id, lock, RUNS_DIR, QUEUE_DIR, live)
+      void runOne(q, id, { exec, base, open, image, lock, live })
         .catch((e) => console.log(`run ${id} failed: ${errText(e, 500)}`))
         .finally(() => runs.delete(id));
     }
@@ -328,7 +329,7 @@ export async function tickTarget(exec: Exec, base: NodeJS.ProcessEnv, t: string,
   try {
     await runShort(exec, base, "poll", t);
     if (tick % 60 !== 0) return;
-    await runShort(exec, base, "retry-waiting", t);
+    await runShort(exec, base, "resume-waiting", t);
     if (o.watch) await runShort(exec, base, "watcher", t);
     if (improveDue(t, o.now ?? new Date(), o.runsDir)) o.improve(t);
   } catch (e) {

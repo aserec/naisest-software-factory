@@ -38,9 +38,7 @@ function toTicket(w: any): Ticket {
 // relayUser: the Teams relay bot (relay.ts). Its comments count only through a person's 👍.
 export function makeGitLabTracker(gitlab: GitLab, projectPath: string, relayUser?: string): Tracker {
   let project: Promise<number> | undefined;
-  let bot: Promise<string> | undefined;
   const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
-  const botName = () => (bot ??= gitlab.getJson("/user").then((u: { username: string }) => u.username));
   const issues = async (query: string): Promise<Ticket[]> => (await gitlab.getJson(`/projects/${await projectId()}/issues?${query}`)).map(toTicket);
   const iid = (ref: string) => Number(ref);
   const issueUrl = async (ref: string) => `/projects/${await projectId()}/issues/${iid(ref)}`;
@@ -92,9 +90,9 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string, relayUser
       }
       return out.slice(0, limit);
     },
-    isFactory: async (actor) => actor === (await botName()),
+    isFactory: async (actor) => actor === (await gitlab.botName()),
     async trusted(actor) {
-      if (actor === (await botName())) return false;
+      if (actor === (await gitlab.botName())) return false;
       const [id, project] = [await userId(actor), await projectId()];
       try {
         return (await gitlab.getJson(`/projects/${project}/members/all/${id}`)).access_level >= DEVELOPER;
@@ -105,12 +103,12 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string, relayUser
     },
     // The poller has no webhook that names the person, so the label history says who last added factory_ready.
     async startedBy(ref) {
-      const events = await gitlab.all(`${await issueUrl(ref)}/resource_label_events?per_page=100`);
-      const id = events.filter((e: any) => e.action === "add" && e.label?.name === READY).at(-1)?.user?.id;
+      const events = await gitlab.all<{ action: string; label?: { name: string }; user?: { id: number } }>(`${await issueUrl(ref)}/resource_label_events?per_page=100`);
+      const id = events.filter((e) => e.action === "add" && e.label?.name === READY).at(-1)?.user?.id;
       return id === undefined ? undefined : (await gitlab.getJson(`/users/${id}`)).username;
     },
     async comments(ref, since) {
-      const bot = await botName();
+      const bot = await gitlab.botName();
       const url = await issueUrl(ref);
       const notes = (await gitlab.getJson(`${url}/notes?sort=desc&order_by=created_at&per_page=100`)).filter((n: any) => !n.system);
       const own = notes.map((n: any) => ({ author: n.author.username, byFactory: n.author.username === bot, body: n.body, at: n.created_at }));

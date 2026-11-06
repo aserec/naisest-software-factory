@@ -74,10 +74,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   return askPerson(ctx, d.reasons);
 }
 
-// Who reviews: the newest request's author of the last round, else the ticket assignee, else the top code owner of the changed files who may command the factory, else the default approver.
+// Who reviews: the newest request's author of the rounds (a conflict round has none), else the ticket assignee, else the top code owner of the changed files who may command the factory, else the default approver.
 // Nothing here may stop the run, so any read that fails falls back to the default approver.
 export async function reviewer(ctx: StepContext, ticket: Ticket): Promise<PersonRef> {
-  const asker = ctx.record.requestRounds?.at(-1)?.requests.at(-1)?.author;
+  const asker = ctx.record.requestRounds?.flatMap((r) => r.requests).at(-1)?.author;
   if (asker) return asker;
   if (ticket.assignees[0]) return ticket.assignees[0];
   try {

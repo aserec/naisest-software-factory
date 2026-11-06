@@ -4,8 +4,8 @@ import { conversation, later, md, refusal, stateReply } from "../conversation";
 import { emit } from "../emit";
 import type { Change, ChangeRef, FactoryState, Ticket, TicketRef } from "../seams";
 import { facts, save, type StepContext, type StepResult } from "./context";
-import { buildRunOf } from "./merge";
-import { block, continueAt } from "./run";
+import { buildRunOf } from "./change-text";
+import { ACTIVE_STATES, block, continueAt } from "./run";
 
 // The open change of a ticket whose change has conflicts with the base branch, when no conflict round has run since the base branch last moved.
 // ponytail: reads the change every poll for every waiting ticket (two GitHub calls each). Fine for a few waiting tickets.
@@ -88,18 +88,23 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   const t = await ctx.tracker.ticket(ref);
   if (t.state !== "needs_approval") return noStart("not-waiting");
   // A late duplicate: a round already ran and its change names a newer build run.
-  if (buildRunOf((await ctx.codeHost.change(changeRef)).body) !== buildRun) return noStart("stale-build");
+  const current = await ctx.codeHost.change(changeRef);
+  if (buildRunOf(current.body) !== buildRun) return noStart("stale-build");
+  // The badge before the guards below: a conflicted change shows it also when no round starts or a request round runs.
+  if (current.conflicts) emit(ctx, "change_state", { conflicts: true });
   // An empty record: the build run was never saved (local runs before local-run.sh saved them), so there is nothing to continue.
   const saved = ctx.record.workItem !== "";
   const why = saved && facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
   if (why) return block(ctx, `The factory could not start a round: ${why}. Add factory_ready to start again.`);
   // Requests wait for a change that is open. A noStart stop writes nothing: there is nothing to answer.
   const conv = conversation(ctx);
+  // A conflict round's cursor: no request was unread up to here. A request written during the reads below stays new.
+  const readAt = new Date().toISOString();
   const { requests, change } = await conv.requests(ref);
   // No request: a conflict round, when the change has conflicts no round has tried since the base branch moved.
   const conflicts = !!change && requests.length === 0 && !!(await conflictsDue(ctx, ref));
   if (!change || (requests.length === 0 && !conflicts)) return noStart("no-request");
-  const newest = conflicts ? new Date().toISOString() : requests.at(-1)!.at;
+  const newest = conflicts ? readAt : requests.at(-1)!.at;
   const authors = [...new Set(requests.map((r) => r.author))].map((a) => `@${a}`).join(" ");
   // The change stays open and waiting, so a person can still merge it. The cursor line, or for conflicts the conflict note, stops the poller from asking again.
   if (!saved || change.ref !== facts(ctx).change) {
@@ -126,7 +131,6 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   if (conflicts) {
     const base = await ctx.codeHost.baseBranch();
     await conv.write(ref, { kind: "conflictRound", text: md("🔀", "Conflict round", `The change has conflicts with \`${base}\`. The factory merges \`${base}\` into it and resolves them in a new round.`) });
-    emit(ctx, "change_state", { conflicts: true });
   } else await conv.write(ref, { kind: "cursor", text: md("🔁", "New round", `The factory started another round for the requests of ${authors}.`), at: newest });
   for (const m of ["implemented", "reviewed", "checked", "risk_checked"] as const) if (t.marks.includes(m)) await ctx.tracker.unmark(ref, m);
   const rounds = [...(ctx.record.requestRounds ?? []), { cursor: newest, requests, ...(conflicts && { conflicts: true as const }), costAtStart: ctx.record.costUsd, tokensAtStart: ctx.record.tokens ?? { input: 0, output: 0 } }];
@@ -149,7 +153,7 @@ export async function replyOnChanges(ctx: StepContext, skip: TicketRef[] = []): 
       const requests = await conv.unanswered(ref, ticket, since);
       if (requests.length === 0) continue;
       const t = await ctx.tracker.ticket(ticket);
-      if (t.state && ["needs_approval", "running", "stopped", "waiting", "blocked", "needs_info"].includes(t.state)) continue;
+      if (t.state && [...ACTIVE_STATES, "blocked", "needs_info"].includes(t.state)) continue;
       const newest = requests.reduce<string | undefined>((a, x) => later(a, x.at), undefined)!;
       const authors = [...new Set(requests.map((x) => x.author))];
       await conv.writeOnChange(ref, { kind: "cursor", text: md("💬", "Request not taken up", ...authors.map((a) => stateReply(a, t.state))), at: newest });

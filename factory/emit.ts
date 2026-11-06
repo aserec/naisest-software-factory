@@ -15,7 +15,7 @@ const mask = (v: unknown): unknown =>
 // Cut after masking, so a cut never leaves half a secret unmasked. A tail keeps its end.
 function cut<D extends object>(data: D): D {
   const fields = data as Record<string, unknown>;
-  for (const k of ["input", "result", "outputTail", "log"]) {
+  for (const k of ["input", "result", "outputTail", "log", "prompt"]) {
     const s = fields[k];
     if (typeof s === "string" && s.length > MAX_FIELD) fields[k] = k === "outputTail" || k === "log" ? s.slice(-MAX_FIELD) : s.slice(0, MAX_FIELD);
   }

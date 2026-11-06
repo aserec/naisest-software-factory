@@ -1,7 +1,7 @@
 // Event schema shared by the factory (sender) and the dashboard (receiver).
 import { z } from "zod";
 
-export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "change_state", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "error"] as const;
+export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "change_state", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "error", "prompt"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // The state of a work item, in factory words. factory/seams.ts re-exports it.
@@ -79,6 +79,8 @@ export const EVENT_DATA = {
   ready: user,
   switch_change: z.object({ user: z.string(), name: z.enum(SWITCHES), scope: z.string(), on: z.boolean() }),
   error: z.object({ message: z.string() }),
+  // An agent's prompt, sent when the agent starts: step_start goes before the prompt exists. Masked and cut like a field.
+  prompt: z.object({ role: z.string(), prompt: field }),
 } satisfies Record<EventType, z.ZodTypeAny>;
 
 // What an event of type T carries in `data`.

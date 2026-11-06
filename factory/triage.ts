@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import type { JevClient, JevQuestion } from "./jev";
+import { answerOf, type JevClient, type JevQuestion } from "./jev";
 import { DEFAULT_THRESHOLDS } from "./thresholds";
 import type { Answer, Risk } from "./types";
 
@@ -22,6 +22,7 @@ export async function injectionYes(judge: JevClient, state: object): Promise<num
 }
 const RISK_CONFIDENCE_MIN = 0.7;
 const RISKS: Risk[] = ["trivial", "low", "medium", "high"];
+const isRisk = (v: unknown): v is Risk => RISKS.some((r) => r === v);
 
 export function buildTriageState(title: string, description: string, labels: string[]) {
   return { title, description: description.slice(0, MAX_DESCRIPTION), labels };
@@ -29,15 +30,13 @@ export function buildTriageState(title: string, description: string, labels: str
 
 export async function askTriage(jev: JevClient, state: object): Promise<TriageAnswers> {
   const answers = await jev.ask(state, questions);
-  const get = (id: string) => {
-    const a = answers.find((x) => x.id === id);
-    if (!a) throw new Error(`Jev gave no answer for "${id}"`);
-    return a;
-  };
+  const get = (id: string) => answerOf(answers, id);
+  const risk = get("risk").value;
   return {
     injectionYes: get("injection").probability,
     type: { value: String(get("type").value), confidence: get("type").confidence },
-    risk: { value: get("risk").value as Risk, confidence: get("risk").confidence },
+    // An unknown risk counts as high, as decideTriage does for older records.
+    risk: { value: isRisk(risk) ? risk : "high", confidence: get("risk").confidence },
     clarity: { value: Number(get("clarity").value), confidence: get("clarity").confidence },
     effort: { value: Number(get("effort").value), confidence: get("effort").confidence },
   };

@@ -6,7 +6,9 @@ import { makeContext } from "../compose";
 import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
 import { pollRequests, replyOnChanges } from "./requests";
-import { ACTIVE_STATES, activeRuns, endClosedRuns, finishCancelledStops, handleReadyRequests, handleRequests, MAX_RUNS_PER_REPO, mayStart, readyActor, resumeRelayed, resumeSwitchedOff } from "./run";
+import { ACTIVE_STATES, activeRuns, MAX_RUNS_PER_REPO, mayStart, readyActor } from "./run";
+import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests, resumeRelayed, resumeSwitchedOff } from "./poller";
+import type { CiRunner } from "../seams";
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
@@ -45,26 +47,33 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
 export async function main(ctx?: StepContext) {
   if (process.env.FACTORY_SCHEDULE !== "poll") throw new Error("FACTORY_SCHEDULE must be poll");
   ctx = { ...(ctx ?? makeContext(process.env)) };
-  takeSnapshot(ctx); // one read of the dashboard for the whole tick
-  // local-factory.sh: print the tickets to start, start no pipeline. The script runs them on this machine.
-  if (process.argv.includes("--list")) {
-    // Set to Ready only changes a label, so it runs here too; takeSnapshot again so pollReady sees it as done.
-    try {
-      if ((await handleReadyRequests(ctx)).length) takeSnapshot(ctx);
-    } finally {
-      await ctx.dashboard.flush();
-    }
-    // Rounds (requests or conflicts on a waiting change) print as ticket:build run:change; local-run.sh restores that build run.
-    const rounds: string[] = [];
-    const started = await pollRequests({ ...ctx, ci: { ...ctx.ci, start: async (r) => (r.buildRun && r.change && rounds.push(`${r.ticket}:${r.buildRun}:${r.change}`), "") } });
-    const ready = await pollReady({ ...ctx, ci: { ...ctx.ci, start: async () => "" } }, started);
-    console.log([...rounds, ...ready].join(" "));
-    return;
+  if (!process.argv.includes("--list")) return tick(ctx);
+  // local-factory.sh: the same tick, but the runs it starts print as a list the script runs on this machine, and the log goes to stderr.
+  // A build prints as ticket[:build run[:change]]: a round (requests or conflicts) or a resume restores that build run.
+  const list: string[] = [];
+  const start: CiRunner["start"] = async (r) => {
+    if (r.kind !== "build") throw new Error("local-factory.sh runs build runs only, so it cannot start this finish run");
+    list.push([r.ticket, r.buildRun, r.change].filter(Boolean).join(":"));
+    return "";
+  };
+  const log = console.log;
+  console.log = console.error;
+  try {
+    await tick({ ...ctx, ci: { ...ctx.ci, start } });
+  } finally {
+    console.log = log;
   }
+  console.log(list.join(" "));
+}
+
+// One poll: the work of the minute, in this order.
+async function tick(ctx: StepContext) {
+  takeSnapshot(ctx); // one read of the dashboard for the whole tick
   try {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
     console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx)).join(", ") || "none"}`);
     console.log(`Ended runs whose work item or change a person closed: ${(await endClosedRuns(ctx)).join(", ") || "none"}`);
+    console.log(`Started finish runs for changes a person merged: ${(await finishMerged(ctx)).join(", ") || "none"}`);
     console.log(`Set ready the tickets the dashboard asked for: ${(await handleReadyRequests(ctx)).join(", ") || "none"}`);
     const handled = await handleRequests(ctx);
     takeSnapshot(ctx); // handleRequests answered requests: pollReady must see the new outcomes, as before

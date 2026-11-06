@@ -135,6 +135,7 @@ export const inbox = (ctx: StepContext) => {
 export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, job: Omit<HarnessJob, "role" | "model">): Promise<HarnessResult> {
   const box = role === "author" && job.tools === "code" ? inbox(ctx) : undefined;
   // Only the author's tool calls go to the dashboard. Jev and the reviewer show at step level.
+  emit(ctx, "prompt", { role, prompt: job.prompt });
   const onToolCall = role === "author" ? (c: ToolCall) => void emit(ctx, "tool_call", c, { parent: ctx.stepEvent }) : undefined;
   const r = await ctx.harnesses[choice.harness].run({ ...job, ...(box ? { inbox: box } : {}), ...(onToolCall ? { onToolCall } : {}), role, model: modelChoice(choice, ctx.seams) });
   emit(ctx, "usage", { role, model: choice.model, input: r.tokens.input, output: r.tokens.output, cacheRead: r.tokens.cacheRead, cacheWrite: r.tokens.cacheWrite, costUsd: r.costUsd, contextTokens: r.contextTokens });

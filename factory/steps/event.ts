@@ -1,5 +1,5 @@
 import type { FactoryEvent } from "../seams";
-import { buildRunOf } from "./merge";
+import { buildRunOf } from "./change-text";
 import { answerRequests, requestRound } from "./requests";
 import { isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
 // The start rules sit in run.ts: run.ts cannot import this file, whose isMain line runs at load.

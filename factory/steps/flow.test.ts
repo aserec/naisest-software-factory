@@ -16,7 +16,8 @@ import * as preparePatchStep from "./prepare-patch";
 import { conversation, md, noteText } from "../conversation";
 import { pollRequests } from "./requests";
 import { parseFactoryFile } from "../config";
-import { endIfClosed, handleRequests, resumeRelayed, resumeSwitchedOff } from "./run";
+import { endIfClosed } from "./run";
+import { handleRequests, resumeRelayed, resumeSwitchedOff } from "./poller";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
 import { GITLAB_URL } from "../gitlab";
@@ -40,7 +41,7 @@ import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
 import { BOT, B, noteIn, cursorOf, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, drain, COMMIT } from "./test-helpers";
-import { retryWaiting } from "./retry-waiting";
+import { resumeWaiting } from "./resume-waiting";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]], gate: "green", jev2: "pass" }));
@@ -374,10 +375,19 @@ test("a block after the merge reopens the work item", async () => {
   const w = await runFinishPipeline(fakeWorld({ mainPipeline: "failed" }));
   expect(w.closed).toBe(false);
 });
-test("verify blocks when .factory.yml names a smoke test", async () => {
+test("verify runs the smoke test .factory.yml names, and a passing one ends the run done", async () => {
   const w = await runFinishPipeline(fakeWorld(), { smoke: "pnpm test:smoke" });
+  expect(w.ran).toEqual(["i", "pnpm test:smoke"]);
+  expect(w.states).toEqual(["done"]);
+});
+test("a failing smoke test reverts the merge and blocks", async () => {
+  const w = fakeWorld();
+  const run = w.ctx.repo.run;
+  w.ctx.repo.run = async (cmd) => (cmd === "pnpm test:smoke" ? { ok: false, output: "smoke broke" } : run(cmd));
+  await runFinishPipeline(w, { smoke: "pnpm test:smoke" });
   expect(w.states).toEqual(["blocked"]);
-  expect(w.workItemComments.at(-1)).toContain("smoke");
+  expect(w.tracker.tickets.get("8")!.marks).toContain("reverted");
+  expect(w.workItemComments.at(-1)).toContain("smoke broke");
 });
 
 // runStep, the CI job body.
@@ -1262,6 +1272,19 @@ test("triage sets its risk mark and removes another risk mark", async () => {
   await triage.run(w.ctx);
   expect([...marksOf(w)].sort()).toEqual(["risk_low", "triaged"]);
 });
+test("a failed thresholds read is logged, and triage goes on with the default clarity limit", async () => {
+  const w = fakeWorld({ jev1: { risk: "low" } });
+  w.ci.vars.ticket = "8";
+  w.ctx.codeHost.readFile = async () => { throw new Error("status 503"); };
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    await triage.run(w.ctx);
+    expect(log.mock.calls.some((c) => String(c[0]).includes("status 503"))).toBe(true);
+  } finally {
+    log.mockRestore();
+  }
+  expect(marksOf(w)).toContain("triaged");
+});
 test("the work item is marked merged after the factory's merge or a person's", async () => {
   expect(marksOf(await runFinishPipeline(fakeWorld()))).toEqual(["merged"]);
   expect(marksOf(await runFinishPipeline(fakeWorld({ mrState: "merged" }), { decision: "needs_approval", skipApply: true }))).toEqual(["merged"]);
@@ -1593,6 +1616,13 @@ test("an author's tool calls are sent as tool_call events under their step, a re
   expect(jobs.filter((j) => j.role !== "author").every((j) => j.onToolCall === undefined)).toBe(true);
   const usage = events.filter((e) => e.type === "usage" && e.data.role === "author");
   expect(usage[0].data).toMatchObject({ input: 100, output: 20, cacheRead: 7, cacheWrite: 3, contextTokens: 110 });
+});
+
+test("each agent step sends its prompt, since its step_start goes before the prompt exists", async () => {
+  const w = await runAllJobs(fakeWorld({ jev1: { risk: "trivial" } }));
+  const prompts = eventsOfType(dash(w).events, "prompt");
+  expect(new Set(prompts.map((e) => `${e.step} ${e.data.role}`))).toEqual(new Set(["prepare-patch author", "code-review reviewer"]));
+  expect(prompts.every((e) => e.data.prompt.length > 0)).toBe(true);
 });
 
 // Each author fix is its own patch step, inside the review or gate step that asked for it.
@@ -2200,6 +2230,33 @@ test("a conflict round tells the work item and the dashboard, and continues at p
   expect(w.record.steps.at(-1)).toMatchObject({ step: "event", data: { resumeAt: "prepare-patch", sessionId: runFacts(first.record).session, round: 1 } });
   expect(dash(w).events.filter((e) => e.type === "change_state").map((e) => e.data)).toEqual([{ conflicts: true }]);
 });
+test("a request round on a conflicted change shows the conflict badge too", async () => {
+  const { w } = await requestWorld({ conflicts: true });
+  await eventJob(w);
+  expect(w.record.requestRounds!.at(-1)!.conflicts).toBeUndefined(); // a request round, not a conflict round
+  expect(dash(w).events.filter((e) => e.type === "change_state").map((e) => e.data)).toEqual([{ conflicts: true }]);
+});
+test("a request written while a conflict round reads the change is still new after the round", async () => {
+  const { w } = await conflictWorld();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  try {
+    vi.setSystemTime("2026-10-01T15:00:00Z");
+    const change = w.ctx.codeHost.change;
+    let reads = 0;
+    w.ctx.codeHost.change = async (ref) => {
+      if (++reads === 2) { // conflictsDue's read, after the requests were read
+        w.host.sayOnChange("5", "dev", "@factory one more", "2026-10-01T15:00:30Z");
+        vi.setSystemTime("2026-10-01T15:01:00Z");
+      }
+      return change(ref);
+    };
+    await eventJob(w);
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(w.record.requestRounds!.at(-1)!.conflicts).toBe(true);
+  expect(w.record.requestRounds!.at(-1)!.cursor < "2026-10-01T15:00:30Z").toBe(true);
+});
 // Local changes made before local-run.sh saved each run name a build run that cannot be restored.
 test("a conflict round whose build run was never saved leaves a note and keeps the change waiting", async () => {
   const { w } = await conflictWorld();
@@ -2477,7 +2534,7 @@ test("a run waiting at the author's usage limit resumes in the hourly retry with
   await runBuildJobs(w, tmp());
   expect(w.states).toEqual(["waiting"]);
   expect(w.ci.queue).toEqual([]);
-  expect(await retryWaiting(w.ctx)).toEqual(["8"]);
+  expect(await resumeWaiting(w.ctx)).toEqual(["8"]);
   expect(w.ci.queue).toEqual([{ kind: "build", ticket: "8", buildRun: "1", run: "2" }]);
   await drain(w);
   expect(w.restored).toEqual(["1"]);

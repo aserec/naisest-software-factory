@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { buildRunOf, mergeMessage, mergeReviewed, runLine, withoutMarks } from "./merge";
+import { buildRunOf, mergeMessage, runLine, withoutMarks } from "./change-text";
+import { mergeReviewed } from "./merge";
 import { fakeWorld } from "./test-helpers";
 
 test("titles lose the [AM] mark and every skip-ci mark, also nested ones", () => {

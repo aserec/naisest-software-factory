@@ -1,7 +1,7 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkVars, secretFile } from "../ci-vars";
+import { checkVars, needEnv, secretFile } from "../ci-vars";
 import { GitLab, GITLAB_URL } from "../gitlab";
 import { RUN_DIR, type RunRecord } from "../record";
 import { addKnownSecrets } from "../rules";
@@ -9,12 +9,6 @@ import { FILE_SECRETS } from "../secrets";
 import { NotFactoryRunError, type CiRunner } from "../seams";
 import { sh } from "../repo";
 
-
-export const need = (env: NodeJS.ProcessEnv, key: string): string => {
-  const v = env[key];
-  if (!v) throw new Error(`${key} is not set`);
-  return v;
-};
 
 // The newest successful decision job of a build pipeline. That job's artifacts hold run/ at the end of the
 // build: the record, the target clone and the Claude session.
@@ -77,28 +71,28 @@ export function makeGitLabCi(env: NodeJS.ProcessEnv, secretDir: string, fetchFn:
       if (!triggerToken) throw new Error("FACTORY_TRIGGER_TOKEN is not set");
       const vars: Record<string, string | undefined> = {
         FACTORY_PIPELINE: run.kind,
-        FACTORY_TARGET: need(env, "FACTORY_TARGET"),
+        FACTORY_TARGET: needEnv(env, "FACTORY_TARGET"),
         FACTORY_WORK_ITEM_IID: run.ticket,
         FACTORY_MR_IID: run.change,
         FACTORY_BUILD_PIPELINE_ID: run.buildRun,
         FACTORY_SKIP_APPLY: run.skipApply ? "1" : undefined,
       };
-      const body = new URLSearchParams({ token: triggerToken, ref: need(env, "CI_COMMIT_REF_NAME") });
+      const body = new URLSearchParams({ token: triggerToken, ref: needEnv(env, "CI_COMMIT_REF_NAME") });
       for (const [k, v] of Object.entries(vars)) if (v !== undefined) body.set(`variables[${k}]`, v);
-      const res = await fetchFn(`${GITLAB_URL}/api/v4/projects/${need(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
+      const res = await fetchFn(`${GITLAB_URL}/api/v4/projects/${needEnv(env, "CI_PROJECT_ID")}/trigger/pipeline`, { method: "POST", body });
       if (!res.ok) throw new Error(`Starting a pipeline failed with status ${res.status}`);
       // The pipeline has started: a body that does not parse gives no link rather than a throw.
       return ((await res.json().catch(() => ({}))) as { web_url?: string }).web_url ?? "";
     },
     async buildRecord(run) {
       const gl = gitlab();
-      const project = Number(need(env, "CI_PROJECT_ID"));
+      const project = Number(needEnv(env, "CI_PROJECT_ID"));
       return (await gl.getJson(`/projects/${project}/jobs/${await decisionJob(gl, project, Number(run))}/artifacts/run/record.json`)) as RunRecord;
     },
     // A resumed run: puts back run/ (clone, git dir, Claude session) from an earlier build run.
     async restoreRun(run) {
       const gl = gitlab();
-      const project = Number(need(env, "CI_PROJECT_ID"));
+      const project = Number(needEnv(env, "CI_PROJECT_ID"));
       const zip = await (await gl.call("GET", `/projects/${project}/jobs/${await decisionJob(gl, project, Number(run))}/artifacts`)).arrayBuffer();
       await extractRun(Buffer.from(zip), process.cwd(), env.PATH);
     },

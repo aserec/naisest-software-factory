@@ -17,6 +17,13 @@ export function checkVars(env: NodeJS.ProcessEnv, more: Record<string, RegExp> =
   if (!env.FACTORY_PIPELINE === !env.FACTORY_SCHEDULE) throw new Error("Set exactly one of FACTORY_PIPELINE and FACTORY_SCHEDULE");
 }
 
+// A variable the step cannot run without.
+export function needEnv(env: NodeJS.ProcessEnv, key: string): string {
+  const v = env[key];
+  if (!v) throw new Error(`${key} is not set`);
+  return v;
+}
+
 // GitLab, Teams and trigger secrets are File-type CI variables. Read each into memory and delete the file,
 // before any agent, install or gate command runs, so the environment only holds a path to nothing.
 // Only paths inside the runner's temp dir count, so no other file is ever read or deleted.

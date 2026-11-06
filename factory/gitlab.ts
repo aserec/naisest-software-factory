@@ -1,8 +1,9 @@
 import { setTimeout as wait } from "node:timers/promises";
 import { HttpError } from "./errors";
+import { loadSeams } from "./config";
 import { findSecrets } from "./rules";
 
-export const GITLAB_URL = "https://gitlab.example.com";
+export const GITLAB_URL = loadSeams().gitlabUrl;
 
 // Refuses text that holds a secret, before any adapter posts it to GitLab. `what` names the text in the error.
 export function refuseSecrets(text: string, what: string): void {
@@ -42,8 +43,8 @@ export class GitLab {
   }
 
   // Every page of a list endpoint. The endpoint must already carry per_page=100.
-  async all(endpoint: string): Promise<any[]> {
-    const out: any[] = [];
+  async all<T>(endpoint: string): Promise<T[]> {
+    const out: T[] = [];
     for (let page = 1; page; ) {
       const res = await this.call("GET", `${endpoint}&page=${page}`);
       out.push(...(await res.json()));
@@ -55,5 +56,11 @@ export class GitLab {
   // A GET that returns GitLab's own JSON. The adapter maps it to factory words.
   async getJson(endpoint: string) {
     return (await this.call("GET", endpoint)).json();
+  }
+
+  // The token's own username, asked once.
+  private bot?: Promise<string>;
+  botName(): Promise<string> {
+    return (this.bot ??= this.getJson("/user").then((u: { username: string }) => u.username));
   }
 }

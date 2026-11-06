@@ -1,4 +1,5 @@
 import { wrapRequest } from "../agents";
+import { errText } from "../errors";
 import { parseFactoryFile } from "../config";
 import { localPath, localSection } from "../local-instructions";
 import { writeShooter } from "../proof";
@@ -13,7 +14,8 @@ export const previewLine = (c: FactoryCommands) =>
 
 // A conflict round's task: the fixed request, the files the merge left with markers, and what the base branch did since the run began.
 async function conflictsText(ctx: StepContext, base: string, files: string[]): Promise<string> {
-  const commits = await ctx.codeHost.baseCommits(ctx.record.startedAt).catch(() => []);
+  // The commits only help the agent: a failed read is logged and the round goes on without them.
+  const commits = await ctx.codeHost.baseCommits(ctx.record.startedAt).catch((e) => (console.log(`Reading the commits of ${base} failed: ${errText(e)}`), []));
   return [
     prompt("conflicts").replaceAll("{base}", base).trimEnd(),
     files.length ? `Files with conflict markers:\n${files.map((f) => `- \`${f}\``).join("\n")}` : `No file has conflict markers, but the code host still saw conflicts. Check that your change still works on the new \`${base}\`.`,

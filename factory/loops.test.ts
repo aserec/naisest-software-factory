@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { codeReviewLoop, precommitGate, type LoopDeps } from "./loops.js";
+import { codeReviewLoop, precommitGate, type GateDeps, type ReviewDeps } from "./loops.js";
 import { DEFAULT_THRESHOLDS } from "./thresholds.js";
 import type { Finding } from "./agents.js";
 import type { HarnessResult } from "./seams.js";
@@ -15,7 +15,7 @@ function fakeDeps(o: {
   const results = Object.fromEntries(Object.entries(o.results ?? {}).map(([k, v]) => [k, [...v]]));
   const fixCalls: string[] = [];
   const runCalls: string[] = [];
-  const deps: LoopDeps & { fixCalls: string[]; runCalls: string[] } = {
+  const deps: ReviewDeps & GateDeps & { fixCalls: string[]; runCalls: string[] } = {
     fixCalls,
     runCalls,
     review: async () => reviews.shift() ?? [],

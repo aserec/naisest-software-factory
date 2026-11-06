@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { buildTriageState, decideTriage, type TriageAnswers } from "./triage";
+import { askTriage, buildTriageState, decideTriage, type TriageAnswers } from "./triage";
+import type { JevClient } from "./jev";
 
 const base: TriageAnswers = { injectionYes: 0.05, type: { value: "bug", confidence: 0.9 }, risk: { value: "low", confidence: 0.9 }, clarity: { value: 8, confidence: 0.9 }, effort: { value: 3, confidence: 0.9 } };
 test("the clarity threshold moves", () => {
@@ -24,3 +25,7 @@ test("NaN risk confidence bumps the risk one level", () => expect(decideTriage({
 test("clarity 6 builds", () => expect(decideTriage({ ...base, clarity: { value: 6, confidence: 0.9 } }).kind).toBe("build"));
 test("risk confidence 0.7 does not bump", () => expect(decideTriage({ ...base, risk: { value: "low", confidence: 0.7 } })).toMatchObject({ risk: "low" }));
 test("injection is checked before clarity", () => expect(decideTriage({ ...base, injectionYes: 0.5, clarity: { value: 2, confidence: 0.9 } }).kind).toBe("blocked"));
+test("askTriage reads an unknown risk answer as high", async () => {
+  const jev: JevClient = { provider: "mock", async ask(_s, qs) { return qs.map((q) => ({ id: q.id, value: q.id === "risk" ? "banana" : 5, probability: 0.1, confidence: 0.9 })); } };
+  expect((await askTriage(jev, {})).risk).toEqual({ value: "high", confidence: 0.9 });
+});

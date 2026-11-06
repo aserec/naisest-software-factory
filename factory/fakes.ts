@@ -122,7 +122,7 @@ export function fakeCodeHost(o: FakeCodeHostOptions = {}) {
     commits,
     baseLog, // the base branch's commits, newest first; tests fill it
     // A person closes the change on the host, without the factory.
-    close: (ref: ChangeRef) => void Object.assign(get(ref), { open: false, merged: false }),
+    close: (ref: ChangeRef, by?: PersonRef) => void Object.assign(get(ref), { open: false, merged: false, closedBy: by }),
     // A person merges the change on the host, without the factory.
     mergeByPerson: (ref: ChangeRef, at?: string) => void Object.assign(get(ref), { open: false, merged: true, mergedAt: at }),
     mrComments: [] as string[],

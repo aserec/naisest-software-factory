@@ -90,8 +90,8 @@ describe("change", () => {
     expect(await host().change("5")).toEqual({ ref: "5", open: true, merged: false, head: "h", landedSha: "h", url: "u5", title: "T", body: "", target: "develop", behind: false, conflicts: false });
     routes["/projects/7/merge_requests/5"] = mr({ state: "merged", merge_commit_sha: "m" });
     expect(await host().change("5")).toMatchObject({ open: false, merged: true, landedSha: "m" });
-    routes["/projects/7/merge_requests/5"] = mr({ state: "closed", squash_commit_sha: "sq" });
-    expect(await host().change("5")).toMatchObject({ open: false, merged: false, landedSha: "sq" });
+    routes["/projects/7/merge_requests/5"] = mr({ state: "closed", squash_commit_sha: "sq", closed_by: { username: "ann" } });
+    expect(await host().change("5")).toMatchObject({ open: false, merged: false, landedSha: "sq", closedBy: "ann" });
   });
   test("gives the merge request's title", async () => {
     routes["/projects/7/merge_requests/5"] = mr({ title: "Add a spinner" });

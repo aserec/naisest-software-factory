@@ -1,6 +1,7 @@
 import { facts, isMain, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
 import { block, stopped } from "./run";
-import { mergeMessage, mergeReviewed } from "./merge";
+import { mergeMessage } from "./change-text";
+import { mergeReviewed } from "./merge";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);

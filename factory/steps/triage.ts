@@ -1,6 +1,7 @@
 import { wrapTicket } from "../agents";
-import { CANDIDATE_BODY, MAX_CANDIDATES, askDedupe, decideDedupe } from "../dedupe";
+import { CANDIDATE_BODY, MAX_CANDIDATES, askDuplicateCheck, decideDuplicate } from "../duplicate-check";
 import { emit } from "../emit";
+import { errText } from "../errors";
 import { need } from "../record";
 import { pickModels } from "../router";
 import type { Ticket } from "../seams";
@@ -27,13 +28,14 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     return block(ctx, `Triage failed, so the factory did not guess: ${String(e)}`);
   }
   // A failed read keeps the default here. The decision step reads the file again from the base commit.
-  const outcome = decideTriage(answers, readThresholds(await ctx.codeHost.readFile(THRESHOLDS_PATH).catch(() => undefined)).values.clarityMin);
+  const thresholds = await ctx.codeHost.readFile(THRESHOLDS_PATH).catch((e) => void console.log(`Reading ${THRESHOLDS_PATH} failed, triage uses the default clarity limit: ${errText(e)}`));
+  const outcome = decideTriage(answers, readThresholds(thresholds).values.clarityMin);
   const row = pickModels(outcome.kind === "build" ? outcome.risk : answers.risk.value, answers.effort.value, ctx.router);
   // Agents only ever see this checked text, even if the work item changes later.
   ctx.record = { ...ctx.record, ticket: { title: state.title, description: state.description }, models: { author: `${row.author.harness}/${row.author.model}`, reviewer: `${row.reviewer.harness}/${row.reviewer.model}` } };
   save(ctx, "triage", { answers, outcome, row });
   if (outcome.kind !== "blocked") {
-    const stopped = await dedupe(ctx, ticket);
+    const stopped = await duplicateCheck(ctx, ticket);
     if (stopped) return stopped;
   }
   const a = answers;
@@ -70,8 +72,8 @@ async function requestText(ctx: StepContext, ticket: Ticket): Promise<string> {
 }
 
 // A work item a person wrote may repeat an open one. A sure duplicate is closed, a near one gets a question.
-// Undefined means go on. The factory's own earlier dedupe comment means the person already decided.
-async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | undefined> {
+// Undefined means go on. The factory's own earlier duplicate comment means the person already decided.
+async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepResult | undefined> {
   const ref = ticketRef(ctx);
   if (ticket.marks.includes("watcher")) return undefined;
   const conv = conversation(ctx);
@@ -80,14 +82,14 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
   let open;
   try {
     open = await ctx.tracker.listOpen(MAX_CANDIDATES + 1);
-    answers = await askDedupe(ctx.judge, { ref, ...ctx.record.ticket! }, open);
+    answers = await askDuplicateCheck(ctx.judge, { ref, ...ctx.record.ticket! }, open);
   } catch (e) {
     const reason = `The duplicate check failed, so the factory did not guess: ${String(e)}`;
     emit(ctx, "triage_outcome", { kind: "stop", title: "Stopped: a person must look at this work item", reasons: [reason] });
     return block(ctx, reason);
   }
   if (!answers) return undefined;
-  const verdict = decideDedupe(answers);
+  const verdict = decideDuplicate(answers);
   const o = open.find((t) => t.ref === answers.closest);
   // Without the original the factory can neither link nor quote it, so it goes on.
   if (verdict === "different" || !o) return undefined;
@@ -102,7 +104,7 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
     return "stop";
   }
   emit(ctx, "triage_outcome", { kind: "ask", title: `Asks first: it may repeat #${o.ref}`, reasons: [why, "The factory closes a work item only when the answer is a sure same and the original is older, so it asked a person."], url: o.url });
-  const text = await dedupeQuestion(ctx, o, answers.injectionYes);
+  const text = await duplicateQuestion(ctx, o, answers.injectionYes);
   await conv.write(ref, { kind: "duplicate_question", text: md("🔂", "Possible duplicate", text) });
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
@@ -111,10 +113,10 @@ async function dedupe(ctx: StepContext, ticket: Ticket): Promise<StepResult | un
 }
 
 // The writer agent words the question, unless the candidates look like an injection or it forgets to name the original.
-async function dedupeQuestion(ctx: StepContext, o: Ticket, injectionYes: number): Promise<string> {
+async function duplicateQuestion(ctx: StepContext, o: Ticket, injectionYes: number): Promise<string> {
   const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds in a comment that mentions \`@factory\`.`;
   if (!(injectionYes < INJECTION_LIMIT)) return fixed;
-  const text = `${prompt("dedupe-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
+  const text = `${prompt("duplicate-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
   try {
     const r = await agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, cwd: ctx.dir, prompt: text });
     return r.ok && r.text.includes(`#${o.ref}`) ? r.text.trim() : fixed;

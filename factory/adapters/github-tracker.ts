@@ -21,9 +21,14 @@ const checked = (text: string) => {
 
 // An issue in plain fields, from REST or GraphQL.
 interface Issue { number: number; title: string; body: string | null; open: boolean; labels: string[]; assignees: string[]; url: string; createdAt: string }
-const fromRest = (i: any): Issue => ({
+// The fields of GitHub's JSON the factory reads.
+type Login = { login: string };
+interface RestIssue { number: number; title: string; body: string | null; state: string; html_url: string; created_at: string; labels?: (string | { name: string })[]; assignees?: Login[]; pull_request?: unknown; repository_url?: string }
+interface GraphIssue { number: number; title: string; body: string | null; state: string; url: string; createdAt: string; labels: { nodes: { name: string }[] }; assignees: { nodes: Login[] } }
+interface RestComment { id: number; user: Login; body: string | null; created_at: string; updated_at?: string; reactions?: Record<string, number> }
+const fromRest = (i: RestIssue): Issue => ({
   number: i.number, title: i.title, body: i.body, open: i.state === "open", url: i.html_url, createdAt: i.created_at,
-  labels: (i.labels ?? []).map((l: any) => (typeof l === "string" ? l : l.name)), assignees: (i.assignees ?? []).map((a: any) => a.login),
+  labels: (i.labels ?? []).map((l) => (typeof l === "string" ? l : l.name)), assignees: (i.assignees ?? []).map((a) => a.login),
 });
 
 function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
@@ -40,9 +45,9 @@ function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
 
 const ISSUE_FIELDS = "number title body state url createdAt labels(first: 50) { nodes { name } } assignees(first: 20) { nodes { login } } repository { nameWithOwner }";
 const STATUS = `fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }`;
-const fromGraph = (c: any): Issue => ({
+const fromGraph = (c: GraphIssue): Issue => ({
   number: c.number, title: c.title, body: c.body, open: c.state === "OPEN", url: c.url, createdAt: c.createdAt,
-  labels: c.labels.nodes.map((l: any) => l.name), assignees: c.assignees.nodes.map((a: any) => a.login),
+  labels: c.labels.nodes.map((l) => l.name), assignees: c.assignees.nodes.map((a) => a.login),
 });
 
 // The board: a GitHub Projects (v2) board with a single-select Status field whose columns are factory states.
@@ -69,7 +74,7 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
       { owner, name, n: Number(ref) },
     );
     const issue = d.repository.issue;
-    const card = issue.projectItems.nodes.find((n: any) => n.project.id === id);
+    const card = (issue.projectItems.nodes as { id: string; project: { id: string }; fieldValueByName: unknown }[]).find((n) => n.project.id === id);
     return { issue, card, status: card?.fieldValueByName as { name: string } | null | undefined };
   };
   return {
@@ -124,8 +129,8 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
         `query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) { issue(number: $n) { timelineItems(last: 50, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) { nodes { ... on ProjectV2ItemStatusChangedEvent { actor { login } status project { id } } } } } } }`,
         { owner, name, n: Number(ref) },
       );
-      const last = d.repository.issue.timelineItems.nodes.filter((n: any) => n.project?.id === id).at(-1);
-      return last && columnState(last.status) === "ready" ? (last.actor?.login as string | undefined) : undefined;
+      const last = d.repository.issue.timelineItems.nodes.filter((n: { project?: { id: string } }) => n.project?.id === id).at(-1) as { status: string; actor?: Login } | undefined;
+      return last && columnState(last.status) === "ready" ? last.actor?.login : undefined;
     },
   };
 }
@@ -136,10 +141,8 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
 export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number, sharedAccount = false, relayUser?: string): Tracker {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`GitHub repo must be owner/name, got ${repo}`);
   const base = `/repos/${repo}/issues`;
-  let bot: Promise<string> | undefined;
-  const botName = () => (bot ??= gh.json("GET", "/user").then((u) => u.login));
   // The issues endpoint also lists pull requests.
-  const issues = async (query: string) => (await gh.all(`${base}?${query}&per_page=100`)).filter((i) => !i.pull_request).map(fromRest);
+  const issues = async (query: string) => (await gh.all<RestIssue>(`${base}?${query}&per_page=100`)).filter((i) => !i.pull_request).map(fromRest);
   const board = projectNumber === undefined ? undefined : makeBoard(gh, repo, projectNumber);
   const addLabels = (ref: string, labels: string[]) => gh.call("POST", `${base}/${Number(ref)}/labels`, { labels });
   const removeLabel = async (ref: string, label: string) => {
@@ -169,22 +172,22 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
     reopen: async (ref) => void (await gh.call("PATCH", `${base}/${Number(ref)}`, { state: "open" })),
     list: (state) => board ? board.list(state) : issues(`labels=${labelOf(state)}&state=open&sort=created&direction=asc`).then((l) => l.map((i) => toTicket(i))),
     async listClosed(count) {
-      const page = await gh.json("GET", `${base}?state=closed&sort=updated&direction=desc&per_page=${Math.min(count, 100)}`);
-      return page.filter((i: any) => !i.pull_request).map((i: any) => toTicket(fromRest(i))).slice(0, count);
+      const page: RestIssue[] = await gh.json("GET", `${base}?state=closed&sort=updated&direction=desc&per_page=${Math.min(count, 100)}`);
+      return page.filter((i) => !i.pull_request).map((i) => toTicket(fromRest(i))).slice(0, count);
     },
     // gh.all would read every page; this stops at the limit. A short page is the last one (pull requests count in it).
     async listOpen(limit) {
       const out: Ticket[] = [];
       for (let page = 1; out.length < limit; page++) {
-        const got: any[] = await gh.json("GET", `${base}?state=open&sort=created&direction=desc&per_page=100&page=${page}`);
+        const got: RestIssue[] = await gh.json("GET", `${base}?state=open&sort=created&direction=desc&per_page=100&page=${page}`);
         out.push(...got.filter((i) => !i.pull_request).map((i) => toTicket(fromRest(i))));
         if (got.length < 100) break;
       }
       return out.slice(0, limit);
     },
-    isFactory: async (actor) => actor === (await botName()),
+    isFactory: async (actor) => actor === (await gh.botName()),
     async trusted(actor) {
-      if (actor === (await botName()) && !sharedAccount) return false;
+      if (actor === (await gh.botName()) && !sharedAccount) return false;
       // 404: no such user. Any other failure (a 5xx, a rate limit) throws, so the caller tries again next poll.
       const p = await gh.json("GET", `/repos/${repo}/collaborators/${encodeURIComponent(actor)}/permission`).catch((e) => {
         if (isNotFound(e)) return undefined;
@@ -195,17 +198,17 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
     },
     async startedBy(ref) {
       if (board) return board.startedBy(ref);
-      const events = await gh.all(`${base}/${Number(ref)}/events?per_page=100`);
+      const events = await gh.all<{ event: string; label?: { name: string }; actor?: Login }>(`${base}/${Number(ref)}/events?per_page=100`);
       return events.filter((e) => e.event === "labeled" && e.label?.name === READY).at(-1)?.actor?.login;
     },
     async comments(ref, since) {
-      const name = await botName();
+      const name = await gh.botName();
       // GitHub's since filters on the edit time; withRelays keeps only comments created after it, newest first.
       // A relay comment older than `since` can have a newer 👍, so with a relay bot every comment is read.
-      const all = await gh.all(`${base}/${Number(ref)}/comments?per_page=100${since && !relayUser ? `&since=${encodeURIComponent(since)}` : ""}`);
+      const all = await gh.all<RestComment>(`${base}/${Number(ref)}/comments?per_page=100${since && !relayUser ? `&since=${encodeURIComponent(since)}` : ""}`);
       const own = all.map((c) => ({ author: c.user.login, byFactory: c.user.login === name && (!sharedAccount || String(c.body ?? "").startsWith(AI_LINE)), body: c.body ?? "", at: c.created_at })).reverse();
-      const relayed = await Promise.all(all.filter((c) => relayUser && c.user.login === relayUser && c.reactions?.["+1"] > 0).map(async (c) => {
-        const up = await gh.all(`/repos/${repo}/issues/comments/${c.id}/reactions?content=%2B1&per_page=100`);
+      const relayed = await Promise.all(all.filter((c) => relayUser && c.user.login === relayUser && (c.reactions?.["+1"] ?? 0) > 0).map(async (c) => {
+        const up = await gh.all<{ user: Login; created_at: string }>(`/repos/${repo}/issues/comments/${c.id}/reactions?content=%2B1&per_page=100`);
         return confirmedRelays({ body: c.body ?? "", editedAt: c.updated_at ?? c.created_at }, up.map((r) => ({ by: r.user.login, at: r.created_at })));
       }));
       return withRelays(own, relayed.flat(), since);
@@ -237,7 +240,7 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       return { ref: String(i.number), url: i.html_url };
     },
     // GitHub's issue dependencies ("blocked by"). A blocker in another repo shows as owner/name#n.
-    openBlockers: async (ref) => (await gh.all(`${base}/${Number(ref)}/dependencies/blocked_by?per_page=100`))
+    openBlockers: async (ref) => (await gh.all<RestIssue>(`${base}/${Number(ref)}/dependencies/blocked_by?per_page=100`))
       .filter((i) => i.state === "open").map((i) => (i.repository_url?.endsWith(`/repos/${repo}`) ? String(i.number) : i.html_url)),
     async findOpen(fingerprint) {
       const found = await issues(`labels=${markLabel("watcher")}&state=open`);

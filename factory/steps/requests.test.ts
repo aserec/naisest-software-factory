@@ -217,6 +217,15 @@ async function endedRound(heardUntil: string) {
   await askPerson(w.ctx, ["a person asked for changes"]);
   return w;
 }
+test("a conflict round after a request round still goes to the person who asked", async () => {
+  const w = world({ state: "running" });
+  const gate = { passed: true, rounds: 1, branch: "b", sha: "h", change: "5", changeUrl: "u" };
+  const asked = { cursor: T1, requests: [{ author: "dev", body: ASK, at: T1, on: "change" as const }], costAtStart: 0, tokensAtStart: { input: 0, output: 0 }, endedAt: T1 };
+  const conflict = { cursor: T2, requests: [], conflicts: true as const, costAtStart: 0, tokensAtStart: { input: 0, output: 0 } };
+  w.ctx.record = { ...addStep(addStep(w.ctx.record, "event", { start: true, ticket: "8", round: 2 }), "precommit-gate", gate), requestRounds: [asked, conflict] };
+  await askPerson(w.ctx, ["risk"]);
+  expect(w.host.assigned.at(-1)).toEqual({ ref: "5", person: "dev" });
+});
 test("after a round, a request the agent read during it starts no round, and one written after the last author run does", async () => {
   const w = await endedRound(T2);
   w.host.sayOnChange("5", "dev", ASK, T2);

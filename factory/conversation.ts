@@ -3,6 +3,7 @@
 // the writer and its reader sit side by side, and no other module knows a note's text. The same goes for the rule for a request:
 // a comment by a trusted person, not by the factory, that mentions `@factory`, after the cursor.
 import { errText } from "./errors";
+import { answerOf } from "./jev";
 import { RESUME_COMMAND, STOP_COMMAND } from "./inbox-file";
 import type { Request } from "./record";
 import type { ChangeRef, CodeHost, Comment, FactoryState, Judge, PersonRef, Tracker, TicketRef } from "./seams";
@@ -24,11 +25,11 @@ const hidden = (...lines: string[]) => `<!--\n${lines.join("\n")}\n-->`;
 // --- requests -------------------------------------------------------------------------------------------------
 
 const COMMANDS = [STOP_COMMAND, RESUME_COMMAND];
-const MENTION = /(^|[^\w@.-])@factory(?![\w-])/i;
+const REQUEST_MENTION = /(^|[^\w@.-])@factory(?![\w-])/i;
 
 export function isRequest(body: string): boolean {
   if (body.split("\n").some((l) => COMMANDS.includes(l.trim().toLowerCase()))) return false;
-  return MENTION.test(body);
+  return REQUEST_MENTION.test(body);
 }
 
 // A line that stops the run, and the bare stop or resume comment: commands to the factory, not requests.
@@ -61,9 +62,10 @@ const STOPPED_RUN = /^Stopped run: pipeline (\d+)$/m;
 const CANCEL_REASON = "Reason: pipeline cancelled from the dashboard";
 const CURSOR = /^Requests read up to: (\S+)/m;
 const READY_FOR = /^Ready for the request of: (\S+)$/m;
-// Comments posted before the two duplicate kinds were told apart carry CLOSE_MARKER on a question too, so an old marker reads as a close.
-const CLOSE_MARKER = "<!-- factory:dedupe -->";
-const QUESTION_MARKER = "<!-- factory:dedupe-question -->";
+// Comments posted before the two duplicate kinds were told apart carry DUPLICATE_CLOSE_MARKER on a question too, so an old marker reads as a close.
+// The marker text stays as posted on live work items.
+const DUPLICATE_CLOSE_MARKER = "<!-- factory:dedupe -->";
+const DUPLICATE_QUESTION_MARKER = "<!-- factory:dedupe-question -->";
 // A conflict round started: the poller starts no other one until the base branch gets a commit after this note.
 const CONFLICT_MARKER = "<!-- factory:conflict-round -->";
 
@@ -101,9 +103,9 @@ export function noteText(n: Note): string {
     case "cursor":
       return n.at ? `${n.text}\n\n${hidden(`Requests read up to: ${n.at}`)}` : n.text;
     case "duplicate_question":
-      return `${n.text}\n\n${QUESTION_MARKER}`;
+      return `${n.text}\n\n${DUPLICATE_QUESTION_MARKER}`;
     case "duplicate_close":
-      return `${n.text}\n\n${CLOSE_MARKER}`;
+      return `${n.text}\n\n${DUPLICATE_CLOSE_MARKER}`;
     case "conflictRound":
       return `${n.text}\n\n${CONFLICT_MARKER}`;
   }
@@ -146,8 +148,8 @@ const PARSE: { [K in keyof Fields]: (body: string) => Fields[K] | undefined } = 
     const cursor = CURSOR.exec(b)?.[1];
     return cursor ? { cursor } : undefined;
   },
-  duplicate_question: (b) => (b.includes(QUESTION_MARKER) ? {} : undefined),
-  duplicate_close: (b) => (b.includes(CLOSE_MARKER) ? {} : undefined),
+  duplicate_question: (b) => (b.includes(DUPLICATE_QUESTION_MARKER) ? {} : undefined),
+  duplicate_close: (b) => (b.includes(DUPLICATE_CLOSE_MARKER) ? {} : undefined),
   conflictRound: (b) => (b.includes(CONFLICT_MARKER) ? {} : undefined),
 };
 // The kinds a read finds. A stopped read also finds a cancel note: the run cannot be resumed, only restarted.
@@ -252,8 +254,7 @@ export function conversation(seams: { tracker: Tracker; codeHost: CodeHost; judg
   const oldestFirst = (list: Comment[]) => [...list].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
   const isInjection: Conversation["isInjection"] = async (c) => {
-    const [a] = await judge.ask(buildTriageState(`Request by ${c.author}`, c.body, []), [injectionQuestion]);
-    if (!a) throw new Error(`The judge gave no answer for "${injectionQuestion.id}"`);
+    const a = answerOf(await judge.ask(buildTriageState(`Request by ${c.author}`, c.body, []), [injectionQuestion]), injectionQuestion.id);
     return !(a.probability < INJECTION_LIMIT);
   };
 

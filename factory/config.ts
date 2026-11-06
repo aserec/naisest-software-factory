@@ -28,6 +28,7 @@ const seamsSchema = z.object({
   logSource: z.string().min(1),
   dashboard: z.string().min(1),
   dashboardUrl: z.string().min(1),
+  gitlabUrl: z.string().url().refine((u) => u.startsWith("https://") && !u.endsWith("/"), { message: "must be an https:// address with no trailing /" }),
   judgeModel: z.object({ provider: z.string().min(1), model: z.string().min(1) }),
   providers: z.record(z.object({
     api: z.enum(["anthropic", "openai"]),

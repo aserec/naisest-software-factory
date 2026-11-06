@@ -12,6 +12,7 @@ import { makeModelJudge } from "./adapters/model-judge";
 import { HARNESSES } from "./harnesses";
 import { makeTeamsChat } from "./adapters/teams-chat";
 import { makeSlackChat } from "./adapters/slack-chat";
+import { needEnv } from "./ci-vars";
 import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, providerKeys } from "./config";
 import { makeLocalCi } from "./adapters/local-ci";
 import { makeGitHubTracker } from "./adapters/github-tracker";
@@ -57,8 +58,9 @@ const ADAPTERS = {
   // The watcher's rules depend on the exact name "files": fake errors from this checkout.
   logSource: { files: () => makeFileLogs(resolve(FACTORY_ROOT, "watcher/fixtures")) },
 };
-// For the secrets test: which names seams.yml may pick for each seam.
-export const ADAPTER_NAMES = { tracker: Object.keys(ADAPTERS.tracker), codeHost: Object.keys(ADAPTERS.codeHost), chat: Object.keys(ADAPTERS.chat) };
+// Every tracker, code host and chat adapter reads its secret from secrets.ts; only chat console has none.
+for (const seam of ["tracker", "codeHost", "chat"] as const)
+  for (const n of Object.keys(ADAPTERS[seam])) if (!(n in ADAPTER_SECRETS[seam]) && n !== "console") throw new Error(`secrets.ts names no secret for ${seam} adapter ${n}`);
 function needRepo(target: Target): string {
   if (!target.githubRepo) throw new Error(`Target ${target.name} needs githubRepo for a github tracker or code host`);
   return target.githubRepo;
@@ -71,19 +73,13 @@ function pick<S extends Seam>(seams: SeamsConfig, seam: S): (typeof ADAPTERS)[S]
   return all[name as keyof typeof all];
 }
 
-function need(env: NodeJS.ProcessEnv, key: string): string {
-  const v = env[key];
-  if (!v) throw new Error(`${key} is not set`);
-  return v;
-}
-
 // The runner keeps File-type variables in <project dir>.tmp. Taken from this file's place, not from env.
 const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
 // seamsPath is for tests. seams.yml is read from the factory checkout only, never chosen by a variable.
 export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string): StepContext {
   // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
-  const name = need(env, "FACTORY_TARGET");
+  const name = needEnv(env, "FACTORY_TARGET");
   if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);
   const target = loadTarget(name);
   // A target may pick its own tracker and code host, so GitLab and GitHub repos share one factory.

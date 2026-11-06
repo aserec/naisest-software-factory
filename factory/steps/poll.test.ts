@@ -1,9 +1,9 @@
 import { expect, test, vi } from "vitest";
 import { main, pollReady } from "./poll";
 import { md, noteText } from "../conversation";
-import { endClosedRuns, finishCancelledStops, handleReadyRequests, handleRequests } from "./run";
-import { retryWaiting } from "./retry-waiting";
-import { BOT, fakeCtx, noteIn } from "./test-helpers";
+import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests } from "./poller";
+import { resumeWaiting } from "./resume-waiting";
+import { BOT, fakeCtx, fakeWorld, noteIn } from "./test-helpers";
 import { HttpError } from "../errors";
 import { fakeDashboard } from "../fakes";
 import { SWITCHES, type SwitchName } from "../run-events";
@@ -15,7 +15,7 @@ test("poller starts ready items up to the repo limit of 2", async () => {
 });
 test("retry resumes waiting runs with their saved session", async () => {
   const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0 });
-  expect(await retryWaiting(ctx)).toEqual(["9"]);
+  expect(await resumeWaiting(ctx)).toEqual(["9"]);
   expect(ctx.resumed).toEqual(["s9"]);
 });
 
@@ -29,7 +29,7 @@ test("poller starts nothing while the repo already has 2 active runs", async () 
 // Anyone who can comment could write the waiting line. Only the bot's own note counts.
 test("retry ignores a waiting note not written by the bot and blocks the work item", async () => {
   const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0, noteAuthor: "dev" });
-  expect(await retryWaiting(ctx)).toEqual([]);
+  expect(await resumeWaiting(ctx)).toEqual([]);
   expect(ctx.resumed).toEqual([]);
   expect(ctx.world.tracker.tickets.get("9")!.state).toBe("blocked");
   expect(ctx.world.cards.map((c) => c.kind)).toEqual(["blocked"]);
@@ -77,7 +77,7 @@ test("poller starts nothing while new_runs is off or the dashboard is down", asy
 test("retry resumes nothing while retry is off", async () => {
   const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0 });
   ctx.dashboard = fakeDashboard({ switches: on({ retry: false }) });
-  expect(await retryWaiting(ctx)).toEqual([]);
+  expect(await resumeWaiting(ctx)).toEqual([]);
 });
 
 // Task B5: the dashboard cancelled a pipeline that did not stop. The poller finishes the stop.
@@ -223,6 +223,39 @@ test("the --list poll sets a requested ticket ready and lists it to run", async 
     log.mockRestore();
     vi.unstubAllEnvs();
   }
+});
+// The --list poll does the whole tick: a dashboard resume prints as ticket:build run, which local-run.sh resumes.
+test("the --list poll runs dashboard resumes too and lists them with their build run", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  const argv = process.argv;
+  process.argv = [...argv, "--list"];
+  try {
+    const ctx = stoppedCtx([personStop]);
+    const dash = fakeDashboard({ requests: [request("resume", "7")] });
+    ctx.dashboard = dash;
+    await main(ctx);
+    expect(dash.done).toEqual([["q7", "done"]]);
+    expect(log.mock.calls.map((c) => c[0])).toEqual(["7:55"]);
+  } finally {
+    process.argv = argv;
+    log.mockRestore();
+    err.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+// F-P1: under ci: local no webhook hears a person's merge; the poller starts the finish run with apply skipped.
+test("a change a person merged by hand starts the finish run, once the webhook had its time", async () => {
+  const w = fakeWorld({ state: "needs_approval" });
+  w.openChange();
+  w.host.mergeByPerson("5", new Date().toISOString());
+  expect(await finishMerged(w.ctx)).toEqual([]); // just merged: the webhook's turn
+  w.host.mergeByPerson("5", "2026-10-01T00:00:00Z");
+  expect(await finishMerged(w.ctx)).toEqual(["8"]);
+  expect(w.ci.started).toEqual([{ kind: "finish", ticket: "8", change: "5", buildRun: "41", skipApply: true }]);
+  expect(w.states).toEqual(["running"]);
+  expect(await finishMerged(w.ctx)).toEqual([]); // running now: no second start
 });
 // R41: the comment first, so a lost comment never leaves a stopped ticket whose newest note is an older stop.
 test("a cancelled stop posts its comment before it sets the ticket stopped", async () => {
@@ -376,10 +409,10 @@ test("a closed needs_approval ticket loses its state and its open change is clos
 });
 test("an open needs_approval ticket whose change was closed unmerged is blocked", async () => {
   const { ctx, w, t } = closedWorld("needs_approval");
-  w.host.close("5");
+  w.host.close("5", "ann");
   expect(await endClosedRuns(ctx)).toEqual(["8"]);
   expect(t.state).toBe("blocked");
-  expect(w.workItemComments.at(-1)).toContain("The merge request https://host.example/changes/5 was closed without a merge.");
+  expect(w.workItemComments.at(-1)).toContain("The merge request https://host.example/changes/5 was closed without a merge by ann.");
 });
 test("a closed done ticket, and a closed ticket whose change merged, are left alone", async () => {
   const done = closedWorld("done", { open: false });

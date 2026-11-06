@@ -5,11 +5,10 @@ import type { FactoryCommands } from "./types.js";
 
 // The agent loops default to DEFAULT_THRESHOLDS.maxAgentRounds; the steps pass the target's value. The rebase limit in steps/merge.ts is separate.
 
-export interface LoopDeps {
-  review(): Promise<Finding[]>;
-  fix(feedback: string): Promise<HarnessResult>;
-  run(cmd: string): Promise<{ ok: boolean; output: string }>;
-}
+// Each loop takes only what it calls: the author's fix, and the review or the gate's commands.
+interface FixDeps { fix(feedback: string): Promise<HarnessResult> }
+export interface ReviewDeps extends FixDeps { review(): Promise<Finding[]> }
+export interface GateDeps extends FixDeps { run(cmd: string): Promise<{ ok: boolean; output: string }> }
 export type LoopResult =
   | { kind: "passed"; rounds: number }
   | { kind: "blocked"; rounds: number; open: string[] }
@@ -17,7 +16,7 @@ export type LoopResult =
 
 // Runs fix on the open problems. Returns a final result if the loop must stop, otherwise undefined.
 // A failed fix keeps the problems in the result, so the person sees what the author was asked to fix.
-async function fixOrStop(deps: LoopDeps, open: string[], rounds: number): Promise<LoopResult | undefined> {
+async function fixOrStop(deps: FixDeps, open: string[], rounds: number): Promise<LoopResult | undefined> {
   const r = await deps.fix(open.join("\n"));
   if (r.stopped) return { kind: "stopped", rounds, sessionId: r.session };
   if (r.limitHit) return { kind: "limit", rounds, sessionId: r.session };
@@ -26,7 +25,7 @@ async function fixOrStop(deps: LoopDeps, open: string[], rounds: number): Promis
 }
 
 // start > 1 continues a resumed loop, so maxRounds counts every round of the run.
-export async function codeReviewLoop(deps: LoopDeps, maxRounds = DEFAULT_THRESHOLDS.maxAgentRounds, start = 1): Promise<LoopResult> {
+export async function codeReviewLoop(deps: ReviewDeps, maxRounds = DEFAULT_THRESHOLDS.maxAgentRounds, start = 1): Promise<LoopResult> {
   for (let round = start; ; round++) {
     const blocking = (await deps.review()).filter((f) => f.blocking);
     if (blocking.length === 0) return { kind: "passed", rounds: round };
@@ -37,7 +36,7 @@ export async function codeReviewLoop(deps: LoopDeps, maxRounds = DEFAULT_THRESHO
   }
 }
 
-export async function precommitGate(deps: LoopDeps, cmds: FactoryCommands, maxRounds = DEFAULT_THRESHOLDS.maxAgentRounds, start = 1): Promise<LoopResult> {
+export async function precommitGate(deps: GateDeps, cmds: FactoryCommands, maxRounds = DEFAULT_THRESHOLDS.maxAgentRounds, start = 1): Promise<LoopResult> {
   for (let round = start; ; round++) {
     let failed: { cmd: string; tail: string } | undefined;
     for (const cmd of [cmds.lint, cmds.test, cmds.build]) {

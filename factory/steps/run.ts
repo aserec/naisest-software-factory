@@ -6,11 +6,11 @@
 import { randomUUID } from "node:crypto";
 import { emit, emitFor, runIds, type RunIds } from "../emit";
 import type { PausableStep } from "../record";
-import { commandIn, conversation, md, type Read } from "../conversation";
-import { errText, isNotFound } from "../errors";
+import { conversation, md, type Read } from "../conversation";
+import { errText } from "../errors";
 import { STOP_COMMAND } from "../inbox-file";
-import { STEPS, SWITCHES, type ControlRequest } from "../run-events";
-import type { ChangeRef, FactoryEvent, FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
+import { STEPS } from "../run-events";
+import type { ChangeRef, FactoryEvent, FactoryState, PersonRef, Ticket, TicketRef } from "../seams";
 import type { FactoryCommands } from "../types";
 import { startStep } from "./with-step";
 import { controls, facts, person, save, ticketRef, type StepContext, type StepResult } from "./context";
@@ -140,21 +140,21 @@ export async function stopped(ctx: StepContext, step: PausableStep, o: { session
 // work item closed and then opened again. The factory closes the ticket itself (the change's closing line at its merge,
 // then result-saved), so only a ticket in one of `states` counts, and never one whose own change merged.
 // isRunsChange: the change belongs to this run. An older run's change stays the newest on the branch until this run pushes.
-type Closed = { ticket: true; change?: { ref: ChangeRef; open: boolean } } | { ticket: false; url: string };
-async function closedNow(ctx: StepContext, ref: TicketRef, states: FactoryState[], isRunsChange: (t: Ticket, c: ChangeRef) => boolean | Promise<boolean>): Promise<Closed | undefined> {
+export type Closed = { ticket: true; change?: { ref: ChangeRef; open: boolean } } | { ticket: false; url: string; closedBy?: PersonRef };
+export async function closedNow(ctx: StepContext, ref: TicketRef, states: FactoryState[], isRunsChange: (t: Ticket, c: ChangeRef) => boolean | Promise<boolean>): Promise<Closed | undefined> {
   const t = await ctx.tracker.ticket(ref);
   if (!t.state || !states.includes(t.state)) return undefined;
   const change = await ctx.codeHost.changeOfTicket(ref);
   if (change?.merged && (await isRunsChange(t, change.ref))) return undefined; // an older run's merged change does not shield this run
   if (!t.open) return { ticket: true, change };
-  if (change && !change.open && (await isRunsChange(t, change.ref))) return { ticket: false, url: change.url };
+  if (change && !change.open && (await isRunsChange(t, change.ref))) return { ticket: false, url: change.url, closedBy: (await ctx.codeHost.change(change.ref)).closedBy };
   return undefined;
 }
 
 // A closed work item ends the run quietly: its open change is closed, then its state is removed. A change closed
 // without a merge, while the work item is open, blocks the run. ctx: the ticket's own context (ticketRef).
-async function endClosed(ctx: StepContext, ref: TicketRef, closed: Closed): Promise<StepResult> {
-  if (!closed.ticket) return block(ctx, `The merge request ${closed.url} was closed without a merge.`, { continuable: false });
+export async function endClosed(ctx: StepContext, ref: TicketRef, closed: Closed): Promise<StepResult> {
+  if (!closed.ticket) return block(ctx, `The merge request ${closed.url} was closed without a merge${closed.closedBy ? ` by ${closed.closedBy}` : ""}.`, { continuable: false });
   if (closed.change?.open) {
     await ctx.codeHost.commentChange(closed.change.ref, md("🚫", "Change closed", `This merge request was closed because a person closed work item #${ref}.`));
     await ctx.codeHost.closeChange(closed.change.ref);
@@ -176,34 +176,6 @@ export async function endIfClosed(ctx: StepContext): Promise<StepResult | undefi
   return closed && endClosed(ctx, ref, closed);
 }
 
-// The runs with no step running. A running run's own steps check for itself.
-const PAUSED: FactoryState[] = ["needs_approval", "waiting", "stopped"];
-// The poller has no run record. A ticket is past the gate's push when it waits for a person,
-// or a stop note names the decision or apply step. Before the push, the newest change is an older run's.
-const pushed = async (ctx: StepContext, t: Ticket) => {
-  const note = t.state === "stopped" ? await conversation(ctx).newest(t.ref, "stopped") : undefined;
-  return t.state === "needs_approval" || (note?.kind === "stopped" && ["decision", "apply"].includes(note.step ?? ""));
-};
-
-// The poller: a paused run whose work item or change a person closed would keep its run slot for good. Same outcomes
-// as endIfClosed. Returns the tickets it ended. One failed ticket is logged and tried again next minute.
-export async function endClosedRuns(ctx: StepContext): Promise<TicketRef[]> {
-  const closed = (await ctx.tracker.listClosed(100)).filter((t) => t.state && PAUSED.includes(t.state));
-  const open = (await Promise.all(PAUSED.map((s) => ctx.tracker.list(s)))).flat();
-  const ended: TicketRef[] = [];
-  for (const { ref } of [...closed, ...open]) {
-    try {
-      const one = { ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } };
-      const found = await closedNow(one, ref, PAUSED, (t) => pushed(ctx, t));
-      if (!found) continue;
-      await endClosed(one, ref, found);
-      ended.push(ref);
-    } catch (e) {
-      console.log(`Ending closed ticket ${ref} failed: ${errText(e)}`);
-    }
-  }
-  return ended;
-}
 
 const PERSON_STOP = `stopped by ${STOP_COMMAND}`;
 const DASHBOARD_STOP = "stopped from the dashboard";
@@ -213,7 +185,7 @@ export const stopReason = (ctx: StepContext) => (ctx.dashboardStop ? DASHBOARD_S
 // Starts a stopped run again, in the kind of pipeline it stopped in. A build run resumes through its event step,
 // which checks the ticket and the record again. False when the note does not say enough to start it
 // (an old note names no step, a note at apply no change or build pipeline).
-async function startStopped(ctx: StepContext, ref: TicketRef, note: Extract<Read<"stopped">, { kind: "stopped" }>): Promise<boolean> {
+export async function startStopped(ctx: StepContext, ref: TicketRef, note: Extract<Read<"stopped">, { kind: "stopped" }>): Promise<boolean> {
   if (!note.step) return false;
   if (note.step !== "apply") {
     await ctx.ci.start({ kind: "build", ticket: ref, buildRun: note.run });
@@ -315,158 +287,4 @@ export async function continueBlocked(ctx: StepContext, e: Extract<FactoryEvent,
   // prepare-patch starts on a fresh clone, so a half-done edit never picks the .factory.yml commands.
   if (point.at !== "prepare-patch") await ctx.ci.restoreRun(buildRun);
   return continueAt(ctx, e.ticket, point.at, { actor: e.actor, fromPipeline: buildRun });
-}
-
-// The poller: a run a dashboard switch stopped goes on once that switch is on again, in the same kind of pipeline it stopped in.
-export async function resumeSwitchedOff(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
-  // Unlike a running step, a resume needs the dashboard: a switch someone turned off must not count as on (controls()).
-  const control = await controls(ctx);
-  if (!SWITCHES.some((n) => control.resumeOn(n))) return []; // also while the dashboard cannot be reached
-  const started: TicketRef[] = [];
-  for (const { ref } of await ctx.tracker.list("stopped")) {
-    if (skip.includes(ref)) continue;
-    const note = await conversation(ctx).newest(ref, "stopped");
-    const name = note?.kind === "stopped" && note.reason && /^switch off (\w+)$/.exec(note.reason)?.[1];
-    if (note?.kind !== "stopped" || !name || !control.resumeOn(name as SwitchName)) continue;
-    if (await startStopped(ctx, ref, note)) started.push(ref);
-  }
-  return started;
-}
-
-// The poller: a person's 👍 on a relayed `@factory resume` (relay.ts). A 👍 sends no comment webhook, so the event step never
-// sees it; a person's own resume comment does send one and is left to the event step, so a run never starts twice.
-export async function resumeRelayed(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
-  const started: TicketRef[] = [];
-  for (const { ref } of await ctx.tracker.list("stopped")) {
-    if (skip.includes(ref)) continue;
-    try {
-      const note = await conversation(ctx).newest(ref, "stopped");
-      if (note?.kind !== "stopped") continue; // a cancelled run can only be restarted
-      let ok = false;
-      for (const c of await ctx.tracker.comments(ref, note.at)) if (c.relayed && commandIn(c.body) === "resume" && (ok = await ctx.tracker.trusted(c.author))) break;
-      if (ok && (await startStopped(ctx, ref, note))) started.push(ref);
-    } catch (e) {
-      console.log(`Relayed resume of ticket ${ref} failed: ${errText(e)}`);
-    }
-  }
-  return started;
-}
-
-// The ticket, or undefined when it is gone (deleted, or a GitHub GraphQL NOT_FOUND).
-const ticketOrGone = (ctx: StepContext, ref: TicketRef) => ctx.tracker.ticket(ref).catch((e): undefined => {
-  if (isNotFound(e)) return undefined;
-  throw e;
-});
-
-// The poller: the dashboard cancelled a pipeline that did not stop in time. That run saved nothing, so the ticket is
-// marked stopped with a note that it can only be restarted. Then the dashboard hears the request is done.
-export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[]> {
-  const control = await controls(ctx);
-  const finished: TicketRef[] = [];
-  for (const r of control.requests) {
-    if (r.kind !== "stop" || r.outcome !== "cancelled") continue;
-    // One failed request must not stop the poller: it is logged and tried again next minute.
-    try {
-      const t = await ticketOrGone(ctx, r.ticket); // a gone ticket has nothing to stop
-      if (t?.state === "running") {
-        // The comment first: without it a resume would read an older stop note.
-        await conversation(ctx).write(r.ticket, { kind: "cancelled", user: r.user });
-        await ctx.tracker.setState(r.ticket, "stopped");
-        finished.push(r.ticket);
-      }
-      await ctx.dashboard.requestDone(r.id, "done");
-    } catch (e) {
-      console.log(`Request ${r.id} (cancelled stop of ticket ${r.ticket}) failed: ${errText(e)}`);
-    }
-  }
-  return finished;
-}
-
-// The poller: resume and restart requests from the dashboard. The dashboard checked the person's role; this checks the ticket.
-// Returns the tickets it started. A failed request stays pending for the next poll and does not stop the others.
-export async function handleRequests(ctx: StepContext): Promise<TicketRef[]> {
-  const control = await controls(ctx);
-  const started: TicketRef[] = [];
-  for (const r of control.requests) {
-    if (r.outcome || (r.kind !== "resume" && r.kind !== "restart")) continue;
-    try {
-      const t = await ticketOrGone(ctx, r.ticket);
-      // A restart whose start failed set the ticket ready already: only the start is left.
-      const retry = r.kind === "restart" && t?.state === "ready" && (await ctx.tracker.isFactory((await ctx.tracker.startedBy(r.ticket)) ?? ""));
-      const ok = retry ? await retryRestart(ctx, r) : t?.state === "stopped" && (r.kind === "resume" ? await resumeRequest(ctx, r) : await restart(ctx, r));
-      if (ok) started.push(r.ticket);
-      await ctx.dashboard.requestDone(r.id, ok ? "done" : "refused");
-    } catch (e) {
-      console.log(`Request ${r.id} (${r.kind} of ticket ${r.ticket}) failed: ${errText(e)}`);
-    }
-  }
-  return started;
-}
-
-// The poller: dashboard Set to Ready. The factory sets the label for a person the target trusts, as the Ready they
-// would set themselves. It starts nothing, so the local factory's --list poll runs it too; the ready ticket then
-// starts like any other (pollReady, the webhook). Returns the tickets it set ready.
-export async function handleReadyRequests(ctx: StepContext): Promise<TicketRef[]> {
-  const set: TicketRef[] = [];
-  for (const r of (await controls(ctx)).requests) {
-    if (r.outcome || r.kind !== "ready") continue;
-    try {
-      const state = (await ticketOrGone(ctx, r.ticket))?.state;
-      const ok = (state === "blocked" || state === "needs_info") && (await ctx.tracker.trusted(r.user));
-      if (ok) {
-        await ctx.tracker.comment(r.ticket, md("▶️", "Set to Ready", `@${r.user} set the work item to Ready from the dashboard.`));
-        await ctx.tracker.setState(r.ticket, "ready");
-        set.push(r.ticket);
-      }
-      await ctx.dashboard.requestDone(r.id, ok ? "done" : "refused");
-    } catch (e) {
-      console.error(`Request ${r.id} (ready of ticket ${r.ticket}) failed: ${errText(e)}`); // stderr: --list prints only ticket refs on stdout
-    }
-  }
-  return set;
-}
-
-// The dashboard checked the role on the factory project; the target project must trust the person too.
-async function resumeRequest(ctx: StepContext, r: ControlRequest): Promise<boolean> {
-  if (!(await ctx.tracker.trusted(r.user))) return false;
-  const note = await conversation(ctx).newest(r.ticket, "stopped");
-  return note?.kind === "stopped" && startStopped(ctx, r.ticket, note);
-}
-
-// The old run ends as blocked and the ticket is ready again. The new build's event step takes the factory's ready
-// as the request user's (readyActor), so it gets a new run ID.
-async function restart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
-  await ctx.tracker.comment(r.ticket, md("🔄", "Restarted", `@${r.user} restarted the run from the dashboard. This run ends as blocked and a new run starts.`));
-  await ctx.tracker.setState(r.ticket, "blocked");
-  await ctx.tracker.setState(r.ticket, "ready");
-  return startRestart(ctx, r);
-}
-
-// Past RESTART_MS the event step no longer takes the factory's ready as the person's, so the ticket goes back
-// to stopped rather than wait as a ready nobody can start. The same window as readyActor.
-async function retryRestart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
-  const age = Date.now() - Date.parse(r.at);
-  if (age >= 0 && age <= RESTART_MS) return startRestart(ctx, r);
-  await ctx.tracker.comment(r.ticket, md("⚠️", "Restart failed", "The restart could not start a new run within 15 minutes. The ticket is stopped again. Press **Restart** on the dashboard to try again."));
-  await ctx.tracker.setState(r.ticket, "stopped");
-  return false;
-}
-
-async function startRestart(ctx: StepContext, r: ControlRequest): Promise<boolean> {
-  const url = await ctx.ci.start({ kind: "build", ticket: r.ticket });
-  // Only once the new run is on its way. The old run's event names its own ticket and no poller pipeline or job.
-  endRun(ctx, "restarted", { ...runIds(ctx), run: r.run, ticket: r.ticket, pipeline: undefined, job: undefined });
-  // The new run is started: a failure here must not leave the request pending, or the next poll starts a second run.
-  await closeStoppedChange(ctx, r, url).catch((e) => console.log(`Closing the change of ticket ${r.ticket} failed: ${errText(e)}`));
-  return true;
-}
-
-// A run stopped at apply left its change open. The new run opens its own, so the old one is closed.
-// The ticket is ready by now, but the stopped note still names the change.
-async function closeStoppedChange(ctx: StepContext, r: ControlRequest, url: string): Promise<void> {
-  const note = await conversation(ctx).newest(r.ticket, "stopped");
-  const change = note?.kind === "stopped" ? note.change : undefined;
-  if (!change || !(await ctx.codeHost.change(change)).open) return;
-  await ctx.codeHost.commentChange(change, md("🚫", "Change closed", `This change was closed because @${r.user} restarted the run from the dashboard.`, url && `**New run:** ${url}`));
-  await ctx.codeHost.closeChange(change);
 }

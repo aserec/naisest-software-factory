@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { answerOf } from "../jev";
 import type { Chat, ErrorGroup, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, Dispatch, TicketRef, Tracker } from "../seams";
 import { localSection } from "../local-instructions";
 import { prompt } from "../steps/context";
@@ -24,11 +25,7 @@ type Outcome = { opened: TicketRef[]; blocked: TicketRef[]; skipped: string[] };
 
 async function ask(judge: Judge, state: object, ids: string[]): Promise<Record<string, JevAnswer>> {
   const answers = await judge.ask(state, ids.map(question));
-  return Object.fromEntries(ids.map((id) => {
-    const a = answers.find((x) => x.id === id);
-    if (!a) throw new Error(`The judge gave no answer for "${id}"`);
-    return [id, a];
-  }));
+  return Object.fromEntries(ids.map((id) => [id, answerOf(answers, id)]));
 }
 
 const titleOf = (g: ErrorGroup) => `${g.component ?? "Error"}: ${g.message.split("\n")[0].slice(0, 120)}`;

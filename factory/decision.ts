@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import type { JevClient, JevQuestion } from "./jev";
+import { answerOf, type JevClient, type JevQuestion } from "./jev";
 import type { RuleResult } from "./rules";
 import { DEFAULT_THRESHOLDS, type Thresholds } from "./thresholds";
 import type { Answer, Risk } from "./types";
@@ -17,11 +17,7 @@ const EPSILON = 1e-9; // so 0.9 and 0.1 pass despite float error
 
 export async function askRisk(jev: JevClient, ticket: { title: string; description: string }, diffText: string): Promise<RiskAnswers> {
   const answers = await jev.ask({ title: ticket.title, description: ticket.description, diff: diffText.slice(0, MAX_DIFF) }, questions);
-  const get = (id: string) => {
-    const a = answers.find((x) => x.id === id);
-    if (!a) throw new Error(`Jev gave no answer for "${id}"`);
-    return a;
-  };
+  const get = (id: string) => answerOf(answers, id);
   const risk = get("diff_risk");
   if (typeof risk.value !== "number") throw new Error(`Jev diff_risk answer is not a number: ${JSON.stringify(risk.value)}`);
   return {

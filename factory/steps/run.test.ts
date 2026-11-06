@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { fakeTracker } from "../fakes";
 import { fakeDashboard } from "../fakes";
-import { finishCancelledStops } from "./run";
+import { finishCancelledStops } from "./poller";
 import type { StepContext } from "./context";
 import { fakeCtx } from "./test-helpers";
 

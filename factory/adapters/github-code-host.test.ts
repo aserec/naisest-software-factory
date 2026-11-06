@@ -79,6 +79,12 @@ describe("change", () => {
     routes[`${R}/pulls/5`] = { ...p, mergeable: true, mergeable_state: "clean" };
     expect((await host().change("5")).conflicts).toBe(false);
   });
+  test("a pull request closed without a merge names who closed it", async () => {
+    routes[`${R}/pulls/5`] = { state: "closed", merged: false, head: { sha: "h" }, base: { ref: "develop" }, html_url: "u" };
+    routes[`${R}/compare/develop...h`] = { behind_by: 0 };
+    routes[`${R}/issues/5`] = { closed_by: { login: "ann" } };
+    expect((await host().change("5")).closedBy).toBe("ann");
+  });
 });
 
 describe("checks", () => {

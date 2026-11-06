@@ -53,6 +53,11 @@ test("one row's author and reviewer may not share a model family", () => {
   const seams = loadSeams(edited("seams.yml", "claude-opus-5-5: opus", "claude-opus-5-5: sonnet"));
   expect(() => loadRouter(undefined, seams)).toThrow("router.yml low: author and reviewer are both family sonnet");
 });
+test("gitlabUrl comes from seams.yml and must be https", () => {
+  expect(loadSeams(edited("seams.yml", /^gitlabUrl: .*$/m, "gitlabUrl: https://gitlab.example.com")).gitlabUrl).toBe("https://gitlab.example.com");
+  expect(() => loadSeams(edited("seams.yml", /^gitlabUrl: .*$/m, "gitlabUrl: http://gitlab.example.com"))).toThrow(/gitlabUrl must be an https/);
+});
+
 test("a seams.yml field of the wrong shape names the field", () => {
   expect(() => loadSeams(edited("seams.yml", "api: openai", "api: grpc"))).toThrow(/seams\.yml: providers\.tensorx\.api/);
 });

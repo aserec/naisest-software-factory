@@ -6,6 +6,8 @@ codeHost: gitlab
 # or gitlab (.gitlab-ci.yml).
 ci: local
 judge: jev-celeris
+# The one GitLab the gitlab adapters talk to. Its token goes here, so it is never taken from an env variable.
+gitlabUrl: https://gitlab.example.com
 # chat is console (notices go to the job log), teams (TEAMS_WEBHOOK_URL) or slack (SLACK_WEBHOOK_URL).
 chat: slack
 logSource: files

@@ -27,7 +27,7 @@ function fakeDocker(codes: Record<string, number> = {}) {
   return { calls, envs, exec, started: () => calls.filter((a) => a[0] === "start").map((a) => a[2].split("-").slice(2).join("-")) };
 }
 const run = (d: ReturnType<typeof fakeDocker>, runs: string, queue: string, q: QueuedRun = { kind: "build", target: "react_frontend", ticket: "8" }) =>
-  runOne(d.exec, base, machineHost(), "factory-worker", q, "7", targetLock(), runs, queue);
+  runOne(q, "7", { exec: d.exec, base, open: machineHost(), image: "factory-worker", lock: targetLock(), runsDir: runs, queueDir: queue });
 
 test("a build run starts each step in its own container, saves run/ and marks it ok after decision, then queues what it asked", async () => {
   const d = fakeDocker(), runs = tmp(), queue = tmp();
@@ -96,7 +96,7 @@ test("a cancel kills the running step's container and starts no next step", asyn
     if (args[0] === "start" && args[2].endsWith("-triage")) { live.cancelled = true; await live.kill?.(); return { code: 137, out: "" }; }
     return d.exec(cmd, args, env);
   };
-  await runOne(exec, base, machineHost(), "factory-worker", { kind: "build", target: "react_frontend", ticket: "8" }, "7", targetLock(), tmp(), tmp(), live);
+  await runOne({ kind: "build", target: "react_frontend", ticket: "8" }, "7", { exec, base, open: machineHost(), image: "factory-worker", lock: targetLock(), runsDir: tmp(), queueDir: tmp(), live });
   expect(d.calls.filter((a) => a[0] === "start").map((a) => a[2])).toEqual(["factory-7-event"]);
   expect(d.calls).toContainEqual(["kill", "factory-7-triage"]);
 });
@@ -186,10 +186,10 @@ test("each tick polls; the hourly tick also retries, watches and starts a due im
     await tickTarget(exec, base, "a", 1, o);
     expect(steps).toEqual(["poll"]);
     await tickTarget(exec, base, "a", 60, o);
-    expect(steps).toEqual(["poll", "poll", "retry-waiting", "watcher"]);
+    expect(steps).toEqual(["poll", "poll", "resume-waiting", "watcher"]);
     expect(improved).toEqual(["a"]);
     await tickTarget(exec, base, "a", 120, { ...o, watch: false });
-    expect(steps.slice(4)).toEqual(["poll", "retry-waiting"]);
+    expect(steps.slice(4)).toEqual(["poll", "resume-waiting"]);
     expect(improved).toEqual(["a"]); // not due again within the week
     // A failing target is logged, and the tick goes on to the next target.
     const failing: Exec = async () => { throw new Error("docker down"); };

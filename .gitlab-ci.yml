@@ -237,13 +237,13 @@ poll:
   - if: $CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "poll"
   script:
   - factory_env node --import tsx factory/steps/poll.ts
-retry-waiting:
+resume-waiting:
   extends: .factory
   stage: event
   rules:
   - if: $CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "retry"
   script:
-  - factory_env node --import tsx factory/steps/retry-waiting.ts
+  - factory_env node --import tsx factory/steps/resume-waiting.ts
 # The weekly self-improvement job (docs/setup.md section 8). It can wait up to an hour for the pipeline of its fix.
 improve:
   extends: .factory

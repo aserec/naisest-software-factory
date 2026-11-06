@@ -75,7 +75,7 @@ export interface Repo {
 
 // absent: the repo has no CI at all, so no check will ever come.
 export type Checks = "green" | "red" | "running" | "none" | "absent";
-export interface Change { ref: ChangeRef; open: boolean; merged: boolean; mergedAt?: string; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean; conflicts: boolean } // behind: the target branch has commits the change lacks. conflicts: the change does not merge cleanly into the target
+export interface Change { ref: ChangeRef; open: boolean; merged: boolean; mergedAt?: string; head: string; landedSha: string; url: string; title: string; body: string; target: string; behind: boolean; conflicts: boolean; closedBy?: PersonRef } // closedBy: who closed it without a merge. behind: the target branch has commits the change lacks. conflicts: the change does not merge cleanly into the target
 export interface CodeHost {
   baseBranch(): Promise<string>;
   cloneAt(dir: string): Repo;

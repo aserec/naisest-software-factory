@@ -104,7 +104,7 @@ export function runFacts(r: RunRecord) {
     resumed: !!event?.resume && event.round === undefined, // the newest event is a resume after a pause, not a round start
     roundStart: newest?.step === "event" && (newest.data as StepData["event"]).round !== undefined, // the newest event started a round
     openRound: r.requestRounds?.at(-1)?.endedAt === undefined ? r.requestRounds?.at(-1) : undefined, // the last round, if it has not ended
-    requested: !!r.requestRounds?.length,
+    requested: !!r.requestRounds?.some((x) => !x.conflicts), // a conflict round is the factory's own, not a person's request
     resumeAt: event?.resumeAt, // a resumed run continues at this build job
     // On a resumed run, the saved session if this job is the one that paused.
     resumeSession: (job: string) => (event?.resumeAt === job ? event.sessionId : undefined),

@@ -47,3 +47,7 @@ test("runFacts reports an open round and a round start", () => {
   r = { ...addStep(r, "questions", {}), requestRounds: [{ ...round, endedAt: "x" }] };
   expect(runFacts(r)).toMatchObject({ roundStart: false, openRound: undefined, requested: true });
 });
+test("a conflict round alone is no request: the run may still merge without a person", () => {
+  const conflict: RequestRound = { cursor: "t", requests: [], conflicts: true, costAtStart: 0, tokensAtStart: { input: 0, output: 0 } };
+  expect(runFacts({ ...newRecord(), requestRounds: [conflict] }).requested).toBe(false);
+});

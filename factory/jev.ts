@@ -6,6 +6,12 @@ export type JevQuestion =
   | { id: string; kind: "choice"; text: string; options: string[] }
   | { id: string; kind: "score"; text: string; levels: number; min?: number };
 export interface JevAnswer { id: string; value: string | number | boolean; probability: number; confidence: number }
+// The answer to one question, by its id. A missing answer throws: the caller must not guess one.
+export function answerOf(answers: JevAnswer[], id: string): JevAnswer {
+  const a = answers.find((x) => x.id === id);
+  if (!a) throw new Error(`The judge gave no answer for "${id}"`);
+  return a;
+}
 export interface JevClient { readonly provider: "celeris" | "mock" | "model"; ask(state: unknown, questions: JevQuestion[]): Promise<JevAnswer[]> }
 
 // Fixed, never from an env variable: trigger callers can set any variable, and the key goes to this host.

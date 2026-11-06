@@ -43,9 +43,15 @@ export class GitHub {
     return res.status === 204 ? undefined : res.json();
   }
 
+  // The token's own login, asked once.
+  private bot?: Promise<string>;
+  botName(): Promise<string> {
+    return (this.bot ??= this.json("GET", "/user").then((u) => u.login as string));
+  }
+
   // Every page of a list endpoint, in GitHub's order. The path must already carry per_page=100.
-  async all(path: string): Promise<any[]> {
-    const out: any[] = [];
+  async all<T>(path: string): Promise<T[]> {
+    const out: T[] = [];
     for (let page = 1; ; page++) {
       const items = await this.json("GET", `${path}&page=${page}`);
       out.push(...items);

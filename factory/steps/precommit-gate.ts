@@ -7,7 +7,7 @@ import { findSecrets } from "../rules";
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { review } from "./code-review";
 import { endOutcome, facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
-import { runLine, withoutMarks } from "./merge";
+import { runLine, withoutMarks } from "./change-text";
 import { block, endIfClosed, stopReason, stopped, waiting } from "./run";
 import { withStep } from "./with-step";
 
@@ -56,7 +56,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   for (;;) {
     // A resumed run goes on from its last round. A check after the last fix counts as the last round, never one more.
     const start = Math.min(ctx.record.rounds.gate + 1, max);
-    result = await precommitGate({ review: async () => [], fix: (feedback) => fix(ctx, feedback), run: async (cmd) => {
+    result = await precommitGate({ fix: (feedback) => fix(ctx, feedback), run: async (cmd) => {
       const r = await ctx.repo.run(cmd);
       // ponytail: the Repo seam gives ok, not the exit code; add it to Repo.run if the dashboard needs the real code.
       emit(ctx, "gate_check", { command: cmd, exitCode: r.ok ? 0 : 1, outputTail: r.output });

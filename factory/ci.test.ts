@@ -10,7 +10,7 @@ import { BUILD_STEPS, STEPS as RUN_STEPS } from "./steps/run";
 import { main as watcher } from "./steps/watcher";
 
 const ci = parse(readFileSync(new URL("../.gitlab-ci.yml", import.meta.url), "utf8"));
-const STEPS = [...RUN_STEPS, "poll", "retry-waiting", "dispatch", "watcher", "improve"];
+const STEPS = [...RUN_STEPS, "poll", "resume-waiting", "dispatch", "watcher", "improve"];
 const PATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const passed = (name: string) => `${name}="$${name}"`;
 const STEP_ENV = [
@@ -77,7 +77,7 @@ test("the allowlist drops NODE_OPTIONS, npm_config_* and the job PATH", () => {
 
 test("the poll, retry and improve jobs run only in their own scheduled pipeline", () => {
   expect(ci.poll.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "poll"' }]);
-  expect(ci["retry-waiting"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "retry"' }]);
+  expect(ci["resume-waiting"].rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "retry"' }]);
   expect(ci.improve.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "schedule" && $FACTORY_SCHEDULE == "improve"' }]);
   expect(ci.dispatch.rules).toEqual([{ if: '$CI_PIPELINE_SOURCE == "trigger" && $FACTORY_PIPELINE == "dispatch"' }]);
   expect(ci.dispatch.resource_group).toBe("dispatch-$FACTORY_TARGET");
