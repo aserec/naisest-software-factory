@@ -161,6 +161,9 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string, relayUser
       const w = await (await gitlab.call("POST", `/projects/${await projectId()}/issues`, { title: draft.title, description, labels: labels.join(",") })).json();
       return { ref: String(w.iid), url: w.web_url as string };
     },
+    // GitLab's linked issues of type "is blocked by" (a Premium feature; without it the list has none).
+    openBlockers: async (ref) => (await gitlab.getJson(`${await issueUrl(ref)}/links`))
+      .filter((l: any) => l.link_type === "is_blocked_by" && l.state === "opened").map((l: any) => l.web_url),
     async findOpen(fingerprint) {
       const found = await issues(`labels=${MARK_LABELS.watcher}&state=opened&search=${encodeURIComponent(fingerprint)}&per_page=100`);
       return found.find((t) => t.body.includes(fingerprintMarker(fingerprint)))?.ref;

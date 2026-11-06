@@ -9,13 +9,14 @@ import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, Cont
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
 // An in-memory Tracker for tests. It keeps the rules of the real one: secrets are refused, the factory is not trusted.
-export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: Map<TicketRef, Ticket>; posted: { ref: TicketRef; text: string }[]; created: TicketDraft[]; cleared: TicketRef[]; say(ref: TicketRef, author: PersonRef, body: string, at?: string): void } {
+export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: Map<TicketRef, Ticket>; blockers: Map<TicketRef, TicketRef[]>; posted: { ref: TicketRef; text: string }[]; created: TicketDraft[]; cleared: TicketRef[]; say(ref: TicketRef, author: PersonRef, body: string, at?: string): void } {
   const tickets = new Map<TicketRef, Ticket>();
   const notes = new Map<TicketRef, Comment[]>();
   const fingerprints = new Map<TicketRef, string>();
   const posted: { ref: TicketRef; text: string }[] = [];
   const created: TicketDraft[] = [];
   const cleared: TicketRef[] = [];
+  const blockers = new Map<TicketRef, TicketRef[]>(); // ticket -> the tickets that block it
   const add = (t: Partial<Ticket>): Ticket => {
     const ref = t.ref ?? String(tickets.size + 1);
     const ticket: Ticket = { title: "", body: "", open: true, marks: [], tags: [], assignees: [], url: `https://tracker.example/${ref}`, ...t, ref };
@@ -30,7 +31,7 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
   };
 
   return {
-    tickets, posted, created, cleared,
+    tickets, blockers, posted, created, cleared,
     // A comment from a person, for inbox tests.
     say: (ref, author, body, at = new Date().toISOString()) => void notes.set(ref, [{ author, byFactory: false, body, at }, ...(notes.get(ref) ?? [])]),
     ticket: async (ref) => get(ref),
@@ -65,6 +66,7 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
     findOpen: async (fingerprint) => [...tickets.values()].find((t) => t.open && fingerprints.get(t.ref) === fingerprint)?.ref,
     // ponytail: counts every ticket made through create(); they all count as made now. Add dates if a test needs older ones.
     createdSince: async (mark: Mark) => created.filter((d) => d.marks.includes(mark)).length,
+    openBlockers: async (ref) => (blockers.get(ref) ?? []).filter((b) => tickets.get(b)?.open ?? true),
   };
 }
 

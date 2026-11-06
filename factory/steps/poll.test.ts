@@ -34,6 +34,17 @@ test("retry ignores a waiting note not written by the bot and blocks the work it
   expect(ctx.world.tracker.tickets.get("9")!.state).toBe("blocked");
   expect(ctx.world.cards.map((c) => c.kind)).toEqual(["blocked"]);
 });
+// A ticket blocked by another starts only once that one is closed, so two patches never build on each other unmerged.
+test("poller skips a ticket while a ticket that blocks it is still open", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  const ctx = fakeCtx({ ready: [3, 4], running: 1 });
+  ctx.world.tracker.blockers.set("3", ["7"]); // 7 is not in the fake, so it counts as open
+  expect(await pollReady(ctx)).toEqual(["4"]);
+  expect(err).toHaveBeenCalledWith("Ticket 3 waits: blocked by 7, still open");
+  ctx.world.tracker.blockers.set("3", []);
+  expect(await pollReady(ctx, ["4"])).toEqual(["3"]);
+  err.mockRestore();
+});
 // A non-developer's label must not take a free slot from a valid item, every minute.
 test("poller skips tickets set ready by a person who may not command the factory", async () => {
   expect(await pollReady(fakeCtx({ ready: [3, 4], running: 1, nonDeveloper: [3] }))).toEqual(["4"]);

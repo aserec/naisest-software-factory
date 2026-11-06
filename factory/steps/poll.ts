@@ -30,6 +30,8 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
       // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every minute.
       const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
       if (!(await mayStart(ctx, actor, t))) continue;
+      const blockers = await ctx.tracker.openBlockers(t.ref);
+      if (blockers.length) { console.error(`Ticket ${t.ref} waits: blocked by ${blockers.join(", ")}, still open`); continue; }
       await ctx.ci.start({ kind: "build", ticket: t.ref });
       start.push(t.ref);
     } catch (e) {

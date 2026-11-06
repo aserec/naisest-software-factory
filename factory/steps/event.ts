@@ -72,6 +72,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     actorTrusted: await mayStart(ctx, e.actor, t),
     state: t.state,
     runningInRepo: await activeRuns(ctx),
+    openBlockers: (await ctx.tracker.openBlockers(e.ticket)).length,
   });
   // A dashboard restart asks for a new run, so it never continues an older blocked run.
   if (decision.start && t.ended === "blocked" && !ready.restart) {

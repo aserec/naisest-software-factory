@@ -35,3 +35,9 @@ test("a ticket in needs approval holds no run slot: running, waiting and stopped
   const ctx = { tracker: { list: async (s: string) => states[s] ?? [] } } as any;
   expect(await activeRuns(ctx)).toBe(3);
 });
+
+test("a ticket with an open blocker does not start; the reason names it", () => {
+  const e = { kind: "ready", ticket: "1", actor: "dev" } as const;
+  expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 0, openBlockers: 1 })).toEqual({ start: false, reason: "blocked-by" });
+  expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 0, openBlockers: 0 })).toEqual({ start: true });
+});

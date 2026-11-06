@@ -52,6 +52,7 @@ export interface Tracker {
   create(draft: TicketDraft): Promise<{ ref: TicketRef; url: string }>;
   findOpen(fingerprint: string): Promise<TicketRef | undefined>;
   createdSince(mark: Mark, since: Date): Promise<number>;
+  openBlockers(ref: TicketRef): Promise<string[]>; // the open tickets marked as blocking this one; a run waits until each is closed
 }
 
 // The target clone. Only step code touches the code host; agents work here with no tokens.

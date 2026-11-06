@@ -236,6 +236,9 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       if (draft.state && board) await board.setState(String(i.number), draft.state);
       return { ref: String(i.number), url: i.html_url };
     },
+    // GitHub's issue dependencies ("blocked by"). A blocker in another repo shows as owner/name#n.
+    openBlockers: async (ref) => (await gh.all(`${base}/${Number(ref)}/dependencies/blocked_by?per_page=100`))
+      .filter((i) => i.state === "open").map((i) => (i.repository_url?.endsWith(`/repos/${repo}`) ? String(i.number) : i.html_url)),
     async findOpen(fingerprint) {
       const found = await issues(`labels=${markLabel("watcher")}&state=open`);
       return found.find((i) => (i.body ?? "").includes(fingerprintMarker(fingerprint)))?.number.toString();
