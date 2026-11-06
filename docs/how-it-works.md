@@ -233,6 +233,10 @@ pip-audit:
     fi
 ```
 
+## Teams messages in
+
+Mention the target's outgoing webhook in a Teams channel with a work item number, for example `@factory-web #123 the login page is blank`. The dashboard checks Teams' HMAC signature and posts the message on that work item as a quote, from the relay bot. The comment is for people only. The factory never acts on it and never shows it to an agent, because the relay bot is not a member with Developer rights. A message without a number gets a reply asking for one. To steer a run, comment on the work item. See [the decision](decisions/2026-11-06-dashboard-relays-teams-messages.md).
+
 ## Weekly self-improvement
 
 Once a week, for each target, the factory reads how people corrected it and proposes edits to the repo's factory instructions. It does not change anything alone, except one kind of fix (below).
