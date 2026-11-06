@@ -51,6 +51,9 @@ services:
       FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
       TENSORX_API_KEY: ${TENSORX_API_KEY:-}
       FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
+      # The chat seam's webhook (seams.yml chat: teams or slack). Only the picked one must be set.
+      TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       # Containers on this machine reach Caddy on the factory network; VMs reach it at its public name.
       FACTORY_DASHBOARD_URL: ${FACTORY_DASHBOARD_URL:-https://caddy.internal}
       NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
