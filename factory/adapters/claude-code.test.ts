@@ -226,8 +226,10 @@ test("agent settings on macOS let fs.watch reach FSEvents, like the gate", () =>
   expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true, "darwin").sandbox.network.allowMachLookup).toEqual(["com.apple.FSEvents"]);
   expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true, "linux").sandbox.network).not.toHaveProperty("allowMachLookup");
 });
-test("settings allow local binding only for a preview", () => {
+test("settings allow local binding for a preview or a local run, as the gate does", () => {
   expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true).sandbox.network.allowLocalBinding).toBe(true);
+  // A local run's tests reach the Mac's services, such as Postgres on localhost:5432.
+  expect(factorySettings({ FACTORY_PNPM_STORE: "/w/pnpm-store" }, "/opt/hooks", "/w/run/target").sandbox.network.allowLocalBinding).toBe(true);
   expect(factorySettings({}, "/opt/hooks", "/w/run/target").sandbox.network.allowLocalBinding).toBeFalsy();
 });
 test("the agent sandbox denies the same reads as the gate sandbox", () => {

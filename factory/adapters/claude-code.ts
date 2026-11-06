@@ -41,7 +41,9 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   const uvPython = env.UV_PYTHON_INSTALL_DIR ?? (env.HOME ? join(env.HOME, ".local/share/uv/python") : undefined);
   const reads = [prefix, ...browsers, uvPython].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
   if (reads.length) settings.sandbox.filesystem.allowRead = reads;
-  if (preview) settings.sandbox.network.allowLocalBinding = true; // the author starts the target's dev server
+  // A preview: the author starts the target's dev server. A local run (local-run.sh sets FACTORY_PNPM_STORE): the author's
+  // tests reach the Mac's services such as Postgres, as the gate's do (sandboxSettings). Ticket 101 got PermissionError without it.
+  if (preview || env.FACTORY_PNPM_STORE) settings.sandbox.network.allowLocalBinding = true;
   // tsx always opens an IPC pipe in TMPDIR (/tmp/claude in the sandbox). macOS allows it through allowUnixSockets;
   // Linux ignores those paths and needs every unix socket allowed. The worker's step containers mount no host socket.
   if (platform === "linux") settings.sandbox.network.allowAllUnixSockets = true;
