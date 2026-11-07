@@ -295,12 +295,13 @@ export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispat
       if (dash.down) throw new Error("dashboard is down");
       return { switches: Object.fromEntries(SWITCHES.map((n) => [n, true])) as ControlState["switches"], stop: false, requests: [], ...state };
     },
-    requestDone: async (id: string, outcome: "done" | "refused") => {
+    requestDone: async (id: string, outcome: "done" | "refused" | "cancelled") => {
       if (dash.down) throw new Error("dashboard is down");
       dash.done.push([id, outcome]);
       // As the dashboard does: the next control read shows the outcome.
       const r = state.requests?.find((q) => q.id === id);
-      if (r) Object.assign(r, { outcome, doneAt: new Date().toISOString() });
+      // "cancelled" keeps the request pending; a later outcome does not replace it.
+      if (r) Object.assign(r, outcome === "cancelled" ? { outcome } : { outcome: r.outcome === "cancelled" ? r.outcome : outcome, doneAt: new Date().toISOString() });
     },
   };
   return dash;

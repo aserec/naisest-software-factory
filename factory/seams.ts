@@ -157,7 +157,7 @@ export interface Dashboard {
   send(e: RunEvent): void; // never throws, never waits
   flush(): Promise<void>; // at most 5 s
   control(target: string, run?: string): Promise<ControlState>; // throws when the dashboard cannot be reached
-  requestDone(id: string, outcome: "done" | "refused"): Promise<void>;
+  requestDone(id: string, outcome: "done" | "refused" | "cancelled"): Promise<void>;
   dispatches(target: string): Promise<Dispatch[]>; // pending dispatches from outside systems, oldest first
   dispatchDone(id: string, workItem?: string): Promise<void>; // workItem: the url of the ticket it opened
   history(target: string, since: string, types: EventType[]): Promise<RunEvent[]>; // past events of the target at or after `since`, oldest first, at most HISTORY_LIMIT; throws when the dashboard cannot be reached or answers with an error

@@ -88,7 +88,7 @@ export async function notify(ctx: StepContext, kind: Notice, lines: string[], ur
 export interface Controls {
   switchOn(name: SwitchName): boolean; // a running step's switch, or new_runs before a new run starts
   resumeOn(name: SwitchName): boolean; // the poller may resume a run this switch stopped
-  requests: ControlRequest[]; // the poller's resume, restart and cancelled-stop requests; readyActor's restarts
+  requests: ControlRequest[]; // the poller's resume, restart and pending stop requests; readyActor's restarts
 }
 
 // The one rule for a dashboard the factory cannot reach: a running step goes on (its switch counts as on),

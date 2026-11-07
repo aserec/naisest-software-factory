@@ -79,6 +79,8 @@ describe("GET /api/factory/control", () => {
     ask("stop", "ra");
     expect((await state("ra")).stop).toBe(true);
     expect((await state("rb")).stop).toBe(false);
+    // local-factory.sh's poller finishes a stop no pipeline cancel reached, so the stop is in requests too.
+    expect((await state("rb")).requests.map((q) => q.run)).toContain("ra");
   });
 
   it("returns a cancelled stop in requests without stop", async () => {

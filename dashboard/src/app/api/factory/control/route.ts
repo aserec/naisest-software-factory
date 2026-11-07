@@ -14,9 +14,8 @@ export async function GET(req: Request) {
   const all = db.requests({ target });
   const since = Date.now() - RESTART_MS;
   // A cancelled stop stays pending (the poller still has to see it), so a pending stop only means "stop" when it is not cancelled.
+  // Every pending request goes to the poller: between local runs it also finishes a stop no CI cancel reached.
   const stop = all.some((r) => r.kind === "stop" && !r.doneAt && r.run === q.get("run") && r.outcome !== "cancelled");
-  const requests = all.filter((r) =>
-    r.doneAt ? (r.kind === "restart" || r.kind === "ready") && Date.parse(r.doneAt) > since : r.kind !== "stop" || r.outcome === "cancelled",
-  );
+  const requests = all.filter((r) => !r.doneAt || ((r.kind === "restart" || r.kind === "ready") && Date.parse(r.doneAt) > since));
   return Response.json({ switches: db.switches(target), stop, requests } satisfies ControlState);
 }

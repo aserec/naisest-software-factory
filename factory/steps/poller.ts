@@ -109,13 +109,17 @@ const ticketOrGone = (ctx: StepContext, ref: TicketRef) => ctx.tracker.ticket(re
 
 // The poller: the dashboard cancelled a pipeline that did not stop in time. That run saved nothing, so the ticket is
 // marked stopped with a note that it can only be restarted. Then the dashboard hears the request is done.
-export async function finishCancelledStops(ctx: StepContext): Promise<TicketRef[]> {
+// `idle`: local-factory.sh polls between its runs, so no run is alive and no pipeline exists to cancel. A stop that
+// waits there belongs to a run that died (the loop was killed), and it counts as cancelled.
+export async function finishCancelledStops(ctx: StepContext, idle = false): Promise<TicketRef[]> {
   const control = await controls(ctx);
   const finished: TicketRef[] = [];
   for (const r of control.requests) {
-    if (r.kind !== "stop" || r.outcome !== "cancelled") continue;
+    if (r.kind !== "stop" || r.doneAt || (r.outcome !== "cancelled" && !idle)) continue;
     // One failed request must not stop the poller: it is logged and tried again next minute.
     try {
+      // First, so the run page offers Restart, not Resume: this run saved nothing to resume from.
+      if (r.outcome !== "cancelled") await ctx.dashboard.requestDone(r.id, "cancelled");
       const t = await ticketOrGone(ctx, r.ticket); // a gone ticket has nothing to stop
       if (t?.state === "running") {
         // The comment first: without it a resume would read an older stop note.

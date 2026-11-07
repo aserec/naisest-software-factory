@@ -59,7 +59,7 @@ export async function main(ctx?: StepContext) {
   const log = console.log;
   console.log = console.error;
   try {
-    await tick({ ...ctx, ci: { ...ctx.ci, start } });
+    await tick({ ...ctx, ci: { ...ctx.ci, start } }, true);
   } finally {
     console.log = log;
   }
@@ -67,11 +67,11 @@ export async function main(ctx?: StepContext) {
 }
 
 // One poll: the work of the minute, in this order.
-async function tick(ctx: StepContext) {
+async function tick(ctx: StepContext, idle = false) {
   takeSnapshot(ctx); // one read of the dashboard for the whole tick
   try {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
-    console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx)).join(", ") || "none"}`);
+    console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx, idle)).join(", ") || "none"}`);
     console.log(`Ended runs whose work item or change a person closed: ${(await endClosedRuns(ctx)).join(", ") || "none"}`);
     console.log(`Started finish runs for changes a person merged: ${(await finishMerged(ctx)).join(", ") || "none"}`);
     console.log(`Set ready the tickets the dashboard asked for: ${(await handleReadyRequests(ctx)).join(", ") || "none"}`);

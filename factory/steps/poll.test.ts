@@ -102,6 +102,16 @@ test("a cancelled stop on a ticket no longer running is only marked done", async
   expect(ctx.world.tracker.posted).toEqual([]);
   expect(dash.done).toEqual([["q3", "done"]]);
 });
+test("between local runs a stop no cancel reached counts as cancelled; during a run it waits", async () => {
+  const waiting = { ...cancelled("r0"), outcome: undefined };
+  const ctx = fakeCtx({ running: 1 });
+  const dash = fakeDashboard({ requests: [waiting] });
+  ctx.dashboard = dash;
+  expect(await finishCancelledStops(ctx)).toEqual([]);
+  expect(await finishCancelledStops(ctx, true)).toEqual(["r0"]);
+  expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("stopped");
+  expect(dash.done).toEqual([["qr0", "cancelled"], ["qr0", "done"]]);
+});
 test("finishing cancelled stops does nothing while the dashboard is down", async () => {
   const ctx = fakeCtx({ running: 1 });
   const dash = fakeDashboard({ requests: [cancelled("r0")] });
