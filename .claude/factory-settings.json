@@ -8,6 +8,9 @@
       "Bash(git diff*)",
       "Bash(git log*)",
       "Bash(git show*)",
+      "Bash(git rm*)",
+      "Bash(pnpm run*)",
+      "Bash(npm run*)",
       "Bash(pnpm lint*)",
       "Bash(pnpm test*)",
       "Bash(pnpm build*)"

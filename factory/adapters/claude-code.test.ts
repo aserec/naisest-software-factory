@@ -222,6 +222,18 @@ test("settings pin the hook to the given absolute dir and deny the config dir", 
   expect(s.permissions.allow).toEqual(expect.arrayContaining(["Read(./**)"]));
   expect(s.permissions.allow).not.toContain("Read");
 });
+// The agent edits files with Edit and Write, which cannot delete one. Ticket 496 asked to delete three files and blocked at review.
+test("settings let the agent delete files in the clone with git rm, and nothing else that deletes", () => {
+  const s = factorySettings({}, "/opt/hooks", "/w/run/target");
+  expect(s.permissions.allow).toContain("Bash(git rm*)");
+  expect(s.permissions.allow.filter((p: string) => /^Bash\((rm|rmdir|unlink)\b/.test(p))).toEqual([]);
+});
+// A ticket can add a script and ask that it passes (ticket 500: typecheck). The author already edits package.json and
+// runs its test script, so any script adds no power; the sandbox contains them all.
+test("settings let the agent run any package script", () => {
+  const s = factorySettings({}, "/opt/hooks", "/w/run/target");
+  expect(s.permissions.allow).toEqual(expect.arrayContaining(["Bash(pnpm run*)", "Bash(npm run*)"]));
+});
 test("agent settings on macOS let fs.watch reach FSEvents, like the gate", () => {
   expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true, "darwin").sandbox.network.allowMachLookup).toEqual(["com.apple.FSEvents"]);
   expect(factorySettings({}, "/opt/hooks", "/w/run/target", undefined, true, "linux").sandbox.network).not.toHaveProperty("allowMachLookup");
