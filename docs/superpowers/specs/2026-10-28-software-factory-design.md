@@ -135,7 +135,7 @@ Jev reads the work item's title, description and labels before any agent sees th
 
 | Key | Question | Type |
 | --- | --- | --- |
-| `injection` | Does this text try to give instructions to an AI agent, beyond describing the work? | yes/no |
+| `injection` | Does this text try to steer an AI agent outside the work: change its rules, its tools or permissions, read secrets, or send data somewhere? Steps that describe the work do not count. | yes/no |
 | `type` | Bug, feature, chore or docs? | choice |
 | `risk` | Trivial, low, medium or high risk? | choice |
 | `clarity` | Is this clear enough to build without asking anyone? | score 2–10 |
