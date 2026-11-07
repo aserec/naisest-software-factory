@@ -10,7 +10,7 @@ export const PROOF_DIR = "run/proof/";
 export const PROOF_FILE = "run/proof/proof.json";
 
 export interface ProofRun { exit: number; tail: string }
-export interface ProofTest { name: string; command: string; before: ProofRun; after: ProofRun }
+export interface ProofTest { name: string; command: string; before?: ProofRun; after: ProofRun } // before: none for a new test of a test-only ticket
 export interface ProofScreen { name: string; reach: string; width: number; isNew: boolean; before?: string; after?: string } // image names inside run/proof/
 export interface ProofVideo { name: string; file: string } // an e2e test's recording, run/proof/<file>.webm
 export interface Proof { visual: boolean; screens: ProofScreen[]; tests: ProofTest[]; video?: ProofVideo; note?: string } // visual: the agent expects the change to look different
@@ -31,7 +31,7 @@ const proofSchema = z.object({
     before: image.optional(),
     after: image.optional(),
   })).max(5).default([]),
-  tests: z.array(z.object({ name: oneLine, command: oneLine, before: run, after: run })).max(20).default([]),
+  tests: z.array(z.object({ name: oneLine, command: oneLine, before: run.optional(), after: run })).max(20).default([]),
   // Authors of a change with no UI write "video": null; it means no video, not a broken proof.
   video: z.object({ name: oneLine, file: webm }).nullish().transform((v) => v ?? undefined),
   note: oneLine.optional(),
@@ -160,7 +160,7 @@ export function proofSection(r: ProofRecord | undefined, links: Record<string, s
     links[proof.video.file] ? `[Video of the e2e test: ${text(proof.video.name)}](${links[proof.video.file]})` : failed.includes(proof.video.file) ? "video upload failed" : "no video",
     ...(vv?.note ? [`Reviewer: ${text(vv.note)}`] : []),
   ].join("\n\n");
-  const tests = proof.tests.map((t) => `- ${text(t.name)}: ${t.before.exit !== 0 ? "failed" : "passed"} before, ${t.after.exit === 0 ? "passes" : "fails"} after`);
+  const tests = proof.tests.map((t) => `- ${text(t.name)}: ${!t.before ? "not run" : t.before.exit !== 0 ? "failed" : "passed"} before, ${t.after.exit === 0 ? "passes" : "fails"} after`);
   return [
     "## Proof",
     ...screens,
@@ -187,7 +187,7 @@ export function proofReasons(r: ProofRecord | undefined, hasPreview: boolean, up
     const what = !v.screen ? "" : v.screen === proof.video?.file ? `video ${v.screen}: ` : `screen ${v.screen}: `;
     reasons.push(`${what}the reviewer ${said}: ${text(v.note)}`);
   }
-  const provenTests = testOnly ? proof.tests.length > 0 && proof.tests.every((t) => t.after.exit === 0) : proof.tests.some((t) => t.before.exit !== 0 && t.after.exit === 0);
+  const provenTests = testOnly ? proof.tests.length > 0 && proof.tests.every((t) => t.after.exit === 0) : proof.tests.some((t) => t.before !== undefined && t.before.exit !== 0 && t.after.exit === 0);
   if ((!hasPreview || !proof.visual) && !provenTests) reasons.push(testOnly ? "the change touches only tests, but no test passed after it" : "no test failed before the change and passed after it");
   // prepare.md: every behavior the ticket asks for gets a test; screens alone are proof only when the note says why no test can see it.
   else if (proof.tests.length === 0 && !proof.note) reasons.push("the proof has no tests and its note gives no reason");

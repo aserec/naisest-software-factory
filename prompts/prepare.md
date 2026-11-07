@@ -39,7 +39,7 @@ The factory shows a person the proof of your change. Write it to `run/proof/`. F
    ```
    End the test with a check on the loaded result, such as a heading or a row of the final screen, so the video does not end on a loading screen. The reviewer judges the video from its frames.
    It runs the test with Playwright's video on and writes `run/proof/<name>.webm`, and frames of it for the reviewer. Set `video` in the manifest. When the repo has no e2e test setup, or the recording fails, write why in `note`.
-4. Each behavior the ticket asks for has a test that fails before the change and passes after it. Run each test before the code change and again after it. Record the exit code and the last lines of output of both runs. Leave `tests` empty only when no test can see the change, and write why in `note`.
+4. Each behavior the ticket asks for has a test that fails before the change and passes after it. Run each test before the code change and again after it. Record the exit code and the last lines of output of both runs. Leave `tests` empty only when no test can see the change, and write why in `note`. When the ticket asks only for new tests, list each new test with its `after` run and leave out `before`: a new test has no run before it existed.
 5. Write `run/proof/proof.json`. Example:
    ```json
    {

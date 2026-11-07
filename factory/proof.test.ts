@@ -33,7 +33,7 @@ test("missing, huge, bad and oversized input gives an error and does not throw",
 });
 test("a tail keeps its last 1000 chars and a name becomes one line", () => {
   const t = { ...VALID.tests[0], before: { exit: 1, tail: "a".repeat(50_000) + "END" } };
-  const tail = parseProof(JSON.stringify({ ...VALID, tests: [t] })).proof?.tests[0].before.tail;
+  const tail = parseProof(JSON.stringify({ ...VALID, tests: [t] })).proof?.tests[0].before?.tail;
   expect(tail).toHaveLength(1000);
   expect(tail?.endsWith("END")).toBe(true);
   expect(parseProof(screen({ name: "list\npage" })).proof?.screens[0].name).toBe("list page");
@@ -173,6 +173,14 @@ test("proofReasons: a test-only diff needs its tests to pass after, not to fail 
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [passingTest(0)] }), false, [], true)).toEqual([]);
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [passingTest(0), { ...passingTest(0), after: { exit: 1, tail: "1 failed" } }] }), false, [], true)).toEqual(["the change touches only tests, but no test passed after it"]);
   expect(proofReasons(rec({ ...TEST_PROOF, tests: [] }), false, [], true)).toEqual(["the change touches only tests, but no test passed after it"]);
+});
+// A new test of a test-only ticket has no run before the change. Ticket 502's proof was refused for the missing before.
+test("a test with no before run parses; it proves a test-only diff, and never counts as failed before", () => {
+  const { before: _, ...afterOnly } = passingTest(0);
+  const parsed = parseProof(JSON.stringify({ ...TEST_PROOF, tests: [afterOnly] }));
+  expect(parsed.error).toBeUndefined();
+  expect(proofReasons(rec(parsed.proof), false, [], true)).toEqual([]);
+  expect(proofReasons(rec(parsed.proof), false)).toEqual(["no test failed before the change and passed after it"]);
 });
 test("proofReasons: a proof with no tests needs a reason in its note", () => {
   expect(proofReasons(rec({ ...VISUAL_PROOF, tests: [], note: undefined }, { verdicts: matches }), true)).toEqual(["the proof has no tests and its note gives no reason"]);
