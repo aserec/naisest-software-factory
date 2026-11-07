@@ -7,7 +7,7 @@ import type { TicketRef } from "../seams";
 import { isMain, takeSnapshot, controls, type StepContext } from "./context";
 import { pollRequests, replyOnChanges } from "./requests";
 import { ACTIVE_STATES, activeRuns, MAX_RUNS_PER_REPO, mayStart, readyActor } from "./run";
-import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests, resumeRelayed, resumeSwitchedOff } from "./poller";
+import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests, restartDeadRuns, resumeRelayed, resumeSwitchedOff } from "./poller";
 import type { CiRunner } from "../seams";
 
 // `skip`: tickets this poll started already (handleRequests).
@@ -72,12 +72,16 @@ async function tick(ctx: StepContext, idle = false) {
   try {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
     console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx, idle)).join(", ") || "none"}`);
+    // After the stops: a dead run a person asked to stop stays stopped. Only local-factory.sh is idle between runs.
+    const revived = idle ? await restartDeadRuns(ctx) : [];
+    if (idle) console.log(`Started again the tickets whose local run died: ${revived.join(", ") || "none"}`);
     console.log(`Ended runs whose work item or change a person closed: ${(await endClosedRuns(ctx)).join(", ") || "none"}`);
     console.log(`Started finish runs for changes a person merged: ${(await finishMerged(ctx)).join(", ") || "none"}`);
     console.log(`Set ready the tickets the dashboard asked for: ${(await handleReadyRequests(ctx)).join(", ") || "none"}`);
-    const handled = await handleRequests(ctx);
+    const asked = await handleRequests(ctx);
+    const handled = [...revived, ...asked]; // started already: no later poller starts them again
     takeSnapshot(ctx); // handleRequests answered requests: pollReady must see the new outcomes, as before
-    console.log(`Started runs the dashboard asked for: ${handled.join(", ") || "none"}`);
+    console.log(`Started runs the dashboard asked for: ${asked.join(", ") || "none"}`);
     const answered = await pollRequests(ctx, handled);
     console.log(`Started request rounds or set ready for tickets: ${answered.join(", ") || "none"}`);
     try {

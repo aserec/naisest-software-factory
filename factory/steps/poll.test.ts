@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { main, pollReady } from "./poll";
 import { md, noteText } from "../conversation";
-import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests } from "./poller";
+import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests, restartDeadRuns } from "./poller";
 import { resumeWaiting } from "./resume-waiting";
 import { BOT, fakeCtx, fakeWorld, noteIn } from "./test-helpers";
 import { HttpError } from "../errors";
@@ -111,6 +111,30 @@ test("between local runs a stop no cancel reached counts as cancelled; during a 
   expect(await finishCancelledStops(ctx, true)).toEqual(["r0"]);
   expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("stopped");
   expect(dash.done).toEqual([["qr0", "cancelled"], ["qr0", "done"]]);
+});
+// local-factory.sh polls between its runs: a running ticket there lost its run when the loop stopped.
+const deadRunCtx = () => {
+  const ctx = fakeCtx({ running: 1 });
+  const dash = fakeDashboard();
+  dash.send({ id: "e1", run: "dead-run", target: "react_frontend", ticket: "r0", at: new Date(Date.now() - 60_000).toISOString(), type: "run_start", data: {} } as never);
+  ctx.dashboard = dash;
+  return { ctx, dash };
+};
+test("between local runs a ticket whose run died starts a new run for the person who set it ready", async () => {
+  const { ctx, dash } = deadRunCtx();
+  expect(await restartDeadRuns(ctx)).toEqual(["r0"]);
+  expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("ready");
+  expect(ctx.world.ci.started).toEqual([{ kind: "build", ticket: "r0" }]);
+  const note = ctx.world.tracker.posted.find((p) => p.ref === "r0")!.text;
+  expect(noteIn(note, "readyFor")).toMatchObject({ person: "user-r0" });
+  expect(dash.events.filter((e) => e.type === "run_end").map((e) => [e.run, e.data])).toEqual([["dead-run", { outcome: "restarted" }]]);
+});
+test("a dead run whose ready no trusted person set is blocked, not started", async () => {
+  const { ctx } = deadRunCtx();
+  ctx.tracker.trusted = async () => false;
+  expect(await restartDeadRuns(ctx)).toEqual([]);
+  expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("blocked");
+  expect(ctx.world.ci.started).toEqual([]);
 });
 test("finishing cancelled stops does nothing while the dashboard is down", async () => {
   const ctx = fakeCtx({ running: 1 });
@@ -234,6 +258,28 @@ test("the --list poll sets a requested ticket ready and lists it to run", async 
     vi.unstubAllEnvs();
   }
 });
+// Only local-factory.sh polls between its runs. In CI a running ticket's pipeline may still run, so the CI poll leaves it.
+test("the --list poll lists a dead run's ticket once to run again; the CI poll leaves running tickets alone", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  const argv = process.argv;
+  try {
+    const ci = deadRunCtx().ctx;
+    await main(ci);
+    expect(ci.world.tracker.tickets.get("r0")!.state).toBe("running");
+    log.mockClear();
+    process.argv = [...argv, "--list"];
+    const local = deadRunCtx().ctx;
+    await main(local);
+    expect(log.mock.calls.map((c) => c[0])).toEqual(["r0"]);
+  } finally {
+    process.argv = argv;
+    log.mockRestore();
+    err.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
 // The --list poll does the whole tick: a dashboard resume prints as ticket:build run, which local-run.sh resumes.
 test("the --list poll runs dashboard resumes too and lists them with their build run", async () => {
   vi.stubEnv("FACTORY_SCHEDULE", "poll");
@@ -243,6 +289,7 @@ test("the --list poll runs dashboard resumes too and lists them with their build
   process.argv = [...argv, "--list"];
   try {
     const ctx = stoppedCtx([personStop]);
+    ctx.world.tracker.tickets.delete("r0"); // between local runs a running ticket is a dead run, which this poll would start again
     const dash = fakeDashboard({ requests: [request("resume", "7")] });
     ctx.dashboard = dash;
     await main(ctx);

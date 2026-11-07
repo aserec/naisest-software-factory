@@ -159,12 +159,14 @@ describe("board", () => {
     expect((await t().ticket("8")).state).toBe("ready");
   });
 
-  test("startedBy is who made the last Status change on this board, when it moved the card to Ready", async () => {
+  test("startedBy is who last moved the card to Ready on this board, also once the card moved on", async () => {
     const change = (login: string, status: string, projectId = "P") => ({ actor: { login }, status, project: { id: projectId } });
     let nodes = [change("github-project-automation", "Backlog"), change("ann", "Ready"), change("bob", "Ready", "OTHER")];
     graph = (q) => q.includes("projectV2(number") ? project : { repository: { issue: { timelineItems: { nodes } } } };
     expect(await t().startedBy("8")).toBe("ann");
     nodes = [change("ann", "Ready"), change("github-project-automation", "In progress")];
+    expect(await t().startedBy("8")).toBe("ann");
+    nodes = [change("ann", "Backlog")];
     expect(await t().startedBy("8")).toBeUndefined();
   });
 });

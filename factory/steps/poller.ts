@@ -7,7 +7,7 @@ import { SWITCHES, type ControlRequest } from "../run-events";
 import type { FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import { controls, type StepContext } from "./context";
 import { buildRunOf } from "./change-text";
-import { ACTIVE_STATES, closedNow, endClosed, endRun, RESTART_MS, startStopped } from "./run";
+import { ACTIVE_STATES, closedNow, endClosed, endRun, mayStart, readyActor, RESTART_MS, startStopped } from "./run";
 
 // The runs with no step running. A running run's own steps check for itself.
 const PAUSED: FactoryState[] = ACTIVE_STATES.filter((s) => s !== "running");
@@ -133,6 +133,42 @@ export async function finishCancelledStops(ctx: StepContext, idle = false): Prom
     }
   }
   return finished;
+}
+
+// The poller, between local-factory.sh's runs only: no run is alive there, so a running ticket lost its run when the
+// loop stopped (a stop, a restart, a reboot). It starts again as a new run for the person who set it ready, as a
+// dashboard Restart would. A ready no trusted person set cannot start: that ticket is blocked for a person to look at.
+export async function restartDeadRuns(ctx: StepContext): Promise<TicketRef[]> {
+  const started: TicketRef[] = [];
+  for (const t of await ctx.tracker.list("running")) {
+    try {
+      const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
+      const conv = conversation(ctx);
+      if (!(await mayStart(ctx, actor, t))) {
+        await conv.write(t.ref, { kind: "blocked", reason: "The local factory stopped while this run was in progress, and no trusted person set the ticket ready. Set it to Ready to run it again." });
+        await ctx.tracker.setState(t.ref, "blocked");
+        continue;
+      }
+      // The note keeps the request cursor where it was, so no request is lost; readyActor reads its person.
+      const cursor = (await conv.newest(t.ref, "cursor"))?.cursor ?? new Date().toISOString();
+      await conv.write(t.ref, { kind: "readyFor", text: md("🔄", "Run started again", `The local factory stopped while this run was in progress. A new run starts for @${actor}.`), person: actor, cursor });
+      await ctx.tracker.setState(t.ref, "ready");
+      await ctx.ci.start({ kind: "build", ticket: t.ref });
+      const run = await deadRun(ctx, t.ref).catch(() => undefined); // the dashboard down: the old run stays open there, the ticket runs anyway
+      if (run) endRun(ctx, "restarted", { ...runIds(ctx), run, ticket: t.ref, pipeline: undefined, job: undefined });
+      started.push(t.ref);
+    } catch (e) {
+      console.log(`Restarting the dead run of ticket ${t.ref} failed: ${errText(e)}`);
+    }
+  }
+  return started;
+}
+
+// The ticket's newest run that started in the last two days and never ended.
+async function deadRun(ctx: StepContext, ref: TicketRef): Promise<string | undefined> {
+  const events = await ctx.dashboard.history(ctx.target.name, new Date(Date.now() - 2 * 86_400_000).toISOString(), ["run_start", "run_end"]);
+  const mine = events.filter((e) => e.ticket === ref);
+  return mine.filter((e) => e.type === "run_start" && !mine.some((x) => x.type === "run_end" && x.run === e.run)).at(-1)?.run;
 }
 
 // The poller: resume and restart requests from the dashboard. The dashboard checked the person's role; this checks the ticket.

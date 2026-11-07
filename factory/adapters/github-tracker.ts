@@ -129,8 +129,9 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
         `query($owner: String!, $name: String!, $n: Int!) { repository(owner: $owner, name: $name) { issue(number: $n) { timelineItems(last: 50, itemTypes: [PROJECT_V2_ITEM_STATUS_CHANGED_EVENT]) { nodes { ... on ProjectV2ItemStatusChangedEvent { actor { login } status project { id } } } } } } }`,
         { owner, name, n: Number(ref) },
       );
-      const last = d.repository.issue.timelineItems.nodes.filter((n: { project?: { id: string } }) => n.project?.id === id).at(-1) as { status: string; actor?: Login } | undefined;
-      return last && columnState(last.status) === "ready" ? last.actor?.login : undefined;
+      // The newest move to Ready, also once the factory moved the card on: a run that died keeps the person who started it.
+      const ready = d.repository.issue.timelineItems.nodes.filter((n: { project?: { id: string }; status: string }) => n.project?.id === id && columnState(n.status) === "ready");
+      return (ready.at(-1) as { actor?: Login } | undefined)?.actor?.login;
     },
   };
 }
