@@ -8,11 +8,13 @@ import { Sheet } from "@/components/ui/sheet";
 import { capitalize, duration, usd, when, words } from "@/lib/utils";
 import { CostByModel } from "./cost-by-model";
 import { Fact, StepDetail, Verdict } from "./step-detail";
-import { stepRowName, stepRows, type SeqEvent, type StepRow } from "./step-rows";
+import { splitRounds, stepRowName, stepRows, type SeqEvent, type StepRow } from "./step-rows";
+import { MergeProblems } from "./merge-problems";
+import type { RunEvent } from "software-factory/run-events";
 import type { FileLink } from "@/server/compose";
 import type { RunSummary, StateChange } from "@/server/db";
 import { labelState, runView } from "@/server/run-view";
-import type { FactoryState, Risk } from "@/server/seams";
+import type { BoardRow, FactoryState, Risk } from "@/server/seams";
 import { RiskPills } from "./board";
 import { STATE } from "@/lib/state";
 import { EarlierRuns } from "./earlier-runs";
@@ -188,6 +190,23 @@ function AheadRow({ step, before = false }: { step: string; before?: boolean }) 
   );
 }
 
+// A line of steps with its own time scale: from its first step's start to its last step's end, or to now while a step runs.
+// before: list the steps ahead of the first one too. A conflict round starts at its event, after the run's triage.
+function StepList({ rows, before, over, nowMs, line }: { rows: StepRow[]; before: boolean; over: boolean; nowMs: number; line: (l: StepRow, from: number, span: number) => React.ReactNode }) {
+  const from = Math.min(...rows.map((l) => Date.parse(l.start.at)));
+  const end = Math.max(...rows.map((l) => Date.parse((l.end ?? l.start).at)), rows.some((l) => !l.end) && !over ? nowMs : 0);
+  const span = Math.max(end - from, 1);
+  const at = rows.map((l) => stepIndex(l.start.step));
+  const first = Math.min(...at.filter((i) => i >= 0));
+  return (
+    <ul>
+      {before && STEPS.slice(0, Number.isFinite(first) ? first : 0).map((s) => <AheadRow key={s} step={s} before />)}
+      {rows.map((l) => line(l, from, span))}
+      {STEPS.slice(Math.max(...at) + 1).map((s) => <AheadRow key={s} step={s} />)}
+    </ul>
+  );
+}
+
 // The open step lives in the URL (?step=<id>), so a link to a step's log can be shared.
 function useOpenStep() {
   const [open, setOpen] = useState<string>();
@@ -240,18 +259,23 @@ function useNow() {
 // fileLink: how a review finding links its file into the change's diff; none until the change exists.
 // earlier: the work item's other runs, read on the server.
 // changes: every state the factory set on the work item, read on the server; this run's own come from the stream.
-export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [], changes = [] }: { run: string; limits?: Record<string, number>; risk?: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[]; changes?: StateChange[] }) {
+// merge: the board card and the work item's merge events for Merge problems, read on the server.
+export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [], changes = [], merge }: { run: string; limits?: Record<string, number>; risk?: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[]; changes?: StateChange[]; merge?: { item?: BoardRow; events: RunEvent[] } }) {
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
   const nowMs = useNow();
-  const rows = data ? stepRows(data) : [];
+  const all = data ? stepRows(data) : [];
+  // Each conflict round shows apart, under Merge problems. rows is the order on screen, for j and k.
+  const { main, conflicts } = splitRounds(all, data ?? []);
+  const rows = [...main, ...conflicts.flat()];
+  const lastRow = all.at(-1);
   useStepKeys(rows.map((l) => l.start.id), openId, setOpenId);
   const failed = error && <LoadError what="the run" query={events} className="mb-6" />;
   if (!data) return failed || <p className="text-muted-foreground">Loading the run…</p>;
   if (rows.length === 0) return <p className="text-muted-foreground">No steps yet.</p>;
   const times = data.map((e) => Date.parse(e.at));
-  const from = Math.min(...times);
+  const from = Math.min(...times); // the run's Time; each step line scales its bars on its own
   const ended = eventsOfType(data, "run_end")[0]?.data.outcome;
   // Until the run ends, the line runs to now: a hung step keeps growing instead of reading as just started.
   // A paused run (its label says it waits for a person or the usage limit) is not working either:
@@ -267,9 +291,11 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   // A split step is stuck in its open round.
   const stuck = (l: StepRow) => view.stuck && !!lastStep && l.start.step === lastStep.step && (l.stepAt ?? l.start.at) === lastStep.startedAt && (!l.stepAt || !l.end);
   const open = rows.find((l) => l.start.id === openId);
+  const line = (l: StepRow, from: number, span: number) => (
+    <StepRowLine key={l.start.id} row={l} from={from} span={span} stuck={stuck(l)} state={l === lastRow ? state : undefined} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
+  );
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => stepIndex(l.start.step)));
-  const first = Math.min(...rows.map((l) => stepIndex(l.start.step)).filter((i) => i >= 0));
   const at = live ? stepIndex(live.start.step) : reached; // the last row can be a review that ran inside the gate
   const nowText = live ? stepRowName(live) : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
   const step = at >= 0 && <span className="ml-2 text-muted-foreground">{at + 1} of {STEPS.length}</span>;
@@ -349,17 +375,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
         )}
         <Proof events={data} approving={approving} />
         <SectionHeading className="mb-0">Steps</SectionHeading>
-        <ul>
-          {STEPS.slice(0, Number.isFinite(first) ? first : 0).map((s) => (
-            <AheadRow key={s} step={s} before />
-          ))}
-          {rows.map((l) => (
-            <StepRowLine key={l.start.id} row={l} from={from} span={span} stuck={stuck(l)} state={l === rows.at(-1) ? state : undefined} selected={l === open} onSelect={() => setOpenId(l === open ? undefined : l.start.id)} />
-          ))}
-          {STEPS.slice(reached + 1).map((s) => (
-            <AheadRow key={s} step={s} />
-          ))}
-        </ul>
+        <StepList rows={main} before over={over} nowMs={nowMs} line={line} />
         <StateChanges run={run} events={data} others={changes} />
         {usage.length > 0 && (
           <section className="mt-8">
@@ -368,6 +384,23 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
           </section>
         )}
         <EarlierRuns runs={earlier} />
+        {merge && (
+          <MergeProblems item={merge.item} events={merge.events} run={run}>
+            {conflicts.map((c, n) => (
+              // Open by default; a click on the title folds the round away.
+              <details key={c[0].start.id} open className="group/round mb-6 pl-4">
+                <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                  <SectionHeading as="h3" className="mb-0">
+                    <span aria-hidden className="inline-block text-muted-foreground transition-transform group-open/round:rotate-90">›</span>
+                    Conflict round {n + 1}
+                    <time dateTime={c[0].start.at} className="font-normal text-muted-foreground">{when(c[0].start.at)}</time>
+                  </SectionHeading>
+                </summary>
+                <StepList rows={c} before={false} over={over} nowMs={nowMs} line={line} />
+              </details>
+            ))}
+          </MergeProblems>
+        )}
       </div>
       <Sheet
         open={!!open}
@@ -380,7 +413,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
         title={
           open && (
             <span className="flex flex-wrap items-center gap-2">
-              {stepRowName(open)} <Pills row={open} stuck={stuck(open)} state={open === rows.at(-1) ? state : undefined} />
+              {stepRowName(open)} <Pills row={open} stuck={stuck(open)} state={open === lastRow ? state : undefined} />
             </span>
           )
         }

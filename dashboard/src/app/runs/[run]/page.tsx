@@ -5,7 +5,7 @@ import { getDb } from "@/server/db-instance";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConflictsBadge } from "@/components/board";
-import { MERGE_EVENTS, MergeProblems } from "@/components/merge-problems";
+import { MERGE_EVENTS } from "@/components/merge-problems";
 import { STATE } from "@/lib/state";
 import { codeHostName, fileLinkOf, getBoard, trackerOf } from "@/server/compose";
 import { readTargets } from "@/server/targets";
@@ -73,8 +73,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         )}
         <span className="font-mono">{run}</span>
       </PageTitle>
-      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} earlier={runs.filter((r) => r.run !== run)} changes={changes} />
-      <MergeProblems item={item} events={first ? getDb().itemEvents(first, [...MERGE_EVENTS]) : []} run={run} />
+      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} earlier={runs.filter((r) => r.run !== run)} changes={changes} merge={{ item, events: first ? getDb().itemEvents(first, [...MERGE_EVENTS]) : [] }} />
     </main>
   );
 }

@@ -1,17 +1,18 @@
 import type { RunEvent } from "software-factory/run-events";
 import { when } from "@/lib/utils";
 import type { BoardRow } from "@/server/seams";
+import { Badge } from "./ui/badge";
 import { SectionHeading } from "./shell";
 
 export const MERGE_EVENTS = ["change_state", "gate_check", "decision"] as const;
 
-// What stops the change from merging now, as the code host tells the board.
-function status(i: BoardRow) {
-  if (i.state === "done") return "Merged.";
-  if (i.conflicts) return "Has conflicts with the base branch.";
-  if (i.checksFailed) return "A check of the change failed.";
-  if (i.mergeBlock) return `Cannot merge: ${i.mergeBlock}.`;
-  return "Can merge.";
+// What stops the change from merging now, as the code host tells the board, with the pill colour of a step outcome.
+function status(i: BoardRow): [string, "positive" | "warning" | "destructive"] {
+  if (i.state === "done") return ["Merged", "positive"];
+  if (i.conflicts) return ["Has conflicts with the base branch", "destructive"];
+  if (i.checksFailed) return ["A check of the change failed", "destructive"];
+  if (i.mergeBlock) return [`Cannot merge: ${i.mergeBlock}`, "warning"];
+  return ["Can merge", "positive"];
 }
 
 function line(e: RunEvent) {
@@ -22,12 +23,18 @@ function line(e: RunEvent) {
 
 // The current merge status of the work item's change, and every conflict round, build check and decision across its runs.
 // item: the board card, absent when the board did not load. events: the work item's MERGE_EVENTS, oldest first.
-export function MergeProblems({ item, events, run }: { item?: BoardRow; events: RunEvent[]; run: string }) {
+// children: this run's conflict rounds, each with its steps, shown before the list of events.
+export function MergeProblems({ item, events, run, children }: { item?: BoardRow; events: RunEvent[]; run: string; children?: React.ReactNode }) {
   if (!item?.changeUrl && !events.length) return null;
+  const [said, variant] = item?.changeUrl ? status(item) : [];
   return (
     <section className="mt-8">
-      <SectionHeading>Merge problems</SectionHeading>
-      {item?.changeUrl && <p className="mb-2">{status(item)}</p>}
+      <SectionHeading>
+        Merge problems
+        {said && <Badge variant={variant}>{said}</Badge>}
+      </SectionHeading>
+      {children}
+      {events.length > 0 && <SectionHeading as="h3">Merge history</SectionHeading>}
       <ol>
         {events.map((e) => (
           <li key={e.id} className="flex flex-wrap gap-x-4 border-b border-rule py-2 last:border-0">

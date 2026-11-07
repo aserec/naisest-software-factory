@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RunTimeline, useRunEvents } from "./run-timeline";
 import { ev, renderWithQuery, wrapper } from "./test-utils";
@@ -365,4 +365,33 @@ test("State changes lists the work item's states across its runs, oldest first, 
     ["2026-10-29T10:00:00Z", expect.stringMatching(/Running$/), undefined],
     ["2026-10-29T10:05:00Z", expect.stringMatching(/Done$/), undefined],
   ]);
+});
+
+test("a conflict round shows apart under Merge problems, named PR conflict, with bars on its own time scale", async () => {
+  stream([
+    ev("run_start", "00"),
+    ev("step_start", "00", { step: "event", id: "ev1" }),
+    ev("step_end", "01", { step: "event", data: { outcome: "next" } }),
+    ev("step_start", "01", { step: "decision", id: "d1" }),
+    ev("step_end", "02", { step: "decision", data: { outcome: "stop" } }),
+    ev("change_state", "10", { step: "event", data: { conflicts: true } }),
+    ev("step_start", "11", { step: "event", id: "ev2", data: { round: 1 } }),
+    ev("step_end", "12", { step: "event", data: { outcome: "next" } }),
+    ev("step_start", "12", { step: "prepare-patch", id: "p2" }),
+    ev("step_end", "20", { step: "prepare-patch", data: { outcome: "next" } }),
+  ]);
+  renderWithQuery(<RunTimeline run="r1" merge={{ events: [ev("change_state", "10", { data: { conflicts: true } })] }} />);
+  const round = (await screen.findByRole("heading", { name: /Conflict round 1/ })).closest("details")!;
+  expect(round.open).toBe(true); // expanded by default
+  expect(screen.getByRole("heading", { name: "Merge problems" }).closest("section")!.contains(round)).toBe(true);
+  const conflict = within(round).getByRole("button", { name: /PR conflict/ });
+  const implement = within(round).getByRole("button", { name: /Implement/ });
+  // The round's own scale runs 10:11 to 10:20, so Implement starts 1 of 9 minutes in, not 12 of 20.
+  const left = (b: HTMLElement) => parseFloat((b.querySelector("[style]") as HTMLElement).style.left);
+  expect(left(conflict)).toBe(0);
+  expect(left(implement)).toBeCloseTo(100 / 9);
+  // The run's own steps hold no PR conflict row.
+  const steps = screen.getByRole("heading", { name: "Steps" }).nextElementSibling!;
+  expect(within(steps as HTMLElement).queryByText("PR conflict")).toBeNull();
+  expect(within(steps as HTMLElement).getByRole("button", { name: /Decision/ })).toBeTruthy();
 });

@@ -13,10 +13,37 @@ export interface StepRow {
   costUsd: number;
   round?: number; // a code review or gate round, or the patch that fixed it
   stepAt?: string; // for a round: when its step started
+  label?: string; // a name that replaces the step's own, such as "PR conflict"
 }
 
 // The name on a row: "Code review 2", "Patch 2", "Precommit gate 1".
-export const stepRowName = (l: StepRow) => `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}`;
+export const stepRowName = (l: StepRow) => l.label ?? `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}`;
+
+// A conflict round: the event step that continues the run (its step_start carries a round), right after a change_state with conflicts.
+// ponytail: a request round on a change that also has conflicts reads as a conflict round too; send `conflicts` on the step_start if that matters.
+const conflictRound = (l: StepRow, prev: StepRow | undefined, events: SeqEvent[]) =>
+  l.start.step === "event" &&
+  (l.start.data as { round?: number }).round !== undefined &&
+  events.some((e) => e.type === "change_state" && e.data.conflicts && e.at <= l.start.at && (!prev || e.at >= (prev.end ?? prev.start).at));
+
+// The run's own steps, and each conflict round's steps from its event on, apart, so each can draw its own timeline.
+// Request rounds stay in the run's steps.
+export function splitRounds(rows: StepRow[], events: SeqEvent[]): { main: StepRow[]; conflicts: StepRow[][] } {
+  const main: StepRow[] = [];
+  const conflicts: StepRow[][] = [];
+  let into = main;
+  rows.forEach((l, i) => {
+    if (l.start.step === "event" && (l.start.data as { round?: number }).round !== undefined) {
+      into = conflictRound(l, rows[i - 1], events) ? [] : main;
+      if (into !== main) {
+        conflicts.push(into);
+        l.label = "PR conflict"; // stepRows makes new rows on each call, so the label changes no one else's
+      }
+    }
+    into.push(l);
+  });
+  return { main, conflicts };
+}
 
 // One row per step_start. A step_end closes the first open row of its step. Tool calls hang on their row by parent.
 export function stepRows(events: SeqEvent[]): StepRow[] {
