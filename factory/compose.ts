@@ -116,7 +116,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     ci,
     judge: make.judge(env, seams),
     chat: chatSecret ? make.chat(chatSecret) : ADAPTERS.chat.console(),
-    dashboard: make.dashboard(dashboardUrl, dashboardToken),
+    dashboard: make.dashboard(dashboardUrl, dashboardToken, fetch, `${FACTORY_ROOT}.cache/dashboard-spool`),
     harnesses: HARNESSES,
     seams,
     record: newRecord(),

@@ -148,3 +148,28 @@ test("with a slow dashboard, no new batch starts after flush returns", async () 
     vi.useRealTimers();
   }
 });
+
+test("events a failing dashboard did not take at flush are sent by the next adapter made with the same spool", async () => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const { mkdtempSync, readdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const spool = join(mkdtempSync(join(tmpdir(), "spool-")), "s");
+  const down = makeHttpDashboard("https://d.example", "tok", (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch, spool);
+  const lost = [event(1), event(2)];
+  lost.forEach((e) => down.send(e));
+  await down.flush();
+
+  const delivered: RunEvent[] = [];
+  const up = (async (_url: unknown, init?: RequestInit) => (delivered.push(...JSON.parse(String(init?.body))), ok())) as unknown as typeof fetch;
+  const next = makeHttpDashboard("https://d.example", "tok", up, spool);
+  const later = event(3);
+  next.send(later);
+  await next.flush();
+  expect(delivered.map((e) => e.id)).toEqual([...lost, later].map((e) => e.id));
+  expect(readdirSync(spool)).toEqual([]);
+  // A third adapter finds nothing left to send.
+  delivered.length = 0;
+  await makeHttpDashboard("https://d.example", "tok", up, spool).flush();
+  expect(delivered).toEqual([]);
+});

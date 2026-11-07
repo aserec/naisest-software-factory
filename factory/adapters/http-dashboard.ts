@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ControlState, Dashboard, RunEvent, Dispatch } from "../seams";
 
 const FLUSH_EVERY_MS = 1000;
@@ -8,10 +11,13 @@ const TIMEOUT_MS = 5000;
 
 // The HTTP adapter for the run dashboard. A slow or dead dashboard never slows a step:
 // `send` only queues, and a timer sends in the background.
-export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fetch = fetch): Dashboard {
+// With spoolDir, a flush that cannot send writes the rest to a file there, and the next adapter made sends it,
+// so a dashboard outage at the end of a step delays its events instead of losing them.
+export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fetch = fetch, spoolDir?: string): Dashboard {
   const base = url.replace(/\/+$/, "");
   const headers = { authorization: `Bearer ${token}` };
-  const queue: RunEvent[] = [];
+  const queue: RunEvent[] = spoolDir ? takeSpool(spoolDir) : [];
+  let inFlight: RunEvent[] = []; // the batch a fetch is sending now; spooled too, since the dashboard ignores an id it has
   let sending: Promise<void> | undefined;
   let closing = false; // set when flush gives up, so a slow dashboard cannot keep the process alive; a new send clears it
 
@@ -64,7 +70,8 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
 
   async function sendAll() {
     while (queue.length && !closing) {
-      const failed = await sendBatch(queue.splice(0, BATCH));
+      inFlight = queue.splice(0, BATCH);
+      const failed = await sendBatch(inFlight).finally(() => (inFlight = []));
       if (failed.length) {
         queue.unshift(...failed);
         queue.splice(0, queue.length - MAX_QUEUE); // the oldest go first
@@ -89,6 +96,14 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
       await Promise.race([pump(), new Promise((r) => (timer = setTimeout(r, TIMEOUT_MS)))]);
       clearTimeout(timer);
       closing = true;
+      const unsent = [...inFlight, ...queue];
+      if (spoolDir && unsent.length) {
+        mkdirSync(spoolDir, { recursive: true });
+        const file = join(spoolDir, `${Date.now()}-${randomUUID()}.json`);
+        writeFileSync(file, JSON.stringify(unsent), { mode: 0o600 });
+        queue.length = 0;
+        console.warn(`dashboard: kept ${unsent.length} unsent events in ${file} for the next step`);
+      }
     },
     async control(target, run) {
       const q = new URLSearchParams({ target, ...(run ? { run } : {}) });
@@ -117,4 +132,31 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
       if (!res.ok) throw new Error(`dashboard dispatchDone: HTTP ${res.status}`);
     },
   };
+}
+
+// Takes the events earlier processes could not send. The rename claims a file, so two processes never both take it.
+function takeSpool(dir: string): RunEvent[] {
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith(".json")).sort();
+  } catch {
+    return [];
+  }
+  const events: RunEvent[] = [];
+  for (const n of names) {
+    const claimed = join(dir, `${n}.${process.pid}.taken`);
+    try {
+      renameSync(join(dir, n), claimed);
+    } catch {
+      continue; // another process took it
+    }
+    try {
+      events.push(...(JSON.parse(readFileSync(claimed, "utf8")) as RunEvent[]));
+    } catch {
+      console.warn(`dashboard: could not read spooled events in ${claimed}`);
+      continue; // left for a person to look at
+    }
+    unlinkSync(claimed);
+  }
+  return events.slice(-MAX_QUEUE);
 }
