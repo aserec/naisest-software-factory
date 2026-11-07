@@ -1,5 +1,6 @@
 import type { Db } from "./db";
 import { backupDir } from "./db-instance";
+import { NotSetUp } from "./not-set-up";
 import type { Ci } from "./seams";
 
 export interface LoopDeps {
@@ -14,6 +15,15 @@ export interface LoopState {
 }
 export const newLoopState = (): LoopState => ({ lastImport: 0, backupDay: "" });
 const shared = newLoopState();
+
+// A missing setting is logged once per message, as one line: it stays the same on every tick until someone changes the setup.
+const told = new Set<string>();
+export function report(what: string, err: unknown): void {
+  if (!(err instanceof NotSetUp)) return console.error(what, err);
+  if (told.has(err.message)) return;
+  told.add(err.message);
+  console.error(`${what}: ${err.message}`);
+}
 
 const STOP_WAIT_MS = 60_000;
 const IMPORT_EVERY_MS = 10 * 60_000;
@@ -30,7 +40,7 @@ export async function startDispatches({ db, ci, now }: LoopDeps): Promise<void> 
     try {
       await ci.startDispatch(target);
     } catch (err) {
-      console.error(`loop: starting the dispatch run of ${target} failed`, err);
+      report(`loop: starting the dispatch run of ${target} failed`, err);
     }
   }
 }
@@ -54,7 +64,7 @@ async function cancelStops({ db, ci, now }: LoopDeps): Promise<void> {
       await ci.cancel(pipeline);
       db.finish(r.id, "cancelled");
     } catch (err) {
-      console.error(`loop: cancel for stop ${r.id} failed`, err);
+      report(`loop: cancel for stop ${r.id} failed`, err);
     }
   }
 }
@@ -90,7 +100,7 @@ export async function tick(deps: LoopDeps, state: LoopState = shared): Promise<v
     try {
       await part(deps, state);
     } catch (err) {
-      console.error(`loop: ${name} failed`, err);
+      report(`loop: ${name} failed`, err);
     }
   }
 }

@@ -61,8 +61,15 @@ export const getBoard = () => (board ??= makeBoard());
 
 let ci: Ci | undefined;
 
-// What runs the factory: the factory's own worker with FACTORY_CI=local (seams.yml ci: local), else GitLab CI. One instance.
-export const getCi = () => (ci ??= process.env.FACTORY_CI === "local" ? makeLocalCi() : makeGitLabCi());
+// What runs the factory, from FACTORY_CI: gitlab (GitLab CI), local (the factory's worker, seams.yml ci: local), or unset
+// for none, as on a Mac running ./local-factory.sh, where the steps honour stops themselves. One instance.
+export const getCi = () => (ci ??= process.env.FACTORY_CI === "gitlab" ? makeGitLabCi() : process.env.FACTORY_CI === "local" ? makeLocalCi() : makeNoCi());
+
+// No CI: every call answers not set up, and the loop skips the stop fallback, dispatch runs and imports.
+export const makeNoCi = (): Ci => {
+  const no = async () => Promise.reject(new NotSetUp("FACTORY_CI is not set, so the dashboard cancels no runs, starts no dispatch runs and imports no events. Set it to local or gitlab."));
+  return { runningJobs: no, jobLog: no, cancel: no, startDispatch: no, importEvents: no };
+};
 
 // No host metrics: no log sources, and the same not-set-up answer for every call.
 export const makeNoHostMetrics = (): HostMetrics => ({

@@ -82,6 +82,12 @@ it("FACTORY_CI=local picks the worker, and getCi is one instance", async () => {
   expect(getCi()).toBe(getCi());
 });
 
+it("no FACTORY_CI gives a CI that cancels and dispatches nothing", async () => {
+  const { makeNoCi } = await import("./compose");
+  await expect(makeNoCi().cancel("7")).rejects.toThrow("FACTORY_CI is not set");
+  await expect(makeNoCi().startDispatch("demo")).rejects.toBeInstanceOf(NotSetUp);
+});
+
 it("no GRAFANA_URL gives no log sources and a not-set-up answer", async () => {
   vi.stubEnv("GRAFANA_URL", "");
   const { getHostMetrics } = await import("./compose");

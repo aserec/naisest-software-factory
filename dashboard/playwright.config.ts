@@ -31,6 +31,7 @@ export default defineConfig({
       AUTH_URL: APP,
       AUTH_SECRET: process.env.AUTH_SECRET,
       FACTORY_DASHBOARD_TOKEN: process.env.FACTORY_DASHBOARD_TOKEN,
+      FACTORY_CI: "gitlab",
       GITLAB_URL: `http://localhost:${STUB_PORT}`,
       GITLAB_READ_TOKEN: "stub",
       FACTORY_PROJECT_ID: "1",

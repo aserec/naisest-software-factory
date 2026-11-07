@@ -162,6 +162,7 @@ Create `/opt/software-factory/deploy/.env`, owned by `deploy`, `chmod 600`. It i
 | `FACTORY_DASHBOARD_TOKEN` | from above, the same value as the CI variable |
 | `FACTORY_DISPATCH_TOKEN` | from above |
 | `FACTORY_TRIGGER_TOKEN` | the bot's pipeline trigger token, the same value as the CI variable. The dashboard starts dispatch runs with it |
+| `FACTORY_CI` | `gitlab`: the dashboard cancels pipelines and starts dispatch runs in GitLab CI. Without it the dashboard has no CI |
 | `FACTORY_PROJECT_ID` | the factory project's numeric ID |
 | `GITLAB_URL` | `https://gitlab.example.com` |
 | `GITLAB_READ_TOKEN` | from above |

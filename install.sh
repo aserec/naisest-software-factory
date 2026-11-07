@@ -31,16 +31,50 @@ if [ ! -f "$env_file" ]; then
   echo "== deploy/.env does not exist yet. README.md (Install) lists every value and where to get it; have them ready."
   ask DASHBOARD_HOST "Dashboard host name" \
     "The name people open the dashboard at, with a DNS A record to this machine. localhost on your own computer." localhost
-  ask GITLAB_URL "GitLab URL" "The address of your GitLab." https://gitlab.example.com
-  ask FACTORY_PROJECT_ID "Factory project ID" \
-    "GitLab, the factory project's page: the menu at the top right (three dots) > Copy project ID."
-  ask GITLAB_OAUTH_CLIENT_ID "OAuth application ID" \
-    "GitLab > User settings > Applications > Add new application. Name: Factory dashboard. Redirect URI: https://$DASHBOARD_HOST/api/auth/callback/gitlab. Confidential: yes. Scope: read_user only."
-  ask GITLAB_OAUTH_CLIENT_SECRET "OAuth application secret" "The secret of the same application, shown once after you save it."
-  ask GITLAB_READ_TOKEN "GitLab read token" \
-    "Signed in as a read-only bot user (Reporter on the factory project and on every target project): User settings > Access tokens, scope read_api."
-  ask GITLAB_CANCEL_TOKEN "GitLab cancel token" \
-    "The factory project > Settings > Access tokens: role Developer, scope api. The dashboard only uses it to cancel a stuck pipeline."
+  while true; do
+    ask RUNS_ON "Where tickets run (machine, hetzner or gitlab)" \
+      "machine: the worker runs each step in a new container on this machine. hetzner: the worker makes a new Hetzner VM for each run and deletes it after. gitlab: GitLab CI runs each job on a new Hetzner VM, which needs seams.yml ci: gitlab and the GitLab setup in docs/setup.md sections 1, 2, 7 and 8." machine
+    case $RUNS_ON in machine|hetzner) COMPOSE_PROFILES=worker; break ;; gitlab) COMPOSE_PROFILES=hetzner; break ;; *) echo "  Type machine, hetzner or gitlab." ;; esac
+  done
+  # Which code hosts the targets use, from tracker and codeHost in targets/*.yml; a missing one means gitlab, as in the
+  # dashboard. GitLab CI (gitlab above) needs GitLab too.
+  found=""
+  for f in targets/*.yml; do
+    [ -f "$f" ] || continue
+    for key in tracker codeHost; do found+=" $(sed -nE "s/^$key: *(git[a-z]*).*/\\1/p" "$f" | grep . || echo gitlab)"; done
+  done
+  case "$found" in *gitlab*github*|*github*gitlab*) guess=both ;; *github*) guess=github ;; *) guess=gitlab ;; esac
+  while true; do
+    ask HOSTS "Where your tickets and code live (gitlab, github or both)" \
+      "Each target's tracker and codeHost in targets/. The guess comes from the target files there. You get only the questions for the hosts you name." "$guess"
+    case $HOSTS in gitlab|github|both) break ;; *) echo "  Type gitlab, github or both." ;; esac
+  done
+  ON_GITLAB="" ON_GITHUB=""
+  { [ "$HOSTS" != github ] || [ "$RUNS_ON" = gitlab ]; } && ON_GITLAB=1
+  [ "$HOSTS" != gitlab ] && ON_GITHUB=1
+  GITLAB_URL="" FACTORY_PROJECT_ID="" GITLAB_OAUTH_CLIENT_ID="" GITLAB_OAUTH_CLIENT_SECRET="" GITLAB_READ_TOKEN="" GITLAB_CANCEL_TOKEN=""
+  if [ -n "$ON_GITLAB" ]; then
+    ask GITLAB_URL "GitLab URL" "The address of your GitLab." https://gitlab.example.com
+    ask FACTORY_PROJECT_ID "Factory project ID" \
+      "GitLab, the factory project's page: the menu at the top right (three dots) > Copy project ID. GitLab sign-in checks membership of it."
+    ask GITLAB_OAUTH_CLIENT_ID "GitLab OAuth application ID" \
+      "For GitLab sign-in. GitLab > User settings > Applications > Add new application. Name: Factory dashboard. Redirect URI: https://$DASHBOARD_HOST/api/auth/callback/gitlab. Confidential: yes. Scope: read_user only."
+    ask GITLAB_OAUTH_CLIENT_SECRET "GitLab OAuth application secret" "The secret of the same application, shown once after you save it."
+    ask GITLAB_READ_TOKEN "GitLab read token" \
+      "Signed in as a read-only bot user (Reporter on the factory project and on every target project): User settings > Access tokens, scope read_api."
+    if [ "$RUNS_ON" = gitlab ]; then
+      ask GITLAB_CANCEL_TOKEN "GitLab cancel token" \
+        "The factory project > Settings > Access tokens: role Developer, scope api. The dashboard only uses it to cancel a stuck pipeline."
+    fi
+  fi
+  GITHUB_READ_TOKEN="" GITHUB_OAUTH_CLIENT_ID="" GITHUB_OAUTH_CLIENT_SECRET=""
+  if [ -n "$ON_GITHUB" ]; then
+    ask GITHUB_READ_TOKEN "GitHub read token" \
+      "For the board and GitHub sign-in. A fine-grained token that reads every GitHub target repo: Contents, Issues, Pull requests and Metadata read; for a board also Projects read."
+    ask GITHUB_OAUTH_CLIENT_ID "GitHub OAuth app client ID" \
+      "For GitHub sign-in. GitHub > Settings > Developer settings > OAuth Apps > New OAuth App. Callback URL: https://$DASHBOARD_HOST/api/auth/callback/github."
+    ask GITHUB_OAUTH_CLIENT_SECRET "GitHub OAuth app client secret" "The same app > Generate a new client secret."
+  fi
   ask GRAFANA_URL "Grafana URL" "Optional: press Enter to skip. Without it the Runner page stays empty." "" optional
   GRAFANA_TOKEN="" LOKI_UID="" METRICS_UID=""
   if [ -n "$GRAFANA_URL" ]; then
@@ -48,17 +82,12 @@ if [ ! -f "$env_file" ]; then
     ask LOKI_UID "Loki data source UID" "Grafana > Connections > Data sources > your Loki source: the last part of its URL."
     ask METRICS_UID "Metrics data source UID" "The same, for your metrics (Prometheus or Mimir) source."
   fi
-  while true; do
-    ask RUNS_ON "Where tickets run (machine, hetzner or gitlab)" \
-      "machine: the worker runs each step in a new container on this machine. hetzner: the worker makes a new Hetzner VM for each run and deletes it after. gitlab: GitLab CI runs each job on a new Hetzner VM, which needs seams.yml ci: gitlab and the GitLab setup in docs/setup.md sections 1, 2, 7 and 8." machine
-    case $RUNS_ON in machine|hetzner) COMPOSE_PROFILES=worker; break ;; gitlab) COMPOSE_PROFILES=hetzner; break ;; *) echo "  Type machine, hetzner or gitlab." ;; esac
-  done
   GL_TOKEN="" FACTORY_GITHUB_TOKEN="" TENSORX_API_KEY="" HETZNER_TOKEN=""
   if [ "$COMPOSE_PROFILES" = worker ]; then
-    ask GL_TOKEN "Factory bot token" \
-      "For GitLab targets. Signed in as the factory bot (it reads tickets and pushes and merges in the target repo, docs/setup.md section 1): User settings > Access tokens, scope api. Press Enter to skip if every target is on GitHub." "" optional
-    ask FACTORY_GITHUB_TOKEN "GitHub token" \
-      "For GitHub targets (tracker github or github-project, codeHost github). A fine-grained token on the target repos: Contents, Issues and Pull requests read and write, Commit statuses and Checks read; for a board also Projects read and write. Press Enter to skip if every target is on GitLab." "" optional
+    [ "$HOSTS" != github ] && ask GL_TOKEN "Factory bot token" \
+      "For GitLab targets. Signed in as the factory bot (it reads tickets and pushes and merges in the target repo, docs/setup.md section 1): User settings > Access tokens, scope api."
+    [ -n "$ON_GITHUB" ] && ask FACTORY_GITHUB_TOKEN "GitHub token" \
+      "For GitHub targets (tracker github or github-project, codeHost github). A fine-grained token on the target repos: Contents, Issues and Pull requests read and write, Commit statuses and Checks read; for a board also Projects read and write."
     ask TENSORX_API_KEY "TensorX API key" "Your TensorX account > API keys. The agents' models run there (router.yml)."
     if [ "$RUNS_ON" = hetzner ]; then
       ask HETZNER_TOKEN "Hetzner Cloud API token" "Hetzner Cloud console > your project > Security > API tokens > Generate, with Read & Write."
@@ -84,6 +113,9 @@ GITLAB_READ_TOKEN=$GITLAB_READ_TOKEN
 GITLAB_CANCEL_TOKEN=$GITLAB_CANCEL_TOKEN
 GITLAB_OAUTH_CLIENT_ID=$GITLAB_OAUTH_CLIENT_ID
 GITLAB_OAUTH_CLIENT_SECRET=$GITLAB_OAUTH_CLIENT_SECRET
+GITHUB_READ_TOKEN=$GITHUB_READ_TOKEN
+GITHUB_OAUTH_CLIENT_ID=$GITHUB_OAUTH_CLIENT_ID
+GITHUB_OAUTH_CLIENT_SECRET=$GITHUB_OAUTH_CLIENT_SECRET
 GRAFANA_URL=$GRAFANA_URL
 GRAFANA_TOKEN=$GRAFANA_TOKEN
 LOKI_UID=$LOKI_UID
@@ -130,7 +162,7 @@ host=$(sed -n 's/^DASHBOARD_HOST=//p' "$env_file")
 echo
 echo "The dashboard runs at https://$host"
 [ "$host" = localhost ] && echo "It uses Caddy's own certificate on localhost, so your browser warns once."
-echo "GitLab CI sends its events with FACTORY_DASHBOARD_TOKEN from $env_file: put the same value in the CI variable (type File)."
+grep -q '^FACTORY_CI=gitlab' "$env_file" && echo "GitLab CI sends its events with FACTORY_DASHBOARD_TOKEN from $env_file: put the same value in the CI variable (type File)."
 echo "Outside systems (cron audits, monitors) send dispatches with FACTORY_DISPATCH_TOKEN from $env_file (docs/how-it-works.md, Dispatches)."
 grep -q '^FACTORY_CI=gitlab' "$env_file" && echo "To start dispatch runs, the dashboard needs FACTORY_TRIGGER_TOKEN in $env_file: the bot's pipeline trigger token (docs/setup.md)."
 echo "Logs: docker compose -f deploy/compose.yml logs -f"

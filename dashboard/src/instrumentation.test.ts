@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 const loops = vi.hoisted(() => ({ stops: vi.fn(async () => {}), dispatches: vi.fn(async () => {}) }));
-vi.mock("./server/loop", () => ({ loops }));
+vi.mock("./server/loop", () => ({ loops, report: (...a: unknown[]) => console.error(...a) }));
 vi.mock("./server/db-instance", () => ({ getDb: () => ({}) }));
 vi.mock("./server/compose", () => ({ getCi: () => ({}) }));
 

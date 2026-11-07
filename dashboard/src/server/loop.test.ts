@@ -7,6 +7,7 @@ import type { RunEvent } from "software-factory/run-events";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { openDb } from "./db";
 import { newLoopState, startDispatches, tick } from "./loop";
+import { NotSetUp } from "./not-set-up";
 
 const ev = (type: RunEvent["type"], run: string, extra: Partial<RunEvent> = {}): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "demo", ticket: "7", type, data: {}, ...extra }) as RunEvent;
 const later = (s: number) => new Date(Date.now() + s * 1000);
@@ -79,6 +80,19 @@ describe("tick: stop fallback", () => {
     ci.importEvents.mockRejectedValue(new Error("boom"));
     await tick({ db, ci, now: later(61) }, state);
     expect(ci.cancel).toHaveBeenCalledWith("7");
+  });
+});
+
+describe("tick: a CI that is not set up", () => {
+  it("keeps the stop pending and logs the missing setting once, as one line", async () => {
+    ci.cancel.mockRejectedValue(new NotSetUp("FACTORY_CI is not set (loop test)"));
+    stop();
+    await tick({ db, ci, now: later(61) }, state);
+    await tick({ db, ci, now: later(71) }, state);
+    expect(ci.cancel).toHaveBeenCalledTimes(2);
+    expect(db.requests({ pending: true })).toHaveLength(1);
+    const cancels = vi.mocked(console.error).mock.calls.filter(([m]) => String(m).startsWith("loop: cancel"));
+    expect(cancels).toEqual([[`loop: cancel for stop ${db.requests({ pending: true })[0].id} failed: FACTORY_CI is not set (loop test)`]]);
   });
 });
 

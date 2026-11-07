@@ -4,7 +4,7 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   try {
-    const [{ loops }, { getDb }, { getCi }] = await Promise.all([import("./server/loop"), import("./server/db-instance"), import("./server/compose")]);
+    const [{ loops, report }, { getDb }, { getCi }] = await Promise.all([import("./server/loop"), import("./server/db-instance"), import("./server/compose")]);
     for (const [name, part] of Object.entries(loops)) {
       let busy = false;
       setInterval(async () => {
@@ -13,7 +13,7 @@ export async function register() {
         try {
           await part({ db: getDb(), ci: getCi(), now: new Date() });
         } catch (err) {
-          console.error(`loop: ${name} failed`, err);
+          report(`loop: ${name} failed`, err);
         } finally {
           busy = false;
         }
