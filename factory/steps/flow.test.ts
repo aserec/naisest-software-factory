@@ -982,7 +982,7 @@ test("a stop comment posted during code review leads to stopped, not a merge", a
   await runBuildPipeline(w);
   expect(w.finishTriggered).toBe(false);
   expect(w.states).toEqual(["stopped"]);
-  expect(w.record.steps.at(-1)).toMatchObject({ step: "decision", data: { sessionId: "sess-1", stopped: true } });
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "risk-check", data: { sessionId: "sess-1", stopped: true } }); // the first step that asks after the review
   // The resumed run polls from its own start, so the old stop is not seen again.
   const r = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume"), runs: w.ci.runs });
   r.openChange();
@@ -1016,6 +1016,21 @@ test("a stop from the dashboard stops the author run and keeps its session", asy
   expect(w.states).toEqual(["stopped"]);
   expect(w.record.steps.at(-1)).toMatchObject({ step: "prepare-patch", data: { sessionId: "sess-d", stopped: true } });
   expect(noteIn(w.workItemComments.at(-1)!, "stopped")).toMatchObject({ reason: "stopped from the dashboard" });
+});
+test("a stop from the dashboard while the risk check waits for CI stops the run there", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.host.checks = async () => ((w.ctx.dashboard = fakeDashboard({ stop: true })), "running");
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["stopped"]);
+  expect(w.record.steps.at(-1)).toMatchObject({ step: "risk-check", data: { sessionId: "sess-1", stopped: true } });
+  expect(noteIn(w.workItemComments.at(-1)!, "stopped")).toMatchObject({ step: "risk-check", reason: "stopped from the dashboard" });
+  // A resume continues at the risk check and can merge.
+  const r = fakeWorld({ jev1: { risk: "trivial" }, state: "stopped", payload: command("resume"), runs: w.ci.runs });
+  r.openChange();
+  await r.tracker.comment("8", "Stopped run: pipeline 1");
+  await runBuildJobs(r, tmp());
+  expect(r.finishTriggered).toBe(true);
 });
 test("a stop still stops the run when the host read for the closed check fails", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });

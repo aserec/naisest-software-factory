@@ -52,7 +52,7 @@ export interface StepData {
   "precommit-gate":
     | { passed: true; rounds: number; branch: string; sha: string; change: ChangeRef; changeUrl: string; images?: Record<string, string>; uploadFailed?: string[]; commit?: CommitMessage }
     | PauseData;
-  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string; thresholds?: Thresholds; thresholdErrors?: string[]; testOnly?: boolean }; // testOnly: the diff changes test files only
+  "risk-check": { headSha: string; checks: Checks; rules: RuleResult[]; risk?: RiskAnswers; riskError?: string; thresholds?: Thresholds; thresholdErrors?: string[]; testOnly?: boolean } | PauseData; // testOnly: the diff changes test files only
   decision: MergeDecision | PauseData;
   apply: { change: ChangeRef; sha: string; skipped?: true; reviewed?: string; rebased?: string[] } | PauseData;
   verify: { status: Checks };
@@ -61,7 +61,7 @@ export interface StepData {
 }
 export type StepName = keyof StepData;
 // The steps that can pause: their agent hit its usage limit, or a person or a switch stopped them.
-export type PausableStep = "questions" | "prepare-patch" | "code-review" | "precommit-gate" | "decision" | "apply";
+export type PausableStep = "questions" | "prepare-patch" | "code-review" | "precommit-gate" | "risk-check" | "decision" | "apply";
 
 export function newRecord(): RunRecord {
   return { workItem: "", startedAt: new Date().toISOString(), steps: [], models: {}, rounds: { review: 0, gate: 0 }, costUsd: 0 };
@@ -93,6 +93,8 @@ export function runFacts(r: RunRecord) {
   const review = last(r, "code-review");
   const gate = last(r, "precommit-gate");
   const passedGate = gate && "change" in gate ? gate : undefined;
+  const risk = last(r, "risk-check");
+  const riskCheck = risk && "headSha" in risk ? risk : undefined; // a stop while it waited saves no check
   const decision = last(r, "decision");
   const applied = last(r, "apply");
   const end = r.steps.at(-1);
@@ -123,8 +125,8 @@ export function runFacts(r: RunRecord) {
     commit: passedGate?.commit, // older records have none
     images: passedGate?.images, // older records have none
     uploadFailed: passedGate?.uploadFailed, // older records have none
-    riskCheck: last(r, "risk-check"),
-    reviewedHead: last(r, "risk-check")?.headSha, // the commit that was reviewed and checked: apply merges only this one
+    riskCheck,
+    reviewedHead: riskCheck?.headSha, // the commit that was reviewed and checked: apply merges only this one
     decisionKind: decision && "kind" in decision ? decision.kind : undefined,
     mergedSha: applied && "sha" in applied ? applied.sha : undefined,
     // The last step, if stopped() or waiting() saved it: where and how the run paused.

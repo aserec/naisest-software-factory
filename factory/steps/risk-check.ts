@@ -4,7 +4,8 @@ import { need } from "../record";
 import { checkHardRules, parseNumstat, testOnly, type ChangedFile, type RuleResult } from "../rules";
 import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { Target } from "../types";
-import { facts, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { stopReason, stopped } from "./run";
+import { facts, inbox, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
 // Fails closed: if the changed files cannot be read, the three rules that need them fail.
 function hardRules(files: ChangedFile[] | Error, diffText: string, target: Target, pipelineGreen: boolean, pipelineDetail?: string): RuleResult[] {
@@ -26,7 +27,10 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const f = facts(ctx);
   const change = need(f.change, "change");
   const headSha = need(f.gateHead, "pushed commit");
-  const checks = await waitFor(ctx, () => ctx.codeHost.checks({ change, sha: headSha }));
+  // The wait can take an hour, and no agent runs to hear a stop: ask the inbox on each try. A failed read does not stop.
+  const box = inbox(ctx);
+  const checks = await waitFor(ctx, async () => ((await box.poll().catch(() => undefined))?.stop ? ("stopped" as const) : ctx.codeHost.checks({ change, sha: headSha })));
+  if (checks === "stopped") return stopped(ctx, "risk-check", { session: f.session, reason: stopReason(ctx) });
   const diff = await ctx.repo.diff();
   const files = changedFiles(diff.numstat);
   // A repo with no CI: the precommit gate, which ran the target's lint, test and build on this head, stands in for the pipeline.
