@@ -7,8 +7,12 @@ import type { TargetInfo } from "./targets";
 export function boardWithRuns(items: BoardRow[], db: Db, targets: TargetInfo[], now: Date) {
   const limits = new Map(targets.map((t) => [t.name, t.stuckMinutes]));
   const latest = new Map(db.latestRuns(items).map((r) => [workItemKey(r), r]));
+  // Oldest first, so the map keeps each work item's newest change.
+  const resolved = new Map(db.resolutions(items).map((r) => [workItemKey(r), r]));
+  const lastChange = new Map(db.stateChanges(items).map((c) => [workItemKey(c), c]));
   return items.map((i) => {
     const r = latest.get(workItemKey(i));
+    const change = lastChange.get(workItemKey(i));
     const open = !!r && !r.endedAt;
     // The run's own events say whether it is stuck; the work item's state fills in for a run that sent no label_change.
     const view = r && db.view(r.run, { limits: limits.get(i.target) ?? {}, now, fallback: i.state });
@@ -17,7 +21,12 @@ export function boardWithRuns(items: BoardRow[], db: Db, targets: TargetInfo[], 
     return {
       ...i, run: r?.run, costUsd: r?.costUsd, stuck: !!view?.stuck,
       step: open ? r.lastStep?.step : undefined, reached: r?.lastStep?.step, stepStartedAt: live?.startedAt, stepLimit: live && limits.get(i.target)?.[live.step],
-      round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, changeUrl: r?.changeUrl, conflicts: r?.conflicts,
+      // A person who moved the card by hand sent no label_change, so the factory's last change counts only when it matches the card's state.
+      stateSince: change?.state === i.state ? change.at : undefined,
+      round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, 
+      // The tracker reads the open change now; the run's events fill in a merged change and what the tracker cannot tell yet.
+      changeUrl: i.changeUrl ?? r?.changeUrl, conflicts: i.conflicts ?? r?.conflicts,
+      resolvedCount: resolved.get(workItemKey(i))?.count, resolvedAt: resolved.get(workItemKey(i))?.last,
     };
   });
 }

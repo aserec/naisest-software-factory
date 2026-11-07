@@ -63,3 +63,24 @@ it("links work items on the GITHUB_URL host", () => {
   vi.stubEnv("GITHUB_URL", "https://ghe.test/");
   expect(makeGitHubTracker().ticketUrl(target("a", "o/r"), "5")).toBe("https://ghe.test/o/r/issues/5");
 });
+
+it("gives a board card its open PR: the link, the conflicts, and why it cannot merge", async () => {
+  const withPr = (n: number, prs: [string, string][]) => { const c = card("o/r", n, "Needs approval"); return { ...c, content: { ...c.content, closedByPullRequestsReferences: { nodes: prs.map(([mergeable, mergeStateStatus], k) => ({ url: `https://github.com/o/r/pull/${n * 10 + k}`, mergeable, mergeStateStatus })) } } }; };
+  const f = vi.fn(async () => graphql([withPr(1, [["CONFLICTING", "DIRTY"]]), withPr(2, [["MERGEABLE", "BEHIND"]]), withPr(3, [["MERGEABLE", "CLEAN"], ["UNKNOWN", "UNKNOWN"]]), withPr(4, [["MERGEABLE", "UNSTABLE"]]), withPr(5, [])])) as unknown as typeof fetch;
+  const rows = await makeGitHubTracker(f).rows([target("a", "o/r", 2)]);
+  expect(rows.map((r) => r.checksFailed)).toEqual([false, false, false, false, undefined]);
+  expect(rows.map((r) => [r.changeUrl, r.conflicts, r.mergeBlock])).toEqual([
+    ["https://github.com/o/r/pull/10", true, "it has conflicts with the base branch"],
+    ["https://github.com/o/r/pull/20", false, "it is behind the base branch"],
+    ["https://github.com/o/r/pull/31", undefined, undefined], // the newest PR wins; GitHub still computes it
+    ["https://github.com/o/r/pull/40", false, undefined], // a failed check that is not required does not stop the merge
+    [undefined, false, undefined],
+  ]);
+});
+
+it("says a PR has a failed check when its newest commit's checks failed or errored", async () => {
+  const withRollup = (n: number, state: string | null) => { const c = card("o/r", n, "Needs approval"); return { ...c, content: { ...c.content, closedByPullRequestsReferences: { nodes: [{ url: `u${n}`, mergeable: "MERGEABLE", mergeStateStatus: "UNSTABLE", commits: { nodes: [{ commit: { statusCheckRollup: state && { state } } }] } }] } } }; };
+  const f = vi.fn(async () => graphql([withRollup(1, "FAILURE"), withRollup(2, "ERROR"), withRollup(3, "PENDING"), withRollup(4, "SUCCESS"), withRollup(5, null)])) as unknown as typeof fetch;
+  const rows = await makeGitHubTracker(f).rows([target("a", "o/r", 2)]);
+  expect(rows.map((r) => r.checksFailed)).toEqual([true, true, false, false, false]);
+});

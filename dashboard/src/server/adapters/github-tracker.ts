@@ -1,6 +1,6 @@
 // The board of targets whose work items are GitHub issues (tracker github) or cards on a GitHub board (github-project), read with GITHUB_READ_TOKEN.
 import { NotSetUp } from "../not-set-up";
-import { STATES, triageRisk, type BoardRow, type FactoryState, type Tracker } from "../seams";
+import { STATES, triageRisk, type BoardRow, type ChangeView, type FactoryState, type Tracker } from "../seams";
 import { githubApi } from "./github-url";
 import { timeout } from "./timeout";
 
@@ -8,7 +8,17 @@ const web = () => (process.env.GITHUB_URL || "https://github.com").replace(/\/+$
 // "Needs approval" -> needs_approval; undefined for a column that is no factory state.
 const columnState = (name: string) => STATES.find((s) => s === name.trim().toLowerCase().replace(/\s+/g, "_"));
 
-type Card = { state: FactoryState; repo: string; number: number; title: string; url: string; updatedAt: string; risk?: BoardRow["risk"]; boardUrl: string; closed: boolean };
+// GitHub's mergeStateStatus values that stop a merge. CLEAN, HAS_HOOKS and UNSTABLE (a check that is not required failed) can merge; UNKNOWN is still computing.
+const BLOCKS: Record<string, string> = { DIRTY: "it has conflicts with the base branch", BEHIND: "it is behind the base branch", BLOCKED: "a required review or check is missing", DRAFT: "it is a draft" };
+type Pr = { url: string; mergeable: string; mergeStateStatus: string; commits?: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] } };
+// The newest open PR that closes the issue. UNKNOWN leaves conflicts and the block undefined, so the run's events decide.
+export function changeOfPrs(prs: Pr[]): ChangeView {
+  const p = prs.at(-1);
+  if (!p) return { conflicts: false };
+  return { changeUrl: p.url, conflicts: p.mergeable === "UNKNOWN" ? undefined : p.mergeable === "CONFLICTING", mergeBlock: BLOCKS[p.mergeStateStatus], checksFailed: ["FAILURE", "ERROR"].includes(p.commits?.nodes[0]?.commit.statusCheckRollup?.state ?? "") };
+}
+
+type Card = { state: FactoryState; repo: string; number: number; title: string; url: string; updatedAt: string; risk?: BoardRow["risk"]; boardUrl: string; closed: boolean } & ChangeView;
 
 export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
   const headers = (token: string) => ({ Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" });
@@ -30,7 +40,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
     for (let after: string | null = null; ;) {
       const d = await graphql(
         token,
-        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { url items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url state repository { nameWithOwner } labels(first: 50) { nodes { name } } } } } } } } } }`,
+        `query($owner: String!, $n: Int!, $after: String) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { url items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { updatedAt fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } content { ... on Issue { number title url state repository { nameWithOwner } labels(first: 50) { nodes { name } } closedByPullRequestsReferences(first: 5, includeClosedPrs: false) { nodes { url mergeable mergeStateStatus commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } } } } } } } } }`,
         { owner, n: number, after },
       );
       const project = d.repositoryOwner?.projectV2;
@@ -39,7 +49,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
       for (const n of items.nodes) {
         const c = n.content;
         const state = n.fieldValueByName && columnState(n.fieldValueByName.name);
-        if (c?.number !== undefined && state) cards.push({ state, repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt, risk: triageRisk((c.labels?.nodes ?? []).map((l: { name: string }) => l.name)), boardUrl: project.url, closed: c.state === "CLOSED" });
+        if (c?.number !== undefined && state) cards.push({ state, repo: c.repository.nameWithOwner, number: c.number, title: c.title, url: c.url, updatedAt: n.updatedAt, risk: triageRisk((c.labels?.nodes ?? []).map((l: { name: string }) => l.name)), boardUrl: project.url, closed: c.state === "CLOSED", ...changeOfPrs(c.closedByPullRequestsReferences?.nodes ?? []) });
       }
       if (!items.pageInfo.hasNextPage) return cards;
       after = items.pageInfo.endCursor;
@@ -66,7 +76,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
         if (!boards.has(key)) boards.set(key, boardCards(token, owner, t.githubProject));
         return (await boards.get(key)!)
           .filter((c) => c.repo === repo)
-          .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: c.state, url: c.url, updatedAt: c.updatedAt, risk: c.risk, boardUrl: c.boardUrl, closed: c.closed }));
+          .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: c.state, url: c.url, updatedAt: c.updatedAt, risk: c.risk, boardUrl: c.boardUrl, closed: c.closed, changeUrl: c.changeUrl, conflicts: c.conflicts, mergeBlock: c.mergeBlock, checksFailed: c.checksFailed }));
       });
       return (await Promise.all(lists)).flat();
     },

@@ -18,6 +18,11 @@ const screen = (over: object) => JSON.stringify({ ...VALID, screens: [{ ...VALID
 test("a valid manifest parses and isNew defaults to false", () => {
   expect(parseProof(JSON.stringify(VALID)).proof).toEqual({ ...VALID, screens: [{ ...VALID.screens[0], isNew: false }] });
 });
+test("a null video means no video, as authors of a change with no UI write it", () => {
+  const r = parseProof(JSON.stringify({ ...VALID, video: null }));
+  expect(r.error).toBeUndefined();
+  expect(r.proof?.video).toBeUndefined();
+});
 test("missing, huge, bad and oversized input gives an error and does not throw", () => {
   expect(parseProof(undefined).error).toMatch(/no run\/proof\/proof.json/);
   expect(parseProof("x".repeat(200_001)).error).toBeDefined();

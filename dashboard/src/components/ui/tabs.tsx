@@ -10,7 +10,7 @@ function Tabs({ className, ...props }: React.ComponentProps<typeof TabsPrimitive
 
 // Underline tabs on a full-width 1px rule; the active one takes a 2px line in the data hue.
 function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.List>) {
-  return <TabsPrimitive.List data-slot="tabs-list" className={cn("flex h-9 w-full items-stretch gap-5 overflow-x-auto border-b", className)} {...props} />
+  return <TabsPrimitive.List data-slot="tabs-list" className={cn("flex h-9 w-full items-stretch gap-5 border-b", className)} {...props} />
 }
 
 function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Trigger>) {

@@ -10,8 +10,8 @@ import { CostByModel } from "./cost-by-model";
 import { Fact, StepDetail, Verdict } from "./step-detail";
 import { stepRowName, stepRows, type SeqEvent, type StepRow } from "./step-rows";
 import type { FileLink } from "@/server/compose";
-import type { RunSummary } from "@/server/db";
-import { runView } from "@/server/run-view";
+import type { RunSummary, StateChange } from "@/server/db";
+import { labelState, runView } from "@/server/run-view";
 import type { FactoryState, Risk } from "@/server/seams";
 import { RiskPills } from "./board";
 import { STATE } from "@/lib/state";
@@ -139,6 +139,35 @@ function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }
   );
 }
 
+// Each state the factory set on the work item, across all its runs, with the time it set it.
+// This run's changes come from its live stream; the other runs' from the server.
+function StateChanges({ run, events, others }: { run: string; events: SeqEvent[]; others: StateChange[] }) {
+  const mine = eventsOfType(events, "label_change").flatMap((e) => {
+    const state = labelState(e.data.to);
+    return state ? [{ run, at: e.at, state }] : [];
+  });
+  const changes = [...others.filter((c) => c.run !== run), ...mine].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  if (!changes.length) return null;
+  return (
+    <section className="mt-8">
+      <SectionHeading>State changes</SectionHeading>
+      <ol>
+        {changes.map((c, n) => (
+          <li key={n} className="flex flex-wrap gap-x-4 border-b border-rule py-2 last:border-0">
+            <time dateTime={c.at} className="w-44 flex-none text-muted-foreground">{when(c.at)}</time>
+            <span className="flex-1">{STATE[c.state]}</span>
+            {c.run !== run && (
+              <a href={`/runs/${encodeURIComponent(c.run)}`} className="font-mono text-xs leading-6 text-muted-foreground underline decoration-input underline-offset-4 hover:decoration-current">
+                {c.run}
+              </a>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 // A step with no events in this run: its name and an empty track, so the whole line of ten steps shows.
 // before: a step ahead of the first recorded one, such as a run continued in a new CI run. It ran, but sent no events here.
 function AheadRow({ step, before = false }: { step: string; before?: boolean }) {
@@ -210,7 +239,8 @@ function useNow() {
 // state: the work item's state in its tracker, read on the server.
 // fileLink: how a review finding links its file into the change's diff; none until the change exists.
 // earlier: the work item's other runs, read on the server.
-export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [] }: { run: string; limits?: Record<string, number>; risk?: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[] }) {
+// changes: every state the factory set on the work item, read on the server; this run's own come from the stream.
+export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [], changes = [] }: { run: string; limits?: Record<string, number>; risk?: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[]; changes?: StateChange[] }) {
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
@@ -330,6 +360,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
             <AheadRow key={s} step={s} />
           ))}
         </ul>
+        <StateChanges run={run} events={data} others={changes} />
         {usage.length > 0 && (
           <section className="mt-8">
             <SectionHeading>Cost by model</SectionHeading>

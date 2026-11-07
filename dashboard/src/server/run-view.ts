@@ -40,13 +40,15 @@ export function trackStep(last: LastStep | undefined, e: { type: string; step?: 
   return last;
 }
 
+// The one place that reads a label_change state. Rows saved before the factory dropped the prefix hold the tracker's label name, factory_<state>.
+export const labelState = (to: string) => STATES.find((s) => s === to.replace(/^factory_/, ""));
+
 export function runView({ events, requests = [], newer = false, limits = {}, now = new Date(), fallback }: RunViewInput): RunView {
   let state: FactoryState | undefined;
   let lastStep: LastStep | undefined;
   let ended = false;
   for (const e of events) {
-    // The one place that reads a label_change state. Rows saved before the factory dropped the prefix hold the tracker's label name, factory_<state>.
-    if (e.type === "label_change") state = STATES.find((s) => s === e.data.to.replace(/^factory_/, ""));
+    if (e.type === "label_change") state = labelState(e.data.to);
     else if (e.type === "run_end") ended = true;
     else lastStep = trackStep(lastStep, e);
   }

@@ -5,14 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { DIFF_RISK_MAX, STEPS, stepIndex } from "software-factory/run-events";
 import Link from "next/link";
 import { LayoutGroup, motion } from "motion/react";
-import { CircleDot, GitPullRequest, RefreshCw } from "lucide-react";
+import { GitPullRequest, RefreshCw, Ticket } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { STATE } from "@/lib/state";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import type { BoardRow, FactoryState, Risk } from "@/server/seams";
-import { ago, cn, usd, words, workItemKey } from "@/lib/utils";
+import { ago, cn, usd, when as at, words, workItemKey } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
 
 export interface BoardItem extends BoardRow {
@@ -28,6 +28,9 @@ export interface BoardItem extends BoardRow {
   mergeRiskMax?: number; // the target's limit; older runs did not send it
   changeUrl?: string;
   conflicts?: boolean; // the change has conflicts with the base branch
+  stateSince?: string; // when the factory set the card's state; none when a person set it on the board
+  resolvedCount?: number; // conflict rounds that reached their decision, across all runs
+  resolvedAt?: string; // when the newest of them did
 }
 
 // The change cannot merge until someone resolves its conflicts: the factory's conflict round, or a person.
@@ -58,6 +61,13 @@ const SIDES: [string, FactoryState[]][] = [
 ];
 // Finished tab: done, and work items a person closed in the tracker before they were done.
 const finished = (i: BoardItem) => i.state === "done" || !!i.closed;
+// PR problems tab: open work items whose change has conflicts or a failed check, and work items the factory resolved,
+// for a day after they finish. The done time is the factory's done label, or the tracker's last update when a person moved the card.
+const RESOLVED_DAY = 24 * 60 * 60 * 1000;
+const problem = (i: BoardItem) => !!i.conflicts || !!i.checksFailed;
+const inProblems = (i: BoardItem, now: number) =>
+  finished(i) ? !problem(i) && !!i.resolvedCount && now - Date.parse(i.stateSince ?? i.updatedAt) < RESOLVED_DAY : problem(i) || !!i.resolvedCount;
+const TABS = ["ongoing", "problems", "finished"] as const;
 
 // What waits for a person: the left side, plus stuck runs on the right. A finished work item waits for no one.
 export const needsYou = (items: BoardItem[]) => items.filter((i) => !finished(i) && (WAITING.includes(i.state) || i.stuck));
@@ -95,9 +105,9 @@ function Clock({ item: i, now }: { item: BoardItem; now: number }) {
   );
 }
 
-function IconLink({ href, label, icon }: { href: string; label: string; icon: React.ReactNode }) {
+function IconLink({ href, label, icon, danger }: { href: string; label: string; icon: React.ReactNode; danger?: boolean }) {
   return (
-    <Button asChild variant="ghost" size="icon-xs">
+    <Button asChild variant={danger ? "destructive" : "outline"} size="icon-xs">
       <a href={href} target="_blank" rel="noreferrer" aria-label={label} title={label}>
         {icon}
       </a>
@@ -109,6 +119,7 @@ const link = "font-medium outline-none after:absolute after:inset-0 after:rounde
 
 function Row({ item: i, now }: { item: BoardItem; now: number }) {
   const when = ago(i.updatedAt);
+  const block = i.conflicts ? "it has conflicts with the base branch" : i.mergeBlock;
   const title = i.run ? (
     <Link href={`/runs/${encodeURIComponent(i.run)}`} className={link}>
       {i.title}
@@ -130,7 +141,23 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
           </span>
           {i.step && ` · ${words(i.step)}`}
           {i.round !== undefined && ` · round ${i.round}`}
+          {i.stateSince && (
+            <>
+              {" · "}
+              <time dateTime={i.stateSince}>
+                {STATE[i.state]} since {at(i.stateSince)}
+              </time>
+            </>
+          )}
           {when && ` · ${when}`}
+          {i.resolvedAt && (
+            <>
+              {" · "}
+              <time dateTime={i.resolvedAt}>
+                Resolved {i.resolvedCount === 1 ? "once" : `${i.resolvedCount} times`}, last {at(i.resolvedAt)}
+              </time>
+            </>
+          )}
         </div>
         <Progress item={i} />
         <Clock item={i} now={now} />
@@ -139,11 +166,12 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
         {i.stuck && <Badge variant="destructive">Stuck</Badge>}
         <ConflictsBadge conflicts={i.conflicts} />
         <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
-        <span className={`w-14 text-right ${i.costUsd === undefined ? "text-muted-foreground" : ""}`}>{i.costUsd === undefined ? "—" : usd(i.costUsd)}</span>
-        {/* relative z-10 lifts the buttons over the card's stretched title link. The PR shows once the work waits for a person or is done. */}
+        {/* No run yet, no cost: the empty span keeps the buttons lined up. */}
+        <span className="w-14 text-right">{i.costUsd !== undefined && usd(i.costUsd)}</span>
+        {/* relative z-10 lifts the buttons over the card's stretched title link. The PR shows as soon as it exists, red while something stops its merge. */}
         <span className="relative z-10 flex gap-1">
-          {i.changeUrl && (i.state === "done" || WAITING.includes(i.state)) && <IconLink href={i.changeUrl} label="Open PR" icon={<GitPullRequest />} />}
-          <IconLink href={i.url} label="Open issue" icon={<CircleDot />} />
+          {i.changeUrl && <IconLink href={i.changeUrl} label={block && i.state !== "done" ? `Open PR, it cannot merge: ${block}` : "Open PR"} icon={<GitPullRequest />} danger={!!block && i.state !== "done"} />}
+          <IconLink href={i.url} label="Open issue" icon={<Ticket />} />
         </span>
       </div>
     </motion.li>
@@ -262,8 +290,9 @@ export function Board() {
   }, []);
   const targets = [...new Set(all?.map((i) => i.target))].sort();
   const data = all?.filter((i) => matches(i, filter));
-  const tab = filter.tab === "finished" ? "finished" : "ongoing";
+  const tab = TABS.find((t) => t === filter.tab) ?? "ongoing";
   const count = (done: boolean) => data?.filter((i) => finished(i) === done).length;
+  const problems = data?.filter((i) => inProblems(i, now));
   return (
     <>
       {error && <LoadError what="the board" query={board} className="mb-6" />}
@@ -291,10 +320,13 @@ export function Board() {
         </div>
       )}
       {!error && (
-        <Tabs value={tab} onValueChange={(v) => setFilter({ tab: v === "finished" ? v : "" })} className="mb-6">
+        <Tabs value={tab} onValueChange={(v) => setFilter({ tab: v === "ongoing" ? "" : v })} className="mb-6">
           <TabsList>
             <TabsTrigger value="ongoing">
               Ongoing <span className="ml-1.5 font-normal text-muted-foreground">{count(false)}</span>
+            </TabsTrigger>
+            <TabsTrigger value="problems">
+              PR problems <span className="ml-1.5 font-normal text-muted-foreground">{problems?.length}</span>
             </TabsTrigger>
             <TabsTrigger value="finished">
               Finished <span className="ml-1.5 font-normal text-muted-foreground">{count(true)}</span>
@@ -329,6 +361,14 @@ export function Board() {
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
           <Column name={STATE.done} items={data.filter((i) => i.state === "done")} now={now} newest />
           <Column name="Closed" items={data.filter((i) => i.closed && i.state !== "done")} now={now} newest />
+        </div>
+      )}
+      {problems && (all?.length === 0 || data!.length > 0) && tab === "problems" && (
+        <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-3">
+          {/* A live step is the round at work. A run paused for a person is not: its change waits for the next round or a person. */}
+          <Column name="Waiting" items={problems.filter((i) => problem(i) && !i.stepStartedAt)} now={now} />
+          <Column name="Being resolved" items={problems.filter((i) => problem(i) && i.stepStartedAt)} now={now} />
+          <Column name="Resolved" items={problems.filter((i) => !problem(i))} now={now} newest />
         </div>
       )}
       {data && (all?.length === 0 || data.length > 0) && tab === "ongoing" && (

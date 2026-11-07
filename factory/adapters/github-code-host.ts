@@ -47,7 +47,8 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     },
     // Only checks of the head count. No check yet is running, as on GitLab: waitFor gives up after an hour.
     async checks(at): Promise<Checks> {
-      if ("change" in at && (await head(at.change)) !== at.sha) return "running";
+      const p = "change" in at ? await gh.json("GET", pr(at.change)) : undefined;
+      if (p && p.head.sha !== at.sha) return "running";
       const runs: any[] = (await gh.json("GET", `${r}/commits/${at.sha}/check-runs?per_page=100`)).check_runs;
       const statuses: any[] = (await gh.json("GET", `${r}/commits/${at.sha}/status`)).statuses;
       const results = [...runs.map((c) => (c.status === "completed" ? c.conclusion : "pending")), ...statuses.map((s) => s.state)];
@@ -57,6 +58,8 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       // A repo with no active Actions workflow gets no check: say so now, not after the hour waitFor would wait.
       // ponytail: an outside app (Vercel and others) that posts statuses late is missed; it counts as no checks.
       if (results.length === 0 && !(await hasWorkflows())) return "absent";
+      // GitHub runs no pull request CI while the change conflicts with its base: no result, so a person gets it and a conflict round starts.
+      if (results.length === 0 && (p?.mergeable === false || p?.mergeable_state === "dirty")) return "none";
       if (results.length === 0 || results.some((s) => s === "pending" || s === "queued" || s === "in_progress")) return "running";
       return "green";
     },

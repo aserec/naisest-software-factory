@@ -352,3 +352,17 @@ test("a run a person stopped says who stopped it, until someone resumes it", asy
   await screen.findByRole("button", { name: /Implement/ });
   expect(screen.queryByText(/Stopped by/)).toBeNull();
 });
+
+test("State changes lists the work item's states across its runs, oldest first, with a link to each other run", async () => {
+  stream([...events, ev("label_change", "00", { data: { to: "factory_running" } }), ev("label_change", "05", { data: { to: "done" } })]);
+  const earlier = { run: "r0", target: "t", ticket: "7", at: "2026-10-28T09:00:00Z", state: "stopped" as const };
+  // The server's list holds this run's change too; the stream's copy is the one shown.
+  const mine = { ...earlier, run: "r1", at: "2026-10-29T10:00:00Z", state: "running" as const };
+  renderWithQuery(<RunTimeline run="r1" changes={[earlier, mine]} />);
+  const items = (await screen.findByRole("heading", { name: "State changes" })).parentElement!.querySelectorAll("li");
+  expect([...items].map((li) => [li.querySelector("time")?.getAttribute("datetime"), li.textContent, li.querySelector("a")?.getAttribute("href")])).toEqual([
+    ["2026-10-28T09:00:00Z", expect.stringMatching(/Stoppedr0$/), "/runs/r0"],
+    ["2026-10-29T10:00:00Z", expect.stringMatching(/Running$/), undefined],
+    ["2026-10-29T10:05:00Z", expect.stringMatching(/Done$/), undefined],
+  ]);
+});

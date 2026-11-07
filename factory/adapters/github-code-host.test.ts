@@ -109,6 +109,12 @@ describe("checks", () => {
     withChecks([{ status: "in_progress", conclusion: null }]);
     expect(await host().checks({ branch: "develop", sha: "h" })).toBe("running");
   });
+  test("a pull request with conflicts and no checks gives no result at once: GitHub runs no pull request CI on it", async () => {
+    withChecks([]);
+    routes[`${R}/actions/workflows`] = { workflows: [{ state: "active" }] };
+    routes[`${R}/pulls/5`] = { head: { sha: "h" }, mergeable: false, mergeable_state: "dirty" };
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("none");
+  });
   test("no checks and no active workflow is absent at once; a workflow list it cannot read counts as active", async () => {
     withChecks([]);
     routes[`${R}/actions/workflows`] = { workflows: [{ state: "disabled_manually" }] };

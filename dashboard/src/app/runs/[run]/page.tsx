@@ -5,6 +5,7 @@ import { getDb } from "@/server/db-instance";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConflictsBadge } from "@/components/board";
+import { MERGE_EVENTS, MergeProblems } from "@/components/merge-problems";
 import { STATE } from "@/lib/state";
 import { codeHostName, fileLinkOf, getBoard, trackerOf } from "@/server/compose";
 import { readTargets } from "@/server/targets";
@@ -18,6 +19,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   // Every run of the work item, newest first: this one's summary, and the others for "Earlier runs".
   const runs = first ? getDb().runs({ target: first.target, ticket: first.ticket }) : [];
   const summary = runs.find((r) => r.run === run);
+  const changes = first ? getDb().stateChanges([first]) : [];
   // The board is cached for 15 s; without it the page still shows the run, only the triage risk and the change link are missing.
   const item = first && (await getBoard().board().catch(() => [])).find((i) => i.target === first.target && i.ticket === first.ticket);
   const changeUrl = summary?.changeUrl;
@@ -71,7 +73,8 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         )}
         <span className="font-mono">{run}</span>
       </PageTitle>
-      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} earlier={runs.filter((r) => r.run !== run)} />
+      <RunTimeline run={run} limits={target?.stuckMinutes} risk={{ risk: item?.risk, mergeRisk: summary?.mergeRisk, mergeRiskMax: summary?.mergeRiskMax }} state={item?.state} fileLink={fileLink} earlier={runs.filter((r) => r.run !== run)} changes={changes} />
+      <MergeProblems item={item} events={first ? getDb().itemEvents(first, [...MERGE_EVENTS]) : []} run={run} />
     </main>
   );
 }

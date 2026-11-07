@@ -47,12 +47,64 @@ test("Finished holds done work items and the ones closed before done; they leave
   expect(screen.queryByText("Fix login")).toBeNull();
 });
 
+test("PR problems splits work items into waiting, being resolved and resolved, and keeps a resolved one a day after it finishes", async () => {
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+  vi.stubGlobal("fetch", vi.fn(async () => json([
+    item({ title: "Resolving", conflicts: true, step: "prepare-patch", stepStartedAt: hoursAgo(0) }),
+    item({ ticket: "8", title: "Paused", state: "needs_approval", conflicts: true, step: "decision", resolvedCount: 2, resolvedAt: "2026-11-06T21:29:00Z" }),
+    item({ ticket: "9", title: "Clean", state: "needs_approval" }),
+    item({ ticket: "10", title: "Shipped", state: "done", conflicts: true }),
+    item({ ticket: "11", title: "Cleared", state: "needs_approval", conflicts: false, resolvedCount: 1, resolvedAt: hoursAgo(2) }),
+    item({ ticket: "12", title: "Red build", state: "needs_approval", checksFailed: true }),
+    item({ ticket: "13", title: "Merged today", state: "done", stateSince: hoursAgo(3), resolvedCount: 1, resolvedAt: hoursAgo(5) }),
+    item({ ticket: "14", title: "Merged last week", state: "done", stateSince: hoursAgo(30), resolvedCount: 1, resolvedAt: hoursAgo(40) }),
+  ])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Clean");
+  fireEvent.mouseDown(screen.getByRole("tab", { name: "PR problems 5" }));
+  expect(window.location.search).toBe("?tab=problems");
+  const column = (name: string) => within(screen.getByRole("heading", { name }).closest("section")!);
+  expect(column("Waiting 2").getByText("Paused")).toBeTruthy();
+  expect(column("Waiting 2").getByText("Red build")).toBeTruthy();
+  expect(column("Waiting 2").getByText(/^Resolved 2 times, last /)).toBeTruthy();
+  expect(column("Being resolved 1").getByText("Resolving")).toBeTruthy();
+  expect(column("Resolved 2").getByText("Cleared")).toBeTruthy();
+  expect(column("Resolved 2").getByText("Merged today")).toBeTruthy();
+  expect(column("Resolved 2").getAllByText(/^Resolved once, last /)).toHaveLength(2);
+  for (const t of ["Clean", "Shipped", "Merged last week"]) expect(screen.queryByText(t)).toBeNull();
+});
+
+test("a PR that cannot merge takes the red button with the reason; a done one never; a card with no run shows no cost", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([
+    item({ title: "Conflicted", state: "needs_approval", conflicts: true, changeUrl: "http://gl/pr/1" }),
+    item({ ticket: "8", title: "Clean", state: "needs_approval", changeUrl: "http://gl/pr/2" }),
+    item({ ticket: "9", title: "Queued", state: "ready" }),
+    item({ ticket: "10", title: "Behind", state: "running", mergeBlock: "it is behind the base branch", changeUrl: "http://gl/pr/3" }),
+    item({ ticket: "11", title: "Merged", state: "done", conflicts: true, changeUrl: "http://gl/pr/4" }),
+  ])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Clean");
+  expect(screen.getByRole("link", { name: "Open PR, it cannot merge: it has conflicts with the base branch" }).getAttribute("href")).toBe("http://gl/pr/1");
+  expect(screen.getByRole("link", { name: "Open PR, it cannot merge: it is behind the base branch" }).getAttribute("href")).toBe("http://gl/pr/3");
+  expect(screen.getAllByRole("link", { name: "Open PR" }).map((a) => a.getAttribute("href"))).toEqual(["http://gl/pr/2"]);
+  expect(screen.queryByText("—")).toBeNull();
+});
+
 test("a card shows the live step, the round and both risks", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", step: "code-review", round: 2, risk: "low", mergeRisk: 3 })])));
   renderWithQuery(<Board />);
   expect(await screen.findByText(/Code review · round 2/)).toBeTruthy();
   expect(screen.getByText("Triage risk low")).toBeTruthy();
   expect(screen.getByText("Merge risk 3/10, limit 4")).toBeTruthy();
+});
+
+test("a card says since when the factory set its state, and nothing without that time", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({ state: "needs_approval", stateSince: "2026-10-29T10:05:00Z" }), item({ ticket: "8", title: "Add docs" })])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Add docs");
+  const since = screen.getByText(/^Needs approval since /);
+  expect(since.getAttribute("datetime")).toBe("2026-10-29T10:05:00Z");
+  expect(screen.getAllByText(/ since /)).toHaveLength(1);
 });
 
 test("a card whose change has conflicts with the base branch shows Conflicts; one without shows none", async () => {
@@ -240,7 +292,7 @@ test("Refresh asks the server for a fresh board", async () => {
   await waitFor(() => expect(f.mock.calls.map((c) => c[0])).toContain("/api/board?fresh=1"));
 });
 
-test("every card links its issue; only a done or waiting card links its PR", async () => {
+test("every card links its issue, and its PR as soon as one exists, also mid-run", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([
     item({ run: "r1", state: "needs_approval", changeUrl: "http://gl/mr/1" }),
     item({ ticket: "8", title: "Add docs", run: "r2", state: "running", changeUrl: "http://gl/mr/2", url: "http://gl/8" }),
@@ -250,6 +302,6 @@ test("every card links its issue; only a done or waiting card links its PR", asy
   const card = (name: string) => within(screen.getByRole("link", { name }).closest("li")!);
   expect(card("Fix login").getByRole("link", { name: "Open PR" }).getAttribute("href")).toBe("http://gl/mr/1");
   expect(card("Fix login").getByRole("link", { name: "Open issue" }).getAttribute("href")).toBe("http://gl/7");
-  expect(card("Add docs").queryByRole("link", { name: "Open PR" })).toBeNull();
+  expect(card("Add docs").getByRole("link", { name: "Open PR" }).getAttribute("href")).toBe("http://gl/mr/2");
   expect(card("Add docs").getByRole("link", { name: "Open issue" }).getAttribute("href")).toBe("http://gl/8");
 });

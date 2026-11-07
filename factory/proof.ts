@@ -32,7 +32,8 @@ const proofSchema = z.object({
     after: image.optional(),
   })).max(5).default([]),
   tests: z.array(z.object({ name: oneLine, command: oneLine, before: run, after: run })).max(20).default([]),
-  video: z.object({ name: oneLine, file: webm }).optional(),
+  // Authors of a change with no UI write "video": null; it means no video, not a broken proof.
+  video: z.object({ name: oneLine, file: webm }).nullish().transform((v) => v ?? undefined),
   note: oneLine.optional(),
 }).superRefine((p, ctx) => {
   // Verdicts are matched by screen name, and a reused file could stand for both before and after.

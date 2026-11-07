@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
-import { runView, trackStep, type RunView } from "./run-view";
+import { labelState, runView, trackStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
 
 export interface RunSummary {
@@ -22,6 +22,12 @@ export interface RunSummary {
   conflicts?: boolean; // the change has conflicts with the base branch, from change_state; a later decision means the round resolved them
 }
 
+// A state the factory set on a work item, from its label_change event.
+export interface StateChange { run: string; target: string; ticket: string; at: string; state: FactoryState }
+
+// How often the factory resolved a work item's conflicts: a conflict round that reached its decision.
+export interface Resolutions { target: string; ticket: string; count: number; last: string }
+
 // A dispatch with what became of it, for the dispatches page.
 export interface DispatchLog extends Dispatch { startedAt?: string; doneAt?: string; workItem?: string }
 export interface SwitchChange { at: string; user: string; name: SwitchName; scope: string; on: boolean }
@@ -36,6 +42,12 @@ export interface Db {
   runs(q: { target?: string; ticket?: string }): RunSummary[];
   /** The newest run of each work item given, by when it was saved; a work item with no run is left out. */
   latestRuns(items: { target: string; ticket: string }[]): RunSummary[];
+  /** Every state the factory set on the work items given, across all their runs, oldest first. */
+  stateChanges(items: { target: string; ticket: string }[]): StateChange[];
+  /** Per work item given, the conflict rounds that reached a decision, across all its runs; a work item with none is left out. */
+  resolutions(items: { target: string; ticket: string }[]): Resolutions[];
+  /** The work item's events of the types, across all its runs, oldest first. */
+  itemEvents(item: { target: string; ticket: string }, types: EventType[]): RunEvent[];
   /** The CI run (pipeline field) of the run's newest step_start, or undefined when that step_start names none. */
   newestPipeline(run: string): string | undefined;
   switches(target: string): Record<SwitchName, boolean>;
@@ -230,6 +242,36 @@ export function openDb(path: string): Db {
     latestRuns(items) {
       const newest = "SELECT (SELECT run FROM events WHERE type = 'run_start' AND target = j.value ->> 0 AND ticket = j.value ->> 1 ORDER BY seq DESC LIMIT 1) FROM json_each(?) j";
       return summaries(newest, [JSON.stringify(items.map((i) => [i.target, i.ticket]))]);
+    },
+
+    stateChanges(items) {
+      const sql = "SELECT run, target, ticket, at, data FROM events WHERE type = 'label_change' AND (target, ticket) IN (SELECT j.value ->> 0, j.value ->> 1 FROM json_each(?) j) ORDER BY at, seq";
+      return (stmt(sql).all(JSON.stringify(items.map((i) => [i.target, i.ticket]))) as Row[]).flatMap((r) => {
+        const state = labelState((JSON.parse(r.data as string) as { to: string }).to);
+        return state ? [{ run: r.run as string, target: r.target as string, ticket: r.ticket as string, at: r.at as string, state }] : [];
+      });
+    },
+
+    resolutions(items) {
+      const sql = "SELECT run, target, ticket, at, type, data FROM events WHERE type IN ('change_state', 'decision') AND (target, ticket) IN (SELECT j.value ->> 0, j.value ->> 1 FROM json_each(?) j) ORDER BY at, seq";
+      const open = new Set<string>(); // runs whose conflict round has not reached its decision yet
+      const out = new Map<string, Resolutions>();
+      for (const r of stmt(sql).all(JSON.stringify(items.map((i) => [i.target, i.ticket]))) as Row[]) {
+        const run = r.run as string;
+        if (r.type === "change_state") {
+          if ((JSON.parse(r.data as string) as { conflicts: boolean }).conflicts) open.add(run);
+        } else if (open.delete(run)) {
+          const key = `${r.target}#${r.ticket}`;
+          const n = out.get(key) ?? { target: r.target as string, ticket: r.ticket as string, count: 0, last: "" };
+          out.set(key, { ...n, count: n.count + 1, last: r.at as string });
+        }
+      }
+      return [...out.values()];
+    },
+
+    itemEvents({ target, ticket }, types) {
+      const sql = `SELECT seq, id, run, target, ticket, at, step, type, data FROM events WHERE target = ? AND ticket = ? AND type IN (SELECT value FROM json_each(?)) ORDER BY at, seq`;
+      return (stmt(sql).all(target, ticket, JSON.stringify(types)) as Row[]).map(toEvent);
     },
 
     newestPipeline(run) {

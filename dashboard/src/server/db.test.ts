@@ -211,6 +211,35 @@ describe("runs", () => {
     expect(runs.find((r) => r.run === "new")?.lastStep?.step).toBe("triage");
   });
 
+  it("stateChanges gives every state set on the work items asked for, across runs, oldest first", () => {
+    const db = openDb(":memory:");
+    db.addEvents([
+      ev("label_change", { to: "done" }, { run: "new", at: at(3) }),
+      ev("label_change", { to: "factory_running" }, { run: "old", at: at(1) }),
+      ev("label_change", { to: "stopped" }, { run: "old", at: at(2) }),
+      ev("label_change", { to: "running" }, { run: "r2", ticket: "T-2" }),
+    ]);
+    expect(db.stateChanges([{ target: "react_frontend", ticket: "T-1" }]).map((c) => [c.run, c.at, c.state])).toEqual([
+      ["old", at(1), "running"],
+      ["old", at(2), "stopped"],
+      ["new", at(3), "done"],
+    ]);
+  });
+
+  it("itemEvents gives the work item's events of the types asked for, across runs, oldest first", () => {
+    const db = openDb(":memory:");
+    db.addEvents([
+      ev("decision", { auto: false, reasons: [] }, { run: "new", at: at(3) }),
+      ev("change_state", { conflicts: true }, { run: "old", at: at(1) }),
+      ev("usage", { role: "a", model: "m", input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 1, contextTokens: 1 }, { run: "old", at: at(2) }),
+      ev("change_state", { conflicts: true }, { run: "r2", ticket: "T-2" }),
+    ]);
+    expect(db.itemEvents({ target: "react_frontend", ticket: "T-1" }, ["change_state", "decision"]).map((e) => [e.run, e.type])).toEqual([
+      ["old", "change_state"],
+      ["new", "decision"],
+    ]);
+  });
+
   it("newestPipeline gives the pipeline of the run's newest step_start", () => {
     const db = openDb(":memory:");
     expect(db.newestPipeline("r1")).toBeUndefined();

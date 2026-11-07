@@ -11,7 +11,10 @@ export type Risk = "trivial" | "low" | "medium" | "high";
 // The triage risk from the work item's factory_risk_* label, or undefined before triage. Every tracker reads the same labels.
 export const triageRisk = (labels: string[]) => labels.map((l) => /^factory_risk_(trivial|low|medium|high)$/.exec(l)?.[1] as Risk | undefined).find(Boolean);
 
-export interface BoardRow { target: string; ticket: string; title: string; state: FactoryState; url: string; updatedAt: string; risk?: Risk; boardUrl?: string; closed?: boolean } // boardUrl: the tracker's own board the work item sits on. closed: the issue is closed in the tracker
+export interface BoardRow extends ChangeView { target: string; ticket: string; title: string; state: FactoryState; url: string; updatedAt: string; risk?: Risk; boardUrl?: string; closed?: boolean } // boardUrl: the tracker's own board the work item sits on. closed: the issue is closed in the tracker
+
+// The work item's open change as the code host shows it now. Each field is undefined when the host cannot tell (no change, or still computing).
+export interface ChangeView { changeUrl?: string; conflicts?: boolean; mergeBlock?: string; checksFailed?: boolean } // mergeBlock: why the change cannot merge now, as a phrase; none when it can. checksFailed: a check or pipeline of the change failed
 
 // Where a target's work items live. A target's `tracker` key picks it.
 export interface Tracker {
