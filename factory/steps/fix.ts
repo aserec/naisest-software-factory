@@ -1,19 +1,12 @@
 // The fix step: runs one plan a person approved in the dashboard chat, in a clone of the factory repo or of a target,
 // and opens a change for people to review. The step ends the plan as done (with the change url) or failed (with why).
 import { resolve } from "node:path";
-import { makeGitLabCi } from "../adapters/gitlab-ci";
-import { makeGitLabCodeHost } from "../adapters/gitlab-code-host";
-import { makeHttpDashboard } from "../adapters/http-dashboard";
-import { makeLocalCi } from "../adapters/local-ci";
-import { makeContext } from "../compose";
-import { checkDashboardUrl, loadRouter, loadSeams, modelChoice, providerKeys } from "../config";
+import { makeContext, makeFixSeams } from "../compose";
+import { loadRouter, modelChoice } from "../config";
 import { errText } from "../errors";
-import { GitLab, GITLAB_URL } from "../gitlab";
 import { HARNESSES } from "../harnesses";
 import { RUN_DIR } from "../record";
-import { FACTORY_ROOT } from "../repo";
-import { addKnownSecrets, findSecrets, maskSecrets } from "../rules";
-import { ADAPTER_SECRETS } from "../secrets";
+import { findSecrets, maskSecrets } from "../rules";
 import type { AgentPlan, CodeHost, Dashboard, Harness, ModelChoice, Repo } from "../seams";
 import { isMain } from "./context";
 
@@ -39,44 +32,23 @@ export async function fix(s: { plan: AgentPlan; codeHost: CodeHost; repo: Repo; 
   return { url };
 }
 
-// The runner keeps File-type variables in <project dir>.tmp, as compose.ts reads them.
-const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
-
-// The dashboard comes first, built on its own, so a plan that fails anywhere later is still ended on it.
-// Secrets come through the CI adapter, as makeContext reads them, never straight from env.
-function secrets(env: NodeJS.ProcessEnv) {
-  const seams = loadSeams();
-  const ci = ({ gitlab: makeGitLabCi, local: makeLocalCi } as const)[seams.ci as "gitlab" | "local"];
-  if (!ci) throw new Error(`seams.yml ci: unknown adapter ${seams.ci}`);
-  const runner = ci(env, SECRET_DIR);
-  const token = runner.secret("FACTORY_DASHBOARD_TOKEN");
-  if (!token) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
-  addKnownSecrets(token);
-  return { seams, runner, dashboard: makeHttpDashboard(checkDashboardUrl(seams, env), token, fetch, `${FACTORY_ROOT}.cache/dashboard-spool`) };
-}
-
 // The code host, clone and folder the plan runs in.
-function place(plan: AgentPlan, env: NodeJS.ProcessEnv, s: ReturnType<typeof secrets>) {
+function place(plan: AgentPlan, env: NodeJS.ProcessEnv, s: ReturnType<typeof makeFixSeams>) {
   if (plan.repo === "target") {
     const ctx = makeContext({ ...env, FACTORY_TARGET: plan.target ?? "" });
     return { codeHost: ctx.codeHost, repo: ctx.repo, dir: ctx.dir, seams: ctx.seams };
   }
-  const { seams, runner } = s;
-  if (!seams.factoryRepo) throw new Error("seams.yml has no factoryRepo, so a factory plan cannot run");
-  const token = runner.secret(ADAPTER_SECRETS.codeHost.gitlab);
-  if (!token) throw new Error(`${ADAPTER_SECRETS.codeHost.gitlab} is not set, so a factory plan cannot run`);
-  addKnownSecrets(token, ...providerKeys(seams).map((k) => env[k]));
-  const codeHost = makeGitLabCodeHost(new GitLab(GITLAB_URL, token), seams.factoryRepo.projectPath, token, env, seams.factoryRepo.baseBranch);
+  const codeHost = s.factoryCodeHost();
   // Inside the run's own work folder, never the running factory checkout.
   const dir = resolve(RUN_DIR, "factory");
-  return { codeHost, repo: codeHost.cloneAt(dir), dir, seams };
+  return { codeHost, repo: codeHost.cloneAt(dir), dir, seams: s.seams };
 }
 
 export async function main(env: NodeJS.ProcessEnv = process.env) {
   const plan = JSON.parse(env.FACTORY_PLAN ?? "null") as AgentPlan | null;
   // The id names the branch, so it must be plain.
   if (!plan || typeof plan.id !== "string" || !/^[\w-]{8,}$/.test(plan.id)) throw new Error("FACTORY_PLAN must hold a plan with a plain plan id");
-  const s = secrets(env);
+  const s = makeFixSeams(env);
   try {
     if (plan.repo !== "factory" && plan.repo !== "target") throw new Error(`The plan names an unknown repo ${plan.repo}`);
     const p = place(plan, env, s);

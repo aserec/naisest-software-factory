@@ -128,6 +128,27 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   };
 }
 
+// The fix step's seams: the dashboard, built first so a plan that fails later is still ended on it, and the factory repo's
+// code host, built only for a factory plan. Secrets come through the CI adapter, as in makeContext.
+export function makeFixSeams(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string) {
+  const seams = loadSeams(seamsPath);
+  const ci = pick(seams, "ci")(env, secretDir);
+  const dashboardToken = ci.secret("FACTORY_DASHBOARD_TOKEN");
+  if (!dashboardToken) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
+  addKnownSecrets(dashboardToken);
+  const dashboard = pick(seams, "dashboard")(checkDashboardUrl(seams, env), dashboardToken, fetch, `${FACTORY_ROOT}.cache/dashboard-spool`);
+  // The factory's own repo lives on GitLab, whatever code host the targets use.
+  const factoryCodeHost = () => {
+    if (!seams.factoryRepo) throw new Error("seams.yml has no factoryRepo, so a factory plan cannot run");
+    const name = ADAPTER_SECRETS.codeHost.gitlab;
+    const token = ci.secret(name);
+    if (!token) throw new Error(`${name} is not set, so a factory plan cannot run`);
+    addKnownSecrets(token, ...providerKeys(seams).map((k) => env[k]));
+    return makeGitLabCodeHost(new GitLab(GITLAB_URL, token), seams.factoryRepo.projectPath, token, env, seams.factoryRepo.baseBranch);
+  };
+  return { seams, dashboard, factoryCodeHost };
+}
+
 // For the manual Jev shadow test on a person's machine: the tracker seams.yml picks, with a token from plain env.
 export function makeTracker(token: string, target: Target, seamsPath?: string) {
   return pick(loadSeams(seamsPath), "tracker")(token, target);

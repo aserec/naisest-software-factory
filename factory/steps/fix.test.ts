@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { makeFixSeams } from "../compose";
 import { loadRouter, loadSeams, modelChoice } from "../config";
 import { fakeCodeHost, fakeDashboard, fakeHarness } from "../fakes";
 import { gitRepo } from "../repo";
@@ -82,4 +83,16 @@ test("the agent's prompt holds the plan steps and nothing from the chat", async 
 
 test("main refuses a plan id that is not plain, as the id names the branch", async () => {
   await expect(main({ FACTORY_PLAN: JSON.stringify({ ...PLAN, id: "../bad" }) })).rejects.toThrow(/plan id/);
+});
+
+test("the factory repo's code host needs its token, read through the CI adapter", () => {
+  const root = mkdtempSync(join(tmpdir(), "fix-seams-"));
+  const secretDir = join(root, "secrets");
+  mkdirSync(secretDir);
+  const file = (name: string) => (writeFileSync(join(secretDir, name), `${name}-value-0123456789`), join(secretDir, name));
+  const env = { FACTORY_PIPELINE: "fix", FACTORY_DASHBOARD_URL: "https://localhost:3000", FACTORY_DASHBOARD_TOKEN: file("dash") };
+  expect(() => makeFixSeams(env, secretDir).factoryCodeHost()).toThrow("FACTORY_GITLAB_TOKEN is not set, so a factory plan cannot run");
+  const s = makeFixSeams({ ...env, FACTORY_DASHBOARD_TOKEN: file("dash"), FACTORY_GITLAB_TOKEN: file("gl") }, secretDir);
+  expect(typeof s.factoryCodeHost().openChange).toBe("function");
+  expect(() => makeFixSeams({ FACTORY_PIPELINE: "fix", FACTORY_DASHBOARD_URL: "https://localhost:3000" }, secretDir)).toThrow("FACTORY_DASHBOARD_TOKEN is not set");
 });
