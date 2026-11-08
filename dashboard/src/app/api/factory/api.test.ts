@@ -178,3 +178,34 @@ describe("history", async () => {
     expect(((await r.json()) as RunEvent[]).map((e) => e.id)).toEqual([a.id, b.id, c.id]);
   });
 });
+
+describe("plans", async () => {
+  const { GET: getPlans } = await import("./plans/route");
+  const { POST: postPlan } = await import("./plans/[id]/route");
+  const list = (headers: Record<string, string> = auth) => getPlans(new Request("http://x/api/factory/plans", { headers }));
+  const move = (id: string, body: unknown, headers: Record<string, string> = auth) => postPlan(new Request("http://x", { method: "POST", headers, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
+  const approved = () => {
+    const id = getDb().addChatMessage({ path: "/p", author: "agent", text: "plan", plan: { repo: "target", summary: "fix it", steps: ["one"] }, planUser: "ann" }).plan!.id;
+    getDb().approvePlan(id, "ann");
+    return id;
+  };
+
+  it("refuses a call without the token", async () => {
+    expect((await list({})).status).toBe(401);
+    expect((await move("x", { state: "running" }, {})).status).toBe(401);
+  });
+
+  it("lists the approved plans, and a second claim gets 409", async () => {
+    const id = approved();
+    expect(((await (await list()).json()) as { id: string }[]).map((p) => p.id)).toContain(id);
+    expect((await move(id, { state: "running" })).status).toBe(200);
+    expect((await move(id, { state: "running" })).status).toBe(409);
+    expect((await move(id, { state: "done", result: "https://pr" })).status).toBe(200);
+  });
+
+  it("refuses a state the worker may not set and a long result", async () => {
+    const id = approved();
+    expect((await move(id, { state: "approved" })).status).toBe(400);
+    expect((await move(id, { state: "done", result: "r".repeat(2001) })).status).toBe(400);
+  });
+});

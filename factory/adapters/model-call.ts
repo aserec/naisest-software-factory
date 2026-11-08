@@ -1,6 +1,8 @@
 // One plain model call, over the provider's openai or anthropic API. Shared by the judge and the dashboard chat.
 import { setTimeout as wait } from "node:timers/promises";
-import type { ModelChoice } from "../seams";
+
+// What a call needs of a choice. Not seams.ts's ModelChoice (which any choice fits): importing that pulls every harness adapter into the dashboard's type check.
+export interface ModelChoice { provider: { name: string; api: string; baseUrl?: string; keyEnv: string }; model: string }
 
 // A 5xx or a lost connection is the provider's passing trouble: up to RETRIES more tries, waiting retryMs, 2x, 3x between them.
 const RETRIES = 3;
