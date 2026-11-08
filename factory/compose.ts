@@ -76,15 +76,18 @@ function pick<S extends Seam>(seams: SeamsConfig, seam: S): (typeof ADAPTERS)[S]
 // The runner keeps File-type variables in <project dir>.tmp. Taken from this file's place, not from env.
 const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
-// seamsPath is for tests. seams.yml is read from the factory checkout only, never chosen by a variable.
-export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string): StepContext {
-  // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
-  const name = needEnv(env, "FACTORY_TARGET");
+// FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
+// A target may pick its own tracker and code host, so GitLab and GitHub repos share one factory.
+function forTarget(name: string, base: SeamsConfig) {
   if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);
   const target = loadTarget(name);
-  // A target may pick its own tracker and code host, so GitLab and GitHub repos share one factory.
-  const base = loadSeams(seamsPath);
-  const seams = { ...base, tracker: target.tracker ?? base.tracker, codeHost: target.codeHost ?? base.codeHost };
+  return { target, seams: { ...base, tracker: target.tracker ?? base.tracker, codeHost: target.codeHost ?? base.codeHost } };
+}
+
+// seamsPath is for tests. seams.yml is read from the factory checkout only, never chosen by a variable.
+export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string): StepContext {
+  const name = needEnv(env, "FACTORY_TARGET");
+  const { target, seams } = forTarget(name, loadSeams(seamsPath));
   // Check every name before any adapter is built.
   const make = { ci: pick(seams, "ci"), tracker: pick(seams, "tracker"), codeHost: pick(seams, "codeHost"), judge: pick(seams, "judge"), chat: pick(seams, "chat"), dashboard: pick(seams, "dashboard"), logSource: pick(seams, "logSource") };
   const router = loadRouter(undefined, seams);
@@ -128,8 +131,9 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   };
 }
 
-// The fix step's seams: the dashboard, built first so a plan that fails later is still ended on it, and the factory repo's
-// code host, built only for a factory plan. Secrets come through the CI adapter, as in makeContext.
+// The fix step's seams: the dashboard, built first so a plan that fails later is still ended on it, and the code host and
+// clone of the factory repo or of a target, built only for the plan's repo. Secrets come through this one CI adapter, as it
+// reads and deletes every secret file: a second adapter would find none.
 export function makeFixSeams(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string) {
   const seams = loadSeams(seamsPath);
   const ci = pick(seams, "ci")(env, secretDir);
@@ -146,7 +150,19 @@ export function makeFixSeams(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, sea
     addKnownSecrets(token, ...providerKeys(seams).map((k) => env[k]));
     return makeGitLabCodeHost(new GitLab(GITLAB_URL, token), seams.factoryRepo.projectPath, token, env, seams.factoryRepo.baseBranch);
   };
-  return { seams, dashboard, factoryCodeHost };
+  // A target plan needs only the target's code host: no tracker, chat or judge, so none of their secrets.
+  const targetPlace = (name: string) => {
+    const t = forTarget(name, seams);
+    const key = ADAPTER_SECRETS.codeHost[t.seams.codeHost];
+    const make = pick(t.seams, "codeHost");
+    const token = ci.secret(key);
+    if (!token) throw new Error(`${key} is not set, so a plan for ${name} cannot run`);
+    addKnownSecrets(token, ...providerKeys(t.seams).map((k) => env[k]));
+    const codeHost = make(token, t.target, env);
+    const dir = resolve(RUN_DIR, "target");
+    return { codeHost, repo: codeHost.cloneAt(dir), dir, seams: t.seams };
+  };
+  return { seams, dashboard, factoryCodeHost, targetPlace };
 }
 
 // For the manual Jev shadow test on a person's machine: the tracker seams.yml picks, with a token from plain env.
