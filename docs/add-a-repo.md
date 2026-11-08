@@ -11,7 +11,7 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
 - [ ] Set the project's merge method to "Fast-forward merge" and the squash setting to "Allow", "Encourage" or "Require". The merge method applies to `master` too.
 - [ ] Give the base branch no required approval rule for factory merge requests. The bot cannot approve its own merge request, so a required approval makes every auto merge fail.
 - [ ] Run a branch pipeline on pushes to the base branch, and a merge request pipeline for merge requests into it. Without the branch pipeline, verify waits an hour and blocks every merge.
-- [ ] Add `.factory.yml` at the repo root, in a merge request that a person reviews. Required keys: `install`, `lint`, `test`, `build`. Optional: `smoke`. See `docs/targets/react_frontend.factory.yml`.
+- [ ] Set the `.factory.yml` commands on the dashboard's Settings page, or add `.factory.yml` at the repo root in a merge request that a person reviews. The Settings page wins when both exist. Required keys: `install`, `lint`, `test`, `build`. Optional: `smoke`. See `docs/targets/react_frontend.factory.yml`.
   ```yaml
   install: pnpm install --frozen-lockfile
   lint: pnpm lint
@@ -19,7 +19,7 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
   build: pnpm build
   ```
 - [ ] Optional: add `.factory/author.md`, `.factory/review.md` and `.factory/writer.md` to tune the agents. The factory adds each file to the matching prompt: `author.md` for the author (also its commit message and merge request text), `review.md` for the reviewer, `writer.md` for the questions comment and the watcher and dispatch ticket writers. A missing or empty file changes nothing. Only the first 8,000 characters are read. The factory reads `author.md` and `review.md` from the commit it cloned, so the author cannot change its own instructions. It reads `writer.md` from the head of the base branch. The files cannot override the factory's rules. Add them in a merge request that a person reviews: `.factory/**` is a protected path, so a change to them always goes to a person.
-- [ ] Optional: add `.factory/thresholds.yml` to change the numbers the factory decides with. A key that is missing keeps its default. A bad value or an unknown key sends the change to a person, and the reason names the key. The factory reads it from the commit it cloned, and triage reads it from the base branch. Add it in a merge request that a person reviews, like the other `.factory` files.
+- [ ] Optional: change the numbers the factory decides with on the dashboard's Settings page. A key you leave at its default follows later changes to the default.
   ```yaml
   diffRiskMax: 4              # whole number, 2 to 10. A diff_risk above it needs a person.
   autoMergeConfidenceMin: 0.8 # 0.5 to 1. Jev 2 must be at least this sure.

@@ -9,6 +9,8 @@
   "exports": {
     "./run-events": "./factory/run-events.ts",
     "./config": "./factory/config.ts",
+    "./factory-file": "./factory/factory-file.ts",
+    "./thresholds": "./factory/thresholds.ts",
     "./relay": "./factory/relay.ts"
   },
   "scripts": {

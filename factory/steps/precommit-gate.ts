@@ -4,9 +4,8 @@ import { precommitGate } from "../loops";
 import { readImages, readProof, readVideo, proofSection } from "../proof";
 import { need } from "../record";
 import { findSecrets } from "../rules";
-import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import { review } from "./code-review";
-import { endOutcome, facts, fix, install, isMain, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
+import { endOutcome, facts, fix, install, isMain, runStep, save, thresholds, ticketRef, type StepContext, type StepResult } from "./context";
 import { runLine, withoutMarks } from "./change-text";
 import { block, endIfClosed, stopReason, stopped, waiting } from "./run";
 import { withStep } from "./with-step";
@@ -49,7 +48,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const stop = await install(ctx);
   if (stop) return stop;
-  const max = readThresholds(await ctx.repo.readBase(THRESHOLDS_PATH)).values.maxAgentRounds;
+  const max = (await thresholds(ctx)).values.maxAgentRounds;
   // Done only when code review passed on the code the gate passed. A continued gate job may hold changes no review saw.
   let unreviewed = facts(ctx).resumeAt === "precommit-gate";
   let result;

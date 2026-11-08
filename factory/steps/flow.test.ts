@@ -49,36 +49,37 @@ test("trivial ticket: build pipeline ends in auto-merge with no person", async (
   expect(w.finishTriggered).toBe(true);
   expect(w.cards).toHaveLength(0);
 });
-test("a bad thresholds file at the base commit sends a change that would merge alone to a person, naming the key", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "autoMergeConfidenceMin: 2" } }));
+test("a bad threshold in the settings sends a change that would merge alone to a person, naming the key", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { autoMergeConfidenceMin: 2 } } }));
   expect(w.finishTriggered).toBe(false);
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.mrComments.at(-1)).toContain("autoMergeConfidenceMin must be");
   expect(w.tracker.tickets.get("8")!.marks).not.toContain("risk_checked");
 });
-test("a thresholds file that is not a map also sends the change to a person", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "- 1" } }));
+test("a thresholds setting that is not a map also sends the change to a person", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: [1] as unknown as Record<string, unknown> } }));
   expect(w.finishTriggered).toBe(false);
-  expect(w.mrComments.at(-1)).toContain(".factory/thresholds.yml is not a YAML map");
+  expect(w.mrComments.at(-1)).toContain("The thresholds setting is not a map");
 });
-test("a good diffRiskMax from the thresholds file lets a change merge that the default would stop", async () => {
-  const world = (baseFiles?: Record<string, string>) => fakeWorld({ jev1: { risk: "trivial" }, jev2: "pass", baseFiles });
-  const stopped = world({ ".factory/thresholds.yml": "diffRiskMax: 2" });
+test("autoMergeTriageMax trivial sends a low-risk change to a person", async () => {
+  const world = (thresholds: Record<string, unknown>) => fakeWorld({ jev1: { risk: "low" }, jev2: "pass", settings: { thresholds } });
+  expect((await runBuildPipeline(world({}))).finishTriggered).toBe(true);
+  const held = await runBuildPipeline(world({ autoMergeTriageMax: "trivial" }));
+  expect(held.finishTriggered).toBe(false);
+  expect(held.mrComments.at(-1)).toContain("triage risk is low, and only trivial can merge alone");
+});
+test("a diffRiskMax from the settings stops a change the default would merge", async () => {
+  const world = (thresholds?: Record<string, unknown>) => fakeWorld({ jev1: { risk: "trivial" }, jev2: "pass", settings: thresholds && { thresholds } });
+  const stopped = world({ diffRiskMax: 2 });
   await runBuildPipeline(stopped);
   expect(stopped.finishTriggered).toBe(false);
   expect(stopped.mrComments.at(-1)).toContain("is above the limit of 2");
   const merged = await runBuildPipeline(world());
   expect(merged.finishTriggered).toBe(true);
 });
-test("a thresholds clarityMin from the base branch asks questions for a ticket the default would build", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 9 }, files: { ".factory/thresholds.yml": "clarityMin: 10" } }));
+test("a clarityMin from the settings asks questions for a ticket the default would build", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 9 }, settings: { thresholds: { clarityMin: 10 } } }));
   expect(w.states).toEqual(["needs_info"]);
-});
-test("a thresholds file triage cannot read keeps the default clarityMin", async () => {
-  const w = fakeWorld({ jev1: { risk: "trivial", clarity: 6 } });
-  w.host.readFile = async () => { throw new Error("HTTP 500"); };
-  await runBuildPipeline(w);
-  expect(w.states[0]).toBe("running");
 });
 test("with no thresholds file a clear ticket still builds", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial", clarity: 9 } }));
@@ -1294,18 +1295,9 @@ test("triage sets its risk mark and removes another risk mark", async () => {
   await triage.run(w.ctx);
   expect([...marksOf(w)].sort()).toEqual(["risk_low", "triaged"]);
 });
-test("a failed thresholds read is logged, and triage goes on with the default clarity limit", async () => {
-  const w = fakeWorld({ jev1: { risk: "low" } });
-  w.ci.vars.ticket = "8";
-  w.ctx.codeHost.readFile = async () => { throw new Error("status 503"); };
-  const log = vi.spyOn(console, "log").mockImplementation(() => {});
-  try {
-    await triage.run(w.ctx);
-    expect(log.mock.calls.some((c) => String(c[0]).includes("status 503"))).toBe(true);
-  } finally {
-    log.mockRestore();
-  }
-  expect(marksOf(w)).toContain("triaged");
+test("settings in the control answer give the .factory.yml commands, before the repo's file", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: {}, factoryFile: "install: i\nlint: settings-lint\ntest: t\nbuild: b\n" } }));
+  expect(w.ran).toContain("settings-lint");
 });
 test("the work item is marked merged after the factory's merge or a person's", async () => {
   expect(marksOf(await runFinishPipeline(fakeWorld()))).toEqual(["merged"]);
@@ -1344,20 +1336,20 @@ test("a check-only review after a gate fix that fails blocks after 5 rounds, not
   expect(w.workItemComments.at(-1)).toBe(noteText({ kind: "blocked", reason: "Code review did not pass after 5 rounds.\n\n**Open findings**\n\n- the list never shows the spinner", run: "1" }));
   expect(w.record.rounds.review).toBe(5);
 });
-test("maxAgentRounds from the thresholds file limits the code review rounds", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 2" }, reviews: [[B], [B], [B]] }));
+test("maxAgentRounds from the settings limits the code review rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 2 } }, reviews: [[B], [B], [B]] }));
   expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 2 rounds");
   expect(w.harness.jobs.filter((j) => j.role === "author" && j.resume)).toHaveLength(1);
 });
-test("maxAgentRounds from the thresholds file limits the precommit gate rounds", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 2" }, lintFails: 5 }));
+test("maxAgentRounds from the settings limits the precommit gate rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 2 } }, lintFails: 5 }));
   expect(w.workItemComments.at(-1)).toContain("not green after 2 rounds");
   expect(w.harness.jobs.filter((j) => j.role === "author" && j.resume)).toHaveLength(1);
 });
 test("a bad maxAgentRounds keeps the default of 5 rounds", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 0" }, reviews: [[B], [B], [B], [B], [B]], lintFails: 0 }));
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 0 } }, reviews: [[B], [B], [B], [B], [B]], lintFails: 0 }));
   expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 5 rounds");
-  const g = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/thresholds.yml": "maxAgentRounds: 0" }, lintFails: 5 }));
+  const g = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 0 } }, lintFails: 5 }));
   expect(g.workItemComments.at(-1)).toContain("not green after 5 rounds");
 });
 // 5 gate rounds are used before the review fix, so the gate after it is a check only.
@@ -1596,9 +1588,10 @@ const downOnceRunning = (w: ReturnType<typeof fakeWorld>) => {
     if (state === "running") dash(w).down = true;
   };
 };
-test("a run ends the same while the dashboard is down", async () => {
-  const up = await runAllJobs(fakeWorld({ jev1: { risk: "low" } }));
-  const w = fakeWorld({ jev1: { risk: "low" } });
+// A run that would merge alone waits for a person instead: the thresholds live in the dashboard (see below).
+test("a run that waits for a person ends the same while the dashboard is down", async () => {
+  const up = await runAllJobs(fakeWorld({ jev1: { risk: "medium" } }));
+  const w = fakeWorld({ jev1: { risk: "medium" } });
   downOnceRunning(w);
   await runAllJobs(w);
   expect(dash(w).events.map((e) => e.type)).toEqual(["run_start", "step_start"]);
@@ -1765,12 +1758,13 @@ test("new_runs off: a webhook ready starts nothing and the ticket stays ready", 
   expect(w.states).toEqual(["ready"]);
   expect(w.jevAsked).toBe(0);
 });
-test("with the dashboard down a running run goes on and merges alone, and a new run does not start", async () => {
+test("with the dashboard down a running run goes on but waits for a person, and a new run does not start", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   downOnceRunning(w);
   await runBuildJobs(w, tmp());
   expect(w.claudeCalls).toBeGreaterThan(0);
-  expect(w.finishTriggered).toBe(true);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain("could not read the target's settings from the dashboard");
   const fresh = fakeWorld({ jev1: { risk: "trivial" } });
   dash(fresh).down = true;
   await runBuildJobs(fresh, tmp());

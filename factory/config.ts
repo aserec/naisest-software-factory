@@ -63,19 +63,6 @@ const targetSchema = z.object({
   stuckMinutes: z.record(z.number().positive()).optional(),
 });
 
-const commandsSchema = z.object({
-  install: z.string().min(1),
-  lint: z.string().min(1),
-  test: z.string().min(1),
-  build: z.string().min(1),
-  smoke: z.string().min(1).optional(),
-  preview: z.string().min(1).optional(),
-  previewUrl: z.string().url().optional(),
-  // Logs a seeded user in for run/shoot.sh: reads $FACTORY_USER and $FACTORY_URL, writes a Playwright storage state to $FACTORY_STORAGE.
-  login: z.string().min(1).optional(),
-}).refine((c) => !c.preview === !c.previewUrl, { message: "preview and previewUrl go together" })
-  .refine((c) => !c.login || c.preview, { message: "login needs preview" });
-
 const readYaml = (path: string) => parse(readFileSync(path, "utf8"));
 
 function validate<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, raw: unknown, file: string): T {
@@ -144,6 +131,4 @@ export function loadTarget(name: string, override: Partial<Target> = {}): Target
   return validate(targetSchema, { ...readYaml(`${root}targets/${name}.yml`), ...override }, `targets/${name}.yml`);
 }
 
-export function parseFactoryFile(text: string): FactoryCommands {
-  return commandsSchema.parse(parse(text));
-}
+export { parseFactoryFile } from "./factory-file";

@@ -9,9 +9,8 @@ import { md } from "../conversation";
 import { collectEvidence } from "../improve/evidence";
 import { assertImprovePaths, checkEdits, type Edit, IMPROVE_PATHS, type ImprovePath, improvePrompt, parseProposal } from "../improve/proposal";
 import { findSecrets } from "../rules";
-import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { ChangeRef } from "../seams";
-import { agent, isMain, switchOn, waitFor, type StepContext } from "./context";
+import { agent, isMain, switchOn, thresholds as readThresholds, waitFor, type StepContext } from "./context";
 
 // Not factory/<n>-: the merge event, the poller and changeOfTicket never take these for a run.
 // One branch per ISO week, so a second run in the same week updates its change instead of opening another.
@@ -114,7 +113,8 @@ export async function improve(ctx: StepContext, now: Date): Promise<{ change?: C
   await ctx.repo.clone(await ctx.codeHost.baseBranch());
   const current: Current = {};
   for (const p of IMPROVE_PATHS) current[p] = await ctx.repo.readBase(p);
-  const thresholds = readThresholds(current[THRESHOLDS_PATH]).values;
+  // The Settings page owns the thresholds: the writer sees them but cannot change them.
+  const { values: thresholds } = await readThresholds(ctx);
   const r = await agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, prompt: improvePrompt({ evidence, current, thresholds }), cwd: ctx.dir });
   if (!r.ok) throw new Error("The writer run failed");
   const edits = parseProposal(r.text);

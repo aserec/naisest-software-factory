@@ -14,7 +14,8 @@ import { writeShooter } from "../proof";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
-import { MAX_FIELD, type ControlRequest } from "../run-events";
+import { MAX_FIELD, type ControlRequest, type TargetSettings } from "../run-events";
+import { DEFAULT_THRESHOLDS, checkThresholds, type Thresholds } from "../thresholds";
 import type { HarnessName } from "../harnesses";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
 import { block, closedByPerson, doneBeforeResume } from "./run";
@@ -89,6 +90,7 @@ export interface Controls {
   switchOn(name: SwitchName): boolean; // a running step's switch, or new_runs before a new run starts
   resumeOn(name: SwitchName): boolean; // the poller may resume a run this switch stopped
   requests: ControlRequest[]; // the poller's resume, restart and pending stop requests; readyActor's restarts
+  settings?: TargetSettings; // undefined when the dashboard cannot be reached
 }
 
 // The one rule for a dashboard the factory cannot reach: a running step goes on (its switch counts as on),
@@ -97,7 +99,7 @@ export interface Controls {
 async function readControls(ctx: StepContext): Promise<Controls> {
   const c = await ctx.dashboard.control(ctx.target.name, ctx.record.runId).catch(() => undefined);
   if (!c) return { switchOn: (name) => name !== "new_runs", resumeOn: () => false, requests: [] };
-  return { switchOn: (name) => c.switches[name], resumeOn: (name) => c.switches[name], requests: c.requests };
+  return { switchOn: (name) => c.switches[name], resumeOn: (name) => c.switches[name], requests: c.requests, settings: c.settings ?? { thresholds: {} } };
 }
 
 // Inside a snapshot (a step in runStep, a poll tick in poll.ts main) the dashboard is read once, at the first ask.
@@ -106,6 +108,14 @@ export const controls = (ctx: StepContext): Promise<Controls> => ctx.snapshot?.(
 export function takeSnapshot(ctx: StepContext): void {
   let read: Promise<Controls> | undefined;
   ctx.snapshot = () => (read ??= readControls(ctx));
+}
+
+// The target's thresholds from the Settings page. A dashboard the factory cannot reach gives the defaults and an error,
+// so the decision step sends a change that would merge alone to a person.
+export async function thresholds(ctx: StepContext): Promise<{ values: Thresholds; errors: string[] }> {
+  const s = (await controls(ctx)).settings;
+  if (!s) return { values: { ...DEFAULT_THRESHOLDS }, errors: ["The factory could not read the target's settings from the dashboard"] };
+  return checkThresholds(s.thresholds);
 }
 
 export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<boolean> => (await controls(ctx)).switchOn(name);

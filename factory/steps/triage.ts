@@ -6,11 +6,10 @@ import { need } from "../record";
 import { pickModels } from "../router";
 import type { Ticket } from "../seams";
 import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
-import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
 import { conversation, md } from "../conversation";
-import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, thresholds, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, endRun, stopReason, stopped, waiting } from "./run";
 
 export async function run(ctx: StepContext): Promise<StepResult> {
@@ -27,9 +26,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   } catch (e) {
     return block(ctx, `Triage failed, so the factory did not guess: ${String(e)}`);
   }
-  // A failed read keeps the default here. The decision step reads the file again from the base commit.
-  const thresholds = await ctx.codeHost.readFile(THRESHOLDS_PATH).catch((e) => void console.log(`Reading ${THRESHOLDS_PATH} failed, triage uses the default clarity limit: ${errText(e)}`));
-  const outcome = decideTriage(answers, readThresholds(thresholds).values.clarityMin);
+  // A dashboard the factory cannot reach keeps the default clarity limit here.
+  const outcome = decideTriage(answers, (await thresholds(ctx)).values.clarityMin);
   const row = pickModels(outcome.kind === "build" ? outcome.risk : answers.risk.value, answers.effort.value, ctx.router);
   // Agents only ever see this checked text, even if the work item changes later.
   ctx.record = { ...ctx.record, ticket: { title: state.title, description: state.description }, models: { author: `${row.author.harness}/${row.author.model}`, reviewer: `${row.reviewer.harness}/${row.reviewer.model}` } };

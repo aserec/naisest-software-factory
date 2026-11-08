@@ -199,9 +199,6 @@ test("checkEdits: a fix with no confirmed gone path keeps the 3 cases rule", () 
     expect(r.changes, String(gone)).toEqual([]);
     expect(r.dropped, String(gone)).toHaveLength(1);
   }
-  // Labeled fix, but the thresholds file is never a fix.
-  const T = ".factory/thresholds.yml" as const;
-  expect(check([edit({ path: T, kind: "fix", gone: "scripts/old.sh", text: "diffRiskMax: 4", evidence: [] })], { [T]: "diffRiskMax: 3 # scripts/old.sh" }).dropped).toHaveLength(1);
 });
 
 test("checkEdits: a fix whose gone path still exists, is missing from the text, or is unset becomes a change", () => {
@@ -242,13 +239,9 @@ test("checkEdits: drops a second edit for a path, a long text and an unchanged t
   expect(check([edit({ text: "x".repeat(LOCAL_MAX) })]).changes).toHaveLength(1);
 });
 
-test("checkEdits: thresholds edits are checked and are never fixes", () => {
-  const T = ".factory/thresholds.yml" as const;
-  expect(check([edit({ path: T, text: "diffRiskMax: 12" })]).dropped).toEqual([expect.stringContaining(T)]);
-  const fix = check([edit({ path: T, kind: "fix", gone: "scripts/old.sh", text: "diffRiskMax: 4" })], { [T]: "diffRiskMax: 3 # scripts/old.sh" });
-  expect(fix.fixes).toEqual([]);
-  expect(fix.changes).toHaveLength(1);
-  expect(check([edit({ path: T, text: "diffRiskMax: 4" })]).changes).toHaveLength(1);
+test("the writer cannot edit the thresholds: the Settings page owns them", () => {
+  const e = { path: ".factory/thresholds.yml", kind: "change", text: "diffRiskMax: 10", why: "w", evidence: ["l1", "l2", "l3"] };
+  expect(() => parseProposal(`{"edits":[${JSON.stringify(e)}]}`)).toThrow();
 });
 
 test("parseProposal reads the first JSON object and checks its shape", () => {

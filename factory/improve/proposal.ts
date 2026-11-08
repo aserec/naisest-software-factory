@@ -6,10 +6,10 @@ import { z } from "zod";
 import { LOCAL_MAX } from "../local-instructions";
 import { parseNumstat } from "../rules";
 import { prompt } from "../steps/context";
-import { readThresholds, type Thresholds } from "../thresholds";
+import type { Thresholds } from "../thresholds";
 import type { Evidence } from "./evidence";
 
-export const IMPROVE_PATHS = [".factory/author.md", ".factory/review.md", ".factory/writer.md", ".factory/thresholds.yml"] as const;
+export const IMPROVE_PATHS = [".factory/author.md", ".factory/review.md", ".factory/writer.md"] as const;
 export type ImprovePath = (typeof IMPROVE_PATHS)[number];
 export interface Edit { path: ImprovePath; kind: "fix" | "change"; text: string; gone?: string; why: string; evidence: string[] }
 
@@ -174,16 +174,8 @@ export function checkEdits(edits: Edit[], o: { links: Set<string>; current: Part
       drop("the text is the same as the current text");
       continue;
     }
-    const isThresholds = e.path === ".factory/thresholds.yml";
-    if (isThresholds) {
-      const { errors } = readThresholds(e.text);
-      if (errors.length) {
-        drop(errors.join("; "));
-        continue;
-      }
-    }
     // The path is gone, so the edit is a fix if it only renames. Anything else is a change: at least 3 cases, each one linked.
-    const goneConfirmed = e.kind === "fix" && !isThresholds && !!e.gone && current !== undefined && current.includes(e.gone) && confirmGone(e.gone, o.dir);
+    const goneConfirmed = e.kind === "fix" && !!e.gone && current !== undefined && current.includes(e.gone) && confirmGone(e.gone, o.dir);
     if (goneConfirmed && onlyRenames(current!, e.text, e.gone!, o.dir)) {
       out.fixes.push(e);
       continue;
@@ -196,7 +188,7 @@ export function checkEdits(edits: Edit[], o: { links: Set<string>; current: Part
   return out;
 }
 
-// The improve job may change these four files and nothing else.
+// The improve job may change these three files and nothing else.
 export function assertImprovePaths(numstat: string): void {
   const allowed: readonly string[] = IMPROVE_PATHS;
   for (const f of parseNumstat(numstat)) {

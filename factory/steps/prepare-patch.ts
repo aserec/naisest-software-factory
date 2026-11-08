@@ -4,7 +4,7 @@ import { parseFactoryFile } from "../config";
 import { localPath, localSection } from "../local-instructions";
 import { writeShooter } from "../proof";
 import type { FactoryCommands } from "../types";
-import { agent, agentCommands, rootLine, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { agent, agentCommands, controls, rootLine, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
@@ -41,8 +41,9 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     commands = facts(ctx).commands;
     if (!commands) return block(ctx, "The factory could not resume this run: the record has no saved .factory.yml commands.");
   } else {
-    const factoryFile = ctx.repo.readFile(".factory.yml");
-    if (!factoryFile) return block(ctx, "The target repo has no .factory.yml.");
+    // The Settings page's commands; a target with none there still reads .factory.yml from the repo.
+    const factoryFile = (await controls(ctx)).settings?.factoryFile ?? ctx.repo.readFile(".factory.yml");
+    if (!factoryFile) return block(ctx, "The target has no .factory.yml commands. Set them on the dashboard's Settings page.");
     commands = parseFactoryFile(factoryFile);
   }
   // Markers in a manifest or the lockfile make install fail. The author resolves them first; the gate installs again and blocks if they still fail.

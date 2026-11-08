@@ -1,41 +1,33 @@
 import { expect, test } from "vitest";
-import { DEFAULT_THRESHOLDS, readThresholds } from "./thresholds";
+import { DEFAULT_THRESHOLDS, checkThresholds } from "./thresholds";
 
-test("a missing or blank file gives the defaults and no error", () => {
-  expect(readThresholds(undefined)).toEqual({ values: DEFAULT_THRESHOLDS, errors: [] });
-  expect(readThresholds("\n")).toEqual({ values: DEFAULT_THRESHOLDS, errors: [] });
+test("no settings give the defaults and no error", () => {
+  expect(checkThresholds(undefined)).toEqual({ values: DEFAULT_THRESHOLDS, errors: [] });
+  expect(checkThresholds({})).toEqual({ values: DEFAULT_THRESHOLDS, errors: [] });
 });
 test("a key that is set changes, a key that is missing keeps its default", () => {
-  expect(readThresholds("diffRiskMax: 6\nmaxAgentRounds: 3\n")).toEqual({ values: { ...DEFAULT_THRESHOLDS, diffRiskMax: 6, maxAgentRounds: 3 }, errors: [] });
+  expect(checkThresholds({ diffRiskMax: 6, maxAgentRounds: 3, autoMergeTriageMax: "trivial" })).toEqual({ values: { ...DEFAULT_THRESHOLDS, diffRiskMax: 6, maxAgentRounds: 3, autoMergeTriageMax: "trivial" }, errors: [] });
 });
 test.each([
-  ["autoMergeConfidenceMin: 1.5", "autoMergeConfidenceMin", "autoMergeConfidenceMin must be a number from 0.5 to 1"],
-  ["autoMergeConfidenceMin: 0.2", "autoMergeConfidenceMin", "autoMergeConfidenceMin must be a number from 0.5 to 1"],
-  ['clarityMin: "6"', "clarityMin", "clarityMin must be a whole number from 2 to 10"],
-  ["maxAgentRounds: 0", "maxAgentRounds", "maxAgentRounds must be a whole number from 1 to 10"],
-  ["diffRiskMax: 4.5", "diffRiskMax", "diffRiskMax must be a whole number from 2 to 10"],
-])("a bad value in %s keeps the default and names the key", (text, key, message) => {
-  const r = readThresholds(text);
+  [{ autoMergeConfidenceMin: 1.5 }, "autoMergeConfidenceMin must be a number from 0.5 to 1"],
+  [{ autoMergeConfidenceMin: 0.2 }, "autoMergeConfidenceMin must be a number from 0.5 to 1"],
+  [{ clarityMin: "6" }, "clarityMin must be a whole number from 2 to 10"],
+  [{ maxAgentRounds: 0 }, "maxAgentRounds must be a whole number from 1 to 10"],
+  [{ diffRiskMax: 4.5 }, "diffRiskMax must be a whole number from 2 to 10"],
+  [{ autoMergeTriageMax: "medium" }, "autoMergeTriageMax must be one of trivial, low"],
+])("a bad value in %j keeps the default and names the key", (doc, message) => {
+  const r = checkThresholds(doc);
   expect(r.values).toEqual(DEFAULT_THRESHOLDS);
-  expect(r.errors).toEqual([`.factory/thresholds.yml: ${message}`]);
-  expect(r.errors[0]).toContain(key);
+  expect(r.errors).toEqual([`Settings: ${message}`]);
 });
 test("an unknown key is an error, so a typo never passes quietly", () => {
-  expect(readThresholds("diffRiskmax: 3")).toEqual({ values: DEFAULT_THRESHOLDS, errors: [".factory/thresholds.yml: unknown key diffRiskmax"] });
-});
-test("a key given twice fails closed with one error", () => {
-  const r = readThresholds("clarityMin: 8\nclarityMin: 3");
-  expect(r.values).toEqual(DEFAULT_THRESHOLDS);
-  expect(r.errors).toEqual([expect.stringContaining("is not valid YAML")]);
+  expect(checkThresholds({ diffRiskmax: 3 })).toEqual({ values: DEFAULT_THRESHOLDS, errors: ["Settings: unknown threshold diffRiskmax"] });
 });
 test("a good key next to a bad key still applies", () => {
-  const r = readThresholds("clarityMin: 8\nmaxAgentRounds: 99");
+  const r = checkThresholds({ clarityMin: 8, maxAgentRounds: 99 });
   expect(r.values).toEqual({ ...DEFAULT_THRESHOLDS, clarityMin: 8 });
   expect(r.errors).toHaveLength(1);
 });
-test.each(["- 1\n- 2", "a: [1", "just text"])("text that is not a YAML map (%j) gives the defaults and one error", (text) => {
-  const r = readThresholds(text);
-  expect(r.values).toEqual(DEFAULT_THRESHOLDS);
-  expect(r.errors).toHaveLength(1);
-  expect(r.errors[0]).toContain(".factory/thresholds.yml");
+test.each([[[1, 2]], ["just text"], [5]])("a value that is not a map (%j) gives the defaults and one error", (doc) => {
+  expect(checkThresholds(doc)).toEqual({ values: DEFAULT_THRESHOLDS, errors: ["The thresholds setting is not a map"] });
 });

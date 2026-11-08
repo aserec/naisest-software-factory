@@ -3,8 +3,7 @@ import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
 import { codeReviewLoop } from "../loops";
 import { proofPrompt, readFrames, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
-import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
-import { agent, fix, install, isMain, modelRow, runStep, save, facts, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { agent, fix, install, isMain, modelRow, runStep, save, facts, thresholds, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 class ReviewerFailed extends Error {}
@@ -16,7 +15,7 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
   const { harness, provider, model } = row.reviewer;
   // Both must agree, or the reviewer would judge screens it cannot see.
   const readsImages = ctx.harnesses[harness].images && (ctx.seams.providers[provider].images ?? []).includes(model);
-  const max = readThresholds(await ctx.repo.readBase(THRESHOLDS_PATH)).values.maxAgentRounds;
+  const max = (await thresholds(ctx)).values.maxAgentRounds;
   // A resumed run goes on from its last round. A check after the last fix counts as the last round, never one more.
   const start = Math.min(ctx.record.rounds.review + 1, max);
   let round = start - 1;

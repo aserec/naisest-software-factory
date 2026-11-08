@@ -1,7 +1,7 @@
 // Event schema shared by the factory (sender) and the dashboard (receiver).
 import { z } from "zod";
 
-export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "change_state", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "error", "prompt"] as const;
+export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "change_state", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "settings_change", "error", "prompt"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 // The state of a work item, in factory words. factory/seams.ts re-exports it.
@@ -9,7 +9,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
 export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"] as const;
 export type FactoryState = (typeof STATES)[number];
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
-export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "ready", "switch_change"]);
+export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "ready", "switch_change", "settings_change"]);
 
 // The steps of a run in order. The CI file and local-run.sh list them too; factory/ci.test.ts checks they agree.
 export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precommit-gate", "risk-check", "decision", "apply", "verify", "result-saved"] as const;
@@ -78,6 +78,8 @@ export const EVENT_DATA = {
   restart: user,
   ready: user,
   switch_change: z.object({ user: z.string(), name: z.enum(SWITCHES), scope: z.string(), on: z.boolean() }),
+  // The Settings page's whole new value for the target, so the history shows who set which commands.
+  settings_change: z.object({ user: z.string(), thresholds: z.record(z.unknown()), factoryFile: z.string().optional() }),
   error: z.object({ message: z.string() }),
   // An agent's prompt, sent when the agent starts: step_start goes before the prompt exists. Masked and cut like a field.
   prompt: z.object({ role: z.string(), prompt: field }),
@@ -155,8 +157,15 @@ export const dispatchInput = z.object({
 export type DispatchInput = z.infer<typeof dispatchInput>;
 export interface Dispatch extends DispatchInput { id: string; at: string }
 
+// A target's Settings page values, raw: the factory checks them (thresholds.ts checkThresholds, config.ts parseFactoryFile).
+export interface TargetSettings {
+  thresholds: Record<string, unknown>;
+  factoryFile?: string; // the .factory.yml commands as YAML text; none means the factory reads .factory.yml from the repo
+}
+
 export interface ControlState {
   switches: Record<SwitchName, boolean>;
   stop: boolean;
   requests: ControlRequest[];
+  settings?: TargetSettings; // an older dashboard sends none: the defaults apply
 }

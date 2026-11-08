@@ -15,9 +15,9 @@ _Avoid_: Dedup, similarity check
 **Repo-local instructions**:
 Optional files `.factory/author.md`, `.factory/review.md` and `.factory/writer.md` in a target repo. The factory appends each, cut to 8,000 characters, to the matching agent prompt. They cannot override the factory's rules.
 
-**Thresholds file**:
-`.factory/thresholds.yml` in a target repo. It sets four numbers the factory decides with. A missing key keeps the default. A bad one sends the change to a person.
-_Avoid_: Config, settings
+**Target settings**:
+The values the dashboard's Settings page keeps per target: the limits the factory decides with and the `.factory.yml` commands. A missing key keeps the default. A bad one sends the change to a person.
+_Avoid_: Config, thresholds file
 
 **Evidence**:
 One fact the self-improvement job collected, such as a person's comment on a factory change, with a link to it.

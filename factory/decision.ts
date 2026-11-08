@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { answerOf, type JevClient, type JevQuestion } from "./jev";
 import type { RuleResult } from "./rules";
-import { DEFAULT_THRESHOLDS, type Thresholds } from "./thresholds";
+import { DEFAULT_THRESHOLDS, TRIAGE_RISKS, type Thresholds } from "./thresholds";
 import type { Answer, Risk } from "./types";
 
 const questions = parse(readFileSync(fileURLToPath(new URL("../jev/risk.yml", import.meta.url)), "utf8")) as JevQuestion[];
@@ -50,7 +50,10 @@ export function riskReasons(risk: RiskAnswers, t: Thresholds = DEFAULT_THRESHOLD
 export function decideMerge(input: { triageRisk: Risk; reviewPassed: boolean; gateGreen: boolean; rules: RuleResult[]; risk: RiskAnswers; thresholds?: Thresholds }): MergeDecision {
   const { triageRisk, reviewPassed, gateGreen, rules, risk, thresholds } = input;
   const reasons: string[] = [];
-  if (triageRisk !== "trivial" && triageRisk !== "low") reasons.push(`triage risk is ${triageRisk}, and only trivial or low can merge alone`);
+  // A record saved before the setting existed has no autoMergeTriageMax: it keeps the old limit, low.
+  const max = thresholds?.autoMergeTriageMax ?? DEFAULT_THRESHOLDS.autoMergeTriageMax;
+  const allowed = TRIAGE_RISKS.slice(0, TRIAGE_RISKS.indexOf(max) + 1);
+  if (!allowed.some((r) => r === triageRisk)) reasons.push(`triage risk is ${triageRisk}, and only ${allowed.join(" or ")} can merge alone`);
   if (!reviewPassed) reasons.push("code review did not pass");
   if (!gateGreen) reasons.push("the precommit gate did not pass");
   // All five rules must be present and passed. Missing or unknown names go to a person.

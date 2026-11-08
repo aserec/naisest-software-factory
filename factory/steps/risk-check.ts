@@ -2,10 +2,9 @@ import { emit } from "../emit";
 import { askRisk, riskReasons } from "../decision";
 import { need } from "../record";
 import { checkHardRules, parseNumstat, testOnly, type ChangedFile, type RuleResult } from "../rules";
-import { THRESHOLDS_PATH, readThresholds } from "../thresholds";
 import type { Target } from "../types";
 import { stopReason, stopped } from "./run";
-import { facts, inbox, isMain, runStep, save, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { facts, inbox, isMain, runStep, save, thresholds as readThresholds, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
 
 // Fails closed: if the changed files cannot be read, the three rules that need them fail.
 function hardRules(files: ChangedFile[] | Error, diffText: string, target: Target, pipelineGreen: boolean, pipelineDetail?: string): RuleResult[] {
@@ -38,8 +37,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const rules = hardRules(files, diff.text, ctx.target, checks === "green" || gateStandsIn, gateStandsIn ? "The repo has no CI, so the green precommit gate counts as the pipeline" : undefined);
   const tests = !(files instanceof Error) && testOnly(files);
   for (const r of rules) emit(ctx, "rule_check", { rule: r.rule, passed: r.passed, detail: r.detail });
-  // The base commit, so the agent cannot change its own thresholds. A bad value sends the change to a person in the decision step.
-  const { values: thresholds, errors: thresholdErrors } = readThresholds(await ctx.repo.readBase(THRESHOLDS_PATH));
+  // From the Settings page, which the agent cannot change. A bad value sends the change to a person in the decision step.
+  const { values: thresholds, errors: thresholdErrors } = await readThresholds(ctx);
   let risk;
   try {
     risk = await askRisk(ctx.judge, ctx.record.ticket!, diff.text);

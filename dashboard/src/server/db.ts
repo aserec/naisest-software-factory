@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName } from "software-factory/run-events";
+import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings } from "software-factory/run-events";
 import { labelState, runView, trackStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
 
@@ -54,6 +54,10 @@ export interface Db {
   setSwitch(scope: string, name: SwitchName, on: boolean, user: string): void;
   /** The newest switch changes first, from their switch_change events. */
   switchChanges(limit: number): SwitchChange[];
+  /** The target's Settings page values as stored, raw; empty thresholds when none. Checked by the factory and the settings route. */
+  settings(target: string): TargetSettings & { user?: string; at?: string };
+  /** Saves the target's settings and its settings_change audit event in one transaction. */
+  setSettings(target: string, s: TargetSettings, user: string): void;
   /** Saves the request and its audit event (type = kind) in one transaction. */
   request(r: Omit<ControlRequest, "id" | "at">): ControlRequest | { refused: string };
   requests(q: { target?: string; pending?: boolean; sinceMinutes?: number }): ControlRequest[];
@@ -102,7 +106,8 @@ CREATE TABLE IF NOT EXISTS dispatches (
 );
 CREATE INDEX IF NOT EXISTS dispatches_pending ON dispatches (target, done_at, at);
 CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS preferences (user TEXT PRIMARY KEY, data TEXT NOT NULL, at TEXT NOT NULL);`;
+CREATE TABLE IF NOT EXISTS preferences (user TEXT PRIMARY KEY, data TEXT NOT NULL, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS settings (target TEXT PRIMARY KEY, data TEXT NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL);`;
 
 const DAY_MS = 864e5;
 const KEEP_BACKUPS = 7;
@@ -292,6 +297,21 @@ export function openDb(path: string): Db {
         db.prepare(`INSERT INTO switches (scope, name, "on", user, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (scope, name) DO UPDATE SET "on" = excluded."on", user = excluded.user, at = excluded.at`).run(scope, name, on ? 1 : 0, user, at);
         // A switch change belongs to no run, so run and ticket stay empty.
         insertEvents([{ id: randomUUID(), run: "", at, target: scope, ticket: "", type: "switch_change", data: { user, name, scope, on } }]);
+      });
+    },
+
+    settings(target) {
+      const r = db.prepare("SELECT data, user, at FROM settings WHERE target = ?").get(target) as Row | undefined;
+      if (!r) return { thresholds: {} };
+      return { ...(JSON.parse(r.data as string) as TargetSettings), user: r.user as string, at: r.at as string };
+    },
+
+    setSettings(target, s, user) {
+      const at = new Date().toISOString();
+      const value: TargetSettings = { thresholds: s.thresholds, ...(s.factoryFile ? { factoryFile: s.factoryFile } : {}) };
+      inTransaction(() => {
+        db.prepare("INSERT INTO settings (target, data, user, at) VALUES (?, ?, ?, ?) ON CONFLICT (target) DO UPDATE SET data = excluded.data, user = excluded.user, at = excluded.at").run(target, JSON.stringify(value), user, at);
+        insertEvents([{ id: randomUUID(), run: "", at, target, ticket: "", type: "settings_change", data: { user, ...value } }]);
       });
     },
 

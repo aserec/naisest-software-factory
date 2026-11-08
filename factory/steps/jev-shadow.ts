@@ -3,13 +3,13 @@
 // It reads the newest closed tickets of a target, runs triage on each, and writes run/jev-shadow.csv.
 // It only reads from the tracker. It never writes a state, comment or anything else.
 import { mkdirSync, writeFileSync } from "node:fs";
-import { makeCodeHost, makeTracker } from "../compose";
+import { makeTracker } from "../compose";
 import { loadSeams, loadTarget } from "../config";
 import type { JevClient } from "../jev";
 import { makeJevClient } from "../jev";
 import type { Ticket } from "../seams";
 import { ADAPTER_SECRETS } from "../secrets";
-import { DEFAULT_THRESHOLDS, THRESHOLDS_PATH, readThresholds } from "../thresholds";
+import { DEFAULT_THRESHOLDS } from "../thresholds";
 import { askTriage, buildTriageState, decideTriage } from "../triage";
 import { isMain } from "./context";
 
@@ -42,10 +42,9 @@ export async function main(env = process.env, argv = process.argv.slice(2)) {
   if (!token) throw new Error(`${tokenName} is not set. It is needed to read closed tickets.`);
   const target = loadTarget(targetName);
   const tracker = makeTracker(token, target);
-  // The target's clarityMin, as triage would use it. A bad file keeps the default, as in triage.
-  const clarityMin = readThresholds(await makeCodeHost(token, target, env).readFile(THRESHOLDS_PATH)).values.clarityMin;
+  // ponytail: uses the default clarityMin, not the target's Settings value. Read the dashboard here once a target changes it.
   const lines = [csvLine(CSV_HEADER)];
-  for (const t of await tracker.listClosed(count)) lines.push(await shadowRow(jev, t, clarityMin));
+  for (const t of await tracker.listClosed(count)) lines.push(await shadowRow(jev, t, DEFAULT_THRESHOLDS.clarityMin));
   mkdirSync("run", { recursive: true });
   writeFileSync("run/jev-shadow.csv", lines.join("\n") + "\n");
   console.log(`Wrote ${lines.length - 1} rows to run/jev-shadow.csv`);
