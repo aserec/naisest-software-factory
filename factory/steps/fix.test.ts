@@ -16,7 +16,7 @@ const PLAN: AgentPlan = {
 };
 
 // A real server repo and clone; the code host, harness and dashboard are fakes.
-function world(edit: (job: HarnessJob) => void) {
+function world(edit: (job: HarnessJob) => void, plan = PLAN) {
   const root = mkdtempSync(join(tmpdir(), "fix-test-"));
   const seed = join(root, "seed");
   git(root, "init", "-q", "-b", "master", seed);
@@ -27,10 +27,13 @@ function world(edit: (job: HarnessJob) => void) {
   git(root, "clone", "-q", "--bare", seed, server);
   const dir = join(root, "run/target");
   const repo = gitRepo(dir, join(root, "run/target.git"), `file://${server}`, "tok", process.env);
+  const pushed: string[] = [];
+  const commit = repo.commitAndPush;
+  repo.commitAndPush = async (branch, message) => (pushed.push(branch), commit(branch, message));
   const codeHost = fakeCodeHost({ baseBranch: "master", repo });
   const harness = fakeHarness((job) => (edit(job), { text: "done" }));
   const seams = loadSeams();
-  return { codeHost, harness, run: () => fix({ plan: PLAN, codeHost, repo, harness, model: modelChoice(loadRouter(undefined, seams).high.author, seams), dashboard: fakeDashboard(), dir }) };
+  return { codeHost, harness, pushed, run: () => fix({ plan, codeHost, repo, harness, model: modelChoice(loadRouter(undefined, seams).high.author, seams), dashboard: fakeDashboard(), dir }) };
 }
 
 test("an agent that edits a file opens one change on the plan's branch, and the body names the approver", async () => {
@@ -56,6 +59,13 @@ test("a diff that holds a secret opens no change", async () => {
   const w = world((job) => writeFileSync(join(job.cwd, "token.ts"), `export const t = "glpat-abcdefghijklmnopqrst";\n`));
   expect(await w.run()).toEqual({ failed: "The fix held a secret, so nothing was pushed" });
   expect(w.codeHost.changes.size).toBe(0);
+});
+
+test("a plan step that holds a secret opens no change and pushes nothing", async () => {
+  const w = world((job) => writeFileSync(join(job.cwd, "cost.ts"), "export const cost = 1;\n"), { ...PLAN, steps: ["Use the token glpat-abcdefghijklmnopqrst"] });
+  expect(await w.run()).toEqual({ failed: "The fix held a secret, so nothing was pushed" });
+  expect(w.codeHost.changes.size).toBe(0);
+  expect(w.pushed).toEqual([]);
 });
 
 test("the agent's prompt holds the plan steps and nothing from the chat", async () => {

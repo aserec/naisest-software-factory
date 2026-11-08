@@ -12,7 +12,7 @@ import { GitLab, GITLAB_URL } from "../gitlab";
 import { HARNESSES } from "../harnesses";
 import { RUN_DIR } from "../record";
 import { FACTORY_ROOT } from "../repo";
-import { addKnownSecrets, findSecrets } from "../rules";
+import { addKnownSecrets, findSecrets, maskSecrets } from "../rules";
 import { ADAPTER_SECRETS } from "../secrets";
 import type { AgentPlan, CodeHost, Dashboard, Harness, ModelChoice, Repo } from "../seams";
 import { isMain } from "./context";
@@ -30,10 +30,11 @@ export async function fix(s: { plan: AgentPlan; codeHost: CodeHost; repo: Repo; 
   await s.harness.run({ role: "author", tools: "code", maxTurns: 200, cwd: s.dir, model: s.model, prompt: fixPrompt(plan) });
   const diff = await repo.diff();
   if (!diff.text.trim()) return { failed: "The agent made no changes" };
-  if (findSecrets(diff.text).length > 0) return { failed: "The fix held a secret, so nothing was pushed" };
   const title = `fix: ${plan.summary}`;
-  await repo.commitAndPush(`factory-fix/${plan.id.slice(0, 8)}`, title);
   const body = `${plan.summary}\n\n${numbered(plan.steps)}\n\nApproved in the dashboard by ${plan.approvedBy ?? "an unknown person"}`;
+  // The title goes into the commit and the body to the code host, and a model wrote the plan from chat and screen data.
+  if (findSecrets(`${diff.text}\n${title}\n${body}`).length > 0) return { failed: "The fix held a secret, so nothing was pushed" };
+  await repo.commitAndPush(`factory-fix/${plan.id.slice(0, 8)}`, title);
   const { url } = await codeHost.openChange(`factory-fix/${plan.id.slice(0, 8)}`, title, body);
   return { url };
 }
@@ -50,6 +51,7 @@ function secrets(env: NodeJS.ProcessEnv) {
   const runner = ci(env, SECRET_DIR);
   const token = runner.secret("FACTORY_DASHBOARD_TOKEN");
   if (!token) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
+  addKnownSecrets(token);
   return { seams, runner, dashboard: makeHttpDashboard(checkDashboardUrl(seams, env), token, fetch, `${FACTORY_ROOT}.cache/dashboard-spool`) };
 }
 
@@ -85,7 +87,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env) {
     console.log(`Fix ${plan.id}: ${JSON.stringify(r)}`);
   } catch (e) {
     // The plan always ends: a throw anywhere fails it before the step does.
-    await s.dashboard.planUpdate(plan.id, "failed", errText(e, 500)).catch(() => {});
+    await s.dashboard.planUpdate(plan.id, "failed", maskSecrets(errText(e, 500))).catch(() => {});
     throw e;
   } finally {
     await s.dashboard.flush();
