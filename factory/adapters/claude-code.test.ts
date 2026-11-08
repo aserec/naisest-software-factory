@@ -229,10 +229,13 @@ test("settings pin the hook to the given absolute dir and deny the config dir", 
   expect(s.permissions.allow).not.toContain("Read");
 });
 // The agent edits files with Edit and Write, which cannot delete one. Ticket 496 asked to delete three files and blocked at review.
-test("settings let the agent delete files in the clone with git rm, and nothing else that deletes", () => {
+// git rm failed too: the .git deny makes the clone's .git read-only in the sandbox. Plain rm only reaches the clone, and the
+// factory's `add -A` stages the deletion.
+test("settings let the agent delete files in the clone with rm, while .git stays write-denied", () => {
   const s = factorySettings({}, "/opt/hooks", "/w/run/target");
-  expect(s.permissions.allow).toContain("Bash(git rm*)");
-  expect(s.permissions.allow.filter((p: string) => /^Bash\((rm|rmdir|unlink)\b/.test(p))).toEqual([]);
+  expect(s.permissions.allow).toContain("Bash(rm *)");
+  expect(s.permissions.allow).not.toContain("Bash(git rm*)");
+  expect(s.permissions.deny).toEqual(expect.arrayContaining(["Edit(./.git/**)", "Edit(./.agents/**)", "Edit(./.claude/**)"]));
 });
 // A ticket can add a script and ask that it passes (ticket 500: typecheck). The author already edits package.json and
 // runs its test script, so any script adds no power; the sandbox contains them all.

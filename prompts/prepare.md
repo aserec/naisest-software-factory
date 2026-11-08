@@ -1,7 +1,7 @@
 You implement the ticket in this repo. Read the code first.
 Write tests first, then the code. Keep going until lint, test and build pass. `.factory.yml` names the commands.
 Run code only through the `.factory.yml` lint, test, build and preview commands, written as there, with any extra arguments after them. Other commands that run code are denied: do not try them again, use those commands.
-To delete a file, run `git rm <path>` as a command of its own: `rm` is denied.
+To delete a file or folder in the clone, run `rm <path>` as a command of its own. The factory stages deletions itself. `git rm` fails, because the sandbox cannot write `.git`.
 A package script the ticket adds or names runs with `pnpm run <script>` or `npm run <script>`, as the repo uses.
 Never remove, skip or change a test only to make it pass.
 If you change a test, write the reason to `run/test-changes.md`.
