@@ -30,6 +30,8 @@ const seamsSchema = z.object({
   dashboardUrl: z.string().min(1),
   gitlabUrl: z.string().url().refine((u) => u.startsWith("https://") && !u.endsWith("/"), { message: "must be an https:// address with no trailing /" }),
   judgeModel: z.object({ provider: z.string().min(1), model: z.string().min(1) }),
+  chatModel: z.object({ provider: z.string().min(1), model: z.string().min(1) }),
+  factoryRepo: z.object({ projectPath: z.string().min(1), baseBranch: z.string().min(1) }).optional(),
   providers: z.record(z.object({
     api: z.enum(["anthropic", "openai"]),
     baseUrl: z.string().url().optional(),
@@ -87,9 +89,12 @@ export function loadSeams(path = `${root}seams.yml`): SeamsConfig {
   for (const [name, p] of Object.entries(seams.providers))
     for (const [field, ids] of [["images", p.images ?? []], ["prices", Object.keys(p.prices ?? {})]] as const)
       for (const id of ids) if (!Object.hasOwn(p.models, id)) throw new Error(`seams.yml providers.${name}.${field}: model ${id} is not in models`);
-  family(seams, seams.judgeModel, "seams.yml judgeModel");
-  const h = seams.providers[seams.judgeModel.provider].onlyHarness;
-  if (h) throw new Error(`seams.yml judgeModel: provider ${seams.judgeModel.provider} works only with harness ${h}`);
+  // Both models are called plain, with a key, so a provider tied to one harness cannot serve them.
+  for (const field of ["judgeModel", "chatModel"] as const) {
+    family(seams, seams[field], `seams.yml ${field}`);
+    const h = seams.providers[seams[field].provider].onlyHarness;
+    if (h) throw new Error(`seams.yml ${field}: provider ${seams[field].provider} works only with harness ${h}`);
+  }
   return seams;
 }
 

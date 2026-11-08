@@ -1,8 +1,8 @@
 // Judge by one plain model call. The state goes to the model as data, never as instructions.
 // Fails closed: an answer that is not valid throws, and the caller blocks.
-import { setTimeout as wait } from "node:timers/promises";
 import { fromApiAnswer, type ApiAnswer, type JevAnswer, type JevQuestion } from "../jev";
 import type { Judge, ModelChoice } from "../seams";
+import { callModel, checkModel } from "./model-call";
 
 const clamp = (n: number) => Math.min(1, Math.max(0, n));
 
@@ -34,50 +34,14 @@ function toApiAnswer(q: JevQuestion, a: { value?: unknown; confidence?: unknown 
   return { type: q.kind, probabilities: { [key]: confidence }, confidence };
 }
 
-// A 5xx or a lost connection is the provider's passing trouble: up to RETRIES more tries, waiting retryMs, 2x, 3x between them.
-const RETRIES = 3;
-
-export function makeModelJudge({ provider, model }: ModelChoice, env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch, retryMs = 2000): Judge {
-  const key = env[provider.keyEnv];
-  if (!key) throw new Error(`${provider.keyEnv} is not set`);
-  // Only the provider's own baseUrl from seams.yml gets the key.
-  if (!provider.baseUrl) throw new Error(`Provider ${provider.name} has no baseUrl`);
-  const base = provider.baseUrl.replace(/\/+$/, "");
+export function makeModelJudge(choice: ModelChoice, env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch, retryMs = 2000): Judge {
+  checkModel(choice, env);
   return {
     provider: "model",
     async ask(state, questions) {
       // "<" is escaped so the state cannot close its own block. The result is still valid JSON.
       const user = `<state>\n${JSON.stringify(state).replaceAll("<", "\\u003c")}\n</state>\n\nQuestions:\n${JSON.stringify(questions.map(describe))}`;
-      const openai = provider.api === "openai";
-      const call = () => fetchFn(openai ? `${base}/chat/completions` : `${base}/v1/messages`, {
-        method: "POST",
-        headers: openai ? { Authorization: `Bearer ${key}`, "Content-Type": "application/json" } : { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-        body: JSON.stringify(
-          openai
-            ? { model, temperature: 0, messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user }] }
-            : { model, max_tokens: 1024, temperature: 0, system: SYSTEM, messages: [{ role: "user", content: user }] },
-        ),
-      });
-      let res: Response | undefined;
-      for (let attempt = 0; ; attempt++) {
-        const last = attempt === RETRIES;
-        try {
-          res = await call();
-        } catch (e) {
-          if (last) throw e;
-        }
-        if ((res && res.status < 500) || last) break;
-        await wait(retryMs * (attempt + 1));
-      }
-      if (!res) throw new Error("Model judge call failed: no response");
-      // No body in the message: it could echo the request.
-      if (!res.ok) throw new Error(`Model judge call failed: HTTP ${res.status}`);
-      // No body in the message here either.
-      const data = (await res.json().catch(() => {
-        throw new Error("Model judge reply is not JSON");
-      })) as any;
-      const text: unknown = openai ? data.choices?.[0]?.message?.content : data.content?.map((b: { text?: string }) => b.text ?? "").join("");
-      if (typeof text !== "string") throw new Error("Model judge reply has no text");
+      const text = await callModel(choice, env, SYSTEM, [{ role: "user", content: user }], { fetchFn, retryMs });
       let answers: Record<string, { value?: unknown; confidence?: unknown }> | undefined;
       try {
         // Models often wrap JSON in a code fence.

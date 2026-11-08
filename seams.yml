@@ -17,6 +17,9 @@ dashboard: http
 dashboardUrl: REPLACE_WITH_DASHBOARD_URL
 # Used when judge is model-call. jev-celeris needs CELERIS_API_KEY.
 judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
+# The dashboard's agent chat answers with this model. factoryRepo is where its approved fixes open PRs.
+chatModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
+factoryRepo: { projectPath: Ceresa/software-factory, baseBranch: main }
 providers:
   team-plan: { api: anthropic, keyEnv: CLAUDE_CODE_OAUTH_TOKEN, onlyHarness: claude-code, models: { claude-sonnet-5-5: sonnet, claude-opus-5-5: opus }, images: [claude-sonnet-5-5, claude-opus-5-5] }
   tensorx: { api: openai, baseUrl: https://api.tensorx.ai/v1, keyEnv: TENSORX_API_KEY, models: { deepseek/deepseek-v4.1-flash-1017: deepseek, z-ai/glm-5.3-flash: glm },

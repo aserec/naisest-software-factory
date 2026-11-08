@@ -10,6 +10,8 @@ export interface SeamsConfig {
   tracker: string; codeHost: string; ci: string; judge: string; chat: string; logSource: string;
   dashboard: string; dashboardUrl: string; gitlabUrl: string;
   judgeModel: { provider: string; model: string };
+  chatModel: { provider: string; model: string };
+  factoryRepo?: { projectPath: string; baseBranch: string }; // the factory's own repo, where the dashboard chat's fixes open PRs
   providers: Record<string, Omit<Provider, "name">>;
 }
 export interface Target {

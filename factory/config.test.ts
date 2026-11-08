@@ -44,6 +44,7 @@ test("a provider with onlyHarness serves only that harness, and never the judge"
   expect(() => loadRouter(edited("router.yml", "reviewer: { harness: claude-code, provider: team-plan", "reviewer: { harness: pi, provider: team-plan"))).toThrow("router.yml low.reviewer: provider team-plan works only with harness claude-code");
   expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "judgeModel: { provider: team-plan, model: claude-sonnet-5-5 }"))).toThrow("seams.yml judgeModel: provider team-plan works only with harness claude-code");
   expect(() => loadSeams(edited("seams.yml", "judgeModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "judgeModel: { provider: tensorx, model: nope }"))).toThrow("seams.yml judgeModel: provider tensorx has no model nope");
+  expect(() => loadSeams(edited("seams.yml", "chatModel: { provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }", "chatModel: { provider: team-plan, model: claude-sonnet-5-5 }"))).toThrow("seams.yml chatModel: provider team-plan works only with harness claude-code");
   const seams = loadSeams();
   const pinned = { ...seams, providers: { ...seams.providers, tensorx: { ...seams.providers.tensorx, onlyHarness: "pi" as const } } };
   expect(() => loadRouter(undefined, pinned)).not.toThrow();
