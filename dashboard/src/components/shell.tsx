@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, ChevronDown, CircleUser, Inbox, LayoutList, LogOut, Menu, Server, Settings, SlidersHorizontal, ToggleRight } from "lucide-react";
+import { ChartColumn, ChevronDown, CircleUser, Inbox, LayoutList, LogOut, Menu, MessageSquare, Server, Settings, SlidersHorizontal, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useState, useTransition } from "r
 import { Button } from "@/components/ui/button";
 import type { Theme } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
+import { AgentChat, useChatOpen } from "./agent-chat";
 import { needsYou, useBoard } from "./board";
 import { Notifications } from "./notifications";
 import { UsageLimits } from "./usage-limits";
@@ -230,10 +231,11 @@ export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
 export function Shell({ children, signOut, boards = [] }: { children: React.ReactNode; signOut: () => Promise<void>; boards?: string[] }) {
   const path = usePathname() ?? "/";
   const [runTarget, setRunTarget] = useState<string>();
+  const [chatOpen, toggleChat] = useChatOpen();
   if (path === "/sign-in") return <>{children}</>;
   const trail = crumbs(path, runTarget);
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[228px_minmax(0,1fr)] md:grid-rows-[48px_1fr]">
+    <div className="min-h-dvh md:grid md:grid-cols-[228px_minmax(0,1fr)_auto] md:grid-rows-[48px_1fr]">
       <aside className="hidden px-3 md:row-span-2 md:block">
         <div className="flex h-12 items-center px-2.5">
           <Brand />
@@ -243,7 +245,7 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
         </div>
       </aside>
 
-      <header className="flex h-12 items-center gap-3 px-4 md:pr-6 md:pl-[25px]">
+      <header className="flex h-12 items-center gap-3 px-4 md:col-span-2 md:pr-6 md:pl-[25px]">
         <details key={path} className="md:hidden" onKeyDown={(e) => e.key === "Escape" && e.currentTarget.removeAttribute("open")}>
           <summary aria-label="Menu" className="flex size-11 cursor-pointer list-none items-center justify-center rounded-md hover:bg-active [&::-webkit-details-marker]:hidden">
             <Menu className="size-5" strokeWidth={1.5} />
@@ -270,6 +272,15 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
           ))}
         </ol>
         <ThemeSync />
+        <button
+          type="button"
+          aria-pressed={chatOpen}
+          onClick={toggleChat}
+          className="flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-active aria-pressed:text-foreground"
+        >
+          <MessageSquare className="size-4" strokeWidth={1.5} aria-hidden="true" />
+          <span className="max-sm:sr-only">Chat</span>
+        </button>
         <UsageLimits />
         <Notifications />
         <UserMenu signOut={signOut} />
@@ -282,6 +293,7 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
           </motion.div>
         </RunTargetContext.Provider>
       </div>
+      {chatOpen && <AgentChat path={path} />}
     </div>
   );
 }
