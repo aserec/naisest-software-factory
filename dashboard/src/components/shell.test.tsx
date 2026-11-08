@@ -58,6 +58,17 @@ test("the nav holds Board with one child board per target and marks only the ope
   expect(children.map((l) => l.getAttribute("aria-current"))).toEqual(["page", null]);
 });
 
+test("each target's board shows how many runs wait on you", async () => {
+  const p = servePreferences();
+  const item = (target: string, state: string) => ({ target, state, ticket: 1, title: "t" });
+  const board = [item("api", "needs_approval"), item("api", "needs_info"), item("api", "running"), item("api2", "running")];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => (String(url).includes("/api/board") ? Response.json(board) : String(url).includes("/api/notifications") ? Response.json([]) : p.handle(init))));
+  renderWithQuery(<Shell signOut={async () => {}} boards={["api", "api2"]}>x</Shell>);
+  const nav = (await screen.findAllByRole("navigation", { name: "Main" }))[0];
+  await waitFor(() => expect(within(nav).getByRole("link", { name: /api$/ }).textContent).toBe("2 waiting on youapi"));
+  expect(within(nav).getByRole("link", { name: /api2/ }).textContent).toBe("0 waiting on youapi2");
+});
+
 test("a run's breadcrumb goes Board, then its target's board, then the run", async () => {
   serve();
   nav.path = "/runs/0123456789abcdef";

@@ -9,6 +9,7 @@ import { createContext, useContext, useEffect, useState, useTransition } from "r
 import { Button } from "@/components/ui/button";
 import type { Theme } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
+import { needsYou, useBoard } from "./board";
 import { Notifications } from "./notifications";
 import { UsageLimits } from "./usage-limits";
 import { usePreferences } from "./use-preferences";
@@ -75,6 +76,9 @@ function NavLink({ href, active, icon: Icon, children, className }: { href: stri
 // Board opens the overview of every target; each target's own board sits under it as a child, on a tree line.
 function Nav({ path, boards }: { path: string; boards: string[] }) {
   const on = (href: string) => path === href || path.startsWith(`${href}/`);
+  // The same board query the bell reads, so the counts cost no extra fetch.
+  const { data } = useBoard();
+  const waiting = Array.isArray(data) ? needsYou(data) : [];
   return (
     <nav aria-label="Main" className="isolate flex flex-col gap-0.5">
       <NavLink href="/" active={path === "/" || path.startsWith("/runs/")} icon={LayoutList}>
@@ -84,10 +88,15 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
         <ul className="ml-[17px] flex flex-col gap-0.5 border-l border-border pl-2">
           {boards.map((b) => {
             const href = `/boards/${encodeURIComponent(b)}`;
+            const n = waiting.filter((i) => i.target === b).length;
             return (
               <li key={b} className="relative before:absolute before:top-1/2 before:-left-2 before:w-1.5 before:border-t before:border-border">
-                <NavLink href={href} active={on(href)} className="h-8 truncate font-mono text-xs">
-                  {b}
+                <NavLink href={href} active={on(href)} className="h-8 font-mono text-xs">
+                  <span title={`${n} waiting on you`} className={cn("min-w-5 rounded-full px-1.5 text-center tabular-nums", n ? "bg-data text-background" : "bg-active text-muted-foreground")}>
+                    {n}
+                    <span className="sr-only"> waiting on you</span>
+                  </span>
+                  <span className="truncate">{b}</span>
                 </NavLink>
               </li>
             );
