@@ -147,7 +147,7 @@ test("readVideo takes only a real WebM file, and proofSection links it", () => {
   const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 1]);
   expect(readVideo((p) => (p === "run/proof/list.webm" ? webm : undefined), VISUAL_PROOF)).toEqual({ "list.webm": webm });
   expect(readVideo(() => Buffer.from("not a video"), VISUAL_PROOF)).toEqual({});
-  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), { "list.webm": "/uploads/3/list.webm" })).toContain("### Video: unsure\n\n[Video of the e2e test: teacher opens the list](/uploads/3/list.webm)");
+  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), { "list.webm": "/uploads/3/list.webm" })).toContain("### Video: 🟡 unsure\n\n![Video of the e2e test](/uploads/3/list.webm)\n\n[Open the video of the e2e test: teacher opens the list](/uploads/3/list.webm)");
   expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), {}, ["list.webm"])).toContain("video upload failed");
 });
 test("proofReasons: a reviewer that cannot read images judged no screen", () => {
@@ -197,30 +197,42 @@ const links = { "before-list-1280.png": "/uploads/1/before-list-1280.png", "afte
 test("proofSection: two screens and a test render as the B2 mockup", () => {
   const settings = { name: "settings page", reach: "http://localhost:3000/settings", width: 1280, isNew: true, after: "after-settings-1280.png" };
   const r = rec({ ...VISUAL_PROOF, screens: [...VISUAL_PROOF.screens, settings] }, { verdicts: [{ screen: "list page", verdict: "matches", note: "the list now shows the spinner." }, { screen: "settings page", verdict: "unsure", note: "..." }, { screen: "list.webm", verdict: "matches", note: "the frames end on the spinner." }] });
-  expect(proofSection(r, links)).toBe(`## Proof
+  const s = proofSection(r, links);
+  expect(s).toContain(`## Proof
 
-### Screen 1: list page, 1280 px: matches
-| Before | After |
-| --- | --- |
-| ![before](/uploads/1/before-list-1280.png) | ![after](/uploads/2/after-list-1280.png) |
+- Tests: 🟢 1 of 1 failed before the change and pass after it
+- Screens: 1 🟢 matches, 1 🟡 unsure
+- Video: 🟢 matches`);
+  // A visual change shows its screens and video before its tests.
+  expect(s.indexOf("### Screens")).toBeLessThan(s.indexOf("### Tests"));
+  expect(s).toContain(`### Screens
+
+#### Screen 1: list page, 1280 px: 🟢 matches
+
+Before:
+
+![before](/uploads/1/before-list-1280.png)
+
+After:
+
+![after](/uploads/2/after-list-1280.png)
 
 Reviewer: the list now shows the spinner.
 
-### Screen 2: settings page, 1280 px, new screen: unsure
-| After |
-| --- |
-| ![after](/uploads/3/after-settings-1280.png) |
+#### Screen 2: settings page, 1280 px, new screen: 🟡 unsure
+
+After:
+
+![after](/uploads/3/after-settings-1280.png)
 
 Reviewer: ...
 
-### Video: matches
+### Video: 🟢 matches
 
 no video
 
-Reviewer: the frames end on the spinner.
-
-### Tests
-- list-spinner: failed before, passes after`);
+Reviewer: the frames end on the spinner.`);
+  expect(s).toContain("| list-spinner | 🔴 failed | 🟢 passes |");
 });
 test("proofSection: agent and reviewer text cannot start a quick action, break the table or run past 200 chars", () => {
   const name = "a\n/merge |x| <img src=x>";
@@ -237,14 +249,22 @@ test("proofSection: agent and reviewer text cannot start a quick action, break t
 test("proofSection: no proof, no screens and no tests", () => {
   expect(proofSection(rec(undefined, { error: "no run/proof/proof.json" }), {})).toBe("## Proof\n\nNo proof: no run/proof/proof.json");
   expect(proofSection(undefined, {})).toBe("## Proof\n\nNo proof: code review saved no proof");
-  expect(proofSection(rec({ visual: false, screens: [], tests: [], note: "a text change" }), {})).toBe("## Proof\n\nNo screenshots: a text change\n\n### Tests\nNo test proof.");
-  expect(proofSection(rec({ visual: false, screens: [], tests: [passingTest(0)] }), {})).toContain("- list-spinner: passed before, passes after");
-  expect(proofSection(rec({ visual: false, screens: [], tests: [{ ...TEST_PROOF.tests[0], after: { exit: 1, tail: "" } }] }), {})).toContain("- list-spinner: failed before, fails after");
+  expect(proofSection(rec({ visual: false, screens: [], tests: [], note: "a text change" }), {})).toBe("## Proof\n\n- Tests: ⚪ none\n- Screens: ⚪ none\n- Author's note: a text change\n\n### Tests\n\nNo test proof.");
+  expect(proofSection(rec({ visual: false, screens: [], tests: [passingTest(0)] }), {})).toContain("| list-spinner | 🟢 passed | 🟢 passes |");
+  expect(proofSection(rec({ visual: false, screens: [], tests: [{ ...TEST_PROOF.tests[0], after: { exit: 1, tail: "" } }] }), {})).toContain("| list-spinner | 🔴 failed | 🔴 fails |");
+});
+test("proofSection: a change that does not look different shows each test's command and output first, in a code block that cannot close early or start a quick action", () => {
+  const t = { name: "retry", command: "pnpm vitest run", before: { exit: 1, tail: "/merge\n```\nExpected button" }, after: { exit: 0, tail: "" } };
+  const s = proofSection(rec({ visual: false, screens: VISUAL_PROOF.screens, tests: [t] }, { verdicts: matches }), links);
+  expect(s.indexOf("### Tests")).toBeLessThan(s.indexOf("### Screens"));
+  expect(s).toContain("Before the change, exit code 1:\n\n```text\n​/merge\n'''\nExpected button\n```");
+  expect(s).toContain("After the change, exit code 0:\n\n```text\n(no output)\n```");
+  expect(s).toContain("- Tests: 🟢 1 of 1 failed before the change and pass after it");
 });
 test("proofSection: an image without a link says why", () => {
   const s = proofSection(rec(VISUAL_PROOF, { verdicts: matches }), { "after-list-1280.png": links["after-list-1280.png"] }, ["before-list-1280.png"]);
-  expect(s).toContain("| image upload failed | ![after](/uploads/2/after-list-1280.png) |");
-  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), {})).toContain("| no image | no image |");
+  expect(s).toContain("Before:\n\nimage upload failed\n\nAfter:\n\n![after](/uploads/2/after-list-1280.png)");
+  expect(proofSection(rec(VISUAL_PROOF, { verdicts: matches }), {})).toContain("Before:\n\nno image\n\nAfter:\n\nno image");
 });
 test("proofReasons: an upload that failed sends the change to a person, last", () => {
   expect(proofReasons(rec(VISUAL_PROOF, { verdicts: matches }), true, ["before-list-1280.png"])).toEqual(["image upload failed: before-list-1280.png"]);

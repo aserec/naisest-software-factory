@@ -143,31 +143,58 @@ export function screenVerdicts(findings: Finding[], proof: Proof | undefined, lo
 // Agent and reviewer text in the change description: one line, no table break, no HTML, at most 200 chars.
 const text = (s: string) => s.replace(/\s+/g, " ").trim().replace(/\|/g, "\\|").replace(/</g, "&lt;").replace(/>/g, "&gt;").slice(0, 200);
 
+// Test output in the change description: a code block that cannot close early or start a GitLab quick action.
+const block = (s: string) => ["```text", s.trimEnd().replace(/`{3,}/g, "'''").replace(/^([ \t]*)\//gm, "$1​/") || "(no output)", "```"].join("\n");
+const VERDICT_ICON: Record<string, string> = { matches: "🟢", does_not_match: "🔴", unsure: "🟡" };
+const verdict = (v?: string) => `${VERDICT_ICON[v ?? "unsure"] ?? "🟡"} ${v === "does_not_match" ? "does not match" : (v ?? "unsure")}`;
+const runCell = (run: ProofRun | undefined, now: boolean) => (!run ? "⚪ not run" : run.exit === 0 ? `🟢 ${now ? "passes" : "passed"}` : `🔴 ${now ? "fails" : "failed"}`);
+// A test proves the change when it failed before and passes after it.
+const proves = (t: ProofTest) => !!t.before && t.before.exit !== 0 && t.after.exit === 0;
+
 // The "Proof" section of the change description. links: image name to the link attach gave. failed: images whose upload failed.
+// An overview first, then the tests, screens and video. A change that does not look different shows its tests first.
 // ponytail: the manifest's reach is never shown or linked: it is free text from the agent.
 export function proofSection(r: ProofRecord | undefined, links: Record<string, string>, failed: string[] = []): string {
   const proof = r?.proof;
   if (!proof) return `## Proof\n\nNo proof: ${text(r?.error ?? "code review saved no proof")}`;
   const cell = (alt: string, name?: string) => (name && links[name] ? `![${alt}](${links[name]})` : name && failed.includes(name) ? "image upload failed" : "no image");
+  const verdictOf = (name: string) => r.verdicts.find((x) => x.screen === name);
   const screens = proof.screens.map((s, i) => {
-    const v = r.verdicts.find((x) => x.screen === s.name);
-    const table = s.isNew ? ["| After |", "| --- |", `| ${cell("after", s.after)} |`] : ["| Before | After |", "| --- | --- |", `| ${cell("before", s.before)} | ${cell("after", s.after)} |`];
-    return [`### Screen ${i + 1}: ${text(s.name)}, ${s.width} px${s.isNew ? ", new screen" : ""}: ${v?.verdict ?? "unsure"}`, ...table, ...(v?.note ? ["", `Reviewer: ${text(v.note)}`] : [])].join("\n");
+    const v = verdictOf(s.name);
+    // One image under the other, so each shows at full width without a click.
+    const shots = s.isNew ? ["After:", cell("after", s.after)] : ["Before:", cell("before", s.before), "After:", cell("after", s.after)];
+    return [`#### Screen ${i + 1}: ${text(s.name)}, ${s.width} px${s.isNew ? ", new screen" : ""}: ${verdict(v?.verdict)}`, ...shots, ...(v?.note ? [`Reviewer: ${text(v.note)}`] : [])].join("\n\n");
   });
-  const vv = proof.video && r.verdicts.find((x) => x.screen === proof.video!.file);
+  const vv = proof.video && verdictOf(proof.video.file);
   const video = proof.video && [
-    `### Video: ${vv?.verdict ?? "unsure"}`,
-    links[proof.video.file] ? `[Video of the e2e test: ${text(proof.video.name)}](${links[proof.video.file]})` : failed.includes(proof.video.file) ? "video upload failed" : "no video",
+    `### Video: ${verdict(vv?.verdict)}`,
+    // GitLab plays image syntax that points at a .webm in place; the link is for hosts that do not.
+    links[proof.video.file] ? `![Video of the e2e test](${links[proof.video.file]})\n\n[Open the video of the e2e test: ${text(proof.video.name)}](${links[proof.video.file]})` : failed.includes(proof.video.file) ? "video upload failed" : "no video",
     ...(vv?.note ? [`Reviewer: ${text(vv.note)}`] : []),
   ].join("\n\n");
-  const tests = proof.tests.map((t) => `- ${text(t.name)}: ${!t.before ? "not run" : t.before.exit !== 0 ? "failed" : "passed"} before, ${t.after.exit === 0 ? "passes" : "fails"} after`);
-  return [
-    "## Proof",
-    ...screens,
-    ...(!screens.length && proof.note ? [`No screenshots: ${text(proof.note)}`] : []),
-    ...(video ? [video] : []),
-    `### Tests\n${tests.length ? tests.join("\n") : "No test proof."}`,
+  const tests = !proof.tests.length ? "### Tests\n\nNo test proof." : [
+    "### Tests",
+    ["| Test | Before the change | After the change |", "| --- | --- | --- |", ...proof.tests.map((t) => `| ${text(t.name)} | ${runCell(t.before, false)} | ${runCell(t.after, true)} |`)].join("\n"),
+    ...proof.tests.map((t) => [
+      `<details><summary>${text(t.name)}: command and output</summary>`,
+      block(t.command),
+      ...(t.before ? [`Before the change, exit code ${t.before.exit}:`, block(t.before.tail)] : []),
+      `After the change, exit code ${t.after.exit}:`,
+      block(t.after.tail),
+      "</details>",
+    ].join("\n\n")),
   ].join("\n\n");
+  const tally: Record<string, number> = {};
+  for (const s of proof.screens) { const v = verdictOf(s.name)?.verdict ?? "unsure"; tally[v] = (tally[v] ?? 0) + 1; }
+  const proven = proof.tests.filter(proves).length;
+  const overview = [
+    `- Tests: ${!proof.tests.length ? "⚪ none" : `${proven ? "🟢" : "🟡"} ${proven} of ${proof.tests.length} failed before the change and pass after it`}`,
+    `- Screens: ${proof.screens.length ? Object.entries(tally).map(([v, n]) => `${n} ${verdict(v)}`).join(", ") : "⚪ none"}`,
+    ...(proof.video ? [`- Video: ${verdict(vv?.verdict)}`] : []),
+    ...(proof.note ? [`- Author's note: ${text(proof.note)}`] : []),
+  ].join("\n");
+  const visual = [...(screens.length ? [["### Screens", ...screens].join("\n\n")] : []), ...(video ? [video] : [])];
+  return ["## Proof", overview, ...(proof.visual ? [...visual, tests] : [tests, ...visual])].join("\n\n");
 }
 
 // Why a change has no proof a person can trust. Empty means the proof is enough.
