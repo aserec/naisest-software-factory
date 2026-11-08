@@ -6,6 +6,7 @@ import type { TargetSettings } from "software-factory/run-events";
 import { DEFAULT_THRESHOLDS, THRESHOLD_RULES, TRIAGE_RISKS, type Thresholds } from "software-factory/thresholds";
 import { LoadError, PageTitle, SectionHeading } from "@/components/shell";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/utils";
 
@@ -118,27 +119,37 @@ export default function SettingsPage() {
       return (await r.json()) as Record<string, Saved>;
     },
   });
+  const targets = Object.entries(settings.data ?? {});
+  const [tab, setTab] = useState<string>();
   return (
     <main>
       <PageTitle title="Settings">Each target's limits for merging alone and its .factory.yml commands. The next step of a run uses a saved value.</PageTitle>
       {settings.error && <LoadError what="the settings" query={settings} className="mb-6" />}
-      {Object.entries(settings.data ?? {}).map(([target, saved]) => (
-        <section key={target} className="mb-10">
-          <SectionHeading>
-            <span className="font-mono">{target}</span>
-          </SectionHeading>
-          {/* A new save remounts the form with the saved values. */}
-          <TargetForm key={saved.at ?? "none"} target={target} saved={saved} />
-        </section>
-      ))}
-      <section className="max-w-2xl">
-        <SectionHeading>Always required to merge alone</SectionHeading>
-        <ul className="list-disc pl-5 text-muted-foreground">
-          {FIXED.map((f) => (
-            <li key={f}>{f}</li>
+      <Tabs value={tab ?? targets[0]?.[0] ?? "factory"} onValueChange={setTab}>
+        <TabsList>
+          {targets.map(([target]) => (
+            <TabsTrigger key={target} value={target} className="font-mono">
+              {target}
+            </TabsTrigger>
           ))}
-        </ul>
-      </section>
+          <TabsTrigger value="factory">Factory</TabsTrigger>
+        </TabsList>
+        {/* forceMount keeps unsaved edits in a hidden tab. */}
+        {targets.map(([target, saved]) => (
+          <TabsContent key={target} value={target} forceMount className="data-[state=inactive]:hidden">
+            {/* A new save remounts the form with the saved values. */}
+            <TargetForm key={saved.at ?? "none"} target={target} saved={saved} />
+          </TabsContent>
+        ))}
+        <TabsContent value="factory" className="max-w-2xl">
+          <SectionHeading>Always required to merge alone</SectionHeading>
+          <ul className="list-disc pl-5 text-muted-foreground">
+            {FIXED.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </TabsContent>
+      </Tabs>
     </main>
   );
 }

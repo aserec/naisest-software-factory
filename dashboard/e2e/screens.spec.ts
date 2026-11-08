@@ -68,3 +68,16 @@ test("the account menu opens Preferences, a saved theme and range hold after a r
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/sign-in/);
 });
+
+// The e2e session's sign-in may not act, so the save is refused; route.test.ts covers a save that goes through.
+test("the Settings page opens from the menu with each target's form, and a refused save shows the server's reason", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
+  await page.goto("/insights");
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  const demo = page.getByRole("tabpanel", { name: "demo" });
+  await expect(demo.getByLabel("Most rounds of implement and fix")).toHaveValue("5");
+  await demo.getByLabel("Most rounds of implement and fix").fill("3");
+  await demo.getByRole("button", { name: "Save" }).click();
+  await expect(demo.getByRole("alert")).toContainText("Could not save the settings for demo. This sign-in is off.");
+});
