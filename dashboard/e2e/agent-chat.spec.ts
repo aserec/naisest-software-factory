@@ -14,6 +14,8 @@ test("the chat panel opens beside a run page, stays open after a reload, and cov
   // Beside the content: the panel starts right of the sheet.
   const sheet = page.locator("[data-sheet]");
   expect((await sheet.boundingBox())!.x + (await sheet.boundingBox())!.width).toBeLessThanOrEqual((await chat.boundingBox())!.x);
+  // The window does not grow with the panel: the panel ends inside the viewport.
+  expect((await chat.boundingBox())!.y + (await chat.boundingBox())!.height).toBeLessThanOrEqual(800);
   await page.screenshot({ path: test.info().outputPath("agent-chat.png") });
 
   await page.reload();

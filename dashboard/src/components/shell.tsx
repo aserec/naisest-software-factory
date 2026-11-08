@@ -226,6 +226,7 @@ export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
 }
 
 // Tinted L-frame (sidebar and top bar on one ground, no rule between) around a white sheet inset 8px right and bottom.
+// From md up the frame stays put and only the sheet scrolls. The sheet is relative so absolute children (sr-only text) scroll with it instead of growing the window.
 // On a phone the frame folds into a 48px bar with a menu.
 // signOut is a server action; layout.tsx passes it so this file does not load next-auth.
 export function Shell({ children, signOut, boards = [] }: { children: React.ReactNode; signOut: () => Promise<void>; boards?: string[] }) {
@@ -235,8 +236,8 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
   if (path === "/sign-in") return <>{children}</>;
   const trail = crumbs(path, runTarget);
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[228px_minmax(0,1fr)_auto] md:grid-rows-[48px_1fr]">
-      <aside className="hidden px-3 md:row-span-2 md:block">
+    <div className="min-h-dvh md:grid md:h-dvh md:grid-cols-[228px_minmax(0,1fr)_auto] md:grid-rows-[48px_minmax(0,1fr)] md:overflow-hidden">
+      <aside className="hidden px-3 md:row-span-2 md:block md:overflow-y-auto">
         <div className="flex h-12 items-center px-2.5">
           <Brand />
         </div>
@@ -286,7 +287,7 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
         <UserMenu signOut={signOut} />
       </header>
 
-      <div className="min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-4 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:rounded-xl md:border md:px-6 md:pt-6">
+      <div data-sheet className="relative min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-4 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:overflow-y-auto md:rounded-xl md:border md:px-6 md:pt-6">
         <RunTargetContext.Provider value={setRunTarget}>
           <motion.div key={path} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
             {children}
