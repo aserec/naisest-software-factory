@@ -46,6 +46,16 @@ test("a run that needs approval links its merge request and shows both risks; a 
   await expect(page.getByRole("link", { name: "Open PR" })).toHaveCount(0);
 });
 
+test("the top bar shows the plan's 5-hour and 7-day usage, and its tooltip the reset times", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
+  await page.goto("/");
+  const badge = page.getByLabel("Claude usage: 72% of 5 hours, 15% of 7 days");
+  await expect(badge).toBeVisible();
+  await badge.focus();
+  await expect(page.getByRole("tooltip")).toContainText("5-hour window resets");
+  await page.locator("header").screenshot({ path: test.info().outputPath("usage-badge.png") });
+});
+
 test("a page without a session goes to sign-in, an API route answers 401", async ({ page, request }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/sign-in/);

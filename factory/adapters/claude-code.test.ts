@@ -52,6 +52,12 @@ test("another Anthropic-style provider's key is passed as ANTHROPIC_API_KEY with
 });
 
 test("the stream gives session id, cost and tokens", () => expect(parseStream(load("stream-ok.jsonl"))).toMatchObject({ isError: false, limitHit: false, costUsd: 0.0042, tokens: { input: 120, output: 8 }, resultText: "ok", sessionId: "11111111-1111-4111-8111-111111111111" }));
+test("the last rate_limit_event gives the plan's 5-hour and 7-day windows", () => {
+  const ev = (used: number) => JSON.stringify({ type: "rate_limit_event", rate_limit_info: { status: "allowed", rateLimitType: "five_hour", unifiedWindows: { five_hour: { utilization: used, resetsAt: 1794133200, status: "allowed" }, seven_day: { utilization: 0.02, resetsAt: 1794729600, status: "allowed" } } } });
+  const [init, assistant, result] = load("stream-ok.jsonl").split("\n");
+  expect(parseStream([init, ev(0.1), assistant, ev(0.16), result].join("\n")).limits).toEqual({ fiveHour: { used: 0.16, resetsAt: "2026-11-08T10:20:00.000Z" }, sevenDay: { used: 0.02, resetsAt: "2026-11-15T08:00:00.000Z" } });
+  expect(parseStream(load("stream-ok.jsonl")).limits).toBeUndefined();
+});
 test("a usage limit is reported as limitHit, not as a plain error", () => expect(parseStream(load("stream-limit.jsonl"))).toMatchObject({ isError: true, limitHit: true }));
 test("a rate_limit retry the CLI recovered from is not a limit hit", () => {
   const s = load("stream-limit.jsonl").split("\n").filter(Boolean);

@@ -54,7 +54,7 @@ function events() {
     { id: randomUUID(), ...base, at: at(10), type: "label_change", data: { to: "running" } },
     { id: step, ...base, at: at(9), step: "prepare-patch", job: "42", type: "step_start", data: { prompt: "Fix the login bug" } },
     { id: randomUUID(), ...base, at: at(8), step: "prepare-patch", parent: step, type: "tool_call", data: { name: "Edit", input: "src/login.ts", result: "ok", ms: 12, ok: true } },
-    { id: randomUUID(), ...base, at: at(7), step: "prepare-patch", type: "usage", data: { role: "author", model: "m", input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 0.25, contextTokens: 1 } },
+    { id: randomUUID(), ...base, at: at(7), step: "prepare-patch", type: "usage", data: { role: "author", model: "m", input: 1, output: 1, cacheRead: 0, cacheWrite: 0, costUsd: 0.25, contextTokens: 1, limits: { fiveHour: { used: 0.72, resetsAt: "2099-01-01T05:00:00.000Z" }, sevenDay: { used: 0.15, resetsAt: "2099-01-07T00:00:00.000Z" } } } },
     { id: randomUUID(), ...base, at: at(6), step: "prepare-patch", type: "step_end", data: { outcome: "next" } },
     { id: randomUUID(), ...base, at: at(5), step: "code-review", type: "step_start", data: {} },
     { id: randomUUID(), ...base, at: at(4), step: "code-review", type: "review_finding", data: { text: "Check the empty password", blocking: true, round: 1 } },

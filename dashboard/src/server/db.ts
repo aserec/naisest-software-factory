@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings } from "software-factory/run-events";
+import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings, type UsageLimits } from "software-factory/run-events";
 import { labelState, runView, trackStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
 
@@ -39,6 +39,8 @@ export interface Db {
   history(q: { target: string; since: string; types: EventType[]; limit: number }): RunEvent[];
   /** The newest events of the types across every target, newest first. */
   recent(q: { types: EventType[]; limit: number }): (RunEvent & { seq: number })[];
+  /** The plan's usage windows from the newest usage event that carries them, with when it was sent. */
+  latestLimits(): { at: string; limits: UsageLimits } | undefined;
   runs(q: { target?: string; ticket?: string }): RunSummary[];
   /** The newest run of each work item given, by when it was saved; a work item with no run is left out. */
   latestRuns(items: { target: string; ticket: string }[]): RunSummary[];
@@ -237,6 +239,12 @@ export function openDb(path: string): Db {
     recent({ types, limit }) {
       const sql = `SELECT * FROM events WHERE type IN (SELECT value FROM json_each(?)) ORDER BY seq DESC LIMIT ?`;
       return (stmt(sql).all(JSON.stringify(types), limit) as Row[]).map(toEvent);
+    },
+
+    latestLimits() {
+      // ponytail: walks usage events newest first until one has limits; an index on it if pi-only runs pile up.
+      const r = stmt("SELECT at, data ->> '$.limits' AS limits FROM events WHERE type = 'usage' AND data ->> '$.limits' IS NOT NULL ORDER BY seq DESC LIMIT 1").get() as { at: string; limits: string } | undefined;
+      return r && { at: r.at, limits: JSON.parse(r.limits) };
     },
 
     runs({ target, ticket }) {

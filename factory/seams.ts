@@ -1,7 +1,7 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { HarnessName } from "./harnesses";
 import type { RunRecord } from "./record";
-import type { ControlState, EventType, FactoryState, RunEvent, Dispatch } from "./run-events";
+import type { ControlState, EventType, FactoryState, RunEvent, Dispatch, UsageLimits } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -140,7 +140,7 @@ export interface Inbox { poll(): Promise<{ comments: string[]; stop: boolean; un
 export interface ToolCall { name: string; input: string; result: string; ms: number; ok: boolean }
 export interface HarnessJob { role: Role; prompt: string; model: ModelChoice; cwd: string; tools: "code" | "none"; resume?: string; inbox?: Inbox; maxTurns: number; images?: { name: string; data: Buffer }[]; preview?: boolean; commands?: string[]; onToolCall?: (c: ToolCall) => void } // images: PNGs for the reviewer, in the order the prompt lists them; preview: the author may start the target's preview server on localhost; commands: the target's .factory.yml commands, which the author may run with any arguments; onToolCall is called as each tool finishes, while the agent runs
 // `stopped` tells a `@factory stop` from a failure: the inbox found a stop line while the agent ran.
-export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; text: string } // contextTokens: input plus cache tokens of the last model turn
+export interface HarnessResult { session: string; ok: boolean; limitHit: boolean; stopped: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; text: string; limits?: UsageLimits } // contextTokens: input plus cache tokens of the last model turn
 // The home folder of each harness, by name. Here and not on the adapters, so that sandbox.ts can list them without importing the
 // adapters (they import sandbox.ts through agents.ts and repo.ts). The Record keeps it complete: a new harness name fails to compile
 // until it has a home. Each adapter reads its own entry; harnesses.test.ts checks that they agree.

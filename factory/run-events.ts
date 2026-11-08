@@ -41,6 +41,7 @@ export const STUCK_MINUTES: Record<string, number> = {
 
 const field = z.string().max(MAX_FIELD);
 const user = z.object({ user: z.string() });
+const limitWindow = z.object({ used: z.number(), resetsAt: z.string() });
 
 // A const object, so each event type keeps its own schema type. `satisfies` makes a missing type a compile error.
 export const EVENT_DATA = {
@@ -72,6 +73,8 @@ export const EVENT_DATA = {
     cacheWrite: z.number(),
     costUsd: z.number(),
     contextTokens: z.number(),
+    // The plan's usage windows after this call, 0 to 1 used, when the harness reports them (Claude Code on a plan token).
+    limits: z.object({ fiveHour: limitWindow, sevenDay: limitWindow }).optional(),
   }),
   stop: user,
   resume: user,
@@ -87,6 +90,7 @@ export const EVENT_DATA = {
 
 // What an event of type T carries in `data`.
 export type EventData<T extends EventType = EventType> = z.infer<(typeof EVENT_DATA)[T]>;
+export type UsageLimits = NonNullable<EventData<"usage">["limits"]>;
 
 interface Envelope {
   id: string;

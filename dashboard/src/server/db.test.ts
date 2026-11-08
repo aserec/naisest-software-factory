@@ -385,6 +385,16 @@ describe("recent", () => {
   });
 });
 
+describe("latestLimits", () => {
+  it("returns the newest usage event that carries limits", () => {
+    const db = openDb(":memory:");
+    expect(db.latestLimits()).toBeUndefined();
+    const limits = (used: number) => ({ fiveHour: { used, resetsAt: at(5) }, sevenDay: { used: 0.1, resetsAt: at(9) } });
+    db.addEvents([ev("usage", { limits: limits(0.2) }), ev("usage", { limits: limits(0.4) }, { at: at(2) }), ev("usage")]);
+    expect(db.latestLimits()).toEqual({ at: at(2), limits: limits(0.4) });
+  });
+});
+
 describe("history", () => {
   it("returns the asked target, types and times oldest first, and stops at limit", () => {
     const db = openDb(":memory:");

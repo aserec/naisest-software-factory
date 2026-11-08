@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import type { Theme } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 import { Notifications } from "./notifications";
+import { UsageLimits } from "./usage-limits";
 import { usePreferences } from "./use-preferences";
 
 const PAGES = [
@@ -243,6 +244,7 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
           ))}
         </ol>
         <ThemeSync />
+        <UsageLimits />
         <Notifications />
         <UserMenu signOut={signOut} />
       </header>

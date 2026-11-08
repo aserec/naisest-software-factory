@@ -8,9 +8,10 @@ import { SANDBOX_RULES_PATH, localCorepackHome, rootReads, sandboxDenyRead } fro
 import { MAC_LOOKUPS, shellQuote } from "../repo";
 import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
+import type { UsageLimits } from "../run-events";
 
 export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string; images?: boolean }
-export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; resultText: string }
+export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; resultText: string; limits?: UsageLimits }
 
 // The Claude-only part of the settings: permissions and the sandbox flags. The network and read rules every harness shares live in sandbox-rules.json.
 export const CLAUDE_SETTINGS_PATH = fileURLToPath(new URL("../../.claude/factory-settings.json", import.meta.url));
@@ -133,12 +134,14 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
   let result: any;
   let lastUsage: any; // usage of the last model turn
   let retryLimit = false;
+  let windows: any; // the last rate_limit_event's plan windows
   for (const line of jsonl.split("\n")) {
     if (!line.trim()) continue;
     let e: any;
     try { e = JSON.parse(line); } catch { continue; }
     if (e.type === "system" && e.subtype === "api_retry" && ["rate_limit", "billing_error"].includes(e.error)) retryLimit = true;
     if (e.type === "result") result = e;
+    if (e.type === "rate_limit_event" && e.rate_limit_info?.unifiedWindows) windows = e.rate_limit_info.unifiedWindows;
     if (e.type === "assistant" && e.message?.usage) lastUsage = e.message.usage;
   }
   if (!result) throw new Error("Claude stream has no final result event (cut off?)");
@@ -158,8 +161,11 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
     },
     contextTokens: Number(lastUsage?.input_tokens ?? 0) + Number(lastUsage?.cache_read_input_tokens ?? 0) + Number(lastUsage?.cache_creation_input_tokens ?? 0),
     resultText: text,
+    ...(windows?.five_hour && windows?.seven_day && { limits: { fiveHour: limitWindow(windows.five_hour), sevenDay: limitWindow(windows.seven_day) } }),
   };
 }
+
+const limitWindow = (w: any) => ({ used: Number(w.utilization ?? 0), resetsAt: new Date(Number(w.resetsAt ?? 0) * 1000).toISOString() });
 
 export const claudeCode: Harness = {
   apis: ["anthropic"],
@@ -190,7 +196,7 @@ export const claudeCode: Harness = {
       pump = undefined;
       try {
         const r = parseStream(out, code);
-        return { session: r.sessionId, ok: !r.isError && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.resultText };
+        return { session: r.sessionId, ok: !r.isError && !stopped, limitHit: r.limitHit, stopped, costUsd: r.costUsd, tokens: r.tokens, contextTokens: r.contextTokens, text: r.resultText, ...(r.limits && { limits: r.limits }) };
       } catch (e) { // a stream cut before the result event is a failed run, not a crash
         return { session: "", ok: false, limitHit: false, stopped, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: `${(e as Error).message} Exit code ${code}. The end of its error output:\n${err.trim() || "(empty)"}` };
       }
