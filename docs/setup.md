@@ -173,8 +173,16 @@ Create `/opt/software-factory/deploy/.env`, owned by `deploy`, `chmod 600`. It i
 | `GRAFANA_TOKEN` | from above |
 | `LOKI_UID` | from above |
 | `METRICS_UID` | from above |
+| `TENSORX_API_KEY` | the key of the provider that `chatModel` in `seams.yml` names (`tensorx` today). The agent chat panel answers with it |
 
-The image sets `TARGETS_DIR`, `DASHBOARD_DB` and `BACKUP_DIR` itself. Do not set them.
+The image sets `TARGETS_DIR`, `DASHBOARD_DB`, `BACKUP_DIR` and `SEAMS_FILE` itself. Do not set them. The image holds the `seams.yml` of the commit it was built from, so a change to `chatModel` needs a new deploy.
+
+### Fixer
+
+A plan that a person approves in the agent chat is run by the fixer (`factory/fixer.ts`), which opens a change for review. It runs where the worker runs:
+
+- [ ] Server: the `fixer` service in `deploy/compose.yml` (profile `worker`). It reads from `deploy/.env`: `GL_TOKEN` (factory plans and GitLab targets), `FACTORY_GITHUB_TOKEN` (GitHub targets), `FACTORY_DASHBOARD_TOKEN`, `TENSORX_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` (the fix agent's model).
+- [ ] Mac: `./local-factory.sh fixer-start` (and `fixer-stop`, `fixer-status`). Export the same tokens, `CLAUDE_CODE_OAUTH_TOKEN` too, in the shell that runs it. The script does not check `CLAUDE_CODE_OAUTH_TOKEN`, so without it each plan fails when the agent starts.
 
 ### Deploy job
 

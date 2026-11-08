@@ -80,11 +80,13 @@ services:
       additional_contexts:
         runner: service:runner-image
     command: ["node", "--import", "tsx", "factory/fixer.ts"]
+    # The fix step's code host tokens, dashboard token and the model keys the router may pick: the fix agent is
+    # claude-code on the team plan, so it needs CLAUDE_CODE_OAUTH_TOKEN.
     environment:
       GL_TOKEN: ${GL_TOKEN:-}
       FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
       TENSORX_API_KEY: ${TENSORX_API_KEY:-}
-      CELERIS_API_KEY: ${CELERIS_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
       FACTORY_DASHBOARD_URL: ${FACTORY_DASHBOARD_URL:-https://caddy.internal}
       NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
