@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AgentChat } from "./agent-chat";
 import { json, renderWithQuery } from "./test-utils";
@@ -61,11 +61,14 @@ test("sending posts the path and text, disables the input and says Thinking... u
   const input = (await screen.findByLabelText("Message")) as HTMLInputElement;
   fireEvent.change(input, { target: { value: "what failed?" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
-  await screen.findByText("Thinking...");
+  // The list is a polite live log, so screen readers announce Thinking... and each new reply.
+  const log = screen.getByRole("log", { name: "Messages" });
+  expect(log.getAttribute("aria-live")).toBe("polite");
+  await within(log).findByText("Thinking...");
   expect(input.disabled).toBe(true);
   expect(JSON.parse(String(f.mock.calls.find(([, i]) => i?.method === "POST")![1]!.body))).toEqual({ path: "/runs/r1", text: "what failed?" });
   answer(json({ messages: [msg(1, "ann", "what failed?"), msg(2, "agent", "A timeout.")] }));
-  await screen.findByText("A timeout.");
+  await within(log).findByText("A timeout.");
   expect(screen.queryByText("Thinking...")).toBeNull();
   expect(input.disabled).toBe(false);
   expect(input.value).toBe("");

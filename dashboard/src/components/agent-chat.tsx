@@ -108,7 +108,7 @@ export function AgentChat({ path }: { path: string }) {
 
   return (
     <aside aria-label="Agent chat" className="fixed inset-x-0 top-12 bottom-0 z-30 flex flex-col bg-background text-sm md:static md:z-auto md:mr-2 md:mb-2 md:min-h-0 md:w-[22rem] md:rounded-xl md:border">
-      <div ref={list} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div ref={list} role="log" aria-live="polite" aria-label="Messages" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {chat.isError && <p role="alert" className="text-destructive">Could not load the chat.</p>}
         {!chat.isError && !chat.isPending && messages.length === 0 && <p className="text-muted-foreground">Ask about this page. The agent answers from what the page shows.</p>}
         {messages.map((m) => (
