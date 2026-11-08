@@ -96,8 +96,34 @@ export async function reviewer(ctx: StepContext, ticket: Ticket): Promise<Person
   return ctx.target.defaultApprover;
 }
 
+// Who made each decision that stops the merge, and a color for how hard it stops it:
+// red, a check failed; yellow, a check is unsure or the proof is thin; blue, a person, a setting or a factory rule.
+const DECIDERS: [RegExp, string, string][] = [
+  [/^a person asked/, "🔵", "A person"],
+  [/^Settings:|^auto-merge is switched off/, "🔵", "Dashboard settings"],
+  [/router row may not merge/, "🔵", "Model router"],
+  [/fake errors/, "🔵", "Factory rule"],
+  [/^triage risk/, "🔵", "Triage"],
+  [/^code review/, "🔴", "Code review"],
+  [/^the precommit gate/, "🔴", "Precommit gate"],
+  [/hard rule/, "🔴", "Hard rules"],
+  [/^Jev 2 risk check failed|^merge risk \d+ is above/, "🔴", "Jev 2 risk check"],
+  [/^merge risk|^Jev 2/, "🟡", "Jev 2 risk check"],
+  [/^image upload failed/, "🔴", "Factory"],
+  [/the reviewer says it does not match/, "🔴", "Proof reviewer"],
+  [/^(screen |video )?.*the reviewer|^a visual change|^no test|^the change touches only tests|^the proof has/, "🟡", "Proof reviewer"],
+];
+export function reasonLine(reason: string): string {
+  const [, icon, who] = DECIDERS.find(([re]) => re.test(reason)) ?? [/./, "🟡", "Factory"];
+  return `- ${icon} **${who}:** ${reason}`;
+}
+const LEGEND = "🔴 a check failed · 🟡 a check is unsure · 🔵 a person, setting or rule";
+
 // Send the change to a person to review and merge: state, the round's answer, a comment with the reasons on the change, the assignee and a card.
 // The comment ends with the cursor line: the requests the run has read, so the poller starts a round only for newer ones.
+export const needsPersonText = (reasons: string[]) =>
+  md("👀", "Needs a person", "This change needs a person to review and merge it. **Who stopped the merge, and why:**", reasons.map(reasonLine).join("\n"), `<sub>${LEGEND}</sub>`);
+
 export async function askPerson(ctx: StepContext, reasons: string[]): Promise<StepResult> {
   const ref = ticketRef(ctx);
   const { change, changeUrl } = facts(ctx);
@@ -115,7 +141,7 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
   // After a resume the agent never saw what was written during the pause, so the cursor stays where this run or its round started reading.
   const first = ctx.record.steps.find((s) => s.step === "event")?.at;
   const read = f.resumed ? (ctx.record.requestRounds?.at(-1)?.cursor ?? first) : (later(ctx.record.heardUntil, round?.cursor) ?? first);
-  await conversation(ctx).writeOnChange(change, { kind: "cursor", text: md("👀", "Needs a person", "This change needs a person to review and merge it.", reasons.map((r) => `- ${r}`).join("\n")), at: read });
+  await conversation(ctx).writeOnChange(change, { kind: "cursor", text: needsPersonText(reasons), at: read });
   if (round) {
     const t = ctx.record.tokens ?? { input: 0, output: 0 };
     const closed = { ...round, endedAt: new Date().toISOString(), ...ctx.record.rounds, costUsd: ctx.record.costUsd - round.costAtStart, tokens: { input: t.input - round.tokensAtStart.input, output: t.output - round.tokensAtStart.output } };

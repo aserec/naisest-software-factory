@@ -133,7 +133,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
   if (r.limitHit) return waiting(ctx, "questions", r.session);
   if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
-  await ctx.tracker.comment(ref, md("❓", "Questions before the build", "This ticket is not clear enough to build yet. Answer these questions in a comment that mentions `@factory`, or edit the ticket and add `factory_ready` again.", r.text));
+  await ctx.tracker.comment(ref, md("❓", "Questions before the build", "This ticket is not clear enough to build yet.", `- 🟡 **Triage:** Decided the ticket needs more information.\n- 🤖 **Author agent, ${row.author.model}:** Read the code and wrote the questions below.\n- 🔵 **You:** Answer in a comment that mentions \`@factory\`, or edit the ticket and add \`factory_ready\` again.`, r.text));
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked questions on the ticket."], "");

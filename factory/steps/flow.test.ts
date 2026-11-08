@@ -1400,7 +1400,7 @@ test("the reviewer gets the screenshots and the verdicts are saved", async () =>
   expect(job.images?.map((i) => i.name)).toEqual(["before-list-1280.png", "after-list-1280.png", "list-01.png"]);
   expect(job.prompt).toContain("Frames of the video list.webm, in time order: list-01.png");
   expect(reviewData(w).proof.verdicts).toEqual([{ screen: "list page", verdict: "matches", note: "no spinner" }, { screen: "list.webm", verdict: "matches", note: "the list ends with a spinner" }]);
-  expect(w.mrDescription).toContain("### Video: matches");
+  expect(w.mrDescription).toContain("### Video: 🟢 matches");
   expect(w.host.attached.map((a) => a.name)).not.toContain("list-01.png"); // frames are for the reviewer only
 });
 test("a video whose frames do not match blocks, and one with no frames is unsure", async () => {
@@ -1492,16 +1492,16 @@ const visual = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "trivial" }, 
 test("the Proof section appears in the description", async () => {
   const w = await runBuildPipeline(visual());
   expect(w.mrDescription).toContain("## Proof");
-  expect(w.mrDescription).toContain("### Screen 1: list page, 1280 px: matches");
+  expect(w.mrDescription).toContain("#### Screen 1: list page, 1280 px: 🟢 matches");
   expect(w.mrDescription).toContain("![before](/uploads/1/before-list-1280.png)");
-  expect(w.mrDescription).toContain("- list-spinner: failed before, passes after");
+  expect(w.mrDescription).toContain("| list-spinner | 🔴 failed | 🟢 passes |");
   expect(w.host.attached.map((a) => a.name)).toEqual(["before-list-1280.png", "after-list-1280.png"]);
 });
 test("a change that merges alone has the Proof section with its test line", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[]] }));
   expect(w.finishTriggered).toBe(true);
   expect(w.mrDescription).toContain("## Proof");
-  expect(w.mrDescription).toContain("- list-spinner: failed before, passes after");
+  expect(w.mrDescription).toContain("| list-spinner | 🔴 failed | 🟢 passes |");
 });
 test("a proof whose test tail holds a secret blocks, and nothing is uploaded or pushed", async () => {
   const proof = { ...TEST_PROOF, tests: [{ ...TEST_PROOF.tests[0], after: { exit: 0, tail: "token=glpat-abcdefghijklmnopqrst1234" } }] };
@@ -2488,7 +2488,7 @@ test("the round comment comes before the needs-a-person comment, which ends with
   const { w } = await finishedRound("x".repeat(5000));
   const [round, ask] = w.mrComments.slice(-2);
   expect(round).toBe(md("✅", "Round finished", "The factory finished the round for the requests of @dev @lead.", "x".repeat(4000)));
-  expect(ask).toBe(noteText({ kind: "cursor", text: md("👀", "Needs a person", "This change needs a person to review and merge it.", `- ${decision.ASKED}`), at: T3 }));
+  expect(ask).toBe(noteText({ kind: "cursor", text: decision.needsPersonText([decision.ASKED]), at: T3 }));
   expect(w.host.assigned.at(-1)).toEqual({ ref: "5", person: "lead" }); // not the work item's assignee "owner"
 });
 test("the round closes with its own review rounds, gate rounds, cost and tokens", async () => {
@@ -2506,7 +2506,7 @@ test("the cursor line is the time the agent read up to, when that is later than 
   const at = "2026-10-01T14:00:00Z";
   w.ctx.record = { ...w.record, heardUntil: at, requestRounds: w.record.requestRounds!.map((r) => ({ ...r, endedAt: undefined })) }; // the round is open again
   await decision.askPerson(w.ctx, ["x"]);
-  expect(w.mrComments.at(-1)).toBe(noteText({ kind: "cursor", text: md("👀", "Needs a person", "This change needs a person to review and merge it.", "- x"), at: at }));
+  expect(w.mrComments.at(-1)).toBe(noteText({ kind: "cursor", text: decision.needsPersonText(["x"]), at: at }));
 });
 test("a later resume of the requested run still goes to a person", async () => {
   const { w } = await finishedRound();
@@ -2591,4 +2591,15 @@ test("the author may run each part of a chained gate command, the target's autho
   expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: npm run test && PORT=1 npm run e2e\nbuild: b"))).toEqual(["l", "npm run test", "PORT=1 npm run e2e", "b"]);
   expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b\npreview: p\npreviewUrl: http://127.0.0.1:1/"))).toEqual(["l", "t", "b", "p", "bash run/shoot.sh", "bash run/record.sh"]);
   expect(agentCommands(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b\nauthor:\n  - uv run python scripts/export_openapi.py\n"))).toEqual(["l", "t", "b", "uv run python scripts/export_openapi.py"]);
+});
+
+test("each reason on Needs a person names who stopped the merge, red for a failed check, yellow for an unsure one, blue for a person or a setting", () => {
+  expect(decision.reasonLine("hard rule size failed: 900 lines")).toBe("- 🔴 **Hard rules:** hard rule size failed: 900 lines");
+  expect(decision.reasonLine("merge risk 7 is above the limit of 5")).toBe("- 🔴 **Jev 2 risk check:** merge risk 7 is above the limit of 5");
+  expect(decision.reasonLine("Jev 2 is 39% sure of the merge risk, below 80%")).toBe("- 🟡 **Jev 2 risk check:** Jev 2 is 39% sure of the merge risk, below 80%");
+  expect(decision.reasonLine("screen list page: the reviewer says it does not match: no spinner")).toBe("- 🔴 **Proof reviewer:** screen list page: the reviewer says it does not match: no spinner");
+  expect(decision.reasonLine("screen list page: the reviewer is unsure: dim")).toBe("- 🟡 **Proof reviewer:** screen list page: the reviewer is unsure: dim");
+  expect(decision.reasonLine(decision.ASKED)).toBe(`- 🔵 **A person:** ${decision.ASKED}`);
+  expect(decision.reasonLine("auto-merge is switched off")).toBe("- 🔵 **Dashboard settings:** auto-merge is switched off");
+  expect(decision.reasonLine("something new")).toBe("- 🟡 **Factory:** something new");
 });
