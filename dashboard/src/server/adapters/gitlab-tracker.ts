@@ -44,7 +44,14 @@ export function makeGitLabTracker(fetchFn: typeof fetch = fetch): Tracker {
           return issues.map((i) => ({ target: t.name, ticket: String(i.iid), title: i.title, state, url: i.web_url, updatedAt: i.updated_at, risk: triageRisk(i.labels), boardUrl: `${base}/${t.projectPath}/-/boards`, closed: i.state === "closed", ...changeOfMr(mrs.get(String(i.iid))) }));
         }),
       );
-      return (await Promise.all(lists)).flat();
+      const rows = (await Promise.all(lists)).flat();
+      // GitLab's "is blocked by" links, read as the factory's poller reads them (factory/adapters/gitlab-tracker.ts). A failed read leaves blockedBy unknown.
+      await Promise.all(rows.filter((r) => r.state === "ready" && !r.closed).map(async (r) => {
+        const t = targets.find((x) => x.name === r.target)!;
+        r.blockedBy = await get(`/projects/${encodeURIComponent(t.projectPath)}/issues/${r.ticket}/links`)
+          .then((ls: { link_type: string; state: string; web_url: string }[]) => ls.filter((l) => l.link_type === "is_blocked_by" && l.state === "opened").map((l) => l.web_url), () => undefined);
+      }));
+      return rows;
     },
 
     ticketUrl: (t, ticket) => {

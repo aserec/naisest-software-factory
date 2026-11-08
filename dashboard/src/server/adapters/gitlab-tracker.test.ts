@@ -36,7 +36,7 @@ it("makes one call per state label and one for the open merge requests per targe
   const { fn, calls } = fakeGitLab([{ ticket: "5", title: "Fix it", state: "ready", risk: "high" }]);
   const rows = await makeGitLabTracker(fn).rows([target("t1"), target("t2")]);
   expect(calls).toHaveLength(20);
-  expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high", boardUrl: "https://gitlab.test/g/t1/-/boards", closed: false, conflicts: false });
+  expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high", boardUrl: "https://gitlab.test/g/t1/-/boards", closed: false, conflicts: false, blockedBy: [] });
   expect(calls.map((c) => c.url)).toContain("https://gitlab.test/api/v4/projects/g%2Ft1/issues?labels=factory_ready&order_by=updated_at&per_page=100");
   expect(calls.every((c) => c.token === "read-token" && c.signal instanceof AbortSignal)).toBe(true);
 });
@@ -62,4 +62,17 @@ it("gives each issue its factory merge request: the link, the conflicts, and why
   expect(of("6")).toEqual({ changeUrl: "https://gitlab.test/g/a/-/merge_requests/2", conflicts: false, mergeBlock: undefined });
   expect(of("7")).toEqual({ changeUrl: "https://gitlab.test/g/a/-/merge_requests/4", conflicts: undefined, mergeBlock: undefined }); // the newest merge request wins; still checking
   expect(of("8")).toEqual({ changeUrl: undefined, conflicts: false, mergeBlock: undefined });
+});
+
+it("gives an open ready issue the open issues that block it, and leaves it unknown when the read fails", async () => {
+  const link = (type: string, state: string, iid: number) => ({ link_type: type, state, web_url: `https://gitlab.test/g/a/-/issues/${iid}` });
+  const { fn } = fakeGitLab([{ ticket: "5", title: "A", state: "ready" }, { ticket: "6", title: "B", state: "ready" }, { ticket: "7", title: "C", state: "running" }]);
+  const f = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/issues/5/links")) return Response.json([link("is_blocked_by", "opened", 2), link("is_blocked_by", "closed", 3), link("blocks", "opened", 4)]);
+    if (url.endsWith("/issues/6/links")) return new Response(null, { status: 500 });
+    if (url.endsWith("/links")) throw new Error(`no link read expected: ${url}`);
+    return fn(url, init);
+  }) as unknown as typeof fetch;
+  const rows = await makeGitLabTracker(f).rows([target("a")]);
+  expect(["5", "6", "7"].map((t) => rows.find((r) => r.ticket === t)!.blockedBy)).toEqual([["https://gitlab.test/g/a/-/issues/2"], undefined, undefined]);
 });

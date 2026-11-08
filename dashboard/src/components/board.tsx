@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { DIFF_RISK_MAX, STEPS, stepIndex } from "software-factory/run-events";
 import Link from "next/link";
 import { LayoutGroup, motion } from "motion/react";
-import { GitPullRequest, RefreshCw, Ticket } from "lucide-react";
+import { GitPullRequest, Link2, RefreshCw, Ticket } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { STATE } from "@/lib/state";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,18 @@ export interface BoardItem extends BoardRow {
 // The change cannot merge until someone resolves its conflicts: the factory's conflict round, or a person.
 export function ConflictsBadge({ conflicts }: { conflicts?: boolean }) {
   return conflicts ? <Badge variant="warning" title="The change has conflicts with the base branch. The factory starts a round to resolve them.">Conflicts</Badge> : null;
+}
+
+// A ready work item that waits for other open work items. The factory starts it once each one is closed.
+export function BlockedByBadge({ blockedBy }: { blockedBy?: string[] }) {
+  if (!blockedBy?.length) return null;
+  const refs = blockedBy.map((u) => `#${u.split("/").pop()}`).join(", ");
+  return (
+    <Badge variant="warning" title={`Waits until ${refs} ${blockedBy.length === 1 ? "is" : "are"} closed. The factory starts this work item after that.`}>
+      <Link2 aria-hidden />
+      Waits for {refs}
+    </Badge>
+  );
 }
 
 // Triage risk (Jev 1, on the work item), then merge risk (Jev 2, on the diff), each named so they cannot be confused. High or above the merge limit takes the warning pill; nothing is green,
@@ -167,6 +179,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
       <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 pt-px">
         {i.stuck && <Badge variant="destructive">Stuck</Badge>}
         <ConflictsBadge conflicts={i.conflicts} />
+        {i.state === "ready" && <BlockedByBadge blockedBy={i.blockedBy} />}
         <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
         {/* No run yet, no cost: the empty span keeps the buttons lined up. */}
         <span className="w-14 text-right">{i.costUsd !== undefined && usd(i.costUsd)}</span>

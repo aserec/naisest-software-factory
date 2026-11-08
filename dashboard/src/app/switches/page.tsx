@@ -14,7 +14,7 @@ import type { SwitchChange } from "@/server/db";
 type Rows = Record<string, Record<SwitchName, boolean>>;
 
 // The glossary's words: "retry" resumes waiting runs, and the glossary avoids "retry" for that.
-const NAMES: Partial<Record<SwitchName, string>> = { retry: "Auto-resume", auto_merge: "Auto-merge" };
+const NAMES: Partial<Record<SwitchName, string>> = { retry: "Auto-resume", auto_merge: "Auto-merge", merge_all: "Merge all" };
 const label = (n: SwitchName) => NAMES[n] ?? words(n);
 
 // What stops while a switch is off, from docs/how-it-works.md.
@@ -26,6 +26,7 @@ const OFF: Record<SwitchName, string> = {
   questions: "A run that would ask questions on the work item stops instead.",
   prepare_patch: "A run stops before the author writes the change.",
   auto_merge: "Every change waits for a person to approve it.",
+  merge_all: "Only low-risk changes whose checks pass merge alone. Off until a person turns it on.",
   apply: "A run stops before it merges.",
   improve: "The weekly job opens no change to the repo's factory instructions.",
 };
@@ -39,6 +40,7 @@ const GROUP: Record<SwitchName, string> = {
   questions: "Runs",
   prepare_patch: "Runs",
   auto_merge: "Merge",
+  merge_all: "Merge",
   apply: "Merge",
   improve: "Self-improvement",
 };
@@ -48,6 +50,7 @@ const GROUPS = [...SWITCHES.reduce((m, n) => m.set(GROUP[n], [...(m.get(GROUP[n]
 // Turning these on lets the factory merge, so the page asks first.
 const ASK_ON: Partial<Record<SwitchName, string>> = {
   auto_merge: "Low-risk changes whose checks pass merge without a person.",
+  merge_all: "Every change the factory opens merges without a person, whatever its risk, unless it holds a secret or a person asked for changes. Auto-merge and Apply must be on too.",
   apply: "The factory merges again. Runs this switch stopped continue and merge their change.",
 };
 
@@ -87,7 +90,7 @@ export default function SwitchesPage() {
   };
   return (
     <main>
-      <PageTitle title="Switches">A switch with no saved value is on. A target is off when the all-targets row is off. Current steps finish when you turn a switch off.</PageTitle>
+      <PageTitle title="Switches">A switch with no saved value is on, except Merge all. A target is off when the all-targets row is off. Current steps finish when you turn a switch off.</PageTitle>
       {error && <LoadError what="the switches" query={switches} className="mb-6" />}
       {change.error && (
         <p role="alert" className="mb-6 text-destructive">

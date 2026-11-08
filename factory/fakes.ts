@@ -2,7 +2,7 @@ import type { RunRecord } from "./record";
 import { AI_LINE, later, noQuickActions } from "./conversation";
 import { HttpError } from "./errors";
 import { findSecrets } from "./rules";
-import { SWITCHES, type EventType } from "./run-events";
+import { defaultSwitches, type EventType } from "./run-events";
 import { changeBranchPrefix, ticketOfBranch, NotFactoryRunError } from "./seams";
 import type { AgentPlan, Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, Dispatch, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
@@ -302,7 +302,7 @@ export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispat
     flush: async () => {},
     control: async () => {
       if (dash.down) throw new Error("dashboard is down");
-      return { switches: Object.fromEntries(SWITCHES.map((n) => [n, true])) as ControlState["switches"], stop: false, requests: [], ...state };
+      return { switches: defaultSwitches(), stop: false, requests: [], ...state };
     },
     requestDone: async (id: string, outcome: "done" | "refused" | "cancelled") => {
       if (dash.down) throw new Error("dashboard is down");

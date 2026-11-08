@@ -155,7 +155,7 @@ The person is the first of these. After a round, it is the author of the newest 
 
 Four scheduled jobs run for each target (see `docs/add-a-repo.md`). With `ci: local` the worker runs them by itself.
 
-- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It skips an item that the tracker marks as blocked by an open work item (GitLab link "is blocked by", GitHub issue dependency) and starts it after every blocker is closed. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and sets blocked and needs_info items ready for a request, answers requests on stopped and waiting items, and answers on the merge requests of items in any other state (see Requests on a merge request). When a person merged the change of a `factory_needs_approval` item by hand, the poller starts its finish run, with apply skipped. It waits until the merge is 2 minutes old, so the merge webhook goes first.
+- **Poller**, every minute. It starts a build pipeline for each work item labeled `factory_ready`, oldest first, while the target has fewer than 2 active runs. It skips an item that the tracker marks as blocked by an open work item (GitLab link "is blocked by", GitHub issue dependency) and starts it after every blocker is closed. The dashboard board shows such an item in Ready with a "Waits for #n" badge that names its open blockers. It is the fallback when the label webhook does not fire. It also ends paused runs whose work item or merge request a person closed (see Stop and resume). It reads `@factory` requests on the merge requests that wait for a person and starts a round, and sets blocked and needs_info items ready for a request, answers requests on stopped and waiting items, and answers on the merge requests of items in any other state (see Requests on a merge request). When a person merged the change of a `factory_needs_approval` item by hand, the poller starts its finish run, with apply skipped. It waits until the merge is 2 minutes old, so the merge webhook goes first.
 - **Watcher**, every hour, only when `logSource` is a real log source. With `logSource: files` it is manual (see The watcher).
 - **Resume waiting** (`resume-waiting`), every hour. It resumes runs labeled `factory_waiting` after a plan limit. The new pipeline loads the old record and Claude session and continues at the step that stopped. If the record or session cannot be used, the item gets `factory_blocked` with a comment.
 
@@ -188,7 +188,7 @@ Only GitLab users with the Developer role (or higher) on the factory project can
 
 ### Switches
 
-Each switch is on or off for one target or for all targets (`*`). A switch with no saved value is on.
+Each switch is on or off for one target or for all targets (`*`). A switch with no saved value is on, except `merge_all`. A saved off in either row wins.
 
 | Switch | When it is off |
 | --- | --- |
@@ -196,6 +196,7 @@ Each switch is on or off for one target or for all targets (`*`). A switch with 
 | `questions` | A run that would ask questions on the ticket stops instead. |
 | `prepare_patch` | A run stops before Claude writes the change. |
 | `auto_merge` | Every change goes to a person for approval. |
+| `merge_all` | Only changes that pass the risk checks merge alone. This switch is off until a person turns it on. When on, every change merges without a person unless the `secret` rule failed, a person asked for changes, or the ticket comes from fake errors. `auto_merge` and `apply` must also be on. |
 | `apply` | A run stops before it merges. |
 | `retry` | The retry schedule resumes no `factory_waiting` run. |
 | `watcher` | The watcher opens no tickets. |
@@ -205,7 +206,7 @@ A run that a switch stopped gets `factory_stopped`. The poller continues it once
 
 ### When the dashboard is down
 
-The factory keeps working. A step never waits for the dashboard or fails because of it: events it cannot send are dropped, so the dashboard misses them. Every switch counts as on, except `new_runs`: no new run starts while the factory cannot read its switches, and the poller acts on no dashboard request. `@factory stop` and `@factory resume` comments still work.
+The factory keeps working. A step never waits for the dashboard or fails because of it: events it cannot send are dropped, so the dashboard misses them. Every switch counts as on, except `new_runs` and `merge_all`: `merge_all` counts as off, and no new run starts while the factory cannot read its switches, and the poller acts on no dashboard request. `@factory stop` and `@factory resume` comments still work.
 
 ## The watcher
 

@@ -14,8 +14,11 @@ const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a 
 
 // A fix for an error that does not exist must never reach the default branch alone.
 // A run with a person's request never merges without a person, also when it resumes later.
-function decide(ctx: StepContext, ticket: Ticket): MergeDecision {
+// mergeAll (the merge_all switch) merges past the risk checks, but never a change with a secret in it.
+function decide(ctx: StepContext, ticket: Ticket, mergeAll: boolean): MergeDecision {
   let d = decideByChecks(ctx);
+  const secret = facts(ctx).riskCheck?.rules.some((r) => r.rule === "secret" && !r.passed);
+  if (mergeAll && !secret) d = { kind: "auto" };
   const reasons = () => (d.kind === "needs_approval" ? d.reasons : []);
   if (ticket.marks.includes("watcher") && ctx.seams.logSource === "files") d = { kind: "needs_approval", reasons: [...reasons(), FAKE_ERRORS] };
   const bad = facts(ctx).riskCheck?.thresholdErrors ?? [];
@@ -56,7 +59,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const end = await endIfClosed(ctx);
   if (end) return end;
   const ticket = await ctx.tracker.ticket(ref);
-  let d = decide(ctx, ticket);
+  const mergeAll = await switchOn(ctx, "merge_all");
+  let d = decide(ctx, ticket, mergeAll);
   if (d.kind === "auto" && !(await switchOn(ctx, "auto_merge"))) d = { kind: "needs_approval", reasons: ["auto-merge is switched off"] };
   // A stop posted after the last author run (during review, the gate or the risk check) must not merge.
   // With no author session the resume blocks, which is still better than a merge.
@@ -67,7 +71,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   emit(ctx, "decision", { auto: d.kind === "auto", reasons: d.kind === "auto" ? [] : d.reasons, risk: f.riskCheck?.risk?.diffRisk.value, riskMax: f.riskCheck?.thresholds?.diffRiskMax, changeUrl: f.changeUrl });
   if (d.kind === "auto") {
     const rules = need(facts(ctx).riskCheck, "risk check").rules.map((r) => `- **${r.rule}:** ${r.detail}`).join("\n");
-    await ctx.codeHost.commentChange(change, md("🚀", "Merging without a person", "Triage risk was trivial or low. Code review, precommit-gate, every hard rule and Jev 2 passed.", rules));
+    await ctx.codeHost.commentChange(change, md("🚀", "Merging without a person", mergeAll ? "The Merge all switch is on, so the factory merges this change whatever its risk." : "Triage risk was trivial or low. Code review, precommit-gate, every hard rule and Jev 2 passed.", rules));
     await ctx.ci.start({ kind: "finish", ticket: ref, change, buildRun: ctx.ci.vars.run });
     return "next";
   }

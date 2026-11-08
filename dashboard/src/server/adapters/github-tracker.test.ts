@@ -84,3 +84,19 @@ it("says a PR has a failed check when its newest commit's checks failed or error
   const rows = await makeGitHubTracker(f).rows([target("a", "o/r", 2)]);
   expect(rows.map((r) => r.checksFailed)).toEqual([true, true, false, false, false]);
 });
+
+it("gives an open ready issue the open issues that block it, from a label or a board, and leaves it unknown when the read fails", async () => {
+  vi.stubEnv("GITHUB_API_URL", "");
+  const seed: Seed[] = [{ ticket: "5", title: "A", state: "ready" }, { ticket: "6", title: "B", state: "ready" }, { ticket: "7", title: "C", state: "running" }];
+  const base = fakeGitHub(seed);
+  const f = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/repos/o/r/issues/5/dependencies/blocked_by?per_page=100")) return Response.json([{ state: "open", html_url: "https://github.com/o/r/issues/2" }, { state: "closed", html_url: "https://github.com/o/r/issues/3" }]);
+    if (url.includes("/issues/6/dependencies/")) return new Response(null, { status: 500 });
+    if (url.includes("/dependencies/")) throw new Error(`no blocker read expected: ${url}`);
+    return base(url, init);
+  }) as unknown as typeof fetch;
+  for (const project of [undefined, 2]) {
+    const rows = await makeGitHubTracker(f).rows([target("a", "o/r", project)]);
+    expect(["5", "6", "7"].map((t) => rows.find((r) => r.ticket === t)!.blockedBy)).toEqual([["https://github.com/o/r/issues/2"], undefined, undefined]);
+  }
+});

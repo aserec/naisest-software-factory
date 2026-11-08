@@ -115,6 +115,18 @@ test("a card whose change has conflicts with the base branch shows Conflicts; on
   expect(within(screen.getByRole("link", { name: "Fix login" }).closest("li")!).getByText("Conflicts")).toBeTruthy();
 });
 
+test("a ready card that waits for open work items shows which ones; a free one and a card in another state show none", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([
+    item({ state: "ready", blockedBy: ["http://gl/2", "http://gl/3"] }),
+    item({ ticket: "8", title: "Add docs", state: "ready", blockedBy: [] }),
+    item({ ticket: "9", title: "Old", state: "running", blockedBy: ["http://gl/4"] }),
+  ])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Add docs");
+  expect(screen.getAllByText(/^Waits for/).map((b) => [b.closest("li")!.querySelector("a")!.textContent, b.textContent, b.getAttribute("title")])).toEqual([
+    ["Fix login", "Waits for #2, #3", "Waits until #2, #3 are closed. The factory starts this work item after that."],
+  ]);
+});
 test("the run page's conflicts badge shows only for a change with conflicts", () => {
   const { rerender } = render(<ConflictsBadge conflicts />);
   expect(screen.getByText("Conflicts").getAttribute("title")).toMatch(/conflicts with the base branch/);

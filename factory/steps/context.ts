@@ -14,7 +14,7 @@ import { writeShooter } from "../proof";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
-import { MAX_FIELD, type ControlRequest, type TargetSettings } from "../run-events";
+import { MAX_FIELD, OFF_UNTIL_SET, type ControlRequest, type TargetSettings } from "../run-events";
 import { DEFAULT_THRESHOLDS, checkThresholds, type Thresholds } from "../thresholds";
 import type { HarnessName } from "../harnesses";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
@@ -98,7 +98,7 @@ export interface Controls {
 // and readyActor keeps the actor it was given (no requests).
 async function readControls(ctx: StepContext): Promise<Controls> {
   const c = await ctx.dashboard.control(ctx.target.name, ctx.record.runId).catch(() => undefined);
-  if (!c) return { switchOn: (name) => name !== "new_runs", resumeOn: () => false, requests: [] };
+  if (!c) return { switchOn: (name) => name !== "new_runs" && !OFF_UNTIL_SET.has(name), resumeOn: () => false, requests: [] };
   return { switchOn: (name) => c.switches[name], resumeOn: (name) => c.switches[name], requests: c.requests, settings: c.settings ?? { thresholds: {} } };
 }
 

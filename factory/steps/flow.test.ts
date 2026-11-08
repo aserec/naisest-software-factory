@@ -27,7 +27,7 @@ import { NotFactoryRunError, type FactoryState, type Mark } from "../seams";
 import { addStep, newRecord, runFacts, saveRecord } from "../record";
 import type { RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
-import { eventsOfType, runEvent, SWITCHES, type ControlRequest, type SwitchName } from "../run-events";
+import { defaultSwitches, eventsOfType, runEvent, type ControlRequest, type SwitchName } from "../run-events";
 import * as apply from "./apply";
 import { findSecrets } from "../rules";
 import { pumpInbox } from "../inbox";
@@ -1667,7 +1667,8 @@ test("the review after a gate fix is a code-review step inside the gate, and its
 
 // Task B4: the dashboard switches. No saved value means on; an unreachable dashboard counts as on, except new_runs.
 const withSwitches = (w: ReturnType<typeof fakeWorld>, ...off: SwitchName[]) => {
-  const switches = Object.fromEntries(SWITCHES.map((n) => [n, !off.includes(n)])) as Record<SwitchName, boolean>;
+  const switches = defaultSwitches();
+  for (const n of off) switches[n] = false;
   w.ctx.dashboard = fakeDashboard({ switches });
   return switches;
 };
@@ -1748,6 +1749,25 @@ test("auto_merge off sends a run that would merge alone to a person", async () =
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.finishTriggered).toBe(false);
   expect(w.mrComments.at(-1)).toContain("auto-merge is switched off");
+});
+test("merge_all on merges a medium-risk change without a person, but never one with a secret", async () => {
+  const on = (w: ReturnType<typeof fakeWorld>) => (w.ctx.dashboard = fakeDashboard({ switches: { ...defaultSwitches(), merge_all: true } }));
+  const w = fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass" });
+  on(w);
+  await runBuildJobs(w, tmp());
+  expect(w.finishTriggered).toBe(true);
+  expect(w.mrComments.at(-1)).toContain("Merge all switch is on");
+  const s = fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass" });
+  on(s);
+  const diff = s.ctx.repo.diff.bind(s.ctx.repo);
+  s.ctx.repo.diff = async () => {
+    const d = await diff();
+    // After the gate, which blocks a secret on its own, so this checks the decision's guard.
+    return runFacts(s.record).gatePassed ? { ...d, text: `${d.text}\n+token glpat-abcdefghijklmnopqrst` } : d;
+  };
+  await runBuildJobs(s, tmp());
+  expect(s.finishTriggered).toBe(false);
+  expect(s.states).toEqual(["needs_approval"]);
 });
 test("new_runs off: a webhook ready starts nothing and the ticket stays ready", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });

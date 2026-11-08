@@ -55,9 +55,14 @@ describe("indexes", () => {
 });
 
 describe("switches", () => {
-  it("defaults to on, a star scope turns a switch off for every target, and the change is logged", () => {
+  it("defaults to on except merge_all, a star scope turns a switch off for every target, and the change is logged", () => {
     const db = openDb(":memory:");
-    expect(Object.values(db.switches("react_frontend")).every(Boolean)).toBe(true);
+    const { merge_all, ...rest } = db.switches("react_frontend");
+    expect([merge_all, Object.values(rest).every(Boolean)]).toEqual([false, true]);
+    db.setSwitch("*", "merge_all", true, "ana");
+    expect(db.switches("react_frontend").merge_all).toBe(true);
+    db.setSwitch("react_frontend", "merge_all", false, "ana");
+    expect([db.switches("react_frontend").merge_all, db.switches("other").merge_all]).toEqual([false, true]);
     db.setSwitch("*", "apply", false, "ana");
     const s = db.switches("react_frontend");
     expect(s.apply).toBe(false);
@@ -66,7 +71,7 @@ describe("switches", () => {
     db.setSwitch("*", "watcher", true, "ana");
     expect(db.switches("react_frontend").watcher).toBe(false);
     expect(db.switches("other").watcher).toBe(true);
-    const logged = db.events({}).events.find((e) => e.type === "switch_change");
+    const logged = db.events({}).events.find((e) => e.type === "switch_change" && e.data.name === "apply");
     expect(logged?.data).toEqual({ user: "ana", name: "apply", scope: "*", on: false });
   });
 });

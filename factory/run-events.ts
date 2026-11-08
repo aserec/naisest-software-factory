@@ -17,8 +17,11 @@ export const STEPS = ["event", "triage", "prepare-patch", "code-review", "precom
 const STEP_NAMES: readonly string[] = STEPS;
 export const stepIndex = (name = "") => STEP_NAMES.indexOf(name);
 
-export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "apply", "improve"] as const;
+export const SWITCHES = ["watcher", "dispatches", "new_runs", "retry", "questions", "prepare_patch", "auto_merge", "merge_all", "apply", "improve"] as const;
 export type SwitchName = (typeof SWITCHES)[number];
+// Every switch with no saved value is on, except these: they let the factory merge more, so a person must turn them on.
+export const OFF_UNTIL_SET: ReadonlySet<SwitchName> = new Set(["merge_all"]);
+export const defaultSwitches = () => Object.fromEntries(SWITCHES.map((n) => [n, !OFF_UNTIL_SET.has(n)])) as Record<SwitchName, boolean>;
 
 // The sender cuts long text to this size. The schema only guards it.
 export const MAX_FIELD = 20_000;

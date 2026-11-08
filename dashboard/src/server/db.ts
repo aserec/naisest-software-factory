@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type { z } from "zod";
-import { SWITCHES, type AgentPlan, type planProposal, type PlanState, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings, type UsageLimits } from "software-factory/run-events";
+import { defaultSwitches, type AgentPlan, type planProposal, type PlanState, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings, type UsageLimits } from "software-factory/run-events";
 import { labelState, runView, trackStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
 
@@ -340,7 +340,9 @@ export function openDb(path: string): Db {
 
     switches(target) {
       const rows = db.prepare(`SELECT scope, name, "on" FROM switches WHERE scope IN (?, '*')`).all(target) as Row[];
-      const out = Object.fromEntries(SWITCHES.map((n) => [n, true])) as Record<SwitchName, boolean>;
+      const out = defaultSwitches();
+      // A saved on turns on a switch that starts off. A saved off in either row still wins.
+      for (const r of rows) if (r.on) out[r.name as SwitchName] = true;
       for (const r of rows) if (!r.on) out[r.name as SwitchName] = false;
       return out;
     },

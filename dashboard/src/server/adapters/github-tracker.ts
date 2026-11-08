@@ -78,7 +78,14 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
           .filter((c) => c.repo === repo)
           .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: c.state, url: c.url, updatedAt: c.updatedAt, risk: c.risk, boardUrl: c.boardUrl, closed: c.closed, changeUrl: c.changeUrl, conflicts: c.conflicts, mergeBlock: c.mergeBlock, checksFailed: c.checksFailed }));
       });
-      return (await Promise.all(lists)).flat();
+      const rows = (await Promise.all(lists)).flat();
+      // GitHub's "blocked by" issues, read as the factory's poller reads them (factory/adapters/github-tracker.ts). A failed read leaves blockedBy unknown.
+      await Promise.all(rows.filter((r) => r.state === "ready" && !r.closed).map(async (r) => {
+        const repo = new URL(r.url).pathname.split("/").slice(1, 3).join("/");
+        r.blockedBy = await rest(token, `/repos/${repo}/issues/${r.ticket}/dependencies/blocked_by?per_page=100`)
+          .then((is: { state: string; html_url: string }[]) => is.filter((i) => i.state === "open").map((i) => i.html_url), () => undefined);
+      }));
+      return rows;
     },
 
     ticketUrl: (t, ticket) => `${web()}/${t.githubRepo}/issues/${ticket}`,
