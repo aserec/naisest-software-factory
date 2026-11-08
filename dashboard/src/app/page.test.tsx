@@ -1,13 +1,14 @@
-import { screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { json, renderWithQuery } from "@/components/test-utils";
 import Home from "./page";
 
-afterEach(() => vi.unstubAllGlobals());
+vi.mock("@/server/auth", () => ({ sessionUser: async () => undefined }));
+vi.mock("@/server/insights-load", () => ({ loadInsights: () => ({}) }));
+vi.mock("@/server/preferences", () => ({ readPrefs: () => ({}) }));
+vi.mock("next/navigation", () => ({ redirect: (to: string) => { throw new Error(`redirect ${to}`); } }));
 
-test("the home page shows the Factory heading and the board", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json([])));
-  renderWithQuery(<Home />);
-  expect(screen.getByRole("heading", { name: "Board" })).toBeTruthy();
-  expect(await screen.findByRole("heading", { name: "With the factory" })).toBeTruthy();
+afterEach(() => vi.unstubAllEnvs());
+
+test("an old ?target= link opens that target's board", async () => {
+  vi.stubEnv("TARGETS_DIR", "e2e/targets");
+  await expect(Home({ searchParams: Promise.resolve({ target: "demo" }) })).rejects.toThrow("redirect /boards/demo");
 });

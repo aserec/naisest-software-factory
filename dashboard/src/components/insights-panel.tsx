@@ -14,7 +14,8 @@ const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 // The page's title, the range and the figures. A new range loads here, not by leaving the page: the old figures
 // stay, dimmed, until the new ones come, and then every bar grows or shrinks to its new size.
 // initial: what the server rendered for the URL. hasZone: whether that URL carried the viewer's time zone.
-export function InsightsPanel({ initial, hasZone }: { initial: InsightsPayload; hasZone: boolean }) {
+// title and view let the Board overview reuse the panel with its own summary of the same data.
+export function InsightsPanel({ initial, hasZone, title = "Insights", view = (d) => <InsightsView data={d} /> }: { initial: InsightsPayload; hasZone: boolean; title?: string; view?: (data: InsightsPayload["data"]) => React.ReactNode }) {
   const [q, setQ] = useState<RangeQuery & { tz: string }>({ range: initial.range, from: initial.fromDay, to: initial.toDay, tz: initial.tz });
   // A first visit has no time zone in the URL, so the server counted in UTC. Ask again in the viewer's own.
   useEffect(() => {
@@ -44,7 +45,7 @@ export function InsightsPanel({ initial, hasZone }: { initial: InsightsPayload; 
   const shown = query.data ?? initial;
   return (
     <>
-      <PageTitle title="Insights">
+      <PageTitle title={title}>
         {shown.said}, every target, by when each run started. Times in {shown.tz}.
       </PageTitle>
       <div className="-mt-4 mb-6">
@@ -52,7 +53,7 @@ export function InsightsPanel({ initial, hasZone }: { initial: InsightsPayload; 
       </div>
       {query.error && <LoadError what="Insights" query={query} className="mb-6" />}
       <div aria-busy={query.isFetching} className={`transition-opacity duration-300 ${query.isFetching ? "opacity-50" : ""}`}>
-        <InsightsView data={shown.data} />
+        {view(shown.data)}
       </div>
     </>
   );

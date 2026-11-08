@@ -30,6 +30,9 @@ function startStub() {
       };
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(issues[url.searchParams.get("labels") ?? ""] ?? []));
+    } else if (url.pathname === "/api/v4/projects/g%2Fdemo/merge_requests") {
+      res.setHeader("content-type", "application/json");
+      res.end("[]"); // no open merge request, so no card shows merge problems
     } else if (url.pathname === "/api/v4/projects/1/jobs/42/trace") {
       res.end("log line from the stub");
     } else {

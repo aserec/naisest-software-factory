@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, ChevronDown, CircleUser, Inbox, LayoutList, LogOut, Menu, Server, Settings, ToggleRight } from "lucide-react";
+import { ChartColumn, ChevronDown, CircleUser, Inbox, LayoutList, LogOut, Menu, Server, Settings, SlidersHorizontal, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -12,13 +12,15 @@ import { cn } from "@/lib/utils";
 import { Notifications } from "./notifications";
 import { usePreferences } from "./use-preferences";
 
-const NAV = [
-  { href: "/", label: "Board", icon: LayoutList },
+const PAGES = [
   { href: "/insights", label: "Insights", icon: ChartColumn },
   { href: "/runner", label: "Runner", icon: Server },
   { href: "/switches", label: "Switches", icon: ToggleRight },
   { href: "/dispatches", label: "Dispatches", icon: Inbox },
+  { href: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];
+
+type NavItem = (typeof PAGES)[number];
 
 // The factory's mark: three stations on one line, the last one lit.
 export function Mark() {
@@ -36,27 +38,50 @@ function crumbs(path: string): { label: string; href?: string }[] {
   // The run id's first 8 characters, as git shortens a hash; the full id is under the page title.
   if (path.startsWith("/runs/")) return [{ label: "Board", href: "/" }, { label: `Run ${decodeURIComponent(path.slice(6)).slice(0, 8)}` }];
   if (path === "/preferences") return [{ label: "Preferences" }];
-  return [{ label: NAV.find((n) => n.href === path)?.label ?? "Factory" }];
+  if (path.startsWith("/boards/")) return [{ label: "Board", href: "/" }, { label: decodeURIComponent(path.slice(8)) }];
+  if (path === "/") return [{ label: "Board" }];
+  return [{ label: PAGES.find((n) => n.href === path)?.label ?? "Factory" }];
 }
 
-function Nav({ path }: { path: string }) {
+const navLink = "relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-foreground/80 hover:bg-active/60 hover:text-foreground active:scale-[0.98] aria-[current=page]:text-foreground";
+
+function NavLink({ href, active, icon: Icon, children, className }: { href: string; active: boolean; icon?: NavItem["icon"]; children: React.ReactNode; className?: string }) {
+  return (
+    <Link href={href} aria-current={active ? "page" : undefined} className={cn(navLink, className)}>
+      {active && <motion.span layoutId="nav-active" className="absolute inset-0 -z-10 rounded-lg bg-active" />}
+      {Icon && <Icon className="size-4 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />}
+      {children}
+    </Link>
+  );
+}
+
+// Board opens the overview of every target; each target's own board sits under it as a child, on a tree line.
+function Nav({ path, boards }: { path: string; boards: string[] }) {
+  const on = (href: string) => path === href || path.startsWith(`${href}/`);
   return (
     <nav aria-label="Main" className="isolate flex flex-col gap-0.5">
-      {NAV.map(({ href, label, icon: Icon }) => {
-        const active = href === "/" ? path === "/" || path.startsWith("/runs/") : path.startsWith(href);
-        return (
-          <Link
-            key={href}
-            href={href}
-            aria-current={active ? "page" : undefined}
-            className="relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-foreground/80 hover:bg-active/60 hover:text-foreground active:scale-[0.98] aria-[current=page]:text-foreground"
-          >
-            {active && <motion.span layoutId="nav-active" className="absolute inset-0 -z-10 rounded-lg bg-active" />}
-            <Icon className="size-4 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
-            {label}
-          </Link>
-        );
-      })}
+      <NavLink href="/" active={path === "/" || path.startsWith("/runs/")} icon={LayoutList}>
+        Board
+      </NavLink>
+      {boards.length > 0 && (
+        <ul className="ml-[17px] flex flex-col gap-0.5 border-l border-border pl-2">
+          {boards.map((b) => {
+            const href = `/boards/${encodeURIComponent(b)}`;
+            return (
+              <li key={b} className="relative before:absolute before:top-1/2 before:-left-2 before:w-1.5 before:border-t before:border-border">
+                <NavLink href={href} active={on(href)} className="h-8 truncate font-mono text-xs">
+                  {b}
+                </NavLink>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {PAGES.map((p) => (
+        <NavLink key={p.href} href={p.href} active={on(p.href)} icon={p.icon}>
+          {p.label}
+        </NavLink>
+      ))}
     </nav>
   );
 }
@@ -176,7 +201,7 @@ export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
 // Tinted L-frame (sidebar and top bar on one ground, no rule between) around a white sheet inset 8px right and bottom.
 // On a phone the frame folds into a 48px bar with a menu.
 // signOut is a server action; layout.tsx passes it so this file does not load next-auth.
-export function Shell({ children, signOut }: { children: React.ReactNode; signOut: () => Promise<void> }) {
+export function Shell({ children, signOut, boards = [] }: { children: React.ReactNode; signOut: () => Promise<void>; boards?: string[] }) {
   const path = usePathname() ?? "/";
   if (path === "/sign-in") return <>{children}</>;
   const trail = crumbs(path);
@@ -187,7 +212,7 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
           <Brand />
         </div>
         <div className="mt-4">
-          <Nav path={path} />
+          <Nav path={path} boards={boards} />
         </div>
       </aside>
 
@@ -197,7 +222,7 @@ export function Shell({ children, signOut }: { children: React.ReactNode; signOu
             <Menu className="size-5" strokeWidth={1.5} />
           </summary>
           <div className="fixed inset-x-0 top-12 bottom-0 z-40 bg-ground px-3 pt-2">
-            <Nav path={path} />
+            <Nav path={path} boards={boards} />
           </div>
         </details>
         <span className="md:hidden">

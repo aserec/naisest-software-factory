@@ -72,6 +72,8 @@ const TABS = ["ongoing", "problems", "finished"] as const;
 // What waits for a person: the left side, plus stuck runs on the right. A finished work item waits for no one.
 export const needsYou = (items: BoardItem[]) => items.filter((i) => !finished(i) && (WAITING.includes(i.state) || i.stuck));
 export const waitingCount = (items: BoardItem[]) => needsYou(items).length;
+// The live counts the Board overview puts on each target's card: the Ongoing and Problems tabs and what waits for a person.
+export const boardCounts = (items: BoardItem[], now: number) => ({ ongoing: items.filter((i) => !finished(i)).length, needsYou: waitingCount(items), problems: items.filter((i) => inProblems(i, now)).length });
 
 // The ten steps as one line of segments: reached in ink, the live one in the data hue, a stuck or failed run's step in red.
 function Progress({ item: i }: { item: BoardItem }) {
@@ -212,18 +214,18 @@ export function useBoard() {
   return useQuery({ queryKey: ["board"], refetchInterval: 15_000, queryFn: () => loadBoard() });
 }
 
-// The filter and the tab live in the URL (?q=, ?target=, ?tab=), so a link or a reload keeps them.
+// The search and the tab live in the URL (?q=, ?tab=), so a link or a reload keeps them.
 function useFilter() {
-  const [f, setF] = useState({ q: "", target: "", tab: "" });
+  const [f, setF] = useState({ q: "", tab: "" });
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    setF({ q: p.get("q") ?? "", target: p.get("target") ?? "", tab: p.get("tab") ?? "" });
+    setF({ q: p.get("q") ?? "", tab: p.get("tab") ?? "" });
   }, []);
   const set = (next: Partial<typeof f>) => {
     const v = { ...f, ...next };
     setF(v);
     const url = new URL(window.location.href);
-    for (const k of ["q", "target", "tab"] as const) {
+    for (const k of ["q", "tab"] as const) {
       if (v[k]) url.searchParams.set(k, v[k]);
       else url.searchParams.delete(k);
     }
@@ -232,7 +234,7 @@ function useFilter() {
   return [f, set] as const;
 }
 
-// The search matches the title or "#12"; a target chip keeps only that target.
+// The search matches the title or "#12"; a target keeps only that target's cards.
 export function matches(i: BoardItem, { q, target }: { q: string; target: string }) {
   const s = q.trim().toLowerCase();
   return (!target || i.target === target) && (!s || i.title.toLowerCase().includes(s) || `#${i.ticket}`.includes(s));
@@ -267,7 +269,8 @@ function useNow() {
   return now;
 }
 
-export function Board() {
+// One board per target: target keeps only its cards. Without it the board shows every target.
+export function Board({ target = "" }: { target?: string }) {
   const board = useBoard();
   const { data: all, error } = board;
   const client = useQueryClient();
@@ -288,8 +291,7 @@ export function Board() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const targets = [...new Set(all?.map((i) => i.target))].sort();
-  const data = all?.filter((i) => matches(i, filter));
+  const data = all?.filter((i) => matches(i, { q: filter.q, target }));
   const tab = TABS.find((t) => t === filter.tab) ?? "ongoing";
   const count = (done: boolean) => data?.filter((i) => finished(i) === done).length;
   const problems = data?.filter((i) => inProblems(i, now));
@@ -307,12 +309,6 @@ export function Board() {
             onChange={(e) => setFilter({ q: e.target.value })}
             className="h-8 w-64 max-w-full rounded-md border border-input bg-background px-2.5 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           />
-          {targets.length > 1 &&
-            targets.map((t) => (
-              <Button key={t} variant={filter.target === t ? "secondary" : "outline"} size="sm" aria-pressed={filter.target === t} className="font-mono text-xs" onClick={() => setFilter({ target: filter.target === t ? "" : t })}>
-                {t}
-              </Button>
-            ))}
           <Button variant="outline" size="sm" className="ml-auto" disabled={board.isFetching} onClick={refresh}>
             <RefreshCw className={cn(board.isFetching && "motion-safe:animate-spin")} />
             Refresh

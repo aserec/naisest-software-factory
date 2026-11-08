@@ -1,11 +1,31 @@
+import { redirect } from "next/navigation";
 import { Board } from "@/components/board";
+import { BoardsOverview } from "@/components/boards-overview";
+import { sessionUser } from "@/server/auth";
+import { loadInsights } from "@/server/insights-load";
+import { readPrefs } from "@/server/preferences";
+import { readTargets } from "@/server/targets";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+// The overview of every target's board for a range; an old ?target= link opens that target's board.
+// With no targets read, the one board shows them all.
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const q = await searchParams;
+  const names = readTargets().map((t) => t.name);
+  if (q.target && names.includes(q.target)) redirect(`/boards/${encodeURIComponent(q.target)}`);
+  if (!names.length)
+    return (
+      <main>
+        <h1 className="sr-only">Board</h1>
+        <Board />
+      </main>
+    );
+  const user = q.range ? undefined : await sessionUser();
+  if (user) q.range = readPrefs(user).insightsRange;
   return (
     <main>
-      {/* The breadcrumb names the page; the heading stays for screen readers. */}
-      <h1 className="sr-only">Board</h1>
-      <Board />
+      <BoardsOverview initial={loadInsights(q)} hasZone={!!q.tz} targets={names} />
     </main>
   );
 }
