@@ -4,7 +4,7 @@ import { resolve, sep } from "node:path";
 
 // Trigger callers can set any variable, so each value must match its pattern before a step starts.
 const PATTERNS: Record<string, RegExp> = {
-  FACTORY_PIPELINE: /^(build|finish|dispatch)?$/, // empty only in a scheduled pipeline
+  FACTORY_PIPELINE: /^(build|finish|dispatch|fix)?$/, // empty only in a scheduled pipeline; fix only from the fix worker
   FACTORY_SCHEDULE: /^(poll|retry|watch|improve)?$/,
   FACTORY_WORK_ITEM_IID: /^([0-9]+)?$/, // empty for webhook triggers
   FACTORY_MR_IID: /^([0-9]+)?$/,

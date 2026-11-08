@@ -69,6 +69,31 @@ services:
     security_opt: ["seccomp=unconfined", "apparmor=unconfined"]
     depends_on: [caddy]
     restart: unless-stopped
+  # factory/fixer.ts: runs the plans people approve in the dashboard chat, one at a time. It copies the worker, so
+  # restarting the worker never ends a fix in progress.
+  fixer:
+    profiles: [worker]
+    image: factory-worker
+    build:
+      context: ..
+      dockerfile: deploy/worker.Dockerfile
+      additional_contexts:
+        runner: service:runner-image
+    command: ["node", "--import", "tsx", "factory/fixer.ts"]
+    environment:
+      GL_TOKEN: ${GL_TOKEN:-}
+      FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
+      TENSORX_API_KEY: ${TENSORX_API_KEY:-}
+      CELERIS_API_KEY: ${CELERIS_API_KEY:-}
+      FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
+      FACTORY_DASHBOARD_URL: ${FACTORY_DASHBOARD_URL:-https://caddy.internal}
+      NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
+    volumes:
+    - caddy_data:/caddy:ro
+    # The fix step's agent runs in bubblewrap, which needs user namespaces.
+    security_opt: ["seccomp=unconfined", "apparmor=unconfined"]
+    depends_on: [caddy]
+    restart: unless-stopped
   # Instead of the worker: GitLab CI schedules poll, and this runner starts one Hetzner VM per job.
   # install.sh fills deploy/runner/ from runner/config.toml.example and runner/cloud-init.yml.
   hetzner-runner:

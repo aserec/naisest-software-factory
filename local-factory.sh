@@ -3,16 +3,20 @@
 # one at a time. FACTORY_TARGET names the targets, space-separated (default react_frontend). Needs TENSORX_API_KEY,
 # FACTORY_DASHBOARD_TOKEN (the dashboard's value), and GL_TOKEN or FACTORY_GITHUB_TOKEN for the targets' tracker and code host. FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
 # Usage: ./local-factory.sh start|stop|status   (run: the same loop in the foreground)
+#        ./local-factory.sh fixer-start|fixer-stop|fixer-status   (the fix worker for plans approved in the dashboard chat;
+#        a loop of its own, so start and stop of the factory never end a fix in progress)
 # Do not use local-run.sh while the factory runs: both use run/ and the same secret file.
 set -euo pipefail
 cd "$(dirname "$0")"
 state="$PWD.cache"
 pidfile="$state/factory.pid" log="$state/factory.log" current="$state/factory.ticket"
+fixpid="$state/fixer.pid" fixlog="$state/fixer.log"
 secrets="$PWD.tmp" # the only dir the CI adapter reads secret files from
 mkdir -p "$state" "$secrets"
 
 # The pid must still be our loop: after a crash or reboot the pid in the file can belong to another process.
 running() { [ -f "$pidfile" ] && ps -p "$(cat "$pidfile")" -o command= 2>/dev/null | grep -q "local-factory.sh run"; }
+fixer_running() { [ -f "$fixpid" ] && ps -p "$(cat "$fixpid")" -o command= 2>/dev/null | grep -q "factory/fixer.ts"; }
 # A step deletes the token files once it read them; a run that was killed may have left them behind.
 drop_tokens() { rm -f "$secrets/gl" "$secrets/gh" "$secrets/dash" "$secrets/teams" "$secrets/slack"; }
 targets=${FACTORY_TARGET:-react_frontend}
@@ -59,6 +63,24 @@ case "${1:-}" in
   status)
     if running; then echo "The factory runs, pid $(cat "$pidfile"). Log: $log"; else echo "The factory does not run"; fi
     ;;
+  fixer-start)
+    need_tokens
+    if fixer_running; then echo "The fixer already runs, pid $(cat "$fixpid")"; exit 1; fi
+    export FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}"
+    set -m # own process group, so fixer-stop also ends the fix in progress
+    nohup node --import tsx factory/fixer.ts >> "$fixlog" 2>&1 &
+    echo $! > "$fixpid"
+    echo "The fixer runs, pid $!. Log: $fixlog"
+    ;;
+  fixer-stop)
+    if ! fixer_running; then echo "The fixer does not run"; rm -f "$fixpid"; exit 0; fi
+    kill -- "-$(cat "$fixpid")"
+    rm -f "$fixpid"
+    echo "The fixer stopped. A plan it was running stays running."
+    ;;
+  fixer-status)
+    if fixer_running; then echo "The fixer runs, pid $(cat "$fixpid"). Log: $fixlog"; else echo "The fixer does not run"; fi
+    ;;
   run)
     need_tokens
     trap drop_tokens EXIT
@@ -82,5 +104,5 @@ case "${1:-}" in
       sleep 60
     done
     ;;
-  *) echo "usage: ./local-factory.sh start|stop|status|run"; exit 1 ;;
+  *) echo "usage: ./local-factory.sh start|stop|status|run|fixer-start|fixer-stop|fixer-status"; exit 1 ;;
 esac

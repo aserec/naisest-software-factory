@@ -50,7 +50,8 @@ export function stepEnv(base: NodeJS.ProcessEnv, v: { pipeline?: string; schedul
   };
   if (v.source) e.CI_PIPELINE_SOURCE = v.source; // web: a person started it (the watcher with logSource files)
   for (const k of ["FACTORY_DASHBOARD_URL", "NODE_EXTRA_CA_CERTS", ...providerKeys(seams)]) if (base[k]) e[k] = base[k]!;
-  checkVars(e, { FACTORY_RUN_ID: /^([0-9]+)?$/, FACTORY_TARGET: /^[a-z0-9_-]+$/ });
+  // A plan for the factory repo has no target, so only the fix step may leave it empty.
+  checkVars(e, { FACTORY_RUN_ID: /^([0-9]+)?$/, FACTORY_TARGET: v.pipeline === "fix" ? /^[a-z0-9_-]*$/ : /^[a-z0-9_-]+$/ });
   return e;
 }
 
@@ -66,17 +67,18 @@ function secretFiles(base: NodeJS.ProcessEnv, dir: string, seen: string): Record
   return paths;
 }
 
-// poll, resume-waiting, dispatch, watcher and improve: short steps with no code tools, run in the worker container itself.
-const SHORT = { poll: { schedule: "poll" }, "resume-waiting": { schedule: "retry" }, dispatch: { pipeline: "dispatch" }, watcher: { schedule: "watch" }, improve: { schedule: "improve" } } as const;
+// poll, resume-waiting, dispatch, watcher, improve and fix: short steps with no code tools, run in the worker container itself.
+const SHORT = { poll: { schedule: "poll" }, "resume-waiting": { schedule: "retry" }, dispatch: { pipeline: "dispatch" }, watcher: { schedule: "watch" }, improve: { schedule: "improve" }, fix: { pipeline: "fix" } } as const;
 export type ShortStep = keyof typeof SHORT;
-// cwd: a folder for the step to work in. Then the step and tsx are named by absolute path, as a bare `tsx` or a relative path would not be found.
-export async function runShort(exec: Exec, base: NodeJS.ProcessEnv, step: ShortStep, target: string, source?: string, cwd?: string) {
+// extra: more variables for the step, merged last (the fix step's plan). cwd: a folder for the step to work in. Then the step and tsx are named by absolute path, as a bare `tsx` or a relative path would not be found.
+export async function runShort(exec: Exec, base: NodeJS.ProcessEnv, step: ShortStep, target: string, source?: string, cwd?: string, extra: Record<string, string> = {}): Promise<number> {
   const env = stepEnv(base, { ...SHORT[step], target, source });
   const dir = mkdtempSync(join(SECRET_DIR, "s-"));
   try {
     const script = cwd ? ["--import", TSX_IMPORT, join(FACTORY_ROOT, "factory/steps", `${step}.ts`)] : ["--import", "tsx", `factory/steps/${step}.ts`];
-    const r = await exec("node", script, { ...env, HOME: homedir(), ...secretFiles(base, dir, dir) }, cwd);
+    const r = await exec("node", script, { ...env, HOME: homedir(), ...secretFiles(base, dir, dir), ...extra }, cwd);
     if (r.code !== 0) console.log(`${step} for ${target} ended with code ${r.code}`);
+    return r.code;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

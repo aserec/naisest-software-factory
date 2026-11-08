@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 import type { QueuedRun } from "./adapters/local-ci";
 import { FACTORY_ROOT } from "./repo";
 import { BUILD_STEPS } from "./steps/run";
-import { handler, improveDue, machineHost, nextId, runImprove, runOne, stepEnv, takeQueue, targetLock, tickTarget, type Exec, type Live } from "./worker";
+import { handler, improveDue, machineHost, nextId, runImprove, runOne, runShort, stepEnv, takeQueue, targetLock, tickTarget, type Exec, type Live } from "./worker";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "worker-"));
 const base = { GL_TOKEN: "glpat-x", FACTORY_DASHBOARD_TOKEN: "dash", TENSORX_API_KEY: "tx" };
@@ -197,4 +197,14 @@ test("each tick polls; the hourly tick also retries, watches and starts a due im
   } finally {
     if (made) rmSync(secrets, { recursive: true, force: true });
   }
+});
+
+// The fix step gets its plan in the env, may have no target (a plan for the factory repo), and its exit code comes back.
+test("runShort fix passes the plan, accepts an empty target and returns the exit code", async () => {
+  mkdirSync(`${FACTORY_ROOT}.tmp`, { recursive: true });
+  let env: Record<string, string> = {};
+  const exec: Exec = async (_cmd, _args, e) => { env = e!; return { code: 3, out: "" }; };
+  expect(await runShort(exec, base, "fix", "", undefined, tmpdir(), { FACTORY_PLAN: '{"id":"x"}' })).toBe(3);
+  expect(env).toMatchObject({ FACTORY_PIPELINE: "fix", FACTORY_TARGET: "", FACTORY_PLAN: '{"id":"x"}' });
+  expect(() => stepEnv(base, { schedule: "poll", target: "" })).toThrow(); // other steps still need a target
 });
