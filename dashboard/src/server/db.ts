@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { SWITCHES, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings, type UsageLimits } from "software-factory/run-events";
+import type { z } from "zod";
+import { SWITCHES, type AgentPlan, type planProposal, type PlanState, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings, type UsageLimits } from "software-factory/run-events";
 import { labelState, runView, trackStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
 
@@ -31,6 +32,9 @@ export interface Resolutions { target: string; ticket: string; count: number; la
 // A dispatch with what became of it, for the dispatches page.
 export interface DispatchLog extends Dispatch { startedAt?: string; doneAt?: string; workItem?: string }
 export interface SwitchChange { at: string; user: string; name: SwitchName; scope: string; on: boolean }
+
+/** A message in the chat of a page (path). author: a username or "agent". plan: the plan the message proposes. */
+export interface ChatMessage { seq: number; path: string; author: string; at: string; text: string; plan?: AgentPlan }
 
 export interface Db {
   addEvents(events: RunEvent[]): number;
@@ -83,6 +87,16 @@ export interface Db {
   /** The user's saved preferences as stored, {} when none. Checked by preferences.ts, not here. */
   preferences(user: string): Record<string, unknown>;
   setPreferences(user: string, prefs: Record<string, unknown>): void;
+  /** The newest `limit` messages of the path, oldest first, each with its plan. */
+  chat(path: string, limit: number): ChatMessage[];
+  /** With a plan, stores it as proposed for planUser (whose question led to it) in the same transaction. */
+  addChatMessage(m: { path: string; author: string; text: string; plan?: z.infer<typeof planProposal>; planUser?: string }): ChatMessage;
+  /** Only from proposed. */
+  approvePlan(id: string, user: string): AgentPlan | { refused: string };
+  /** Oldest first. */
+  approvedPlans(): AgentPlan[];
+  /** Only approved to running, and running to done or failed; any other move gives undefined. A move adds an agent message to the plan's path. */
+  updatePlan(id: string, state: "running" | "done" | "failed", result?: string): AgentPlan | undefined;
   prune(now: Date): void;
   backup(dir: string, now: Date): void;
 }
@@ -109,7 +123,12 @@ CREATE TABLE IF NOT EXISTS dispatches (
 CREATE INDEX IF NOT EXISTS dispatches_pending ON dispatches (target, done_at, at);
 CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS preferences (user TEXT PRIMARY KEY, data TEXT NOT NULL, at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS settings (target TEXT PRIMARY KEY, data TEXT NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL);`;
+CREATE TABLE IF NOT EXISTS settings (target TEXT PRIMARY KEY, data TEXT NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_messages (seq INTEGER PRIMARY KEY, path TEXT NOT NULL, author TEXT NOT NULL, at TEXT NOT NULL, text TEXT NOT NULL, plan TEXT);
+CREATE INDEX IF NOT EXISTS chat_messages_path ON chat_messages (path, seq);
+CREATE TABLE IF NOT EXISTS plans (
+  id TEXT PRIMARY KEY, path TEXT NOT NULL, data TEXT NOT NULL, state TEXT NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL, approved_by TEXT, result TEXT
+);`;
 
 const DAY_MS = 864e5;
 const KEEP_BACKUPS = 7;
@@ -131,6 +150,13 @@ function toRequest(r: Row): ControlRequest {
   if (r.outcome != null) q.outcome = r.outcome as ControlRequest["outcome"];
   if (r.done_at != null) q.doneAt = r.done_at as string;
   return q;
+}
+
+function toPlan(r: Row): AgentPlan {
+  const p: AgentPlan = { id: r.id as string, path: r.path as string, ...(JSON.parse(r.data as string) as Pick<AgentPlan, "repo" | "target" | "summary" | "steps">), state: r.state as PlanState, user: r.user as string, at: r.at as string };
+  if (r.approved_by != null) p.approvedBy = r.approved_by as string;
+  if (r.result != null) p.result = r.result as string;
+  return p;
 }
 
 export const EVENTS_SQL = (run: boolean) => `SELECT * FROM events WHERE seq > ?${run ? " AND run = ?" : ""} ORDER BY seq LIMIT ?`;
@@ -220,6 +246,26 @@ export function openDb(path: string): Db {
     return added;
   }
   const addEvents = (events: RunEvent[]) => inTransaction(() => insertEvents(events));
+
+  const planById = (id: string) => {
+    const r = db.prepare("SELECT * FROM plans WHERE id = ?").get(id) as Row | undefined;
+    return r && toPlan(r);
+  };
+  const toMessage = (r: Row): ChatMessage => {
+    const m: ChatMessage = { seq: r.seq as number, path: r.path as string, author: r.author as string, at: r.at as string, text: r.text as string };
+    const plan = r.plan == null ? undefined : planById(r.plan as string);
+    if (plan) m.plan = plan;
+    return m;
+  };
+  // Call inside a transaction.
+  function insertMessage(path: string, author: string, text: string, plan?: string): ChatMessage {
+    const at = new Date().toISOString();
+    const r = db.prepare("INSERT INTO chat_messages (path, author, at, text, plan) VALUES (?, ?, ?, ?, ?)").run(path, author, at, text, plan ?? null);
+    return toMessage({ seq: Number(r.lastInsertRowid), path, author, at, text, plan });
+  }
+  // Each move is one UPDATE guarded by the old state, so of two racing callers only one sees changes = 1.
+  const MOVES = { running: "approved", done: "running", failed: "running" } as const;
+  const FIX_TEXT = { running: () => "Fix started.", done: (r?: string) => `Fix done: ${r ?? ""}`, failed: (r?: string) => `Fix failed: ${r ?? ""}` };
 
   return {
     addEvents,
@@ -399,6 +445,42 @@ export function openDb(path: string): Db {
 
     markImported(job) {
       db.prepare("INSERT OR IGNORE INTO imported_jobs (job, at) VALUES (?, ?)").run(job, new Date().toISOString());
+    },
+
+    chat(path, limit) {
+      const rows = db.prepare("SELECT * FROM (SELECT * FROM chat_messages WHERE path = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq").all(path, limit) as Row[];
+      return rows.map(toMessage);
+    },
+
+    addChatMessage({ path, author, text, plan, planUser }) {
+      return inTransaction(() => {
+        let id: string | undefined;
+        if (plan) {
+          id = randomUUID();
+          const { repo, target, summary, steps } = plan;
+          db.prepare("INSERT INTO plans (id, path, data, state, user, at) VALUES (?, ?, ?, 'proposed', ?, ?)").run(id, path, JSON.stringify({ repo, ...(target ? { target } : {}), summary, steps }), planUser ?? author, new Date().toISOString());
+        }
+        return insertMessage(path, author, text, id);
+      });
+    },
+
+    approvePlan(id, user) {
+      const r = db.prepare("UPDATE plans SET state = 'approved', approved_by = ? WHERE id = ? AND state = 'proposed'").run(user, id);
+      return r.changes ? planById(id)! : { refused: planById(id) ? "plan is not waiting for approval" : "plan not found" };
+    },
+
+    approvedPlans() {
+      return (db.prepare("SELECT * FROM plans WHERE state = 'approved' ORDER BY at, rowid").all() as Row[]).map(toPlan);
+    },
+
+    updatePlan(id, state, result) {
+      return inTransaction(() => {
+        const r = db.prepare("UPDATE plans SET state = ?, result = ? WHERE id = ? AND state = ?").run(state, result ?? null, id, MOVES[state]);
+        if (!r.changes) return undefined;
+        const plan = planById(id)!;
+        insertMessage(plan.path, "agent", FIX_TEXT[state](result));
+        return plan;
+      });
     },
 
     prune(now) {

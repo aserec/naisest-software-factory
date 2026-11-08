@@ -413,3 +413,75 @@ describe("history", () => {
     expect(db.history({ target: "react_frontend", since: "2026-06-01T10:00:00.500Z", types: ["run_start"], limit: 10 }).map((e) => e.id)).toEqual([after.id]);
   });
 });
+
+describe("chat and plans", () => {
+  const proposal = { repo: "target" as const, target: "react_frontend", summary: "Fix the nav", steps: ["Edit nav.tsx", "Run tests"] };
+  const withPlan = (db: ReturnType<typeof openDb>, path = "/a") => db.addChatMessage({ path, author: "agent", text: "Plan ready", plan: proposal, planUser: "dana" }).plan!;
+
+  it("reads a path's messages oldest first, the newest limit of them, and leaves other paths out", () => {
+    const db = openDb(":memory:");
+    for (const text of ["one", "two", "three"]) db.addChatMessage({ path: "/a", author: "dana", text });
+    db.addChatMessage({ path: "/b", author: "dana", text: "elsewhere" });
+    expect(db.chat("/a", 10).map((m) => m.text)).toEqual(["one", "two", "three"]);
+    expect(db.chat("/a", 2).map((m) => m.text)).toEqual(["two", "three"]);
+    expect(db.chat("/a", 10)[0]).not.toHaveProperty("plan");
+  });
+
+  it("stores a plan as proposed for the user whose question led to it, and reads it back with its message", () => {
+    const db = openDb(":memory:");
+    const m = db.addChatMessage({ path: "/a", author: "agent", text: "Plan ready", plan: proposal, planUser: "dana" });
+    expect(m.plan).toMatchObject({ ...proposal, path: "/a", state: "proposed", user: "dana" });
+    expect(m.plan).not.toHaveProperty("approvedBy");
+    expect(db.chat("/a", 10)[0].plan).toEqual(m.plan);
+  });
+
+  it("approves a plan once", () => {
+    const db = openDb(":memory:");
+    const plan = withPlan(db);
+    expect(db.approvePlan(plan.id, "sam")).toMatchObject({ id: plan.id, state: "approved", approvedBy: "sam" });
+    expect(db.approvePlan(plan.id, "sam")).toHaveProperty("refused");
+    expect(db.approvePlan("nope", "sam")).toHaveProperty("refused");
+    expect(db.chat("/a", 10)[0].plan?.state).toBe("approved");
+  });
+
+  it("lists only approved plans, oldest first", () => {
+    const db = openDb(":memory:");
+    const [p1, p2, p3] = [withPlan(db), withPlan(db), withPlan(db)];
+    db.approvePlan(p3.id, "sam");
+    db.approvePlan(p1.id, "sam");
+    expect(db.approvedPlans().map((p) => p.id)).toEqual([p1.id, p3.id]);
+    expect(p2.state).toBe("proposed");
+  });
+
+  it("moves approved to running once, so a second worker gets undefined", () => {
+    const db = openDb(":memory:");
+    const plan = withPlan(db);
+    db.approvePlan(plan.id, "sam");
+    expect(db.updatePlan(plan.id, "running")).toMatchObject({ id: plan.id, state: "running" });
+    expect(db.updatePlan(plan.id, "running")).toBeUndefined();
+    expect(db.chat("/a", 10).filter((m) => m.text === "Fix started.")).toHaveLength(1);
+  });
+
+  it("adds an agent message on the plan's path when a fix finishes or fails", () => {
+    const db = openDb(":memory:");
+    const [a, b] = [withPlan(db, "/a"), withPlan(db, "/b")];
+    for (const p of [a, b]) {
+      db.approvePlan(p.id, "sam");
+      db.updatePlan(p.id, "running");
+    }
+    expect(db.updatePlan(a.id, "done", "https://pr/1")).toMatchObject({ state: "done", result: "https://pr/1" });
+    expect(db.updatePlan(b.id, "failed", "tests red")?.state).toBe("failed");
+    expect(db.chat("/a", 10).at(-1)).toMatchObject({ author: "agent", text: "Fix done: https://pr/1" });
+    expect(db.chat("/b", 10).at(-1)).toMatchObject({ author: "agent", text: "Fix failed: tests red" });
+    expect(db.updatePlan(a.id, "failed", "x")).toBeUndefined();
+  });
+
+  it("refuses a move that skips a state and adds no message", () => {
+    const db = openDb(":memory:");
+    const plan = withPlan(db);
+    expect(db.updatePlan(plan.id, "running")).toBeUndefined();
+    db.approvePlan(plan.id, "sam");
+    expect(db.updatePlan(plan.id, "done", "x")).toBeUndefined();
+    expect(db.chat("/a", 10)).toHaveLength(1);
+  });
+});
