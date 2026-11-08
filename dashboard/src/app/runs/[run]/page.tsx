@@ -1,6 +1,6 @@
 import { RunControls } from "@/components/run-controls";
 import { RunTimeline } from "@/components/run-timeline";
-import { PageTitle } from "@/components/shell";
+import { PageTitle, RunTarget } from "@/components/shell";
 import { getDb } from "@/server/db-instance";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   return (
     // From lg the open side panel sits beside the page instead of over it; see the panel width in ui/sheet.tsx.
     <main className="transition-[padding] duration-300 ease-[cubic-bezier(0.2,0,0,1)] lg:has-[[data-panel=open]]:pr-[min(624px,calc(100vw-624px))]">
+      <RunTarget target={first?.target} />
       <PageTitle
         // The work item's title, as on its board card; without the board, its number.
         title={

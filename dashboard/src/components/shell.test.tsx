@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { Shell, ThemeSync, UserMenu } from "./shell";
+import { RunTarget, Shell, ThemeSync, UserMenu } from "./shell";
 import { renderWithQuery, servePreferences } from "./test-utils";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/boards/api" }));
+const nav = vi.hoisted(() => ({ path: "/boards/api" }));
+vi.mock("next/navigation", () => ({ usePathname: () => nav.path }));
 // happy-dom cancels motion's animations with an unhandled rejection; plain elements are enough here.
 vi.mock("motion/react", () => ({
   motion: {
@@ -14,6 +15,7 @@ vi.mock("motion/react", () => ({
 
 afterEach(() => {
   cleanup();
+  nav.path = "/boards/api";
   vi.unstubAllGlobals();
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
@@ -54,4 +56,18 @@ test("the nav holds Board with one child board per target and marks only the ope
   const children = within(within(nav).getByRole("list")).getAllByRole("link");
   expect(children.map((l) => l.getAttribute("href"))).toEqual(["/boards/api", "/boards/api2"]);
   expect(children.map((l) => l.getAttribute("aria-current"))).toEqual(["page", null]);
+});
+
+test("a run's breadcrumb goes Board, then its target's board, then the run", async () => {
+  serve();
+  nav.path = "/runs/0123456789abcdef";
+  renderWithQuery(
+    <Shell signOut={async () => {}} boards={["api"]}>
+      <RunTarget target="api" />
+    </Shell>,
+  );
+  const trail = screen.getByRole("list", { name: "Breadcrumb" });
+  await waitFor(() => expect(trail.textContent).toBe("Board/api/Run 01234567"));
+  const target = within(trail).getByRole("link", { name: "api" });
+  expect(target.getAttribute("href")).toBe("/boards/api");
 });

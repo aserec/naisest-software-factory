@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DropdownMenu } from "radix-ui";
-import { useEffect, useTransition } from "react";
+import { createContext, useContext, useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import type { Theme } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
@@ -35,9 +35,25 @@ export function Mark() {
   );
 }
 
-function crumbs(path: string): { label: string; href?: string }[] {
+// The run page sets its target here, since a run's URL does not name the target.
+const RunTargetContext = createContext<(target: string | undefined) => void>(() => {});
+
+export function RunTarget({ target }: { target?: string }) {
+  const set = useContext(RunTargetContext);
+  useEffect(() => {
+    set(target);
+    return () => set(undefined);
+  }, [set, target]);
+  return null;
+}
+
+function crumbs(path: string, runTarget?: string): { label: string; href?: string }[] {
   // The run id's first 8 characters, as git shortens a hash; the full id is under the page title.
-  if (path.startsWith("/runs/")) return [{ label: "Board", href: "/" }, { label: `Run ${decodeURIComponent(path.slice(6)).slice(0, 8)}` }];
+  if (path.startsWith("/runs/")) {
+    const run = { label: `Run ${decodeURIComponent(path.slice(6)).slice(0, 8)}` };
+    const board = { label: "Board", href: "/" };
+    return runTarget ? [board, { label: runTarget, href: `/boards/${encodeURIComponent(runTarget)}` }, run] : [board, run];
+  }
   if (path === "/preferences") return [{ label: "Preferences" }];
   if (path.startsWith("/boards/")) return [{ label: "Board", href: "/" }, { label: decodeURIComponent(path.slice(8)) }];
   if (path === "/") return [{ label: "Board" }];
@@ -204,8 +220,9 @@ export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
 // signOut is a server action; layout.tsx passes it so this file does not load next-auth.
 export function Shell({ children, signOut, boards = [] }: { children: React.ReactNode; signOut: () => Promise<void>; boards?: string[] }) {
   const path = usePathname() ?? "/";
+  const [runTarget, setRunTarget] = useState<string>();
   if (path === "/sign-in") return <>{children}</>;
-  const trail = crumbs(path);
+  const trail = crumbs(path, runTarget);
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[228px_minmax(0,1fr)] md:grid-rows-[48px_1fr]">
       <aside className="hidden px-3 md:row-span-2 md:block">
@@ -229,7 +246,7 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
         <span className="md:hidden">
           <Mark />
         </span>
-        <ol className="mr-auto flex min-w-0 items-center gap-2 text-sm">
+        <ol aria-label="Breadcrumb" className="mr-auto flex min-w-0 items-center gap-2 text-sm">
           {trail.map((c, i) => (
             <li key={c.label} className="flex min-w-0 items-center gap-2">
               {i > 0 && <span className="text-muted-foreground">/</span>}
@@ -250,9 +267,11 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
       </header>
 
       <div className="min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-4 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:rounded-xl md:border md:px-6 md:pt-6">
-        <motion.div key={path} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-          {children}
-        </motion.div>
+        <RunTargetContext.Provider value={setRunTarget}>
+          <motion.div key={path} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+            {children}
+          </motion.div>
+        </RunTargetContext.Provider>
       </div>
     </div>
   );
