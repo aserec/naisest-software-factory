@@ -304,6 +304,16 @@ test("on a local run the agent reads the Mac's Corepack cache, since Corepack ca
   expect(codeEnv({ tools: "code" }, "/w/run/target", { HOME: "/home/a" })).not.toHaveProperty("COREPACK_HOME"); // CI: Corepack keeps its own cache
 });
 
+test("on a local run the author's pnpm uses the gate's shared store, so it can add a dependency to the lockfile", () => {
+  const local = { HOME: "/home/a", FACTORY_PNPM_STORE: "/home/a/pnpm-store" };
+  expect(codeEnv({ tools: "code" }, "/w/run/target", local).pnpm_config_store_dir).toBe("/home/a/pnpm-store");
+  const fs = factorySettings(local, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/usr/bin/node", 501).sandbox.filesystem;
+  expect(fs.allowWrite).toEqual(["/home/a/pnpm-store", "/tmp/pnpm-store-operation-locks-501", "/private/tmp/pnpm-store-operation-locks-501"]);
+  expect(fs.allowRead).toContain("/home/a/pnpm-store"); // the sandbox hides HOME, and a write there needs the read too
+  expect(codeEnv({ tools: "code" }, "/w/run/target", {})).not.toHaveProperty("pnpm_config_store_dir"); // CI: no shared store
+  expect(factorySettings({}, "/opt/hooks", "/w/run/target").sandbox.filesystem).not.toHaveProperty("allowWrite");
+});
+
 test("on macOS the agent may open unix sockets in Claude Code's per-user TMPDIR too", () => {
   const mac = factorySettings({}, "/opt/hooks", "/w/run/target", undefined, false, "darwin", [], "/usr/bin/node", 501).sandbox.network;
   expect(mac.allowUnixSockets).toEqual(["/tmp/claude", "/private/tmp/claude", "/tmp/claude-501", "/private/tmp/claude-501"]);

@@ -40,8 +40,15 @@ export function factorySettings(env: NodeJS.ProcessEnv, hooksDir: string, cwd: s
   const browsers = [env.PLAYWRIGHT_BROWSERS_PATH, platform === "darwin" && env.HOME ? join(env.HOME, "Library/Caches/ms-playwright") : undefined];
   // A Python target's .venv/bin/python links into uv's Python dir: "Failed to query Python interpreter" without it.
   const uvPython = env.UV_PYTHON_INSTALL_DIR ?? (env.HOME ? join(env.HOME, ".local/share/uv/python") : undefined);
-  const reads = [prefix, ...browsers, uvPython, localCorepackHome(env)].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
+  const reads = [prefix, ...browsers, uvPython, localCorepackHome(env), env.FACTORY_PNPM_STORE].filter((d): d is string => !!d && !!env.HOME && d.startsWith(`${env.HOME}${sep}`));
   if (reads.length) settings.sandbox.filesystem.allowRead = reads;
+  // A local run: pnpm reads and writes the shared store (in reads above), and takes its store lock in a fixed dir in /tmp,
+  // as the gate's pnpm does. Without them any pnpm install, such as adding a dependency to the lockfile, fails with
+  // ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK (ticket 438). pnpm 12 names the lock dir with the uid.
+  if (env.FACTORY_PNPM_STORE) {
+    const locks = uid === undefined ? [] : [`/tmp/pnpm-store-operation-locks-${uid}`, `/private/tmp/pnpm-store-operation-locks-${uid}`];
+    settings.sandbox.filesystem.allowWrite = [env.FACTORY_PNPM_STORE, ...locks];
+  }
   // A preview: the author starts the target's dev server. A local run (local-run.sh sets FACTORY_PNPM_STORE): the author's
   // tests reach the Mac's services such as Postgres, as the gate's do (sandboxSettings). Ticket 101 got PermissionError without it.
   if (preview || env.FACTORY_PNPM_STORE) settings.sandbox.network.allowLocalBinding = true;
@@ -103,7 +110,8 @@ export function claudeEnv(env: NodeJS.ProcessEnv, provider: Provider): NodeJS.Pr
 export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv => {
   if (job.tools !== "code") return {};
   const corepack = localCorepackHome(env);
-  return { npm_config_cache: join(cwd, "run", "npm-cache"), UV_CACHE_DIR: join(cwd, "run", "uv-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...(corepack && { COREPACK_HOME: corepack }) };
+  const store = env.FACTORY_PNPM_STORE; // local runs: the gate's shared pnpm store (see sandboxed in repo.ts)
+  return { npm_config_cache: join(cwd, "run", "npm-cache"), UV_CACHE_DIR: join(cwd, "run", "uv-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...(corepack && { COREPACK_HOME: corepack }), ...(store && { pnpm_config_store_dir: store }) };
 };
 
 // Pairs each tool_use (assistant line) with its tool_result (user line) by id. Feed it the stream line by line.
