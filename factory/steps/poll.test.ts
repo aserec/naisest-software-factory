@@ -13,6 +13,14 @@ const on = (o: Partial<Record<SwitchName, boolean>>) => ({ ...(Object.fromEntrie
 test("poller starts ready items up to the repo limit of 2", async () => {
   expect(await pollReady(fakeCtx({ ready: [3, 4, 5], running: 0 }))).toEqual(["3", "4"]);
 });
+// An answered ticket waited for a person already, so it goes first. Its person is the author of the factory's note.
+test("poller starts info_answered items before ready ones, for the person who answered", async () => {
+  const ctx = fakeCtx({ ready: [3, 4], running: 1 });
+  const t = ctx.world.tracker;
+  t.tickets.set("5", { ...t.tickets.get("3")!, ref: "5", state: "info_answered" });
+  t.comments = async (ref) => (ref === "5" ? [{ author: BOT, byFactory: true, body: noteText({ kind: "readyFor", text: "Info answered", person: "user-5", cursor: "2026-10-29T00:00:00Z" }), at: "2026-10-29T00:00:00Z" }] : []);
+  expect(await pollReady(ctx)).toEqual(["5"]);
+});
 test("retry resumes waiting runs with their saved session", async () => {
   const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0 });
   expect(await resumeWaiting(ctx)).toEqual(["9"]);

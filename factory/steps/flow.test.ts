@@ -561,6 +561,22 @@ test("a poller start with no payload claims the run from live labels", async () 
     expect(q.states).toEqual([o.state]);
   }
 });
+// An answered question: the factory set info_answered, nobody set ready. The answer's author starts a new run at triage.
+test("a poller start of an info_answered ticket runs triage for the person who answered", async () => {
+  const w = fakeWorld({ state: "info_answered", jev1: { risk: "trivial" } });
+  w.tracker.say("8", "dev", "@factory the list is the user list");
+  await w.tracker.comment("8", noteText({ kind: "readyFor", text: "Info answered", person: "dev", cursor: new Date().toISOString() }));
+  await w.ci.start({ kind: "build", ticket: "8" });
+  await drain(w, "build");
+  expect(w.record.steps[0]).toMatchObject({ step: "event", data: { start: true, actor: "dev" } });
+  expect(w.record.steps[1].step).toBe("triage");
+  expect(w.finishTriggered).toBe(true);
+  // Without the factory's note no person answered, so nothing starts.
+  const q = fakeWorld({ state: "info_answered" });
+  await q.ci.start({ kind: "build", ticket: "8" });
+  await drain(q, "build");
+  expect(q.record.steps[0].data).toMatchObject({ start: false, reason: "not-member" });
+});
 test("a resume continues at the limited step with the saved session", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
   expect(first.workItemComments.at(-1)).toContain("Waiting run: pipeline 1");

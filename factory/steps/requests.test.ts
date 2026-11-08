@@ -121,15 +121,18 @@ test.each(["waiting", "stopped"] as const)("a %s ticket whose only factory comme
   expect(w.workItemComments).toHaveLength(2);
   expect(cursorOf(w.workItemComments[1])).toBe(T2);
 });
-// A @factory comment counts as factory_ready on a blocked or needs_info ticket.
-test.each(["blocked", "needs_info"] as const)("a trusted request on a %s ticket sets it ready for the request's author, with the cursor line", async (state) => {
+// A @factory comment counts as factory_ready on a blocked ticket, and as an answer on a needs_info ticket.
+test.each([
+  ["blocked", "ready", md("▶️", "Starting again", "The factory starts again for the request of @dev.")],
+  ["needs_info", "info_answered", md("▶️", "Info answered", "The factory read the answer of @dev and takes the work item up again at triage.")],
+] as const)("a trusted request on a %s ticket sets it %s for the request's author, with the cursor line", async (state, next, text) => {
   const w = world({ state });
   w.host.sayOnChange("5", "ana", ASK, T1);
   w.tracker.say("8", "dev", "@factory the list is the user list", T2);
   expect(await pollRequests(w.ctx)).toEqual(["8"]);
-  expect(w.tracker.tickets.get("8")!.state).toBe("ready");
-  expect(w.workItemComments).toEqual([noteText({ kind: "readyFor", text: md("▶️", "Starting again", "The factory starts again for the request of @dev."), person: "dev", cursor: T2 })]);
-  expect(w.ci.started).toEqual([]); // the poller starts the ready ticket
+  expect(w.tracker.tickets.get("8")!.state).toBe(next);
+  expect(w.workItemComments).toEqual([noteText({ kind: "readyFor", text, person: "dev", cursor: T2 })]);
+  expect(w.ci.started).toEqual([]); // the poller starts the ticket
 });
 test.each(["blocked", "needs_info"] as const)("a flagged request on a %s ticket gets the refusal with the cursor line and does not set it ready", async (state) => {
   const w = world({ state, injectionYes: 0.9 });
@@ -341,7 +344,7 @@ test.each(["@factory stop", "@factory resume", "looks good"])("the comment %j ge
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);
 });
-test.each(["needs_approval", "running", "stopped", "waiting", "blocked", "needs_info"] as const)("a ticket in %s is skipped here, since another path answers it", async (state) => {
+test.each(["needs_approval", "running", "stopped", "waiting", "blocked", "needs_info", "info_answered"] as const)("a ticket in %s is skipped here, since another path answers it", async (state) => {
   const w = other(state);
   expect(await replyOnChanges(w.ctx)).toEqual([]);
   expect(w.mrComments).toEqual([]);

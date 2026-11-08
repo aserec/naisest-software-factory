@@ -35,7 +35,7 @@ trackerContract("GitLab", (seed, { setUp }) => {
 it("makes one call per state label and one for the open merge requests per target, newest update first, all with the read token and a time limit", async () => {
   const { fn, calls } = fakeGitLab([{ ticket: "5", title: "Fix it", state: "ready", risk: "high" }]);
   const rows = await makeGitLabTracker(fn).rows([target("t1"), target("t2")]);
-  expect(calls).toHaveLength(18);
+  expect(calls).toHaveLength(20);
   expect(rows).toContainEqual({ target: "t1", ticket: "5", title: "Fix it", state: "ready", url: "https://gitlab.test/g/t1/-/issues/5", updatedAt: "2026-10-29T10:00:00Z", risk: "high", boardUrl: "https://gitlab.test/g/t1/-/boards", closed: false, conflicts: false });
   expect(calls.map((c) => c.url)).toContain("https://gitlab.test/api/v4/projects/g%2Ft1/issues?labels=factory_ready&order_by=updated_at&per_page=100");
   expect(calls.every((c) => c.token === "read-token" && c.signal instanceof AbortSignal)).toBe(true);

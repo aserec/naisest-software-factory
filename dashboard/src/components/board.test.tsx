@@ -19,7 +19,7 @@ test("renders a section per label, empty ones with 0, and a Stuck badge", async 
   renderWithQuery(<Board />);
   expect(await screen.findByText("Fix login")).toBeTruthy();
   expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Waiting on you", "With the factory"]);
-  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Needs approval 0", "Needs info 0", "Stopped 0", "Blocked 0", "Running 1", "Waiting 0", "Ready 0"]);
+  expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Needs approval 0", "Needs info 0", "Stopped 0", "Blocked 0", "Running 1", "Waiting 0", "Info answered 0", "Ready 0"]);
   expect(screen.queryByText(/are empty/)).toBeNull();
   expect(screen.getAllByText("Stuck")).toHaveLength(1);
   expect(screen.getByText("$1.50")).toBeTruthy();

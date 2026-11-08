@@ -30,7 +30,7 @@ export function decideStart(e: FactoryEvent, ctx: { actorTrusted: boolean; state
   if (e.kind !== "ready") return { start: false, reason: "not-added" };
   const active = ctx.state !== undefined && ACTIVE_STATES.includes(ctx.state);
   // The event may be old: someone may have taken the ready state off since.
-  if (ctx.state !== "ready" && !active) return { start: false, reason: "not-ready" };
+  if (ctx.state !== "ready" && ctx.state !== "info_answered" && !active) return { start: false, reason: "not-ready" };
   if (!ctx.actorTrusted) return { start: false, reason: "not-member" };
   if (active) return { start: false, reason: "active-run" };
   if (ctx.runningInRepo >= MAX_RUNS_PER_REPO) return { start: false, reason: "repo-full" };
@@ -58,7 +58,9 @@ export async function mayStart(ctx: StepContext, actor: string, ticket: Ticket):
 // Who set the ticket ready. A ready the factory set in the last 15 minutes is the person's it set it for: a dashboard
 // restart of this ticket, pending or done, else the newest `@factory` request its comment names. mayStart still checks that person.
 // `restart`: a dashboard restart, which starts a new run instead of continuing a blocked one.
-export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string): Promise<{ actor: string; restart: boolean }> {
+// `state` info_answered: the person whose answer the factory took up, whatever its age, since nobody set the ticket ready.
+export async function readyActor(ctx: StepContext, ref: TicketRef, actor: string, state?: FactoryState): Promise<{ actor: string; restart: boolean }> {
+  if (state === "info_answered") return { actor: (await conversation(ctx).newest(ref, "readyFor"))?.person ?? "", restart: false };
   if (!(await ctx.tracker.isFactory(actor))) return { actor, restart: false };
   const control = await controls(ctx);
   const recent = (at: string) => Date.now() - Date.parse(at) >= 0 && Date.now() - Date.parse(at) <= RESTART_MS; // a future or bad `at` never counts

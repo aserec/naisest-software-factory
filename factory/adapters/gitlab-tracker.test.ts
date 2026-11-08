@@ -83,7 +83,7 @@ describe("tickets", () => {
     await tracker().clearState("8");
     expect(last()).toMatchObject({ method: "PUT", url: "/projects/7/issues/8" });
     expect(last().body.add_labels).toBeUndefined();
-    expect(last().body.remove_labels.split(",").sort()).toEqual(["factory_ready", "factory_running", "factory_needs_info", "factory_needs_approval", "factory_waiting", "factory_stopped", "factory_blocked", "factory_done"].sort());
+    expect(last().body.remove_labels.split(",").sort()).toEqual(["factory_ready", "factory_running", "factory_needs_info", "factory_info_answered", "factory_needs_approval", "factory_waiting", "factory_stopped", "factory_blocked", "factory_done"].sort());
     expect(last().body.remove_labels).not.toContain("factory_implemented");
   });
   test("mark adds its label and removes no other label", async () => {

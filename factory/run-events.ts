@@ -6,7 +6,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
 
 // The state of a work item, in factory words. factory/seams.ts re-exports it.
 // In board column order.
-export const STATES = ["ready", "running", "waiting", "needs_info", "needs_approval", "done", "stopped", "blocked"] as const;
+export const STATES = ["ready", "running", "waiting", "needs_info", "info_answered", "needs_approval", "done", "stopped", "blocked"] as const;
 export type FactoryState = (typeof STATES)[number];
 // The audit records the dashboard writes itself. The factory never sends them, and the dashboard refuses them from it.
 export const DASHBOARD_TYPES: ReadonlySet<EventType> = new Set(["stop", "resume", "restart", "ready", "switch_change", "settings_change"]);

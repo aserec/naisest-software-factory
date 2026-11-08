@@ -10,6 +10,9 @@ import { ACTIVE_STATES, activeRuns, MAX_RUNS_PER_REPO, mayStart, readyActor } fr
 import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests, restartDeadRuns, resumeRelayed, resumeSwitchedOff } from "./poller";
 import type { CiRunner } from "../seams";
 
+// Answered tickets first: they waited for a person already.
+const startable = async (ctx: StepContext) => [...(await ctx.tracker.list("info_answered")), ...(await ctx.tracker.list("ready"))];
+
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
   if (!(await controls(ctx)).switchOn("new_runs")) return [];
@@ -17,20 +20,20 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
   const free = MAX_RUNS_PER_REPO - active;
   if (free <= 0) {
     // stderr, so local-factory.sh's list stays clean; a stall must not look like a hang in its log.
-    const waiting = (await ctx.tracker.list("ready")).length;
+    const waiting = (await startable(ctx)).length;
     if (waiting) console.error(`${waiting} ready ticket(s) wait: ${active} runs are active (running, waiting or stopped), the limit is ${MAX_RUNS_PER_REPO}`);
     return [];
   }
   // A pending restart owns its ticket: handleRequests starts it, also after a failed start.
   const restarting = (await controls(ctx)).requests.filter((r) => r.kind === "restart" && !r.outcome).map((r) => r.ticket);
   const start: TicketRef[] = [];
-  for (const t of await ctx.tracker.list("ready")) {
+  for (const t of await startable(ctx)) {
     if (start.length >= free) break;
     if ((t.state && ACTIVE_STATES.includes(t.state)) || skip.includes(t.ref) || restarting.includes(t.ref)) continue;
     // One failed ticket must not stop the poller: it is logged and tried again next minute.
     try {
       // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every minute.
-      const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
+      const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "", t.state);
       if (!(await mayStart(ctx, actor, t))) continue;
       const blockers = await ctx.tracker.openBlockers(t.ref);
       if (blockers.length) { console.error(`Ticket ${t.ref} waits: blocked by ${blockers.join(", ")}, still open`); continue; }
