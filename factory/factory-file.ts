@@ -12,6 +12,8 @@ const commandsSchema = z.object({
   previewUrl: z.string().url().optional(),
   // Logs a seeded user in for run/shoot.sh: reads $FACTORY_USER and $FACTORY_URL, writes a Playwright storage state to $FACTORY_STORAGE.
   login: z.string().min(1).optional(),
+  // More commands the author may run, such as a script that writes a generated file the ticket asks to commit.
+  author: z.array(z.string().min(1)).optional(),
 }).refine((c) => !c.preview === !c.previewUrl, { message: "preview and previewUrl go together" })
   .refine((c) => !c.login || c.preview, { message: "login needs preview" });
 

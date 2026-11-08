@@ -7,7 +7,9 @@ import type { FactoryCommands } from "./types.js";
 
 // Each loop takes only what it calls: the author's fix, and the review or the gate's commands.
 interface FixDeps { fix(feedback: string): Promise<HarnessResult> }
-export interface ReviewDeps extends FixDeps { review(): Promise<Finding[]> }
+// diff: the change's text. A fix that leaves it the same ends the loop, since the next review would see the same code.
+// The gate has no such check: a flaky command may pass on the same code.
+export interface ReviewDeps extends FixDeps { review(): Promise<Finding[]>; diff?(): Promise<string> }
 export interface GateDeps extends FixDeps { run(cmd: string): Promise<{ ok: boolean; output: string }> }
 export type LoopResult =
   | { kind: "passed"; rounds: number }
@@ -16,11 +18,14 @@ export type LoopResult =
 
 // Runs fix on the open problems. Returns a final result if the loop must stop, otherwise undefined.
 // A failed fix keeps the problems in the result, so the person sees what the author was asked to fix.
-async function fixOrStop(deps: FixDeps, open: string[], rounds: number): Promise<LoopResult | undefined> {
+async function fixOrStop(deps: FixDeps & { diff?(): Promise<string> }, open: string[], rounds: number): Promise<LoopResult | undefined> {
+  const before = await deps.diff?.();
   const r = await deps.fix(open.join("\n"));
   if (r.stopped) return { kind: "stopped", rounds, sessionId: r.session };
   if (r.limitHit) return { kind: "limit", rounds, sessionId: r.session };
   if (!r.ok) return { kind: "blocked", rounds, open: [...open, `author run failed: ${r.text.slice(0, 2000)}`] };
+  // The author's answer says why, for example a command its sandbox denied.
+  if (before !== undefined && (await deps.diff!()) === before) return { kind: "blocked", rounds, open: [...open, `The author changed no code. Its answer: ${r.text.slice(0, 2000)}`] };
   return undefined;
 }
 

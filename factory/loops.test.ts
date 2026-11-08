@@ -84,3 +84,11 @@ test("a limit result carries the round it stopped in", async () => {
   const d = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, ok: false } });
   expect(await codeReviewLoop(d, 3, 2)).toMatchObject({ kind: "limit", rounds: 2 });
 });
+test("a fix that leaves the diff the same blocks with the author's answer instead of asking again", async () => {
+  const deps = { ...fakeDeps({ reviews: [[B], [B]], fixResult: { text: "the sandbox denied uv run python" } }), diff: async () => "same" };
+  expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 1, open: ["bug", "The author changed no code. Its answer: the sandbox denied uv run python"] });
+  expect(deps.fixCalls).toHaveLength(1);
+  let n = 0;
+  const changing = { ...fakeDeps({ reviews: [[B], []] }), diff: async () => String(n++) };
+  expect(await codeReviewLoop(changing)).toEqual({ kind: "passed", rounds: 2 });
+});

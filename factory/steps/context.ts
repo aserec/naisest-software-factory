@@ -160,12 +160,12 @@ export async function agent(ctx: StepContext, role: Role, choice: RoleChoice, jo
   return r;
 }
 
-// The commands the author may run: the gate's own, so it can check its work as the gate will, and the screenshot and video scripts.
+// The commands the author may run: the gate's own, so it can check its work as the gate will, the target's extra author commands, and the screenshot and video scripts.
 // Claude Code checks a chained command part by part, so each part of `a && b` is its own allow entry.
 export const SHOOT = "bash run/shoot.sh";
 export const RECORD = "bash run/record.sh";
 export const agentCommands = (c?: FactoryCommands) =>
-  c ? [c.lint, c.test, c.build, c.preview].filter((x): x is string => !!x).flatMap((x) => x.split(/&&|\|\||;/).map((p) => p.trim()).filter(Boolean)).concat(c.preview ? [SHOOT, RECORD] : []) : [];
+  c ? [c.lint, c.test, c.build, c.preview, ...(c.author ?? [])].filter((x): x is string => !!x).flatMap((x) => x.split(/&&|\|\||;/).map((p) => p.trim()).filter(Boolean)).concat(c.preview ? [SHOOT, RECORD] : []) : [];
 
 // The clone sits in a folder named run/, so an agent took the factory's run/ for its own. The absolute path settles it.
 export const rootLine = (dir: string) => `This repo's root is \`${dir}\`. Every \`run/\` path in these rules is under \`${join(dir, "run")}/\`.`;

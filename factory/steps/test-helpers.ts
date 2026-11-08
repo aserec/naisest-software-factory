@@ -154,6 +154,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const limit: Partial<HarnessResult> = { session: "sess-limit", ok: false, limitHit: true, text: "usage limit reached" };
   const stop: Partial<HarnessResult> = { session: "sess-stop", ok: false, stopped: true, text: "" };
   let prepared = false;
+  let fixes = 0; // each author fix adds a line to the diff, as a real fix changes the code
   const harness = fakeHarness((job) => {
     if (job.role === "reviewer") return { text: JSON.stringify(reviews.shift() ?? []), toolCalls: [{ name: "Read", input: "{}", result: "x", ms: 1, ok: true }] };
     if (job.role === "writer" && o.writerThrows) throw new Error("writer harness crashed");
@@ -161,6 +162,7 @@ export function fakeWorld(o: WorldOptions = {}) {
     if ((o.prepare === "limit" || o.prepare === "stop") && !job.resume && !prepared) return ((prepared = true), o.prepare === "limit" ? limit : stop);
     if (o.fixLimit && job.resume) return limit;
     if (o.fixStop && job.resume) return stop;
+    if (job.role === "author" && job.resume) fixes++;
     return { session: "sess-1", costUsd: 0.1, tokens: { input: 100, output: 20, cacheRead: 7, cacheWrite: 3 }, contextTokens: 110, toolCalls: [{ name: "Read", input: '{"file_path":"a.ts"}', result: "text", ms: 12, ok: true }], text: "1. Which list?" };
   });
   const ran: string[] = [];
@@ -175,7 +177,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const mergedBase: string[] = [];
   const repo: Repo = {
     clone: async (ref) => void cloned.push(ref),
-    diff: async () => ({ text: o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;", numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
+    diff: async () => ({ text: (o.diffText ?? "diff --git a/src/List.tsx b/src/List.tsx\n+  if (loading) return <Spinner />;") + "\n+// fix".repeat(fixes), numstat: o.numstat ?? "10\t2\tsrc/List.tsx\0" }),
     run: async (cmd) => (ran.push(cmd), { ok: o.gate !== "red" && !(cmd === "pnpm lint" && lintFails-- > 0), output: `ran ${cmd}` }),
     readBase: async (path) => o.baseFiles?.[path],
     readBytes: (path) => (path.startsWith(PROOF_DIR) ? images[path.slice(PROOF_DIR.length)] : undefined),

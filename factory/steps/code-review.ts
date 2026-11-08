@@ -46,6 +46,7 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
     result = await codeReviewLoop({
       review: reviewOnce,
       fix: (feedback) => fix(ctx, feedback),
+      diff: async () => (await ctx.repo.diff()).text,
     }, max, start);
   } catch (e) {
     if (e instanceof ReviewerFailed) return block(ctx, `The reviewer run failed: ${e.message.slice(0, 2000)}`);
