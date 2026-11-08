@@ -4,7 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 // What a call needs of a choice. Not seams.ts's ModelChoice (which any choice fits): importing that pulls every harness adapter into the dashboard's type check.
 export interface ModelChoice { provider: { name: string; api: string; baseUrl?: string; keyEnv: string }; model: string }
 
-// A 5xx or a lost connection is the provider's passing trouble: up to RETRIES more tries, waiting retryMs, 2x, 3x between them.
+// A 5xx, a lost connection or a timeout is the provider's passing trouble: up to RETRIES more tries, waiting retryMs, 2x, 3x between them.
 const RETRIES = 3;
 
 // The key and the base address of a choice, or an error. Apart from callModel so that the judge can fail when it is built.
@@ -21,13 +21,15 @@ export async function callModel(
   env: NodeJS.ProcessEnv,
   system: string,
   messages: { role: "user" | "assistant"; content: string }[],
-  { fetchFn = fetch, retryMs = 2000, maxTokens }: { fetchFn?: typeof fetch; retryMs?: number; maxTokens?: number } = {},
+  { fetchFn = fetch, retryMs = 2000, maxTokens, timeoutMs = 60_000 }: { fetchFn?: typeof fetch; retryMs?: number; maxTokens?: number; timeoutMs?: number } = {},
 ): Promise<string> {
   const { key, base } = checkModel(choice, env);
   const { provider, model } = choice;
   const openai = provider.api === "openai";
   const call = () => fetchFn(openai ? `${base}/chat/completions` : `${base}/v1/messages`, {
     method: "POST",
+    // Each try ends after timeoutMs, so a provider that never answers cannot leave the dashboard chat waiting forever.
+    signal: AbortSignal.timeout(timeoutMs),
     headers: openai ? { Authorization: `Bearer ${key}`, "Content-Type": "application/json" } : { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify(
       openai

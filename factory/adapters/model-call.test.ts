@@ -42,6 +42,16 @@ test("a 5xx is tried again 3 more times, then throws with the status and no body
   expect(bad.calls).toHaveLength(1);
 });
 
+test("a provider that never answers times out, counts as a failed try, and throws after the last", async () => {
+  let calls = 0;
+  const hang = ((_url: string, init: RequestInit) => {
+    calls++;
+    return new Promise((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)));
+  }) as typeof fetch;
+  await expect(callModel(openai, env, "S", msgs, { fetchFn: hang, retryMs: 0, timeoutMs: 20 })).rejects.toThrow(/timeout|aborted/i);
+  expect(calls).toBe(4);
+});
+
 test("a missing key or baseUrl throws", async () => {
   await expect(callModel(openai, {}, "S", msgs)).rejects.toThrow("T_KEY is not set");
   await expect(callModel({ ...openai, provider: { ...openai.provider, baseUrl: undefined } }, env, "S", msgs)).rejects.toThrow(/baseUrl/);
