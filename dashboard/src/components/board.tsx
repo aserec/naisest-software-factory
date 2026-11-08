@@ -57,7 +57,7 @@ export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }
 const WAITING: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked"];
 const SIDES: [string, FactoryState[]][] = [
   ["Waiting on you", WAITING],
-  ["With the factory", ["running", "waiting", "info_answered", "ready"]],
+  ["With the factory", ["running", "waiting", "ready"]],
 ];
 // Finished tab: done, and work items a person closed in the tracker before they were done.
 const finished = (i: BoardItem) => i.state === "done" || !!i.closed;

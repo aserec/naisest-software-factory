@@ -10,8 +10,7 @@ import { ACTIVE_STATES, activeRuns, MAX_RUNS_PER_REPO, mayStart, readyActor } fr
 import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests, restartDeadRuns, resumeRelayed, resumeSwitchedOff } from "./poller";
 import type { CiRunner } from "../seams";
 
-// Answered tickets first: they waited for a person already.
-const startable = async (ctx: StepContext) => [...(await ctx.tracker.list("info_answered")), ...(await ctx.tracker.list("ready"))];
+const startable = (ctx: StepContext) => ctx.tracker.list("ready");
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
@@ -33,7 +32,7 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
     // One failed ticket must not stop the poller: it is logged and tried again next minute.
     try {
       // The event step would refuse an untrusted person's start. Skip it here, or it takes a free slot every minute.
-      const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "", t.state);
+      const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
       if (!(await mayStart(ctx, actor, t))) continue;
       const blockers = await ctx.tracker.openBlockers(t.ref);
       if (blockers.length) { console.error(`Ticket ${t.ref} waits: blocked by ${blockers.join(", ")}, still open`); continue; }

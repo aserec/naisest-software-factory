@@ -4,7 +4,6 @@ import type { FactoryState } from "@/server/seams";
 export const STATE: Record<FactoryState, string> = {
   needs_approval: "Needs approval",
   needs_info: "Needs info",
-  info_answered: "Info answered",
   stopped: "Stopped",
   blocked: "Blocked",
   running: "Running",

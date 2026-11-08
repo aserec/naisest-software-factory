@@ -66,7 +66,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     return "stop";
   }
   const t = await ctx.tracker.ticket(e.ticket);
-  const ready = await readyActor(ctx, e.ticket, e.actor, t.state);
+  const ready = await readyActor(ctx, e.ticket, e.actor);
   e = { ...e, actor: ready.actor };
   const decision = decideStart(e, {
     actorTrusted: await mayStart(ctx, e.actor, t),

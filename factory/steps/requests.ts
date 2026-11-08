@@ -19,8 +19,8 @@ export async function conflictsDue(ctx: StepContext, ref: TicketRef): Promise<Ch
   return change;
 }
 
-// needs_approval: start a round, for requests or else for conflicts with the base branch. blocked: ready again, as if the newest author added factory_ready.
-// needs_info: info_answered, which the poller starts like ready, with the newest author as the person who started it.
+// needs_approval: start a round, for requests or else for conflicts with the base branch. blocked and needs_info: ready again, as if the newest author added factory_ready.
+// A needs_info ready starts a new run at triage, which reads the answer.
 // running: nothing, the inbox has it. Any other state: one reply on the work item.
 export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"started" | "replied" | "none"> {
   if (t.state === "running") return "none";
@@ -55,8 +55,9 @@ export async function answerRequests(ctx: StepContext, t: Ticket): Promise<"star
     }
     const answered = t.state === "needs_info";
     const text = answered ? `The factory read the answer of @${last.author} and takes the work item up again at triage.` : `The factory starts again for the request of @${last.author}.`;
-    await conv.write(t.ref, { kind: "readyFor", text: md("▶️", answered ? "Info answered" : "Starting again", text), person: last.author, cursor: last.at });
-    await ctx.tracker.setState(t.ref, answered ? "info_answered" : "ready");
+    // State first: a failed state change leaves the cursor before this request, so the next poll tries again.
+    await ctx.tracker.setState(t.ref, "ready");
+    await conv.write(t.ref, { kind: "readyFor", text: md("▶️", answered ? "Answer read" : "Starting again", text), person: last.author, cursor: last.at });
     return "started";
   }
   const authors = [...new Set(requests.map((r) => r.author))];
@@ -156,7 +157,7 @@ export async function replyOnChanges(ctx: StepContext, skip: TicketRef[] = []): 
       const requests = await conv.unanswered(ref, ticket, since);
       if (requests.length === 0) continue;
       const t = await ctx.tracker.ticket(ticket);
-      if (t.state && [...ACTIVE_STATES, "blocked", "needs_info", "info_answered"].includes(t.state)) continue;
+      if (t.state && [...ACTIVE_STATES, "blocked", "needs_info"].includes(t.state)) continue;
       const newest = requests.reduce<string | undefined>((a, x) => later(a, x.at), undefined)!;
       const authors = [...new Set(requests.map((x) => x.author))];
       await conv.writeOnChange(ref, { kind: "cursor", text: md("💬", "Request not taken up", ...authors.map((a) => stateReply(a, t.state))), at: newest });
