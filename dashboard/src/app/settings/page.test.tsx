@@ -44,3 +44,36 @@ test("the Factory tab lists the rules every target must meet to merge alone", as
   fireEvent.mouseDown(await screen.findByRole("tab", { name: "Factory" }));
   expect(screen.getByRole("tabpanel", { name: "Factory" }).textContent).toContain("Every hard rule passes");
 });
+
+test("the auto-merge toggle changes the target's auto_merge switch only on Save", async () => {
+  const sw = { "*": { auto_merge: true }, api: { auto_merge: true } };
+  const f = vi.fn(async (url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response(null, { status: 204 }) : url === "/api/switches" ? json(sw) : json({ api: { thresholds: {} } })));
+  vi.stubGlobal("fetch", f);
+  renderWithQuery(<SettingsPage />);
+  const api = await screen.findByRole("tabpanel", { name: "api" });
+  const toggle = within(api).getByRole("switch", { name: "Auto-merge" });
+  await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
+  fireEvent.click(toggle);
+  expect(f).not.toHaveBeenCalledWith("/api/switches", expect.objectContaining({ method: "PUT" }));
+  fireEvent.click(within(api).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/switches", expect.objectContaining({ method: "PUT", body: JSON.stringify({ scope: "api", name: "auto_merge", on: false }) })));
+});
+
+test("Save leaves the auto_merge switch alone when the toggle did not change", async () => {
+  const f = vi.fn(async (url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response(null, { status: 204 }) : url === "/api/switches" ? json({ "*": { auto_merge: true }, api: { auto_merge: true } }) : json({ api: { thresholds: {} } })));
+  vi.stubGlobal("fetch", f);
+  renderWithQuery(<SettingsPage />);
+  const api = await screen.findByRole("tabpanel", { name: "api" });
+  await waitFor(() => expect(within(api).getByRole("switch", { name: "Auto-merge" }).getAttribute("aria-checked")).toBe("true"));
+  fireEvent.click(within(api).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT" })));
+  expect(f).not.toHaveBeenCalledWith("/api/switches", expect.objectContaining({ method: "PUT" }));
+});
+
+test("the auto-merge toggle is locked when the all-targets switch is off", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => (url === "/api/switches" ? json({ "*": { auto_merge: false }, api: { auto_merge: false } }) : json({ api: { thresholds: {} } }))));
+  renderWithQuery(<SettingsPage />);
+  const api = await screen.findByRole("tabpanel", { name: "api" });
+  expect(await within(api).findByText("Off for all targets on the Switches page.")).toBeTruthy();
+  expect(within(api).getByRole("switch", { name: "Auto-merge" }).hasAttribute("disabled")).toBe(true);
+});

@@ -2,10 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { TargetSettings } from "software-factory/run-events";
+import type { SwitchName, TargetSettings } from "software-factory/run-events";
 import { DEFAULT_THRESHOLDS, THRESHOLD_RULES, TRIAGE_RISKS, type Thresholds } from "software-factory/thresholds";
 import { LoadError, PageTitle, SectionHeading } from "@/components/shell";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/utils";
@@ -35,13 +36,33 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
   const client = useQueryClient();
   const [values, setValues] = useState<Thresholds>({ ...DEFAULT_THRESHOLDS, ...(saved.thresholds as Partial<Thresholds>) });
   const [factoryFile, setFactoryFile] = useState(saved.factoryFile ?? "");
+  // Auto-merge is the target's auto_merge switch, the same value as its cell on the Switches page.
+  const switches = useQuery({
+    queryKey: ["switches"],
+    queryFn: async () => {
+      const r = await api("/api/switches");
+      if (!r.ok) throw new Error(`The switches answered ${r.status}`);
+      return (await r.json()) as Record<string, Record<SwitchName, boolean>>;
+    },
+  });
+  const allOff = switches.data?.["*"]?.auto_merge === false;
+  const savedAutoMerge = switches.data?.[target]?.auto_merge;
+  const [autoMergeEdit, setAutoMerge] = useState<boolean>();
+  const autoMerge = autoMergeEdit ?? savedAutoMerge;
   const save = useMutation({
     mutationFn: async () => {
       const r = await api("/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, thresholds: changed(values), factoryFile }) });
       // 400 and 403 carry the server's sentence: which value is wrong, or which role is missing.
       if (!r.ok) throw new Error(`Could not save the settings for ${target}. ${r.status === 400 || r.status === 403 ? await r.text() : "Try again."}`);
+      if (autoMerge === undefined || autoMerge === savedAutoMerge) return;
+      const s = await api("/api/switches", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: target, name: "auto_merge", on: autoMerge }) });
+      if (!s.ok) throw new Error(`Saved the limits, but could not turn auto-merge ${autoMerge ? "on" : "off"} for ${target}. ${s.status === 403 ? await s.text() : "Try again."}`);
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: ["switches"] });
+      setAutoMerge(undefined);
+      await client.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
   const id = (k: string) => `${target}-${k}`;
   return (
@@ -52,6 +73,16 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
         save.mutate();
       }}
     >
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-3">
+          <label htmlFor={id("auto_merge")} className="font-medium">
+            Auto-merge
+          </label>
+          <Switch id={id("auto_merge")} checked={!!autoMerge} disabled={autoMerge === undefined || allOff} onCheckedChange={setAutoMerge} />
+        </div>
+        <p className="text-muted-foreground">{allOff ? "Off for all targets on the Switches page." : autoMerge === false ? "Every change waits for a person to approve it." : "Low-risk changes whose checks pass merge without a person, within the limits below."}</p>
+        {switches.error && <LoadError what="the auto-merge switch" query={switches} />}
+      </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={id("autoMergeTriageMax")} className="font-medium">
           Highest triage risk that merges alone
