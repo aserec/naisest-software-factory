@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ControlState, Dashboard, RunEvent, Dispatch } from "../seams";
+import type { AgentPlan, ControlState, Dashboard, RunEvent, Dispatch } from "../seams";
 
 const FLUSH_EVERY_MS = 1000;
 const SEND_AT = 100; // events waiting that start a send at once
@@ -119,6 +119,17 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
       const res = await call(`/api/factory/dispatches?${new URLSearchParams({ target })}`);
       if (!res.ok) throw new Error(`dashboard dispatches: HTTP ${res.status}`);
       return (await res.json()) as Dispatch[];
+    },
+    async plans() {
+      const res = await call("/api/factory/plans");
+      if (!res.ok) throw new Error(`dashboard plans: HTTP ${res.status}`);
+      return (await res.json()) as AgentPlan[];
+    },
+    async planUpdate(id, state, result) {
+      const res = await call(`/api/factory/plans/${encodeURIComponent(id)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ state, result }) });
+      if (res.status === 409) return false;
+      if (!res.ok) throw new Error(`dashboard planUpdate: HTTP ${res.status}`);
+      return true;
     },
     async history(target, since, types) {
       const q = new URLSearchParams({ target, since });

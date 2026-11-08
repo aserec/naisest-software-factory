@@ -4,7 +4,7 @@ import { HttpError } from "./errors";
 import { findSecrets } from "./rules";
 import { SWITCHES, type EventType } from "./run-events";
 import { changeBranchPrefix, ticketOfBranch, NotFactoryRunError } from "./seams";
-import type { Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, Dispatch, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
+import type { AgentPlan, Change, ChangeRef, Checks, Chat, CiRunner, CodeHost, Comment, ControlState, Dashboard, Dispatch, FactoryEvent, FactoryState, Harness, HarnessJob, HarnessResult, Judge, JevAnswer, JevQuestion, LogSource, ErrorGroup, Mark, Notice, PersonRef, Repo, RunEvent, RunVars, Ticket, TicketDraft, TicketRef, Tracker, ToolCall } from "./seams";
 
 export const FAKE_FACTORY: PersonRef = "factory-bot";
 
@@ -277,12 +277,21 @@ export function fakeChat(): Chat & { sent: { kind: Notice; title: string; lines:
 
 // A Dashboard for tests. It keeps every event and every finished request. While `down` is true it
 // drops events and `control` and `requestDone` throw, as the real one does when it cannot be reached.
-export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispatch[] = []): Dashboard & { events: RunEvent[]; done: [string, string][]; down: boolean; pending: Dispatch[] } {
+export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispatch[] = []): Dashboard & { events: RunEvent[]; done: [string, string][]; down: boolean; pending: Dispatch[]; agentPlans: AgentPlan[] } {
   const dash = {
     events: [] as RunEvent[],
     done: [] as [string, string][],
     down: false,
     pending,
+    agentPlans: [] as AgentPlan[],
+    plans: async () => dash.agentPlans.filter((p) => p.state === "approved"),
+    // As the dashboard does: a claim works only from approved, so a second worker gets false.
+    planUpdate: async (id: string, state: "running" | "done" | "failed", result?: string) => {
+      const p = dash.agentPlans.find((q) => q.id === id);
+      if (!p || (state === "running" ? p.state !== "approved" : p.state !== "running")) return false;
+      Object.assign(p, { state, result });
+      return true;
+    },
     dispatches: async (target: string) => dash.pending.filter((s) => s.target === target),
     dispatchDone: async (id: string) => void (dash.pending = dash.pending.filter((s) => s.id !== id)),
     history: async (target: string, since: string, types: EventType[]) => {

@@ -25,5 +25,13 @@ export function dashboardContract(make: () => { dashboard: Dashboard; read?(run:
     test("requestDone of an unknown id does not throw", async () => {
       await expect(make().dashboard.requestDone(randomUUID(), "done")).resolves.toBeUndefined();
     });
+
+    test("plans gives an array", async () => {
+      expect(Array.isArray(await make().dashboard.plans())).toBe(true);
+    });
+
+    test("planUpdate of an unknown id gives false", async () => {
+      expect(await make().dashboard.planUpdate(randomUUID(), "running")).toBe(false);
+    });
   });
 }

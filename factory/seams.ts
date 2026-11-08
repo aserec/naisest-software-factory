@@ -1,7 +1,7 @@
 // The factory's outside tools, in factory words. Steps use these types and never a tool's own words.
 import type { HarnessName } from "./harnesses";
 import type { RunRecord } from "./record";
-import type { ControlState, EventType, FactoryState, RunEvent, Dispatch, UsageLimits } from "./run-events";
+import type { AgentPlan, ControlState, EventType, FactoryState, RunEvent, Dispatch, UsageLimits } from "./run-events";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -152,7 +152,7 @@ export interface ErrorGroup { fingerprint: string; message: string; component?: 
 export interface LogSource { errors(since: Date): Promise<ErrorGroup[]> }
 
 // The factory's run dashboard. The factory sends events and reads the switches and requests a person set there.
-export type { RunEvent, ControlState, Dispatch, SwitchName } from "./run-events";
+export type { RunEvent, ControlState, Dispatch, SwitchName, AgentPlan, PlanState } from "./run-events";
 export interface Dashboard {
   send(e: RunEvent): void; // never throws, never waits
   flush(): Promise<void>; // at most 5 s
@@ -160,5 +160,7 @@ export interface Dashboard {
   requestDone(id: string, outcome: "done" | "refused" | "cancelled"): Promise<void>;
   dispatches(target: string): Promise<Dispatch[]>; // pending dispatches from outside systems, oldest first
   dispatchDone(id: string, workItem?: string): Promise<void>; // workItem: the url of the ticket it opened
+  plans(): Promise<AgentPlan[]>; // approved plans no worker has claimed yet, oldest first
+  planUpdate(id: string, state: "running" | "done" | "failed", result?: string): Promise<boolean>; // false when the dashboard refused the move, such as a second claim
   history(target: string, since: string, types: EventType[]): Promise<RunEvent[]>; // past events of the target at or after `since`, oldest first, at most HISTORY_LIMIT; throws when the dashboard cannot be reached or answers with an error
 }

@@ -148,6 +148,18 @@ export interface ControlRequest {
   doneAt?: string;
 }
 
+// A plan the dashboard agent proposed. A person approves it on the dashboard; the fix worker then runs it.
+export type PlanState = "proposed" | "approved" | "running" | "done" | "failed";
+export interface AgentPlan { id: string; path: string; repo: "factory" | "target"; target?: string; summary: string; steps: string[]; state: PlanState; user: string; at: string; approvedBy?: string; result?: string }
+export const planProposal = z
+  .object({
+    repo: z.enum(["factory", "target"]),
+    target: z.string().regex(/^[a-z0-9_-]+$/).optional(),
+    summary: z.string().min(1).max(500),
+    steps: z.array(z.string().min(1).max(1000)).min(1).max(20),
+  })
+  .refine((p) => p.repo === "factory" || !!p.target, "a target plan needs a target");
+
 // A dispatch: an outside system (a cron audit, a monitor, anything) tells the factory about a problem.
 // The dashboard keeps it until the dispatches job turns it into a ticket. Same source and key = same problem.
 export const dispatchInput = z.object({

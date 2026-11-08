@@ -173,3 +173,22 @@ test("events a failing dashboard did not take at flush are sent by the next adap
   await makeHttpDashboard("https://d.example", "tok", up, spool).flush();
   expect(delivered).toEqual([]);
 });
+
+test("plans GETs the factory plans path, and planUpdate POSTs the state and result: false on 409, true on 200, a throw on other errors", async () => {
+  const seen: { url: string; method?: string; auth: string; body?: string }[] = [];
+  let status = 200;
+  const fetchFn = (async (url: string, init?: RequestInit) => {
+    seen.push({ url, method: init?.method, auth: (init?.headers as Record<string, string>).authorization, body: init?.body as string | undefined });
+    return new Response("[]", { status });
+  }) as unknown as typeof fetch;
+  const dash = makeHttpDashboard("https://d.example", "tok", fetchFn);
+  expect(await dash.plans()).toEqual([]);
+  expect(await dash.planUpdate("a/b", "done", "PR 1")).toBe(true);
+  status = 409;
+  expect(await dash.planUpdate("a/b", "running")).toBe(false);
+  status = 500;
+  await expect(dash.planUpdate("a/b", "failed", "x")).rejects.toThrow("HTTP 500");
+  await expect(dash.plans()).rejects.toThrow("HTTP 500");
+  expect(seen[0]).toMatchObject({ method: undefined, url: "https://d.example/api/factory/plans", auth: "Bearer tok" });
+  expect(seen[1]).toMatchObject({ method: "POST", url: "https://d.example/api/factory/plans/a%2Fb", auth: "Bearer tok", body: '{"state":"done","result":"PR 1"}' });
+});
