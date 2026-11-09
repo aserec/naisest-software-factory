@@ -58,16 +58,38 @@ it("the board is cached for 15 s and a failure is not cached", async () => {
   expect(vi.mocked(f).mock.calls.length).toBe(calls);
   t += 2_000;
   await board.board();
+  await new Promise((r) => setTimeout(r, 0)); // the new read runs behind the answer
   expect(vi.mocked(f).mock.calls.length).toBe(2 * calls);
   await board.board(true); // Refresh skips the cache
   expect(vi.mocked(f).mock.calls.length).toBe(3 * calls);
 
   vi.mocked(f).mockResolvedValueOnce(new Response("no", { status: 500 }));
   t += 16_000;
-  await expect(board.board()).rejects.toThrow();
+  await expect(board.board(true)).rejects.toThrow();
   const failed = vi.mocked(f).mock.calls.length;
   await board.board();
+  await new Promise((r) => setTimeout(r, 0));
   expect(vi.mocked(f).mock.calls.length).toBe(failed + calls);
+});
+
+it("past 15 s the board answers with the last one at once and reads the new one behind it", async () => {
+  let t = 1_000_000;
+  let release = () => {};
+  const f = vi.fn(fakeFetch());
+  const board = makeBoard(f, () => new Date(t));
+  const first = await board.board();
+
+  t += 16_000;
+  const gate = new Promise<void>((r) => (release = r));
+  const real = f.getMockImplementation()!;
+  f.mockImplementation(async (...a) => (await gate, real(...a)));
+  expect(await board.board()).toBe(first); // no wait for the slow read
+  release();
+  await new Promise((r) => setTimeout(r, 0));
+
+  t += 11 * 60_000; // too old to show: the request waits for the read and sees its error
+  f.mockImplementation(async () => new Response("no", { status: 500 }));
+  await expect(board.board()).rejects.toThrow();
 });
 
 it("codeHostName gives the target's code host name", () => {

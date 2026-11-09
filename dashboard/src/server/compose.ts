@@ -8,7 +8,8 @@ import { NotSetUp } from "./not-set-up";
 import type { BoardRow, Ci, HostMetrics, Tracker } from "./seams";
 import { readTargets, type CodeHostKey, type TargetInfo, type TrackerKey } from "./targets";
 
-const CACHE_MS = 15_000;
+export const CACHE_MS = 15_000;
+const STALE_MS = 10 * 60_000;
 
 const trackers = (fetchFn: typeof fetch): Record<TrackerKey, Tracker> => {
   const github = makeGitHubTracker(fetchFn);
@@ -41,15 +42,19 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
     return (await Promise.all(lists)).flat();
   }
 
+  // The last board that loaded. A GitHub board takes seconds to read, so a request past the 15 s answers with this one
+  // while the new read runs, up to STALE_MS old; past that the request waits, so a broken tracker still shows its error.
+  let good: { at: number; rows: BoardRow[] } | undefined;
+
   return {
     // fresh skips the cache: the board's Refresh button asks for it.
     board(fresh = false) {
       if (fresh || !cached || now().getTime() - cached.at >= CACHE_MS) {
         const entry = { at: now().getTime(), rows: fetchBoard() };
         cached = entry;
-        entry.rows.catch(() => cached === entry && (cached = undefined)); // do not cache a failure
+        entry.rows.then((rows) => (good = { at: entry.at, rows }), () => cached === entry && (cached = undefined)); // do not cache a failure
       }
-      return cached.rows;
+      return !fresh && good && now().getTime() - good.at < STALE_MS ? Promise.resolve(good.rows) : cached.rows;
     },
   };
 }
