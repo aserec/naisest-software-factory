@@ -185,3 +185,53 @@ select {
   background-size: 5px 5px;
   background-repeat: no-repeat;
 }
+
+/* Thin borderless scrollbars, as on Linear and GitHub: no arrows, no track, a 6px pill inset in a 10px gutter.
+   Chrome and Safari read the ::-webkit-scrollbar rules. Firefox has no such selector and reads the standard properties. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: var(--input) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--switch-off);
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
+  }
+}
+
+/* A tab screen fills the sheet from md up: its title, filters and tab list stay put, and only its [data-scroll] part scrolls.
+   Every box from the screen's <main> down to that part carries data-fill. The negative margin puts the scrollbar at the sheet's edge. */
+@media (width >= 48rem) {
+  [data-sheet]:has([data-fill]) {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 0;
+  }
+  [data-sheet]:has([data-fill]) > *,
+  [data-fill] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  [data-scroll] {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin-inline: -1.5rem;
+    padding: 0 1.5rem 2.5rem;
+  }
+}

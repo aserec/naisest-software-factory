@@ -16,7 +16,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   if (q.target && names.includes(q.target)) redirect(`/boards/${encodeURIComponent(q.target)}`);
   if (!names.length)
     return (
-      <main>
+      <main data-fill>
         <h1 className="sr-only">Board</h1>
         <Board />
       </main>

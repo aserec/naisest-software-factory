@@ -153,10 +153,10 @@ export default function SettingsPage() {
   const targets = Object.entries(settings.data ?? {});
   const [tab, setTab] = useState<string>();
   return (
-    <main>
+    <main data-fill>
       <PageTitle title="Settings">Each target's limits for merging alone and its .factory.yml commands. The next step of a run uses a saved value.</PageTitle>
       {settings.error && <LoadError what="the settings" query={settings} className="mb-6" />}
-      <Tabs value={tab ?? targets[0]?.[0] ?? "factory"} onValueChange={setTab}>
+      <Tabs value={tab ?? targets[0]?.[0] ?? "factory"} onValueChange={setTab} data-fill>
         <TabsList>
           {targets.map(([target]) => (
             <TabsTrigger key={target} value={target} className="font-mono">
@@ -167,18 +167,20 @@ export default function SettingsPage() {
         </TabsList>
         {/* forceMount keeps unsaved edits in a hidden tab. */}
         {targets.map(([target, saved]) => (
-          <TabsContent key={target} value={target} forceMount className="data-[state=inactive]:hidden">
+          <TabsContent key={target} value={target} forceMount data-scroll className="data-[state=inactive]:hidden">
             {/* A new save remounts the form with the saved values. */}
             <TargetForm key={saved.at ?? "none"} target={target} saved={saved} />
           </TabsContent>
         ))}
-        <TabsContent value="factory" className="max-w-2xl">
+        <TabsContent value="factory" data-scroll>
+          <div className="max-w-2xl">
           <SectionHeading>Always required to merge alone</SectionHeading>
           <ul className="list-disc pl-5 text-muted-foreground">
             {FIXED.map((f) => (
               <li key={f}>{f}</li>
             ))}
           </ul>
+          </div>
         </TabsContent>
       </Tabs>
     </main>

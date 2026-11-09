@@ -93,3 +93,37 @@ test("the Settings page opens from the menu with each target's form, and a refus
   await demo.getByRole("button", { name: "Save" }).click();
   await expect(demo.getByRole("alert")).toContainText("Could not save the settings for demo. This sign-in is off.");
 });
+
+test("from md up only the sheet scrolls: the nav and the top bar stay put", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
+  await page.setViewportSize({ width: 1280, height: 400 });
+  await page.goto("/insights");
+  const sheet = page.locator("aside ~ div").first();
+  await expect.poll(() => sheet.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true);
+  await sheet.evaluate((e) => (e.scrollTop = 300));
+  expect(await sheet.evaluate((e) => e.scrollTop)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBeLessThanOrEqual(400);
+  expect((await page.getByRole("navigation", { name: "Main" }).boundingBox())!.y).toBeLessThan(100);
+  // The run page's step rows hold absolute sr-only text and bars; they must not make the window scroll.
+  await page.goto(`/runs/${RUN}`);
+  await expect(page.getByRole("button", { name: /Implement/ })).toBeVisible();
+  expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBeLessThanOrEqual(400);
+  expect(await page.evaluate(() => document.scrollingElement!.scrollWidth)).toBeLessThanOrEqual(1280);
+});
+
+test("on a tab screen only the tab content scrolls: the title and the tab list stay put", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
+  await page.setViewportSize({ width: 1280, height: 400 });
+  for (const url of ["/boards/demo", "/settings"]) {
+    await page.goto(url);
+    const tabs = page.getByRole("tablist");
+    const body = page.locator("[data-scroll]:visible");
+    await expect.poll(() => body.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true);
+    const y = (await tabs.boundingBox())!.y;
+    await body.evaluate((e) => (e.scrollTop = 300));
+    expect(await body.evaluate((e) => e.scrollTop)).toBeGreaterThan(0);
+    expect(await page.locator("[data-sheet]").evaluate((e) => e.scrollTop)).toBe(0);
+    expect((await tabs.boundingBox())!.y).toBeCloseTo(y, -1); // within 5px: the 6px entrance slide may still run
+    await page.screenshot({ path: `${process.env.SHOTS ?? "test-results"}/${url.split("/").pop()}.png` });
+  }
+});

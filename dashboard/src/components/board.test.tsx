@@ -234,29 +234,24 @@ test("a live step shows its time against the stuck limit, red once over, and not
   expect(screen.queryAllByText(/ of \d+ m$/)).toHaveLength(2);
 });
 
-test("the search and target chips filter the cards, live in the URL, and leave the finding counting everything", async () => {
-  window.history.replaceState(null, "", "/?target=api");
-  const items = [item({ ticket: "12", title: "Fix login", state: "needs_approval" }), item({ ticket: "30", title: "Add docs", target: "api", state: "needs_approval" })];
+test("a target's board shows only its cards, and the search filters them and lives in the URL", async () => {
+  window.history.replaceState(null, "", "/boards/api");
+  const items = [
+    item({ ticket: "12", title: "Fix login", state: "needs_approval" }),
+    item({ ticket: "30", title: "Add docs", target: "api", state: "needs_approval" }),
+    item({ ticket: "31", title: "Add tests", target: "api", state: "needs_approval" }),
+  ];
   vi.stubGlobal("fetch", vi.fn(async () => json(items)));
-  renderWithQuery(<Board />);
+  renderWithQuery(<Board target="api" />);
   expect(await screen.findByText("Add docs")).toBeTruthy();
-  expect(screen.queryByText("Fix login")).toBeNull(); // the target from the URL
-  expect(screen.getByRole("button", { name: "api", pressed: true })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "api" }));
-  expect(window.location.search).toBe("");
-  fireEvent.change(screen.getByRole("searchbox", { name: "Search work items" }), { target: { value: "#12" } });
-  expect(window.location.search).toBe("?q=%2312");
-  expect(screen.getByText("Fix login")).toBeTruthy();
+  expect(screen.queryByText("Fix login")).toBeNull();
+  expect(screen.queryByRole("button", { name: "api" })).toBeNull();
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search work items" }), { target: { value: "#31" } });
+  expect(window.location.search).toBe("?q=%2331");
+  expect(screen.getByText("Add tests")).toBeTruthy();
   expect(screen.queryByText("Add docs")).toBeNull();
-  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nothing like it" } });
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "#12" } });
   expect(screen.getByText("No work item matches the filter.")).toBeTruthy();
-});
-
-test("one target shows no chips", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json([item({}), item({ ticket: "8" })])));
-  renderWithQuery(<Board />);
-  await screen.findByRole("searchbox");
-  expect(screen.queryByRole("button", { name: "demo" })).toBeNull();
 });
 
 test("the tab title counts what waits for you, stuck runs too, and reads Factory at zero", async () => {

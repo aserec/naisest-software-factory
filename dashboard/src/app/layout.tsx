@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { Shell } from "@/components/shell";
+import { readTargets } from "@/server/targets";
 import { signOutAction } from "./sign-out";
 import "./globals.css";
 
@@ -15,6 +16,15 @@ const themeScript = `try{var t=localStorage.getItem("theme");if(t==="light"||t==
 const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-plex-sans" });
 const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-plex-mono" });
 
+// The target names for the nav's boards. A missing or broken targets dir leaves the single all-targets board.
+function boardNames() {
+  try {
+    return readTargets().map((t) => t.name);
+  } catch {
+    return [];
+  }
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
@@ -23,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <Providers>
-          <Shell signOut={signOutAction}>{children}</Shell>
+          <Shell signOut={signOutAction} boards={boardNames()}>{children}</Shell>
         </Providers>
       </body>
     </html>

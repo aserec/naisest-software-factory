@@ -343,6 +343,7 @@ export function Board({ target = "" }: { target?: string }) {
           </TabsList>
         </Tabs>
       )}
+      <div data-scroll>
       {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">No work item matches the filter.</p>}
       {!error && !data && (
         <div aria-busy="true" className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
@@ -398,6 +399,7 @@ export function Board({ target = "" }: { target?: string }) {
         </div>
         </LayoutGroup>
       )}
+      </div>
     </>
   );
 }
