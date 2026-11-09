@@ -11,6 +11,23 @@ const client = (responses: Response[]) => {
 const wentWrong = Response.json({ errors: [{ message: "Something went wrong while executing your query on 2026-11-05T16:14:46Z." }] });
 const ok = Response.json({ data: { viewer: { login: "bot" } } });
 
+test("a rate-limited call of any method waits for the reset and goes again; a 403 that is no rate limit fails at once", async () => {
+  const waits: number[] = [];
+  const limited = () => new Response("{}", { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 60) } });
+  const responses = [limited(), new Response(null, { status: 204 })];
+  let n = 0;
+  const gh = new GitHub("tok", (async () => responses[n++]) as unknown as typeof fetch, async (ms) => void waits.push(ms));
+  await gh.call("DELETE", "/repos/o/r/issues/1/labels/x");
+  expect(n).toBe(2);
+  expect(waits[0]).toBeGreaterThan(55_000);
+  const denied = client([new Response("{}", { status: 403 })]);
+  await expect(denied.gh.call("DELETE", "/repos/o/r/issues/1/labels/x")).rejects.toThrow("status 403");
+  expect(denied.calls()).toBe(1);
+  const always = client(Array(4).fill(new Response("{}", { status: 429, headers: { "retry-after": "1" } })));
+  await expect(always.gh.call("POST", "/repos/o/r/issues")).rejects.toThrow("status 429");
+  expect(always.calls()).toBe(3);
+});
+
 test("graphql tries GitHub's 'Something went wrong' error again and returns the data", async () => {
   const { gh, calls } = client([wentWrong, wentWrong, ok]);
   expect(await gh.graphql("{ viewer { login } }", {})).toEqual({ viewer: { login: "bot" } });

@@ -10,6 +10,18 @@ export const GITHUB_API = "https://api.github.com";
 const NOT_SENT = ["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "UND_ERR_CONNECT_TIMEOUT"];
 const notSent = (e: unknown) => e instanceof TypeError && NOT_SENT.includes((e.cause as { code?: string } | undefined)?.code ?? "");
 const GQL_TRIES = 5;
+const LIMIT_TRIES = 3;
+const MAX_LIMIT_WAIT = 15 * 60_000;
+// How long to wait out a rate limit, or undefined for a response that is no rate limit. GitHub refuses a rate-limited
+// request without doing it, so any method can go again: ticket 116 lost a passed gate to a 403 on a label delete.
+// Secondary limits send retry-after; a spent budget sends remaining 0 and the reset time.
+export function rateLimitWait(res: Response, now = Date.now()): number | undefined {
+  if (res.status !== 403 && res.status !== 429) return undefined;
+  const after = res.headers.get("retry-after");
+  if (after) return Number(after) * 1000;
+  if (res.headers.get("x-ratelimit-remaining") !== "0") return undefined;
+  return Math.max(0, Number(res.headers.get("x-ratelimit-reset")) * 1000 - now) + 1000;
+}
 const NET_TRIES = 8; // waits 5, 10, ... 35 s between tries: 140 s in all, plus each connect timeout
 
 export class GitHub {
@@ -17,7 +29,7 @@ export class GitHub {
 
   // once: GraphQL does its own retries, so a 502 is not tried 3 × 3 times.
   async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, once = false): Promise<Response> {
-    for (let attempt = 1, net = 1; ; attempt++) {
+    for (let attempt = 1, net = 1, limited = 1; ; attempt++) {
       let res: Response;
       try {
         res = await this.fetchFn(`${GITHUB_API}${path}`, {
@@ -33,6 +45,13 @@ export class GitHub {
         continue;
       }
       if (res.ok) return res;
+      const limit = rateLimitWait(res);
+      if (limit !== undefined && limit <= MAX_LIMIT_WAIT && limited++ < LIMIT_TRIES) {
+        console.error(`GitHub rate limit on ${method} ${path.split("?")[0]}: trying again in ${Math.ceil(limit / 1000)} s`);
+        await this.sleep(limit);
+        attempt--;
+        continue;
+      }
       if (method !== "GET" || once || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) throw new HttpError(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}`, res.status);
       await this.sleep(1000 * attempt);
     }
