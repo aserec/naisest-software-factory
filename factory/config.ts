@@ -63,6 +63,7 @@ const targetSchema = z.object({
   sharedAccount: z.boolean().optional(),
   teamsRelay: z.string().min(1).optional(), // the relay bot's tracker username; its comments count only with a person's 👍 (relay.ts)
   stuckMinutes: z.record(z.number().positive()).optional(),
+  testEnv: z.record(z.string()).optional(), // see testEnv in sandbox.ts
   language: z.string().min(1).optional(), // the language of what the agents write for people; no key: the prompts' English
 });
 

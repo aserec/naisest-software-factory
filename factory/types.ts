@@ -30,6 +30,7 @@ export interface Target {
   sharedAccount?: boolean; // github trackers: the token's account is also a person's, whose Ready counts
   teamsRelay?: string; // the Teams relay bot's tracker username (relay.ts)
   stuckMinutes?: Record<string, number>; // the dashboard reads it; the factory only accepts it
+  testEnv?: Record<string, string>; // variables for the gate's and the author's commands; {ticket} is the ticket (sandbox.ts)
   language?: string; // the agents write ticket comments, commit messages and pull requests in it, for example Spanish
 }
 export interface FactoryCommands { install: string; lint: string; test: string; build: string; smoke?: string; preview?: string; previewUrl?: string; login?: string; author?: string[] }

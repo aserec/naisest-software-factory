@@ -3,12 +3,23 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadTarget } from "./config";
 import { HARNESS_HOMES, type Harness } from "./seams";
 
 // Absolute paths in the factory checkout. Never relative to the agent cwd, which is the target clone.
 export const SANDBOX_RULES_PATH = fileURLToPath(new URL("./sandbox-rules.json", import.meta.url));
 const RULES = JSON.parse(readFileSync(SANDBOX_RULES_PATH, "utf8"));
 export const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+
+// The target's testEnv for the commands the gate and the author run, with {ticket} replaced by the ticket.
+// Local runs share the Mac's services: ticket 123's tests got the Postgres test database that ticket 116's branch had
+// migrated, and every database test failed on an unknown alembic revision. A database per ticket keeps branches apart.
+// ponytail: the per-ticket databases stay on the Mac; drop them by hand if they pile up.
+export function testEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  if (!env.FACTORY_TARGET) return {};
+  const vars = loadTarget(env.FACTORY_TARGET).testEnv ?? {};
+  return Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, v.replaceAll("{ticket}", env.FACTORY_WORK_ITEM_IID || "none")]));
+}
 
 // A local run's Corepack cache: the Mac's own, read-only. Every sandbox gets a throwaway HOME, and Corepack cannot download
 // a pnpm binary through the sandbox's proxy ("fetch failed"), so a target with packageManager pnpm@N failed its install (ticket 457).

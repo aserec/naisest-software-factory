@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFile
 import { tmpdir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SANDBOX_RULES_PATH, localCorepackHome, sandboxDenyRead } from "./sandbox";
+import { SANDBOX_RULES_PATH, localCorepackHome, sandboxDenyRead, testEnv } from "./sandbox";
 import { SRT } from "./srt";
 import { withBrowserServer } from "./browser-server";
 import type { Repo } from "./seams";
@@ -64,7 +64,7 @@ async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
     const script = store ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
     // The target's Playwright tests reach a browser outside the sandbox (see browser-server.ts).
     const corepack = localCorepackHome(env);
-    return await withBrowserServer(dir, env, (browser) => sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }), ...(corepack && { COREPACK_HOME: corepack }), ...browser }));
+    return await withBrowserServer(dir, env, (browser) => sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { ...testEnv(env), PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }), ...(corepack && { COREPACK_HOME: corepack }), ...browser }));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

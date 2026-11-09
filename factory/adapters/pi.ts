@@ -6,6 +6,7 @@ import { HOOKS_DIR, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
 import { SRT } from "../srt";
 import { sandboxSettings, shellQuote } from "../repo";
+import { testEnv } from "../sandbox";
 import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type ModelChoice, type Provider, type ToolCall } from "../seams";
 
@@ -27,7 +28,7 @@ export const piArgs = (provider: string, model: string, prompt: string, files: s
 
 // Nothing secret except the provider key, which Pi reads through models.json. No Claude token, no GitLab token.
 export function piEnv(env: NodeJS.ProcessEnv, provider: Provider, dir: string): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = { PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv], pnpm_config_store_dir: env.FACTORY_PNPM_STORE, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH };
+  const out: NodeJS.ProcessEnv = { ...testEnv(env), PATH: env.PATH, HOME: dir, PI_CODING_AGENT_DIR: dir, PI_SKIP_VERSION_CHECK: "1", PI_TELEMETRY: "0", [provider.keyEnv]: env[provider.keyEnv], pnpm_config_store_dir: env.FACTORY_PNPM_STORE, PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH };
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
 }
 

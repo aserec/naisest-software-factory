@@ -4,7 +4,7 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HOOKS_DIR, TSX_IMPORT, guardReady, runCommand } from "../agents";
 import { pumpInbox } from "../inbox";
-import { SANDBOX_RULES_PATH, localCorepackHome, rootReads, sandboxDenyRead } from "../sandbox";
+import { SANDBOX_RULES_PATH, localCorepackHome, rootReads, sandboxDenyRead, testEnv } from "../sandbox";
 import { MAC_LOOKUPS, shellQuote } from "../repo";
 import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
@@ -111,7 +111,7 @@ export const codeEnv = (job: Pick<HarnessJob, "tools">, cwd: string, env: NodeJS
   if (job.tools !== "code") return {};
   const corepack = localCorepackHome(env);
   const store = env.FACTORY_PNPM_STORE; // local runs: the gate's shared pnpm store (see sandboxed in repo.ts)
-  return { npm_config_cache: join(cwd, "run", "npm-cache"), UV_CACHE_DIR: join(cwd, "run", "uv-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...(corepack && { COREPACK_HOME: corepack }), ...(store && { pnpm_config_store_dir: store }) };
+  return { ...testEnv(env), npm_config_cache: join(cwd, "run", "npm-cache"), UV_CACHE_DIR: join(cwd, "run", "uv-cache"), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...(corepack && { COREPACK_HOME: corepack }), ...(store && { pnpm_config_store_dir: store }) };
 };
 
 // Pairs each tool_use (assistant line) with its tool_result (user line) by id. Feed it the stream line by line.
