@@ -37,7 +37,7 @@ const ADAPTERS = {
     github: (token: string, target: Target) => makeGitHubTracker(new GitHub(token), needRepo(target), undefined, target.sharedAccount, target.teamsRelay),
     "github-project": (token: string, target: Target) => {
       if (!target.githubProject) throw new Error(`Target ${target.name} needs githubProject for the github-project tracker`);
-      return makeGitHubTracker(new GitHub(token), needRepo(target), target.githubProject, target.sharedAccount, target.teamsRelay);
+      return makeGitHubTracker(new GitHub(token), needRepo(target), target.githubProject, target.sharedAccount, target.teamsRelay, target.githubProjectOwner);
     },
   },
   codeHost: {

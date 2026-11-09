@@ -71,7 +71,7 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
             .map((i) => ({ target: t.name, ticket: String(i.number), title: i.title, state, url: i.html_url, updatedAt: i.updated_at, risk: triageRisk(i.labels.map((l: { name: string }) => l.name)), boardUrl: `${web()}/${repo}/issues`, closed: i.state === "closed" }))));
           return per.flat();
         }
-        const owner = repo.split("/")[0];
+        const owner = t.githubProjectOwner ?? repo.split("/")[0];
         const key = `${owner}/${t.githubProject}`;
         if (!boards.has(key)) boards.set(key, boardCards(token, owner, t.githubProject));
         return (await boards.get(key)!)

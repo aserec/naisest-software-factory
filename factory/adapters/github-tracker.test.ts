@@ -127,6 +127,13 @@ describe("board", () => {
     await expect(t().setState("8", "running")).rejects.toThrow(/no column for running/);
   });
 
+  test("a board owned by another user or org is looked up under that owner, the issue under the repo's", async () => {
+    graph = (q) => q.includes("projectV2(number") ? project : q.includes("addProjectV2ItemById") ? { addProjectV2ItemById: { item: { id: "IT" } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [] } } } };
+    await makeGitHubTracker(gh, REPO, 5, false, undefined, "board-user").setState("8", "ready");
+    expect(calls.find((c) => c.body?.query?.includes("projectV2(number"))!.body.variables).toEqual({ owner: "board-user", n: 5 });
+    expect(calls.find((c) => c.body?.query?.includes("issue(number"))!.body.variables.owner).toBe(REPO.split("/")[0]);
+  });
+
   test("a failed board lookup is tried again on the next call", async () => {
     let missing = true;
     graph = (q) => q.includes("projectV2(number") ? (missing ? { repositoryOwner: null } : project) : q.includes("addProjectV2ItemById") ? { addProjectV2ItemById: { item: { id: "IT" } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [] } } } };
