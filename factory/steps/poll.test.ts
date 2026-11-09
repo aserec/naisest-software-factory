@@ -45,6 +45,12 @@ test("poller skips a ticket while a ticket that blocks it is still open", async 
   expect(await pollReady(ctx, ["4"])).toEqual(["3"]);
   err.mockRestore();
 });
+// An epic is split into sub-tickets: those are the work, so a ready epic never takes a slot.
+test("poller skips an epic in the ready state", async () => {
+  const ctx = fakeCtx({ ready: [3, 4], running: 1 });
+  ctx.world.tracker.tickets.get("3")!.epic = true;
+  expect(await pollReady(ctx)).toEqual(["4"]);
+});
 // A non-developer's label must not take a free slot from a valid item, every minute.
 test("poller skips tickets set ready by a person who may not command the factory", async () => {
   expect(await pollReady(fakeCtx({ ready: [3, 4], running: 1, nonDeveloper: [3] }))).toEqual(["4"]);

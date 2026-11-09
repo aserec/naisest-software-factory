@@ -39,5 +39,6 @@ test("a ticket in needs approval holds no run slot: running, waiting and stopped
 test("a ticket with an open blocker does not start; the reason names it", () => {
   const e = { kind: "ready", ticket: "1", actor: "dev" } as const;
   expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 0, openBlockers: 1 })).toEqual({ start: false, reason: "blocked-by" });
+  expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 0, epic: true })).toEqual({ start: false, reason: "epic" });
   expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 0, openBlockers: 0 })).toEqual({ start: true });
 });

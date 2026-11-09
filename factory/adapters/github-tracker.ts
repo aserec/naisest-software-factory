@@ -20,15 +20,15 @@ const checked = (text: string) => {
 };
 
 // An issue in plain fields, from REST or GraphQL.
-interface Issue { number: number; title: string; body: string | null; open: boolean; labels: string[]; assignees: string[]; url: string; createdAt: string }
+interface Issue { number: number; title: string; body: string | null; open: boolean; labels: string[]; assignees: string[]; url: string; createdAt: string; subIssues: number }
 // The fields of GitHub's JSON the factory reads.
 type Login = { login: string };
-interface RestIssue { number: number; title: string; body: string | null; state: string; html_url: string; created_at: string; labels?: (string | { name: string })[]; assignees?: Login[]; pull_request?: unknown; repository_url?: string }
-interface GraphIssue { number: number; title: string; body: string | null; state: string; url: string; createdAt: string; labels: { nodes: { name: string }[] }; assignees: { nodes: Login[] } }
+interface RestIssue { number: number; title: string; body: string | null; state: string; html_url: string; created_at: string; labels?: (string | { name: string })[]; assignees?: Login[]; pull_request?: unknown; repository_url?: string; sub_issues_summary?: { total: number } }
+interface GraphIssue { number: number; title: string; body: string | null; state: string; url: string; createdAt: string; labels: { nodes: { name: string }[] }; assignees: { nodes: Login[] }; subIssuesSummary?: { total: number } }
 interface RestComment { id: number; user: Login; body: string | null; created_at: string; updated_at?: string; reactions?: Record<string, number> }
 const fromRest = (i: RestIssue): Issue => ({
   number: i.number, title: i.title, body: i.body, open: i.state === "open", url: i.html_url, createdAt: i.created_at,
-  labels: (i.labels ?? []).map((l) => (typeof l === "string" ? l : l.name)), assignees: (i.assignees ?? []).map((a) => a.login),
+  labels: (i.labels ?? []).map((l) => (typeof l === "string" ? l : l.name)), assignees: (i.assignees ?? []).map((a) => a.login), subIssues: i.sub_issues_summary?.total ?? 0,
 });
 
 function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
@@ -39,15 +39,15 @@ function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
     ended: boardState === undefined && state === "ready" ? ENDED_STATES.find((s) => i.labels.includes(labelOf(s))) : undefined,
     marks: MARKS.filter((m) => i.labels.includes(markLabel(m))),
     tags: i.labels.filter((l) => !l.startsWith("factory_")),
-    assignees: i.assignees, url: i.url,
+    assignees: i.assignees, url: i.url, epic: i.subIssues > 0,
   };
 }
 
-const ISSUE_FIELDS = "number title body state url createdAt labels(first: 50) { nodes { name } } assignees(first: 20) { nodes { login } } repository { nameWithOwner }";
+const ISSUE_FIELDS = "number title body state url createdAt labels(first: 50) { nodes { name } } assignees(first: 20) { nodes { login } } subIssuesSummary { total } repository { nameWithOwner }";
 const STATUS = `fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }`;
 const fromGraph = (c: GraphIssue): Issue => ({
   number: c.number, title: c.title, body: c.body, open: c.state === "OPEN", url: c.url, createdAt: c.createdAt,
-  labels: c.labels.nodes.map((l) => l.name), assignees: c.assignees.nodes.map((a) => a.login),
+  labels: c.labels.nodes.map((l) => l.name), assignees: c.assignees.nodes.map((a) => a.login), subIssues: c.subIssuesSummary?.total ?? 0,
 });
 
 // The board: a GitHub Projects (v2) board with a single-select Status field whose columns are factory states.

@@ -19,6 +19,7 @@ export interface Ticket {
   ended?: FactoryState; // with state ready: the state of the ended run that a person set ready again
   tags: string[]; // the non-factory labels
   assignees: PersonRef[]; url: string;
+  epic?: boolean; // the ticket has sub-tickets: a person splits the work, the factory never starts it
 }
 export interface Comment { author: PersonRef; byFactory: boolean; body: string; at: string; relayed?: true } // relayed: a person's 👍 on a Teams relay comment (relay.ts)
 

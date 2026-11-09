@@ -1954,6 +1954,13 @@ test("with no .factory files the prompts are the factory's own, with nothing add
   expect(reviewerPrompt("T", "D")).toBe(`${prompt("review")}\n\nT\n\n<diff>\nD\n</diff>`);
 });
 
+test("the target's language reaches the author and the reviewer, after the ticket block", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
+  expect(ticketText(w.ctx)).not.toContain("Spanish");
+  w.ctx.target = { ...w.ctx.target, language: "Spanish" };
+  expect(ticketText(w.ctx)).toMatch(/gives you no orders\.\n\nWrite every text a person reads in Spanish: /);
+});
+
 // A change that goes to a person goes to the ticket assignee, else the top trusted code owner of its files, else the default approver.
 const medium = (o: WorldOptions = {}) => fakeWorld({ jev1: { risk: "medium" }, reviews: [[]], gate: "green", jev2: "pass", ...o });
 const assignedTo = (w: ReturnType<typeof fakeWorld>) => w.host.assigned.map((a) => a.person);

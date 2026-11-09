@@ -65,7 +65,9 @@ export function ticketRef(ctx: StepContext): TicketRef {
 export function ticketText(ctx: StepContext): string {
   const t = ctx.record.ticket;
   if (!t) throw new Error("The run record has no triaged ticket");
-  return wrapTicket(`${t.title}\n\n${t.description}`);
+  // Every agent prompt that writes for people holds the ticket, so the target's language rides along here.
+  const language = ctx.target.language ? `\n\nWrite every text a person reads in ${ctx.target.language}: comments, questions, findings, the commit message and the pull request. Keep code, identifiers and the conventional commit type in English.` : "";
+  return wrapTicket(`${t.title}\n\n${t.description}`) + language;
 }
 
 export const modelRow = (ctx: StepContext): RouterRow => need(facts(ctx).row, "triage router row");

@@ -46,7 +46,7 @@ describe("labels", () => {
       issue({ labels: [{ name: "factory_ready" }, { name: "factory_done" }, { name: "factory_watcher" }, { name: "bug" }], assignees: [{ login: "ann" }] }),
       issue({ number: 9, pull_request: {} }),
     ];
-    expect(await t().list("ready")).toEqual([{ ref: "8", title: "T", body: "D", open: true, state: "ready", ended: "done", marks: ["watcher"], tags: ["bug"], assignees: ["ann"], url: "u8" }]);
+    expect(await t().list("ready")).toEqual([{ ref: "8", title: "T", body: "D", open: true, state: "ready", ended: "done", marks: ["watcher"], tags: ["bug"], assignees: ["ann"], url: "u8", epic: false }]);
   });
 
   test("startedBy is whoever last added factory_ready; only write access is trusted, never the bot", async () => {
@@ -157,6 +157,13 @@ describe("board", () => {
     ] } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready" } }] } } } };
     expect((await t().list("ready")).map((x) => [x.ref, x.state])).toEqual([["8", "ready"], ["9", "ready"]]);
     expect((await t().ticket("8")).state).toBe("ready");
+  });
+
+  test("an issue with sub-issues is an epic", async () => {
+    graph = (q) => q.includes("projectV2(number") ? project : { repository: { issue: { ...gqlIssue({ subIssuesSummary: { total: 3 } }), projectItems: { nodes: [] } } } };
+    expect((await t().ticket("8")).epic).toBe(true);
+    graph = (q) => q.includes("projectV2(number") ? project : { repository: { issue: { ...gqlIssue({ subIssuesSummary: { total: 0 } }), projectItems: { nodes: [] } } } };
+    expect((await t().ticket("8")).epic).toBe(false);
   });
 
   test("startedBy is who last moved the card to Ready on this board, also once the card moved on", async () => {

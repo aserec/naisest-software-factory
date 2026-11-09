@@ -10,7 +10,7 @@ import { ACTIVE_STATES, activeRuns, MAX_RUNS_PER_REPO, mayStart, readyActor } fr
 import { endClosedRuns, finishCancelledStops, finishMerged, handleReadyRequests, handleRequests, restartDeadRuns, resumeRelayed, resumeSwitchedOff } from "./poller";
 import type { CiRunner } from "../seams";
 
-const startable = (ctx: StepContext) => ctx.tracker.list("ready");
+const startable = async (ctx: StepContext) => (await ctx.tracker.list("ready")).filter((t) => !t.epic); // decideStart refuses an epic too
 
 // `skip`: tickets this poll started already (handleRequests).
 export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promise<TicketRef[]> {
