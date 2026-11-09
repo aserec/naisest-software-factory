@@ -41,6 +41,7 @@ import * as event from "./event";
 import * as resultSaved from "./result-saved";
 import * as triage from "./triage";
 import { BOT, B, noteIn, cursorOf, PNG, TEST_PROOF, VISUAL_PROOF, fakeWorld, type WorldOptions, mrEvent, runBuildJobs, runBuildPipeline, runFinishPipeline, drain, COMMIT } from "./test-helpers";
+import { PROOF_FILE } from "../proof";
 import { resumeWaiting } from "./resume-waiting";
 
 test("trivial ticket: build pipeline ends in auto-merge with no person", async () => {
@@ -1749,6 +1750,16 @@ test("auto_merge off sends a run that would merge alone to a person", async () =
   expect(w.states).toEqual(["needs_approval"]);
   expect(w.finishTriggered).toBe(false);
   expect(w.mrComments.at(-1)).toContain("auto-merge is switched off");
+});
+test("a review fix that only adds the proof is a change, so the next review runs", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, reviews: [[{ ...reviewOf("matches"), blocking: true }], []] });
+  const d = await w.ctx.repo.diff();
+  w.ctx.repo.diff = async () => d;
+  const read = w.ctx.repo.readFile;
+  w.ctx.repo.readFile = (path) => (path === PROOF_FILE ? JSON.stringify({ ...TEST_PROOF, note: `call ${w.claudeCalls}` }) : read(path));
+  await runBuildJobs(w, tmp());
+  expect(w.mrComments.join("\n")).not.toContain("changed no code");
+  expect(w.finishTriggered).toBe(true);
 });
 test("merge_all on merges a medium-risk change without a person, but never one with a secret", async () => {
   const on = (w: ReturnType<typeof fakeWorld>) => (w.ctx.dashboard = fakeDashboard({ switches: { ...defaultSwitches(), merge_all: true } }));
