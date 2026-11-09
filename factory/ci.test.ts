@@ -25,6 +25,10 @@ const STEP_ENV = [
 const FACTORY_ENV = `factory_env() { ${STEP_ENV} "$@"; }`;
 const INSTALL = `env -i ${PATH} HOME=/root CI=true COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile --filter software-factory`;
 
+test("no pipeline starts until FACTORY_RUNNER says a factory runner exists", () => {
+  expect(ci.workflow.rules).toEqual([{ if: "$FACTORY_RUNNER" }]);
+});
+
 test("every factory job starts its step through the env -i allowlist", () => {
   const jobs = Object.keys(ci).filter((k) => !k.startsWith(".") && ["build", "finish", "factory"].some((t) => ci[k]?.extends === `.${t}`));
   expect(jobs.sort()).toEqual([...STEPS].sort());

@@ -30,6 +30,7 @@ One list for everything people must do before and during go-live on `react_front
 ## 3. Runner and image
 
 - [ ] Register the runner with tag `factory`. Copy `runner/config.toml.example` and `runner/cloud-init.yml` to the runner host. Fill in the tokens.
+- [ ] Set the project CI/CD variable `FACTORY_RUNNER=1`. Until it is set, the `workflow` rule in `.gitlab-ci.yml` creates no pipeline at all.
 - [ ] Create the Hetzner firewall: no inbound rules, outbound internet only, no internal networks. Attach it.
 - [ ] Push the repo. Check that the `smoke` job runs on a fresh VM and the VM is deleted after the job.
 - [ ] Run `sync.sh` from agent-config to copy `.agents/`.
