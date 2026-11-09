@@ -153,7 +153,8 @@ export function parseStream(jsonl: string, exitCode: number | null = 0): ClaudeR
     if (e.type === "assistant" && e.message?.usage) lastUsage = e.message.usage;
   }
   if (!result) throw new Error("Claude stream has no final result event (cut off?)");
-  const text = String(result.result ?? "");
+  // An error_max_turns result has no text: name the cause, so a blocked comment says why.
+  const text = String(result.result ?? (result.subtype && result.subtype !== "success" ? `The run ended with ${result.subtype} after ${result.num_turns ?? "?"} turns.` : ""));
   const resultError = Boolean(result.is_error);
   // A limit counts only on an error result: a retry the CLI recovered from, or a normal answer that says
   // "usage limit", is not a hit.

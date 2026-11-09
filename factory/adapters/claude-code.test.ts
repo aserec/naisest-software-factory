@@ -84,6 +84,10 @@ test("a non-success subtype or a non-zero exit code is an error", () => {
   expect(parseStream(JSON.stringify({ ...r, subtype: "error_max_turns" }))).toMatchObject({ isError: true, limitHit: false });
   expect(parseStream(JSON.stringify(r), 1).isError).toBe(true);
 });
+test("a max-turns result without text names the cause", () => {
+  const r = JSON.parse(load("stream-ok.jsonl").split("\n")[2]);
+  expect(parseStream(JSON.stringify({ ...r, subtype: "error_max_turns", is_error: true, num_turns: 61, result: undefined })).resultText).toBe("The run ended with error_max_turns after 61 turns.");
+});
 test("a cut-off stream throws", () => expect(() => parseStream(load("stream-ok.jsonl").split("\n").slice(0, 2).join("\n"))).toThrow(/result/));
 
 // --- the harness itself, against a fake `claude` program on PATH ---

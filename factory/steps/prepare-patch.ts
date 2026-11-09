@@ -55,7 +55,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     if (stop) return stop;
   }
   writeShooter(ctx.dir, commands);
-  const job = { tools: "code", maxTurns: 60, cwd: ctx.dir, commands: agentCommands(commands), ...(commands.preview && { preview: true }) } as const;
+  // Backend tickets 111 and 112 used all 60 turns with the checks almost green; fix.ts allows 200.
+  const job = { tools: "code", maxTurns: 150, cwd: ctx.dir, commands: agentCommands(commands), ...(commands.preview && { preview: true }) } as const;
   const author = modelRow(ctx).author;
   // A new session has no memory: it gets the repo's instructions and the ticket, then the requests if this is a round.
   const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${rootLine(ctx.dir)}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}${requests ? `\n\n${requests}` : ""}${conflicts ? `\n\n${conflicts}` : ""}`;

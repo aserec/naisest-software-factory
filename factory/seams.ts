@@ -113,7 +113,8 @@ export const ticketOfBranch = (branch: string): TicketRef | undefined =>
 export class NotFactoryRunError extends Error {}
 
 export type RunKind = "build" | "finish";
-export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: boolean; buildRun?: string; run?: string; job?: string; runUrl: string; payload?: unknown }
+// noFinish: nothing runs a finish run that start() queues (local-factory.sh), so no run may merge alone.
+export interface RunVars { ticket?: TicketRef; change?: ChangeRef; skipApply: boolean; buildRun?: string; run?: string; job?: string; runUrl: string; payload?: unknown; noFinish?: boolean }
 export interface CiRunner {
   vars: RunVars;
   secret(name: string): string | undefined; // read once, then gone

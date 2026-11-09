@@ -27,7 +27,8 @@ ciContract(async () => {
 });
 
 test("vars map the step variables, and bad values are refused", () => {
-  expect(setup({ FACTORY_PIPELINE: "finish", FACTORY_MR_IID: "3", FACTORY_BUILD_PIPELINE_ID: "41", FACTORY_SKIP_APPLY: "1" }).ci.vars).toEqual({ ticket: "8", change: "3", skipApply: true, buildRun: "41", run: "5", runUrl: "" });
+  expect(setup({ FACTORY_PIPELINE: "finish", FACTORY_MR_IID: "3", FACTORY_BUILD_PIPELINE_ID: "41", FACTORY_SKIP_APPLY: "1" }).ci.vars).toEqual({ ticket: "8", change: "3", skipApply: true, buildRun: "41", run: "5", runUrl: "", noFinish: false });
+  expect(setup({ FACTORY_PNPM_STORE: "/s" }).ci.vars.noFinish).toBe(true); // only local-run.sh sets it
   expect(() => setup({ FACTORY_RUN_ID: "5; rm -rf /" })).toThrow(/FACTORY_RUN_ID/);
   expect(() => setup({ FACTORY_WORK_ITEM_IID: "../8" })).toThrow(/FACTORY_WORK_ITEM_IID/);
 });

@@ -62,6 +62,8 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const mergeAll = await switchOn(ctx, "merge_all");
   let d = decide(ctx, ticket, mergeAll);
   if (d.kind === "auto" && !(await switchOn(ctx, "auto_merge"))) d = { kind: "needs_approval", reasons: ["auto-merge is switched off"] };
+  // The queued finish run would never run, the ticket would stay running, and the poll would build it again as a dead run.
+  if (d.kind === "auto" && ctx.ci.vars.noFinish) d = { kind: "needs_approval", reasons: ["the local factory cannot run the finish run that merges"] };
   // A stop posted after the last author run (during review, the gate or the risk check) must not merge.
   // With no author session the resume blocks, which is still better than a merge.
   if (d.kind === "auto" && (await inbox(ctx).poll()).stop) return stopped(ctx, "decision", { session: facts(ctx).session, reason: stopReason(ctx) });

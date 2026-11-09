@@ -1751,6 +1751,14 @@ test("auto_merge off sends a run that would merge alone to a person", async () =
   expect(w.finishTriggered).toBe(false);
   expect(w.mrComments.at(-1)).toContain("auto-merge is switched off");
 });
+test("a local-factory.sh run that would merge alone goes to a person, since no finish run would run", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  w.ctx.ci.vars.noFinish = true;
+  await runBuildJobs(w, tmp());
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(w.finishTriggered).toBe(false);
+  expect(w.mrComments.at(-1)).toContain("the local factory cannot run the finish run");
+});
 test("a review fix that only adds the proof is a change, so the next review runs", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" }, reviews: [[{ ...reviewOf("matches"), blocking: true }], []] });
   const d = await w.ctx.repo.diff();
@@ -1953,7 +1961,6 @@ test("with no .factory files the prompts are the factory's own, with nothing add
   expect(first.prompt).toBe(`${prompt("prepare")}\n\n${rootLine(w.ctx.dir)}\n\n${previewLine(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b"))}\n\n${ticketText(w.ctx)}`);
   expect(reviewerPrompt("T", "D")).toBe(`${prompt("review")}\n\nT\n\n<diff>\nD\n</diff>`);
 });
-
 test("the target's language reaches the author and the reviewer, after the ticket block", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   expect(ticketText(w.ctx)).not.toContain("Spanish");
