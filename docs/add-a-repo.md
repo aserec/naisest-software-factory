@@ -58,7 +58,7 @@ The target file picks `tracker: github-project` (or `github`) and `codeHost: git
 
 - [ ] Until the factory has its own GitHub account, a token of a person's account works with `sharedAccount: true` in the target: that person's Ready counts, and the factory tells its own comments apart by the AI line.
 - [ ] Set `githubRepo` (`owner/name`), `githubProject` (the board number from its URL) and `defaultApprover` (a GitHub login).
-- [ ] Give the board a single-select `Status` field whose columns are factory states: `Ready`, `Running`, `Waiting`, `Stopped`, `Needs approval`, `Needs info`, `Blocked`, `Done`. An issue with sub-issues is an epic: the factory never starts it, also in `Ready`.
+- [ ] Give the board a single-select `Status` field with two groups of columns. People use `Backlog`, `In progress`, `Blocked`, `In review` and `Done`, and the factory ignores them. The factory columns are its states: `Factory: Ready`, `Factory: Running`, `Factory: Waiting`, `Factory: Stopped`, `Factory: Needs approval`, `Factory: Needs info`, `Factory: Blocked`, `Factory: Done`. A person moves a card to `Factory: Ready` to start a run. An issue with sub-issues is an epic: the factory never starts it, also in `Factory: Ready`.
 - [ ] Set `FACTORY_GITHUB_TOKEN` for the worker. A board owned by a user (not an organization) needs a classic token with scopes `repo` and `project`; otherwise a fine-grained token with Contents, Issues, Pull requests and Projects read and write, and Checks and Commit statuses read.
 - [ ] Run GitHub Actions (or another check) on pull requests into the base branch and on pushes to it. Without them every change waits an hour, then goes to a person.
 - [ ] Allow squash merges in the repo settings, and add `.factory.yml` as in section 1.

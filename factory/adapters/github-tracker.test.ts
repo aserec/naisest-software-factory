@@ -117,7 +117,7 @@ describe("labels", () => {
 
 describe("board", () => {
   const t = () => makeGitHubTracker(gh, REPO, 5);
-  const project = { repositoryOwner: { projectV2: { id: "P", field: { id: "F", options: [{ id: "o-ready", name: "Ready" }, { id: "o-info", name: "Needs info" }] } } } };
+  const project = { repositoryOwner: { projectV2: { id: "P", field: { id: "F", options: [{ id: "o-ready", name: "Factory: Ready" }, { id: "o-info", name: "Factory: Needs info" }] } } } };
   const gqlIssue = (o: object = {}) => ({ id: "I8", number: 8, title: "T", body: "D", state: "OPEN", url: "u8", createdAt: "2026-01-02", labels: { nodes: [] }, assignees: { nodes: [] }, repository: { nameWithOwner: REPO }, ...o });
 
   test("setState puts an issue on the board and moves it to the column named after the state", async () => {
@@ -138,7 +138,7 @@ describe("board", () => {
   });
 
   test("clearState clears the Status field of the issue's card, and does nothing when it has no card", async () => {
-    let nodes: object[] = [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready" } }];
+    let nodes: object[] = [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Factory: Ready" } }];
     graph = (q) => q.includes("projectV2(number") ? project : q.includes("clearProjectV2ItemFieldValue") ? {} : { repository: { issue: { ...gqlIssue(), projectItems: { nodes } } } };
     await t().clearState("8");
     expect(calls.at(-1)!.body.query).toContain("clearProjectV2ItemFieldValue");
@@ -152,11 +152,13 @@ describe("board", () => {
   test("list keeps open issues of this repo in the column, oldest first", async () => {
     const card = (status: string, o: object) => ({ fieldValueByName: { name: status }, content: gqlIssue(o) });
     graph = (q) => q.includes("projectV2(number") ? project : q.includes("items(first") ? { node: { items: { pageInfo: { hasNextPage: false }, nodes: [
-      card("Ready", { number: 9, createdAt: "2026-01-03" }), card("Ready", { number: 8 }), card("Needs info", { number: 7 }),
-      card("Ready", { number: 6, state: "CLOSED" }), card("Ready", { number: 5, repository: { nameWithOwner: "acme/other" } }), { fieldValueByName: { name: "Ready" }, content: {} },
-    ] } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Ready" } }] } } } };
+      card("Factory: Ready", { number: 9, createdAt: "2026-01-03" }), card("Factory: Ready", { number: 8 }), card("Factory: Needs info", { number: 7 }),
+      card("Factory: Ready", { number: 6, state: "CLOSED" }), card("Factory: Ready", { number: 5, repository: { nameWithOwner: "acme/other" } }), { fieldValueByName: { name: "Factory: Ready" }, content: {} },
+    ] } } } : { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Factory: Ready" } }] } } } };
     expect((await t().list("ready")).map((x) => [x.ref, x.state])).toEqual([["8", "ready"], ["9", "ready"]]);
     expect((await t().ticket("8")).state).toBe("ready");
+    graph = (q) => q.includes("projectV2(number") ? project : { repository: { issue: { ...gqlIssue({ labels: { nodes: [{ name: "factory_ready" }] } }), projectItems: { nodes: [{ id: "IT", project: { id: "P" }, fieldValueByName: { name: "Blocked" } }] } } } };
+    expect((await t().ticket("8")).state).toBeUndefined(); // the people's Blocked column, and the label does not count on a board
   });
 
   test("an issue with sub-issues is an epic", async () => {
@@ -168,10 +170,10 @@ describe("board", () => {
 
   test("startedBy is who last moved the card to Ready on this board, also once the card moved on", async () => {
     const change = (login: string, status: string, projectId = "P") => ({ actor: { login }, status, project: { id: projectId } });
-    let nodes = [change("github-project-automation", "Backlog"), change("ann", "Ready"), change("bob", "Ready", "OTHER")];
+    let nodes = [change("github-project-automation", "Backlog"), change("ann", "Factory: Ready"), change("bob", "Factory: Ready", "OTHER")];
     graph = (q) => q.includes("projectV2(number") ? project : { repository: { issue: { timelineItems: { nodes } } } };
     expect(await t().startedBy("8")).toBe("ann");
-    nodes = [change("ann", "Ready"), change("github-project-automation", "In progress")];
+    nodes = [change("ann", "Factory: Ready"), change("github-project-automation", "In progress")];
     expect(await t().startedBy("8")).toBe("ann");
     nodes = [change("ann", "Backlog")];
     expect(await t().startedBy("8")).toBeUndefined();

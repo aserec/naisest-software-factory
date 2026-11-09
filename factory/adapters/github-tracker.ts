@@ -1,5 +1,6 @@
 // Tickets are GitHub issues. Marks are always labels. The state is a factory_* label, or, with a board,
-// the issue's Status column on a GitHub Projects board (column "Needs info" is state needs_info).
+// the issue's Status column on a GitHub Projects board (column "Factory: Needs info" is state needs_info).
+// The board's other columns (Backlog, In progress, Blocked, In review, Done) belong to people and are no factory state.
 import { errText, isNotFound } from "../errors";
 import { AI_LINE, commandIn, fingerprintMarker } from "../conversation";
 import type { GitHub } from "../github";
@@ -12,7 +13,7 @@ const MARKS: Mark[] = ["watcher", "triaged", "risk_trivial", "risk_low", "risk_m
 const markLabel = (m: Mark) => `factory_${m}`;
 const labelOf = (state: FactoryState) => `factory_${state}`;
 const STATE_LABELS = STATE_ORDER.map(labelOf);
-const columnState = (name: string) => name.trim().toLowerCase().replace(/\s+/g, "_") as FactoryState;
+const columnState = (name: string) => /^factory:\s*(.+)$/i.exec(name.trim())?.[1].toLowerCase().replace(/\s+/g, "_") as FactoryState | undefined;
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
 const checked = (text: string) => {
   if (findSecrets(text).length > 0) throw new Error("Refused: the text contains a secret");
@@ -80,7 +81,7 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
   return {
     async ticket(ref: string) {
       const { issue, status } = await item(ref);
-      return toTicket(fromGraph(issue), status ? columnState(status.name) : null);
+      return toTicket(fromGraph(issue), status ? columnState(status.name) ?? null : null);
     },
     async setState(ref: string, state: FactoryState) {
       const p = await project();

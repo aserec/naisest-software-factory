@@ -13,10 +13,10 @@ const card = (repo: string, number: number, status: string | null, state = "OPEN
 const graphql = (nodes: unknown[]) => Response.json({ data: { repositoryOwner: { projectV2: { url: "https://github.com/users/o/projects/1", items: { pageInfo: { hasNextPage: false }, nodes } } } } });
 const riskLabels = (s: Seed) => (s.risk ? [`factory_risk_${s.risk}`] : []);
 
-// A fake GitHub holding `seed` in o/r: as labeled issues, and as cards in board columns ("needs_approval" -> "Needs approval").
+// A fake GitHub holding `seed` in o/r: as labeled issues, and as cards in board columns ("needs_approval" -> "Factory: Needs approval").
 const fakeGitHub = (seed: Seed[]) =>
   vi.fn(async (url: string) => {
-    if (url.endsWith("/graphql")) return graphql(seed.map((s) => card("o/r", Number(s.ticket), s.state[0].toUpperCase() + s.state.slice(1).replace("_", " "), s.closed ? "CLOSED" : "OPEN", riskLabels(s), s.title)));
+    if (url.endsWith("/graphql")) return graphql(seed.map((s) => card("o/r", Number(s.ticket), "Factory: " + s.state[0].toUpperCase() + s.state.slice(1).replace("_", " "), s.closed ? "CLOSED" : "OPEN", riskLabels(s), s.title)));
     const label = new URL(url).searchParams.get("labels");
     return Response.json(seed.filter((s) => `factory_${s.state}` === label).map((s) => ({ number: Number(s.ticket), title: s.title, html_url: `https://github.com/o/r/issues/${s.ticket}`, updated_at: "2026-11-03T10:00:00Z", state: s.closed ? "closed" : "open", labels: [label, ...riskLabels(s)].map((name) => ({ name })) })));
   }) as unknown as typeof fetch;
@@ -34,8 +34,8 @@ it("reads a shared GitHub board once and gives each target its issue cards in fa
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer read-token");
     reads++;
     return graphql([
-      card("o/web", 1, "Ready"), card("o/web", 2, "Needs approval", "OPEN", ["bug", "factory_risk_medium"]), card("o/web", 3, "Backlog"), card("o/web", 4, "Done", "CLOSED"),
-      card("o/api", 5, "Running"), card("o/other", 6, "Ready"), card("o/web", 7, null),
+      card("o/web", 1, "Factory: Ready"), card("o/web", 2, "Factory: Needs approval", "OPEN", ["bug", "factory_risk_medium"]), card("o/web", 3, "Backlog"), card("o/web", 4, "Factory: Done", "CLOSED"),
+      card("o/api", 5, "Factory: Running"), card("o/other", 6, "Factory: Ready"), card("o/web", 7, null), card("o/web", 8, "Done", "CLOSED"), card("o/web", 9, "Blocked"),
     ]);
   }) as unknown as typeof fetch;
   vi.stubEnv("GITHUB_API_URL", "https://ghe.test/api");
@@ -65,7 +65,7 @@ it("links work items on the GITHUB_URL host", () => {
 });
 
 it("gives a board card its open PR: the link, the conflicts, and why it cannot merge", async () => {
-  const withPr = (n: number, prs: [string, string][]) => { const c = card("o/r", n, "Needs approval"); return { ...c, content: { ...c.content, closedByPullRequestsReferences: { nodes: prs.map(([mergeable, mergeStateStatus], k) => ({ url: `https://github.com/o/r/pull/${n * 10 + k}`, mergeable, mergeStateStatus })) } } }; };
+  const withPr = (n: number, prs: [string, string][]) => { const c = card("o/r", n, "Factory: Needs approval"); return { ...c, content: { ...c.content, closedByPullRequestsReferences: { nodes: prs.map(([mergeable, mergeStateStatus], k) => ({ url: `https://github.com/o/r/pull/${n * 10 + k}`, mergeable, mergeStateStatus })) } } }; };
   const f = vi.fn(async () => graphql([withPr(1, [["CONFLICTING", "DIRTY"]]), withPr(2, [["MERGEABLE", "BEHIND"]]), withPr(3, [["MERGEABLE", "CLEAN"], ["UNKNOWN", "UNKNOWN"]]), withPr(4, [["MERGEABLE", "UNSTABLE"]]), withPr(5, [])])) as unknown as typeof fetch;
   const rows = await makeGitHubTracker(f).rows([target("a", "o/r", 2)]);
   expect(rows.map((r) => r.checksFailed)).toEqual([false, false, false, false, undefined]);
@@ -79,7 +79,7 @@ it("gives a board card its open PR: the link, the conflicts, and why it cannot m
 });
 
 it("says a PR has a failed check when its newest commit's checks failed or errored", async () => {
-  const withRollup = (n: number, state: string | null) => { const c = card("o/r", n, "Needs approval"); return { ...c, content: { ...c.content, closedByPullRequestsReferences: { nodes: [{ url: `u${n}`, mergeable: "MERGEABLE", mergeStateStatus: "UNSTABLE", commits: { nodes: [{ commit: { statusCheckRollup: state && { state } } }] } }] } } }; };
+  const withRollup = (n: number, state: string | null) => { const c = card("o/r", n, "Factory: Needs approval"); return { ...c, content: { ...c.content, closedByPullRequestsReferences: { nodes: [{ url: `u${n}`, mergeable: "MERGEABLE", mergeStateStatus: "UNSTABLE", commits: { nodes: [{ commit: { statusCheckRollup: state && { state } } }] } }] } } }; };
   const f = vi.fn(async () => graphql([withRollup(1, "FAILURE"), withRollup(2, "ERROR"), withRollup(3, "PENDING"), withRollup(4, "SUCCESS"), withRollup(5, null)])) as unknown as typeof fetch;
   const rows = await makeGitHubTracker(f).rows([target("a", "o/r", 2)]);
   expect(rows.map((r) => r.checksFailed)).toEqual([true, true, false, false, false]);

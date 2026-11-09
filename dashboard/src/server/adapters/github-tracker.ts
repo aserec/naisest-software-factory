@@ -5,8 +5,8 @@ import { githubApi } from "./github-url";
 import { timeout } from "./timeout";
 
 const web = () => (process.env.GITHUB_URL || "https://github.com").replace(/\/+$/, "");
-// "Needs approval" -> needs_approval; undefined for a column that is no factory state.
-const columnState = (name: string) => STATES.find((s) => s === name.trim().toLowerCase().replace(/\s+/g, "_"));
+// "Factory: Needs approval" -> needs_approval; undefined for a column that is no factory state, such as the people's Backlog or Done.
+const columnState = (name: string) => STATES.find((s) => s === /^factory:\s*(.+)$/i.exec(name.trim())?.[1].toLowerCase().replace(/\s+/g, "_"));
 
 // GitHub's mergeStateStatus values that stop a merge. CLEAN, HAS_HOOKS and UNSTABLE (a check that is not required failed) can merge; UNKNOWN is still computing.
 const BLOCKS: Record<string, string> = { DIRTY: "it has conflicts with the base branch", BEHIND: "it is behind the base branch", BLOCKED: "a required review or check is missing", DRAFT: "it is a draft" };
