@@ -22,7 +22,6 @@ export interface TargetInfo {
   codeHost: CodeHostKey; // gitlab when the file has none
   githubRepo?: string; // owner/repo, for a github tracker
   githubProject?: number; // the board number, for a github-project tracker
-  githubProjectOwner?: string; // the board's user or org; undefined: the githubRepo owner
   weeklyBudgetUsd?: number; // the cost a week of runs should stay under; Insights warns from 80%
 }
 
@@ -34,7 +33,7 @@ export function readTargets(dir = process.env.TARGETS_DIR ?? "../targets"): Targ
     .filter((f) => f.endsWith(".yml"))
     .sort()
     .map((f) => {
-      const t = (parse(readFileSync(join(root, f), "utf8")) ?? {}) as { name?: string; projectPath?: string; stuckMinutes?: Record<string, number>; tracker?: string; codeHost?: string; githubRepo?: string; githubProject?: number; githubProjectOwner?: string; weeklyBudgetUsd?: number };
+      const t = (parse(readFileSync(join(root, f), "utf8")) ?? {}) as { name?: string; projectPath?: string; stuckMinutes?: Record<string, number>; tracker?: string; codeHost?: string; githubRepo?: string; githubProject?: number; weeklyBudgetUsd?: number };
       if (!t.projectPath) throw new Error(`${f}: projectPath is missing`);
       const tracker = oneOf(TRACKERS, t.tracker ?? "gitlab", f, "tracker");
       const codeHost = oneOf(CODE_HOSTS, t.codeHost ?? "gitlab", f, "codeHost");
@@ -43,7 +42,6 @@ export function readTargets(dir = process.env.TARGETS_DIR ?? "../targets"): Targ
         name: t.name ?? f.replace(/\.yml$/, ""), projectPath: t.projectPath, stuckMinutes: { ...STUCK_MINUTES, ...t.stuckMinutes }, tracker, codeHost,
         ...(tracker.startsWith("github") ? { githubRepo: t.githubRepo } : {}),
         ...(tracker === "github-project" && t.githubProject !== undefined ? { githubProject: t.githubProject } : {}),
-        ...(tracker === "github-project" && t.githubProjectOwner ? { githubProjectOwner: t.githubProjectOwner } : {}),
         ...(typeof t.weeklyBudgetUsd === "number" && t.weeklyBudgetUsd > 0 ? { weeklyBudgetUsd: t.weeklyBudgetUsd } : {}),
       };
     });

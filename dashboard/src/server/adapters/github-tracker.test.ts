@@ -45,15 +45,6 @@ it("reads a shared GitHub board once and gives each target its issue cards in fa
   expect(rows.find((r) => r.target === "api")?.boardUrl).toBe("https://github.com/users/o/projects/1");
 });
 
-it("reads a board owned by another user or org under that owner", async () => {
-  const f = vi.fn(async (_url: string, init: RequestInit) => {
-    expect(JSON.parse(String(init.body)).variables.owner).toBe("board-user");
-    return graphql([card("o/web", 1, "Ready")]);
-  }) as unknown as typeof fetch;
-  const rows = await makeGitHubTracker(f).rows([{ ...target("web", "o/web", 2), githubProjectOwner: "board-user" }]);
-  expect(rows.map((r) => r.ticket)).toEqual(["1"]);
-});
-
 it("reads open and closed issues, newest update first, each with a time limit", async () => {
   vi.stubEnv("GITHUB_API_URL", "");
   const f = vi.fn(async () => Response.json([])) as unknown as typeof fetch;

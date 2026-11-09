@@ -51,17 +51,16 @@ const fromGraph = (c: GraphIssue): Issue => ({
 });
 
 // The board: a GitHub Projects (v2) board with a single-select Status field whose columns are factory states.
-function makeBoard(gh: GitHub, repo: string, number: number, boardOwner?: string) {
+function makeBoard(gh: GitHub, repo: string, number: number) {
   const [owner, name] = repo.split("/");
-  const projectOwner = boardOwner ?? owner;
   type Project = { id: string; field: string; options: { id: string; name: string }[] };
   let found: Promise<Project> | undefined;
   const project = (): Promise<Project> => (found ??= gh.graphql(
     `query($owner: String!, $n: Int!) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { id field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } } } } } }`,
-    { owner: projectOwner, n: number },
+    { owner, n: number },
   ).then((d) => {
     const p = d.repositoryOwner?.projectV2;
-    if (!p?.field?.id) throw new Error(`GitHub project ${projectOwner}/${number} not found, or it has no Status field`);
+    if (!p?.field?.id) throw new Error(`GitHub project ${owner}/${number} not found, or it has no Status field`);
     return { id: p.id, field: p.field.id, options: p.field.options };
   }).catch((e) => {
     found = undefined; // a failed lookup is tried again on the next call, not kept for the whole run
@@ -140,13 +139,12 @@ function makeBoard(gh: GitHub, repo: string, number: number, boardOwner?: string
 // sharedAccount: the token's account is also a person's (a trial before the factory has its own account). That
 // person's Ready, merges by hand and comments then count; the factory's own comments are told apart by the AI line.
 // relayUser: the Teams relay bot (relay.ts). Its comments count only through a person's 👍.
-// projectOwner: the board's user or org, when it is not the repo's owner.
-export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number, sharedAccount = false, relayUser?: string, projectOwner?: string): Tracker {
+export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: number, sharedAccount = false, relayUser?: string): Tracker {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error(`GitHub repo must be owner/name, got ${repo}`);
   const base = `/repos/${repo}/issues`;
   // The issues endpoint also lists pull requests.
   const issues = async (query: string) => (await gh.all<RestIssue>(`${base}?${query}&per_page=100`)).filter((i) => !i.pull_request).map(fromRest);
-  const board = projectNumber === undefined ? undefined : makeBoard(gh, repo, projectNumber, projectOwner);
+  const board = projectNumber === undefined ? undefined : makeBoard(gh, repo, projectNumber);
   const addLabels = (ref: string, labels: string[]) => gh.call("POST", `${base}/${Number(ref)}/labels`, { labels });
   const removeLabel = async (ref: string, label: string) => {
     await gh.call("DELETE", `${base}/${Number(ref)}/labels/${encodeURIComponent(label)}`).catch((e) => {

@@ -25,7 +25,6 @@ export interface Target {
   jobImage: string;
   githubRepo?: string; // owner/name, for the github and github-project trackers
   githubProject?: number; // the Projects board number, for the github-project tracker
-  githubProjectOwner?: string; // the board's user or org; undefined: the githubRepo owner
   tracker?: string; // replaces seams.yml tracker for this target
   codeHost?: string; // replaces seams.yml codeHost for this target
   sharedAccount?: boolean; // github trackers: the token's account is also a person's, whose Ready counts

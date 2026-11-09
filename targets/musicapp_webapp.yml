@@ -3,8 +3,7 @@ name: musicapp_webapp
 tracker: github-project
 codeHost: github
 githubRepo: musicapp/musicapp-webapp
-githubProject: 2 # https://github.com/users/aserec/projects/2, shared with musicapp-backend: only this repo's issues count
-githubProjectOwner: aserec # the board stayed with the user when the repos moved to the org
+githubProject: 2 # https://github.com/orgs/musicapp/projects/2, shared with musicapp-backend: only this repo's issues count
 projectPath: musicapp/musicapp-webapp # GitLab adapters only; the github ones use githubRepo
 baseBranch: main
 defaultApprover: aserec
