@@ -89,15 +89,26 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
         <ul className="ml-[17px] flex flex-col gap-0.5 border-l border-border pl-2">
           {boards.map((b) => {
             const href = `/boards/${encodeURIComponent(b)}`;
-            const n = waiting.filter((i) => i.target === b).length;
+            const mine = Array.isArray(data) ? data.filter((i) => i.target === b && !i.closed && !waiting.includes(i)) : [];
+            // Waiting on you (yellow), then running (green), then ready (blue). A zero badge stays grey so only live counts take a colour.
+            const counts = [
+              [waiting.filter((i) => i.target === b).length, "waiting on you", "bg-pill-warning text-pill-warning-ink"],
+              [mine.filter((i) => i.state === "running").length, "running", "bg-pill-positive text-pill-positive-ink"],
+              [mine.filter((i) => i.state === "ready").length, "ready", "bg-pill-info text-pill-info-ink"],
+            ] as const;
             return (
-              <li key={b} className="relative before:absolute before:top-1/2 before:-left-2 before:w-1.5 before:border-t before:border-border">
-                <NavLink href={href} active={on(href)} className="h-8 font-mono text-xs">
-                  <span title={`${n} waiting on you`} className={cn("min-w-5 rounded-full px-1.5 text-center tabular-nums", n ? "bg-data text-background" : "bg-active text-muted-foreground")}>
-                    {n}
-                    <span className="sr-only"> waiting on you</span>
+              <li key={b} className="relative before:absolute before:top-3.5 before:-left-2 before:w-1.5 before:border-t before:border-border">
+                {/* Two rows: the board's name, then its counts, so a long name never squeezes the badges. */}
+                <NavLink href={href} active={on(href)} className="h-auto flex-col items-start gap-1.5 py-1.5 font-mono text-xs">
+                  <span className="max-w-full truncate">{b}</span>
+                  <span className="flex gap-1">
+                    {counts.map(([n, label, tone]) => (
+                      <span key={label} title={`${n} ${label}`} className={cn("min-w-5 rounded-full px-1.5 text-center tabular-nums", n ? tone : "bg-active text-muted-foreground")}>
+                        {n}
+                        <span className="sr-only"> {label}</span>
+                      </span>
+                    ))}
                   </span>
-                  <span className="truncate">{b}</span>
                 </NavLink>
               </li>
             );

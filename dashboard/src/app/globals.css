@@ -30,6 +30,8 @@
   --color-pill-warning: var(--pill-warning-bg);
   --color-pill-warning-ink: var(--pill-warning-ink);
   --color-pill-neutral-ink: var(--pill-neutral-ink);
+  --color-pill-info: var(--pill-info-bg);
+  --color-pill-info-ink: var(--pill-info-ink);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--background);
@@ -80,6 +82,8 @@
   --pill-warning-bg: #fffbeb;
   --pill-warning-ink: #92400e;
   --pill-neutral-ink: #353736;
+  --pill-info-bg: #e3edff;
+  --pill-info-ink: #1e3a8a;
   --shadow-ink: 19 20 22; /* rgb channels of the floating layers' shadow */
 }
 
@@ -110,6 +114,8 @@
     --pill-warning-bg: #33290f;
     --pill-warning-ink: #f9d58a;
     --pill-neutral-ink: #cdcfd1;
+  --pill-info-bg: #172a46;
+  --pill-info-ink: #a8c8ff;
     --shadow-ink: 0 0 0;
   }
 }
@@ -137,6 +143,8 @@
   --pill-warning-bg: #33290f;
   --pill-warning-ink: #f9d58a;
   --pill-neutral-ink: #cdcfd1;
+  --pill-info-bg: #172a46;
+  --pill-info-ink: #a8c8ff;
   --shadow-ink: 0 0 0;
 }
 
