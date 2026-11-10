@@ -114,6 +114,7 @@ test("between local runs a stop no cancel reached counts as cancelled; during a 
   const dash = fakeDashboard({ requests: [waiting] });
   ctx.dashboard = dash;
   expect(await finishCancelledStops(ctx)).toEqual([]);
+  expect(await finishCancelledStops(ctx, true, ["r0"])).toEqual([]); // its local run is alive: the stop reaches it
   expect(await finishCancelledStops(ctx, true)).toEqual(["r0"]);
   expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("stopped");
   expect(dash.done).toEqual([["qr0", "cancelled"], ["qr0", "done"]]);
@@ -134,6 +135,12 @@ test("between local runs a ticket whose run died starts a new run for the person
   const note = ctx.world.tracker.posted.find((p) => p.ref === "r0")!.text;
   expect(noteIn(note, "readyFor")).toMatchObject({ person: "user-r0" });
   expect(dash.events.filter((e) => e.type === "run_end").map((e) => [e.run, e.data])).toEqual([["dead-run", { outcome: "restarted" }]]);
+});
+test("a running ticket whose local run is still alive is not started again", async () => {
+  const { ctx } = deadRunCtx();
+  expect(await restartDeadRuns(ctx, ["r0"])).toEqual([]);
+  expect(ctx.world.tracker.tickets.get("r0")!.state).toBe("running");
+  expect(ctx.world.ci.started).toEqual([]);
 });
 test("a dead run whose ready no trusted person set is blocked, not started", async () => {
   const { ctx } = deadRunCtx();
@@ -301,6 +308,26 @@ test("the --list poll runs dashboard resumes too and lists them with their build
     await main(ctx);
     expect(dash.done).toEqual([["q7", "done"]]);
     expect(log.mock.calls.map((c) => c[0])).toEqual(["7:55"]);
+  } finally {
+    process.argv = argv;
+    log.mockRestore();
+    err.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+test("the --list poll lists the finish run of a change a person merged, for local-run.sh to run", async () => {
+  vi.stubEnv("FACTORY_SCHEDULE", "poll");
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  const argv = process.argv;
+  process.argv = [...argv, "--list", "--finish"];
+  try {
+    const w = fakeWorld({ state: "needs_approval" });
+    w.openChange();
+    w.host.mergeByPerson("5", "2026-10-01T00:00:00Z");
+    await main(w.ctx);
+    expect(log.mock.calls.map((c) => c[0]).at(-1)).toBe("finish:8:41:5:1");
+    expect(w.states).toEqual(["running"]);
   } finally {
     process.argv = argv;
     log.mockRestore();

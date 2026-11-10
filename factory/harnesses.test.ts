@@ -1,4 +1,4 @@
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -13,6 +13,14 @@ test("every registered harness home is on the sandbox deny list", () => {
 
 test("the deny list keeps today's entries", () => {
   expect(sandboxDenyRead("/w/run/target")).toEqual(expect.arrayContaining(["/proc", "/w/run/claude-home", "/w/run/pi-home"]));
+});
+
+test("a parallel run may not read the harness homes of the other slots' runs", () => {
+  const slots = mkdtempSync(join(tmpdir(), "slots-"));
+  mkdirSync(join(slots, "web-1", "run"), { recursive: true });
+  mkdirSync(join(slots, "web-2", "run"), { recursive: true });
+  const deny = sandboxDenyRead(join(slots, "web-1", "run", "target"), slots);
+  expect(deny).toEqual(expect.arrayContaining([join(slots, "web-1", "run", "claude-home"), join(slots, "web-2", "run", "claude-home")]));
 });
 
 test("router.yml accepts exactly the registered harness names", () => {

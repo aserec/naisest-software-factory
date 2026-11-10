@@ -1,6 +1,7 @@
 .superpowers/
 node_modules/
 run/
+/slots/
 dist/
 .env
 .env.*

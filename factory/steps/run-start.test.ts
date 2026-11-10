@@ -42,3 +42,7 @@ test("a ticket with an open blocker does not start; the reason names it", () => 
   expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 0, epic: true })).toEqual({ start: false, reason: "epic" });
   expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 0, openBlockers: 0 })).toEqual({ start: true });
 });
+test("a target with maxRuns 1 is full with one other run", () => {
+  expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 1, maxRuns: 1 })).toEqual({ start: false, reason: "repo-full" });
+  expect(decideStart(e, { actorTrusted: true, state: "ready", runningInRepo: 1 })).toEqual({ start: true });
+});

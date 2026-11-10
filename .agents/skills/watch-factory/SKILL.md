@@ -26,7 +26,7 @@ Run these from the repo root:
 
 ```bash
 ./local-factory.sh status
-cat ../software-factory.cache/factory.ticket 2>/dev/null   # ticket in progress
+# status also lists each ticket in progress and its slot; log lines of a run start with [<slot>]
 grep -v 'ready ticket(s) wait' ../software-factory.cache/factory.log | tail -60
 sqlite3 .cache/factory.db "select at,target,ticket,step,type,substr(data,1,600) from events
   where at > '<last check, ISO UTC>' and type in ('error','run_end','decision','label_change') order by seq"
@@ -44,7 +44,7 @@ Sort every `error` event, `blocked` run end, failed poll line and `ended with an
 
 - A run ends at `needs_approval` with a `changeUrl`. The webapp has no CI, so every webapp run ends there.
 - A triage outcome other than `go`, such as a duplicate or a ticket that is unclear.
-- "N ready ticket(s) wait" while two runs per target are active.
+- "N ready ticket(s) wait" while a target has its `maxRuns` active (`targets/<name>.yml`, default 2).
 
 #### Ticket-side
 
@@ -83,7 +83,7 @@ Each step is a fresh `node --import tsx factory/steps/<step>.ts` process, so a f
 2. The fix changed `local-factory.sh` itself, or an environment variable the loop passes.
 3. The loop process is stuck: no log line and no event for longer than the slowest step takes.
 
-To restart, wait until `factory.ticket` is absent so no run is cut, then run `factory-musica stop` and `factory-musica start` in the user's zsh. These functions set the tokens and `SLACK_WEBHOOK_URL`. When the shell functions are not available to you, give the user the two commands with the `!` prefix. To retry a ticket blocked by a factory error, set it Ready again on the board.
+To restart, wait until `status` lists no ticket in progress so no run is cut, then run `factory-musica stop` and `factory-musica start` in the user's zsh. These functions set the tokens and `SLACK_WEBHOOK_URL`. When the shell functions are not available to you, give the user the two commands with the `!` prefix. To retry a ticket blocked by a factory error, set it Ready again on the board.
 
 Done when the loop runs with the fix, or you stated why no restart was needed.
 
@@ -130,7 +130,7 @@ This skill does not fix target repos or tickets. It does not merge or approve pu
 
 ## Troubleshooting
 
-**The log only shows "ready ticket(s) wait".** Both slots per target are taken. Check which tickets hold them: running, waiting and stopped runs count, Needs approval does not. A stale `running` label from a killed run holds a slot until someone moves the ticket.
+**The log only shows "ready ticket(s) wait".** Every slot of that target is taken. Check which tickets hold them: running, waiting and stopped runs count, Needs approval does not. A stale `running` label from a killed run holds a slot until someone moves the ticket.
 
 **A fix did not take effect.** The step that failed was already running when you saved the fix. Set the ticket Ready again and watch the next run.
 

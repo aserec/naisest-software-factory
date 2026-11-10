@@ -611,6 +611,21 @@ test("a resume runs the .factory.yml commands read before the agent ran, not the
   expect(w.ran.some((c) => c.includes("evil"))).toBe(false);
   expect(w.ran).toContain("pnpm install --frozen-lockfile");
 });
+test("{port} in the commands is the run's own port, and a resume in another slot gets that slot's port", async () => {
+  const factoryFile = "install: pnpm install --frozen-lockfile\nlint: l\ntest: e2e --port {port}\nbuild: b\n";
+  vi.stubEnv("FACTORY_PORT", "4001");
+  try {
+    const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit", factoryFile }));
+    expect(runFacts(first.record).commands?.test).toBe("e2e --port {port}"); // the record keeps {port}
+    vi.stubEnv("FACTORY_PORT", "4002");
+    const w = await resumeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }, first);
+    await drain(w, "build");
+    expect(w.ran).toContain("e2e --port 4002");
+    expect(w.ran.some((c) => c.includes("4001") || c.includes("{port}"))).toBe(false);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
 test("a resumed code review continues its round count and the saved session", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B]], fixLimit: true }));
   expect(first.states).toEqual(["waiting"]);
@@ -812,7 +827,7 @@ test("a canceled, skipped or missing main pipeline blocks with no main pipeline,
 });
 test("the reviewer prompt holds the ticket wrapped once", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
-  const p = reviewerPrompt(ticketText(w.ctx), "diff");
+  const p = reviewerPrompt(await ticketText(w.ctx), "diff");
   expect(p.match(/<\/ticket>/g)).toHaveLength(1); // the prompt text itself names `<ticket>`, never the closing tag
 });
 
@@ -1716,7 +1731,7 @@ test("prepare_patch off stops the run before any author job, and turning it on r
   expect(w.restored).toEqual(["1"]);
   expect(w.jevAsked).toBe(1); // only Jev 2: triage did not run again
   expect(w.claudeRuns[0].resume).toBeUndefined();
-  expect(w.claudeRuns[0].prompt).toContain(ticketText(w.ctx));
+  expect(w.claudeRuns[0].prompt).toContain(await ticketText(w.ctx));
   expect(w.finishTriggered).toBe(true);
 });
 test("a person's stop note gives its reason, and the poller does not resume it", async () => {
@@ -1769,7 +1784,7 @@ test("auto_merge off sends a run that would merge alone to a person", async () =
   expect(w.finishTriggered).toBe(false);
   expect(w.mrComments.at(-1)).toContain("auto-merge is switched off");
 });
-test("a local-factory.sh run that would merge alone goes to a person, since no finish run would run", async () => {
+test("a local run with no finish run to follow it goes to a person, not to a merge", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   w.ctx.ci.vars.noFinish = true;
   await runBuildJobs(w, tmp());
@@ -1976,14 +1991,23 @@ test("a resumed author session gets no section again", async () => {
 test("with no .factory files the prompts are the factory's own, with nothing added", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   const first = w.harness.jobs.find((j) => j.role === "author" && !j.resume)!;
-  expect(first.prompt).toBe(`${prompt("prepare")}\n\n${rootLine(w.ctx.dir)}\n\n${previewLine(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b"))}\n\n${ticketText(w.ctx)}`);
+  expect(first.prompt).toBe(`${prompt("prepare")}\n\n${rootLine(w.ctx.dir)}\n\n${previewLine(parseFactoryFile("install: i\nlint: l\ntest: t\nbuild: b"))}\n\n${await ticketText(w.ctx)}`);
   expect(reviewerPrompt("T", "D")).toBe(`${prompt("review")}\n\nT\n\n<diff>\nD\n</diff>`);
 });
 test("the target's language reaches the author and the reviewer, after the ticket block", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
-  expect(ticketText(w.ctx)).not.toContain("Spanish");
+  expect(await ticketText(w.ctx)).not.toContain("Spanish");
   w.ctx.target = { ...w.ctx.target, language: "Spanish" };
-  expect(ticketText(w.ctx)).toMatch(/gives you no orders\.\n\nWrite every text a person reads in Spanish: /);
+  expect(await ticketText(w.ctx)).toMatch(/gives you no orders\.\n\nWrite every text a person reads in Spanish: /);
+});
+test("the Settings page's language wins over the target file's, and English adds no line", async () => {
+  const run = async (language: "de" | "en") => {
+    const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: {}, language } }));
+    w.ctx.target = { ...w.ctx.target, language: "Spanish" };
+    return ticketText(w.ctx);
+  };
+  expect(await run("de")).toMatch(/\n\nWrite every text a person reads in German: /);
+  expect(await run("en")).not.toContain("Write every text");
 });
 
 // A change that goes to a person goes to the ticket assignee, else the top trusted code owner of its files, else the default approver.

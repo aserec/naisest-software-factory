@@ -37,8 +37,9 @@ export function makeLocalCi(env: NodeJS.ProcessEnv, secretDir: string, dirs = { 
       buildRun: env.FACTORY_BUILD_PIPELINE_ID || undefined,
       run: env.FACTORY_RUN_ID || undefined,
       runUrl: "",
-      // ponytail: only local-run.sh sets FACTORY_PNPM_STORE; pass an explicit FACTORY_NO_FINISH from it once no run uses the script.
-      noFinish: Boolean(env.FACTORY_PNPM_STORE),
+      // local-run.sh sets FACTORY_PNPM_STORE. Since it runs the queued finish run itself it also sets FACTORY_LOCAL_FINISH;
+      // a run its older copy started has no finish run. ponytail: drop the check once no such run is left.
+      noFinish: Boolean(env.FACTORY_PNPM_STORE) && env.FACTORY_LOCAL_FINISH !== "1",
     },
     secret(name) {
       const v = secrets.get(name);

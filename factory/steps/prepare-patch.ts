@@ -1,10 +1,12 @@
 import { wrapRequest } from "../agents";
 import { errText } from "../errors";
 import { parseFactoryFile } from "../config";
+import { withPort } from "../factory-file";
+import { runFacts } from "../record";
 import { localPath, localSection } from "../local-instructions";
 import { writeShooter } from "../proof";
 import type { FactoryCommands } from "../types";
-import { agent, agentCommands, controls, rootLine, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { agent, agentCommands, controls, rootLine, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runPort, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
@@ -36,16 +38,18 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   let conflicts = round?.conflicts ? await conflictsText(ctx, base, await ctx.repo.mergeBase(base)) : undefined;
   // Read the commands before the agent runs, so the agent cannot change what the gate runs.
   // A resumed clone or a round's restored clone holds the agent's edits, so it uses the saved commands.
-  let commands: FactoryCommands | undefined;
+  // raw keeps {port} for the record; commands has this run's port.
+  let raw: FactoryCommands | undefined;
   if (resumeSessionId || facts(ctx).roundStart) {
-    commands = facts(ctx).commands;
-    if (!commands) return block(ctx, "The factory could not resume this run: the record has no saved .factory.yml commands.");
+    raw = runFacts(ctx.record).commands;
+    if (!raw) return block(ctx, "The factory could not resume this run: the record has no saved .factory.yml commands.");
   } else {
     // The Settings page's commands; a target with none there still reads .factory.yml from the repo.
     const factoryFile = (await controls(ctx)).settings?.factoryFile ?? ctx.repo.readFile(".factory.yml");
     if (!factoryFile) return block(ctx, "The target has no .factory.yml commands. Set them on the dashboard's Settings page.");
-    commands = parseFactoryFile(factoryFile);
+    raw = parseFactoryFile(factoryFile);
   }
+  const commands = withPort(raw, runPort());
   // Markers in a manifest or the lockfile make install fail. The author resolves them first; the gate installs again and blocks if they still fail.
   if (conflicts) {
     const r = await ctx.repo.run(commands.install);
@@ -59,18 +63,18 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const job = { tools: "code", maxTurns: 150, cwd: ctx.dir, commands: agentCommands(commands), ...(commands.preview && { preview: true }) } as const;
   const author = modelRow(ctx).author;
   // A new session has no memory: it gets the repo's instructions and the ticket, then the requests if this is a round.
-  const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${rootLine(ctx.dir)}\n\n${previewLine(commands)}\n\n${ticketText(ctx)}${requests ? `\n\n${requests}` : ""}${conflicts ? `\n\n${conflicts}` : ""}`;
+  const fresh = async () => `${prompt("prepare")}${localSection(await ctx.repo.readBase(localPath("author")))}\n\n${rootLine(ctx.dir)}\n\n${previewLine(commands)}\n\n${await ticketText(ctx)}${requests ? `\n\n${requests}` : ""}${conflicts ? `\n\n${conflicts}` : ""}`;
   // A resumed session already has the repo's instructions, and a round's session already has the ticket.
   const text = !resumeSessionId ? await fresh() : (conflicts ?? (requests ? `${prompt("request")}\n${requests}` : CONTINUE));
   let r = await agent(ctx, "author", author, { ...job, prompt: text, resume: resumeSessionId });
   // The saved session cannot be loaded: do the round in a new session.
   if ((requests || conflicts) && resumeSessionId && !r.ok && !r.stopped && !r.limitHit) r = await agent(ctx, "author", author, { ...job, prompt: await fresh() });
-  if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands } });
-  if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands });
+  if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands: raw } });
+  if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands: raw });
   if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 2000)}`);
   // The round's comment shows the author's whole answer; the post cuts it. A round finished after a pause (CONTINUE) keeps its answer too.
   if (facts(ctx).openRound) ctx.record = { ...ctx.record, requestRounds: ctx.record.requestRounds?.map((x, i, all) => (i === all.length - 1 ? { ...x, answer: r.text } : x)) };
-  save(ctx, "prepare-patch", { sessionId: r.session, commands });
+  save(ctx, "prepare-patch", { sessionId: r.session, commands: raw });
   await ctx.tracker.mark(ticketRef(ctx), "implemented");
   return "next";
 }

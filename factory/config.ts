@@ -54,6 +54,7 @@ const targetSchema = z.object({
   protectedPaths: z.array(z.string()).default([]).transform((p) => (p.includes(".factory/**") ? p : [...p, ".factory/**"])),
   dependencyFiles: z.array(z.string()),
   maxChangedLines: z.number().int().positive().optional(), // no key: no line limit
+  maxRuns: z.number().int().positive().optional(), // active runs at once; no key: MAX_RUNS_PER_REPO (steps/run.ts)
   defaultApprover: real,
   jobImage: z.string().min(1),
   githubRepo: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional(),

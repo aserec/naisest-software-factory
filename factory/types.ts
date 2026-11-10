@@ -21,6 +21,7 @@ export interface Target {
   protectedPaths: string[];
   dependencyFiles: string[];
   maxChangedLines?: number; // undefined: no line limit
+  maxRuns?: number; // active runs at once; undefined: MAX_RUNS_PER_REPO
   defaultApprover: string;
   jobImage: string;
   githubRepo?: string; // owner/name, for the github and github-project trackers

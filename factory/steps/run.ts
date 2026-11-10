@@ -16,6 +16,8 @@ import { startStep } from "./with-step";
 import { controls, facts, person, save, ticketRef, type StepContext, type StepResult } from "./context";
 
 export const MAX_RUNS_PER_REPO = 2;
+// A target's own limit (targets/<name>.yml maxRuns): one whose runs share a fixed port must run alone.
+export const maxRuns = (ctx: Pick<StepContext, "target">): number => ctx.target.maxRuns ?? MAX_RUNS_PER_REPO;
 // A ticket in one of these states already has a run. needs_info, blocked and done do not.
 export const ACTIVE_STATES: FactoryState[] = ["running", "waiting", "stopped", "needs_approval"];
 
@@ -26,7 +28,7 @@ export type StartDecision = { start: true } | { start: false; reason: "not-added
 // (b) pass the state read live from the tracker, not from the event;
 // (c) set the running state before handling the next event;
 // (d) runningInRepo is the number of OTHER active runs in the repo, not counting this ticket.
-export function decideStart(e: FactoryEvent, ctx: { actorTrusted: boolean; state?: FactoryState; runningInRepo: number; openBlockers?: number; epic?: boolean }): StartDecision {
+export function decideStart(e: FactoryEvent, ctx: { actorTrusted: boolean; state?: FactoryState; runningInRepo: number; maxRuns?: number; openBlockers?: number; epic?: boolean }): StartDecision {
   if (e.kind !== "ready") return { start: false, reason: "not-added" };
   if (ctx.epic) return { start: false, reason: "epic" }; // an epic's sub-tickets are the work, also when the epic is ready
   const active = ctx.state !== undefined && ACTIVE_STATES.includes(ctx.state);
@@ -34,7 +36,7 @@ export function decideStart(e: FactoryEvent, ctx: { actorTrusted: boolean; state
   if (ctx.state !== "ready" && !active) return { start: false, reason: "not-ready" };
   if (!ctx.actorTrusted) return { start: false, reason: "not-member" };
   if (active) return { start: false, reason: "active-run" };
-  if (ctx.runningInRepo >= MAX_RUNS_PER_REPO) return { start: false, reason: "repo-full" };
+  if (ctx.runningInRepo >= (ctx.maxRuns ?? MAX_RUNS_PER_REPO)) return { start: false, reason: "repo-full" };
   // A ticket blocked by another waits until that one is merged and closed: its patch would build on code main does not have yet.
   if (ctx.openBlockers) return { start: false, reason: "blocked-by" };
   return { start: true };
@@ -242,7 +244,7 @@ export async function resume(ctx: StepContext, ref: TicketRef, buildRun: string)
   const point = continuePoint(ctx, ref, buildRun, "paused");
   if ("why" in point) return block(ctx, `The factory could not resume this run: ${point.why}. Add factory_ready to start again.`);
   // This ticket is waiting, so it is one of the active runs already.
-  if ((await activeRuns(ctx)) - 1 >= MAX_RUNS_PER_REPO) return noStart("repo-full");
+  if ((await activeRuns(ctx)) - 1 >= maxRuns(ctx)) return noStart("repo-full");
   await ctx.ci.restoreRun(buildRun);
   return continueAt(ctx, ref, point.at, { fromPipeline: buildRun, sessionId: point.sessionId });
 }

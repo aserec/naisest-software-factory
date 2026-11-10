@@ -1,6 +1,6 @@
 // The sandbox rules shared by the agent and by install and gate commands.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTarget } from "./config";
@@ -33,11 +33,18 @@ export const harnessHome = (h: Harness, cwd: string) => join(dirname(cwd), h.hom
 
 // What no sandboxed command (agent Bash, install, gate) may read: /proc (from sandbox-rules.json), the factory checkout's .git (it may hold
 // CI_JOB_TOKEN in its remote URL), the runner's File-variable dir <project dir>.tmp, every harness home (sessions and config).
-export const sandboxDenyRead = (cwd: string) => [...RULES.filesystem.denyRead, `${ROOT}/.git`, `${ROOT}.tmp`, ...Object.values(HARNESS_HOMES).map((h) => join(dirname(cwd), h))];
+// local-factory.sh runs each parallel run in <ROOT>/slots/<slot>: a run there may not read the other slots' harness homes either.
+export const SLOTS_DIR = join(ROOT, "slots");
+const slotRuns = (cwd: string, slots: string) => {
+  if (!cwd.startsWith(slots + "/")) return [];
+  try { return readdirSync(slots).map((s) => join(slots, s, "run")); } catch { return []; }
+};
+export const sandboxDenyRead = (cwd: string, slots = SLOTS_DIR) => [...RULES.filesystem.denyRead, `${ROOT}/.git`, `${ROOT}.tmp`,
+  ...[dirname(cwd), ...slotRuns(cwd, slots)].flatMap((run) => Object.values(HARNESS_HOMES).map((h) => join(run, h)))];
 
 // The clone is <ROOT>/run/target. With blockReadsOutsideWorkingDirectories, a tool that looks for config up the tree
 // (browserslist in a vite build, tsconfig) gets EPERM on ROOT's files and fails. So the agent may read ROOT, but not what
-// git ignores there: .env files, certificates, .cache (the dashboard db), deploy/runner. run/ is the clone's own dir.
+// git ignores there: .env files, certificates, .cache (the dashboard db), deploy/runner. run/ and slots/ hold the clones.
 // ponytail: a checkout without git (a factory image) gets no ROOT read, as before; add a fixed list if one needs it.
 export function rootReads(root = ROOT): { allowRead: string[]; denyRead: string[] } {
   let ignored: string[];
@@ -46,6 +53,6 @@ export function rootReads(root = ROOT): { allowRead: string[]; denyRead: string[
   } catch {
     return { allowRead: [], denyRead: [] };
   }
-  const deny = ignored.filter((p) => p && p !== "run/" && !p.endsWith("node_modules/")).map((p) => join(root, p).replace(/\/$/, ""));
+  const deny = ignored.filter((p) => p && p !== "run/" && p !== "slots/" && !p.endsWith("node_modules/")).map((p) => join(root, p).replace(/\/$/, ""));
   return { allowRead: [root], denyRead: deny };
 }

@@ -111,11 +111,12 @@ const ticketOrGone = (ctx: StepContext, ref: TicketRef) => ctx.tracker.ticket(re
 // marked stopped with a note that it can only be restarted. Then the dashboard hears the request is done.
 // `idle`: local-factory.sh polls between its runs, so no run is alive and no pipeline exists to cancel. A stop that
 // waits there belongs to a run that died (the loop was killed), and it counts as cancelled.
-export async function finishCancelledStops(ctx: StepContext, idle = false): Promise<TicketRef[]> {
+// `alive`: tickets whose local run is still in progress: their stop still reaches the run.
+export async function finishCancelledStops(ctx: StepContext, idle = false, alive: TicketRef[] = []): Promise<TicketRef[]> {
   const control = await controls(ctx);
   const finished: TicketRef[] = [];
   for (const r of control.requests) {
-    if (r.kind !== "stop" || r.doneAt || (r.outcome !== "cancelled" && !idle)) continue;
+    if (r.kind !== "stop" || r.doneAt || (r.outcome !== "cancelled" && !(idle && !alive.includes(r.ticket)))) continue;
     // One failed request must not stop the poller: it is logged and tried again next minute.
     try {
       // First, so the run page offers Restart, not Resume: this run saved nothing to resume from.
@@ -138,9 +139,11 @@ export async function finishCancelledStops(ctx: StepContext, idle = false): Prom
 // The poller, between local-factory.sh's runs only: no run is alive there, so a running ticket lost its run when the
 // loop stopped (a stop, a restart, a reboot). It starts again as a new run for the person who set it ready, as a
 // dashboard Restart would. A ready no trusted person set cannot start: that ticket is blocked for a person to look at.
-export async function restartDeadRuns(ctx: StepContext): Promise<TicketRef[]> {
+// `alive`: tickets local-factory.sh still runs, so their run is not dead.
+export async function restartDeadRuns(ctx: StepContext, alive: TicketRef[] = []): Promise<TicketRef[]> {
   const started: TicketRef[] = [];
   for (const t of await ctx.tracker.list("running")) {
+    if (alive.includes(t.ref)) continue;
     try {
       const { actor } = await readyActor(ctx, t.ref, (await ctx.tracker.startedBy(t.ref)) ?? "");
       const conv = conversation(ctx);

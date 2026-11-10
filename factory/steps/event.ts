@@ -3,7 +3,7 @@ import { buildRunOf } from "./change-text";
 import { answerRequests, requestRound } from "./requests";
 import { isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
 // The start rules sit in run.ts: run.ts cannot import this file, whose isMain line runs at load.
-import { activeRuns, continueBlocked, decideStart, mayStart, readyActor, resume, resumeOnCommand, startRun } from "./run";
+import { activeRuns, continueBlocked, decideStart, maxRuns, mayStart, readyActor, resume, resumeOnCommand, startRun } from "./run";
 
 // Caller side of decideStart's contract: CI runs this job in a resource_group, the state is read live,
 // and the running state is set before the job ends.
@@ -72,6 +72,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     actorTrusted: await mayStart(ctx, e.actor, t),
     state: t.state,
     runningInRepo: await activeRuns(ctx),
+    maxRuns: maxRuns(ctx),
     openBlockers: (await ctx.tracker.openBlockers(e.ticket)).length,
     epic: t.epic,
   });

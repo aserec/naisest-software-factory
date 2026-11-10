@@ -4,12 +4,12 @@ import { makeContext } from "../compose";
 import { conversation } from "../conversation";
 import type { TicketRef } from "../seams";
 import { isMain, switchOn, type StepContext } from "./context";
-import { activeRuns, block, MAX_RUNS_PER_REPO } from "./run";
+import { activeRuns, block, maxRuns } from "./run";
 
 export async function resumeWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if (!(await switchOn(ctx, "retry"))) return [];
   // A waiting run already holds its slot, so resuming it adds no run. Only more than 2 other runs stop it.
-  if ((await activeRuns(ctx)) - 1 >= MAX_RUNS_PER_REPO) return [];
+  if ((await activeRuns(ctx)) - 1 >= maxRuns(ctx)) return [];
   const started: TicketRef[] = [];
   for (const { ref } of await ctx.tracker.list("waiting")) {
     const run = (await conversation(ctx).newest(ref, "waiting"))?.run;

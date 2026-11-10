@@ -10,11 +10,12 @@ import { conversation, later } from "../conversation";
 import { makeContext } from "../compose";
 import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
+import { DEFAULT_PORT, withPort } from "../factory-file";
 import { writeShooter } from "../proof";
 import { modelChoice } from "../config";
 import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
 import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
-import { MAX_FIELD, OFF_UNTIL_SET, type ControlRequest, type TargetSettings } from "../run-events";
+import { LANGUAGES, MAX_FIELD, OFF_UNTIL_SET, type ControlRequest, type TargetSettings } from "../run-events";
 import { DEFAULT_THRESHOLDS, checkThresholds, type Thresholds } from "../thresholds";
 import type { HarnessName } from "../harnesses";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
@@ -51,7 +52,12 @@ const RECORD_TRIES = 8; // about 4 minutes in all
 export const prompt = (name: string) => readFileSync(fileURLToPath(new URL(`../../prompts/${name}.md`, import.meta.url)), "utf8");
 
 // The facts of this run's record, as they are now.
-export const facts = (ctx: StepContext) => runFacts(ctx.record);
+export const facts = (ctx: StepContext) => {
+  const f = runFacts(ctx.record);
+  return { ...f, commands: f.commands && withPort(f.commands, runPort()) };
+};
+// The port {port} in the .factory.yml commands stands for: local-factory.sh gives each slot its own.
+export const runPort = () => process.env.FACTORY_PORT || DEFAULT_PORT;
 export const save = <K extends StepName>(ctx: StepContext, step: K, d: StepData[K]) => void (ctx.record = addStep(ctx.record, step, d));
 export const CONTINUE = "You stopped before you finished. Continue the same task from where you stopped.";
 
@@ -62,11 +68,14 @@ export function ticketRef(ctx: StepContext): TicketRef {
   return ref;
 }
 
-export function ticketText(ctx: StepContext): string {
+export async function ticketText(ctx: StepContext): Promise<string> {
   const t = ctx.record.ticket;
   if (!t) throw new Error("The run record has no triaged ticket");
   // Every agent prompt that writes for people holds the ticket, so the target's language rides along here.
-  const language = ctx.target.language ? `\n\nWrite every text a person reads in ${ctx.target.language}: comments, questions, findings, the commit message and the pull request. Keep code, identifiers and the conventional commit type in English.` : "";
+  // The Settings page's language wins over the target file's; English needs no line, the prompts are English.
+  const code = (await controls(ctx)).settings?.language;
+  const name = code ? LANGUAGES[code] : ctx.target.language;
+  const language = name && name !== LANGUAGES.en ? `\n\nWrite every text a person reads in ${name}: comments, questions, findings, notes for the dashboard, the commit message and the pull request. Keep code, identifiers and the conventional commit type in English.` : "";
   return wrapTicket(`${t.title}\n\n${t.description}`) + language;
 }
 
