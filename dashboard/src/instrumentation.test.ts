@@ -4,7 +4,7 @@ const loops = vi.hoisted(() => ({ stops: vi.fn(async () => {}), dispatches: vi.f
 vi.mock("./server/loop", () => ({ loops, report: (...a: unknown[]) => console.error(...a) }));
 vi.mock("./server/db-instance", () => ({ getDb: () => ({}) }));
 const board = vi.hoisted(() => vi.fn(async () => []));
-vi.mock("./server/compose", () => ({ getCi: () => ({}), getBoard: () => ({ board }), CACHE_MS: 15_000 }));
+vi.mock("./server/compose", () => ({ getCi: () => ({}), getBoard: () => ({ board }), CACHE_MS: 60_000 }));
 
 afterEach(() => {
   vi.useRealTimers();
@@ -14,14 +14,14 @@ afterEach(() => {
   board.mockClear();
 });
 
-it("reads the board at start and every 15 s, so no page waits for the tracker", async () => {
+it("reads the board at start and every 60 s, so no page waits for the tracker", async () => {
   vi.useFakeTimers();
   vi.stubEnv("NEXT_RUNTIME", "nodejs");
   board.mockRejectedValueOnce(new Error("tracker down")); // a failed read does not stop the next ones
   const { register } = await import("./instrumentation");
   await register();
   expect(board).toHaveBeenCalledTimes(1);
-  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.advanceTimersByTimeAsync(120_000);
   expect(board).toHaveBeenCalledTimes(3);
 });
 

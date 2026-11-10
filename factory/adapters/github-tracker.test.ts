@@ -161,6 +161,20 @@ describe("board", () => {
     expect((await t().ticket("8")).state).toBeUndefined(); // the people's Blocked column, and the label does not count on a board
   });
 
+  test("the lists of one poll share one board read, and a state change reads the board again", async () => {
+    graph = (q) => q.includes("projectV2(number") ? project : q.includes("items(first") ? { node: { items: { pageInfo: { hasNextPage: false }, nodes: [
+      { fieldValueByName: { name: "Factory: Ready" }, content: gqlIssue({ number: 9 }) }, { fieldValueByName: { name: "Factory: Needs info" }, content: gqlIssue({ number: 7 }) },
+    ] } } } : q.includes("issue(number") ? { repository: { issue: { ...gqlIssue(), projectItems: { nodes: [{ id: "IT", project: { id: "P" } }] } } } } : {};
+    const tracker = t();
+    const reads = () => calls.filter((c) => String(c.body?.query).includes("items(first")).length;
+    expect((await tracker.list("ready")).map((x) => x.ref)).toEqual(["9"]);
+    expect((await tracker.list("needs_info")).map((x) => x.ref)).toEqual(["7"]);
+    expect(reads()).toBe(1);
+    await tracker.setState("9", "needs_info");
+    await tracker.list("ready");
+    expect(reads()).toBe(2);
+  });
+
   test("an issue with sub-issues is an epic", async () => {
     graph = (q) => q.includes("projectV2(number") ? project : { repository: { issue: { ...gqlIssue({ subIssuesSummary: { total: 3 } }), projectItems: { nodes: [] } } } };
     expect((await t().ticket("8")).epic).toBe(true);

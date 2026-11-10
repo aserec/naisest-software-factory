@@ -83,10 +83,11 @@ export class GitHub {
   // That is safe only because every query and mutation the factory sends is a read or can run twice: adding a card
   // that exists returns it, and setting or clearing a field again changes nothing. A new mutation must be too.
   async graphql(query: string, variables: Record<string, unknown>) {
-    for (let attempt = 1; ; attempt++) {
-      let r;
+    for (let attempt = 1, limited = 1; ; attempt++) {
+      let r, res: Response;
       try {
-        r = await (await this.call("POST", "/graphql", { query, variables }, {}, true)).json();
+        res = await this.call("POST", "/graphql", { query, variables }, {}, true);
+        r = await res.json();
       } catch (e) {
         if (attempt === GQL_TRIES || !/failed with status (502|503|504)$/.test(String(e))) throw e;
         await this.sleep(1000 * 2 ** attempt);
@@ -96,6 +97,14 @@ export class GitHub {
       const message = String(r.errors[0].message);
       // A missing issue or project: NOT_FOUND, "Could not resolve to an Issue ...". Callers check it as a 404.
       if (r.errors[0].type === "NOT_FOUND" || message.startsWith("Could not resolve to ")) throw new HttpError(`GitHub GraphQL failed: ${message.slice(0, 200)}`, 404);
+      // A spent GraphQL budget comes back as status 200 with a RATE_LIMIT error, so call() never waits for it.
+      const limit = r.errors[0].type === "RATE_LIMIT" ? rateLimitWait(new Response(null, { status: 429, headers: res.headers })) : undefined;
+      if (limit !== undefined && limit <= MAX_LIMIT_WAIT && limited++ < LIMIT_TRIES) {
+        console.error(`GitHub GraphQL rate limit: trying again in ${Math.ceil(limit / 1000)} s`);
+        await this.sleep(limit);
+        attempt--;
+        continue;
+      }
       if (attempt === GQL_TRIES || !message.startsWith("Something went wrong")) throw new Error(`GitHub GraphQL failed: ${message.slice(0, 200)}`);
       await this.sleep(1000 * 2 ** attempt);
     }

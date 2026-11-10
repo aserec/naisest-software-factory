@@ -20,7 +20,7 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
   const runs = first ? getDb().runs({ target: first.target, ticket: first.ticket }) : [];
   const summary = runs.find((r) => r.run === run);
   const changes = first ? getDb().stateChanges([first]) : [];
-  // The board is cached for 15 s; without it the page still shows the run, only the triage risk and the change link are missing.
+  // The board is cached for 60 s; without it the page still shows the run, only the triage risk and the change link are missing.
   const item = first && (await getBoard().board().catch(() => [])).find((i) => i.target === first.target && i.ticket === first.ticket);
   const changeUrl = summary?.changeUrl;
   // Review findings link their file into the change's diff once the change exists.

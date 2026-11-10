@@ -14,6 +14,7 @@ const markLabel = (m: Mark) => `factory_${m}`;
 const labelOf = (state: FactoryState) => `factory_${state}`;
 const STATE_LABELS = STATE_ORDER.map(labelOf);
 const columnState = (name: string) => /^factory:\s*(.+)$/i.exec(name.trim())?.[1].toLowerCase().replace(/\s+/g, "_") as FactoryState | undefined;
+const CARDS_TTL = 20_000; // a poll's lists share one board read; a person's move shows on the next poll
 const ignored = (reason: "other-project" | "not-added"): FactoryEvent => ({ kind: "ignored", reason });
 const checked = (text: string) => {
   if (findSecrets(text).length > 0) throw new Error("Refused: the text contains a secret");
@@ -67,6 +68,40 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
     found = undefined; // a failed lookup is tried again on the next call, not kept for the whole run
     throw e;
   }));
+  // The open issues of this repo in a factory column. One read serves every list() for CARDS_TTL, and a state change
+  // drops it: a poll lists about 9 states, and at 441 cards (5 pages, 2 points each) per list both repos together
+  // spent GitHub's 5000 GraphQL points an hour within 30 minutes on 2026-11-10.
+  // ponytail: reads every card; filter with the items(query:) argument if boards grow past a few thousand cards.
+  let read: { at: number; cards: Promise<{ state: FactoryState; issue: Issue }[]> } | undefined;
+  const readCards = async () => {
+    const { id } = await project();
+    const out: { state: FactoryState; issue: Issue }[] = [];
+    for (let after: string | null = null; ;) {
+      const d = await gh.graphql(
+        `query($id: ID!, $after: String) { node(id: $id) { ... on ProjectV2 { items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ${STATUS} content { ... on Issue { ${ISSUE_FIELDS} } } } } } } }`,
+        { id, after },
+      );
+      const items = d.node.items;
+      for (const n of items.nodes) {
+        const c = n.content;
+        const state = n.fieldValueByName && columnState(n.fieldValueByName.name);
+        if (c?.repository?.nameWithOwner === repo && c.state === "OPEN" && state) out.push({ state, issue: fromGraph(c) });
+      }
+      if (!items.pageInfo.hasNextPage) break;
+      after = items.pageInfo.endCursor;
+    }
+    return out;
+  };
+  const cards = () => {
+    if (!read || Date.now() - read.at > CARDS_TTL) {
+      const cards = readCards().catch((e) => {
+        read = undefined; // a failed read is tried again on the next call
+        throw e;
+      });
+      read = { at: Date.now(), cards };
+    }
+    return read.cards;
+  };
   // The issue, its node id, and its card on this board, if any.
   const item = async (ref: string) => {
     const { id } = await project();
@@ -84,6 +119,7 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
       return toTicket(fromGraph(issue), status ? columnState(status.name) ?? null : null);
     },
     async setState(ref: string, state: FactoryState) {
+      read = undefined;
       const p = await project();
       const option = p.options.find((o) => columnState(o.name) === state);
       if (!option) throw new Error(`The GitHub project's Status field has no column for ${state}`);
@@ -95,6 +131,7 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
       );
     },
     async clearState(ref: string) {
+      read = undefined;
       const p = await project();
       const { card } = await item(ref);
       if (!card) return; // not on the board, so no state
@@ -103,23 +140,8 @@ function makeBoard(gh: GitHub, repo: string, number: number) {
         { p: p.id, i: card.id, f: p.field },
       );
     },
-    // ponytail: reads every card each call; filter with the items(query:) argument if boards grow past a few thousand cards.
     async list(state: FactoryState) {
-      const { id } = await project();
-      const out: Issue[] = [];
-      for (let after: string | null = null; ;) {
-        const d = await gh.graphql(
-          `query($id: ID!, $after: String) { node(id: $id) { ... on ProjectV2 { items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { ${STATUS} content { ... on Issue { ${ISSUE_FIELDS} } } } } } } }`,
-          { id, after },
-        );
-        const items = d.node.items;
-        for (const n of items.nodes) {
-          const c = n.content;
-          if (c?.repository?.nameWithOwner === repo && c.state === "OPEN" && n.fieldValueByName && columnState(n.fieldValueByName.name) === state) out.push(fromGraph(c));
-        }
-        if (!items.pageInfo.hasNextPage) break;
-        after = items.pageInfo.endCursor;
-      }
+      const out = (await cards()).filter((c) => c.state === state).map((c) => c.issue);
       return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((i) => toTicket(i, state));
     },
     // Who made the issue's last Status change on this board, if it moved the card to Ready. The Status value's own

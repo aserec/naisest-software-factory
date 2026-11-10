@@ -8,7 +8,9 @@ import { NotSetUp } from "./not-set-up";
 import type { BoardRow, Ci, HostMetrics, Tracker } from "./seams";
 import { readTargets, type CodeHostKey, type TargetInfo, type TrackerKey } from "./targets";
 
-export const CACHE_MS = 15_000;
+// One GitHub board read costs 35 GraphQL points at 441 cards (2026-11-10). At 15 s the dashboard alone spent
+// about 8400 of the token's 5000 points an hour, and the factory's polls failed on the same budget.
+export const CACHE_MS = 60_000;
 const STALE_MS = 10 * 60_000;
 
 const trackers = (fetchFn: typeof fetch): Record<TrackerKey, Tracker> => {
@@ -42,7 +44,7 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
     return (await Promise.all(lists)).flat();
   }
 
-  // The last board that loaded. A GitHub board takes seconds to read, so a request past the 15 s answers with this one
+  // The last board that loaded. A GitHub board takes seconds to read, so a request past the 60 s answers with this one
   // while the new read runs, up to STALE_MS old; past that the request waits, so a broken tracker still shows its error.
   let good: { at: number; rows: BoardRow[] } | undefined;
 
@@ -61,7 +63,7 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
 
 let board: ReturnType<typeof makeBoard> | undefined;
 
-// One instance, so the 15 s board cache is shared by every request.
+// One instance, so the 60 s board cache is shared by every request.
 export const getBoard = () => (board ??= makeBoard());
 
 let ci: Ci | undefined;

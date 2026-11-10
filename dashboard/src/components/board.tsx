@@ -287,7 +287,7 @@ export function Board({ target = "" }: { target?: string }) {
   const board = useBoard();
   const { data: all, error } = board;
   const client = useQueryClient();
-  // Skips the server's 15 s tracker cache, so a card just moved in the tracker shows now.
+  // Skips the server's 60 s tracker cache, so a card just moved in the tracker shows now.
   const refresh = () => client.fetchQuery({ queryKey: ["board"], queryFn: () => loadBoard(true), staleTime: 0 }).catch(() => {});
   const [filter, setFilter] = useFilter();
   const now = useNow();

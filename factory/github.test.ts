@@ -28,6 +28,16 @@ test("a rate-limited call of any method waits for the reset and goes again; a 40
   expect(always.calls()).toBe(3);
 });
 
+test("a spent GraphQL budget, a 200 with a RATE_LIMIT error, waits for the reset and goes again", async () => {
+  const waits: number[] = [];
+  const spent = Response.json({ errors: [{ type: "RATE_LIMIT", message: "API rate limit already exceeded for user ID 1." }] }, { headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 60) } });
+  const responses = [spent, ok];
+  let n = 0;
+  const gh = new GitHub("tok", (async () => responses[n++].clone()) as unknown as typeof fetch, async (ms) => void waits.push(ms));
+  expect(await gh.graphql("{ viewer { login } }", {})).toEqual({ viewer: { login: "bot" } });
+  expect(waits[0]).toBeGreaterThan(55_000);
+});
+
 test("graphql tries GitHub's 'Something went wrong' error again and returns the data", async () => {
   const { gh, calls } = client([wentWrong, wentWrong, ok]);
   expect(await gh.graphql("{ viewer { login } }", {})).toEqual({ viewer: { login: "bot" } });

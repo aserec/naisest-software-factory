@@ -47,13 +47,13 @@ it("another error fails the board", async () => {
   await expect(makeBoard(f).board()).rejects.toThrow();
 });
 
-it("the board is cached for 15 s and a failure is not cached", async () => {
+it("the board is cached for 60 s and a failure is not cached", async () => {
   const f = fakeFetch();
   let t = 1_000_000;
   const board = makeBoard(f, () => new Date(t));
   await board.board();
   const calls = vi.mocked(f).mock.calls.length;
-  t += 14_000;
+  t += 59_000;
   await board.board();
   expect(vi.mocked(f).mock.calls.length).toBe(calls);
   t += 2_000;
@@ -64,7 +64,7 @@ it("the board is cached for 15 s and a failure is not cached", async () => {
   expect(vi.mocked(f).mock.calls.length).toBe(3 * calls);
 
   vi.mocked(f).mockResolvedValueOnce(new Response("no", { status: 500 }));
-  t += 16_000;
+  t += 61_000;
   await expect(board.board(true)).rejects.toThrow();
   const failed = vi.mocked(f).mock.calls.length;
   await board.board();
@@ -72,14 +72,14 @@ it("the board is cached for 15 s and a failure is not cached", async () => {
   expect(vi.mocked(f).mock.calls.length).toBe(failed + calls);
 });
 
-it("past 15 s the board answers with the last one at once and reads the new one behind it", async () => {
+it("past 60 s the board answers with the last one at once and reads the new one behind it", async () => {
   let t = 1_000_000;
   let release = () => {};
   const f = vi.fn(fakeFetch());
   const board = makeBoard(f, () => new Date(t));
   const first = await board.board();
 
-  t += 16_000;
+  t += 61_000;
   const gate = new Promise<void>((r) => (release = r));
   const real = f.getMockImplementation()!;
   f.mockImplementation(async (...a) => (await gate, real(...a)));
