@@ -25,7 +25,7 @@ import { addKnownSecrets } from "./rules";
 import { ADAPTER_SECRETS, FILE_SECRETS } from "./secrets";
 import type { StepContext } from "./steps/context";
 import { FACTORY_ROOT } from "./repo";
-import type { Chat } from "./seams";
+import type { Chat, CodeHost } from "./seams";
 import type { SeamsConfig, Target } from "./types";
 
 // Adapter names in seams.yml, and what each one builds. A new adapter is one line here.
@@ -84,6 +84,18 @@ function forTarget(name: string, base: SeamsConfig) {
   return { target, seams: { ...base, tracker: target.tracker ?? base.tracker, codeHost: target.codeHost ?? base.codeHost } };
 }
 
+// A resumed or repeated step posts its comment again. Skip it when the newest comment on the change is already this factory comment.
+export function commentOnce(host: CodeHost): CodeHost {
+  return {
+    ...host,
+    async commentChange(ref, text) {
+      const [newest] = await host.changeComments(ref);
+      if (newest?.byFactory && newest.body.trim().endsWith(text.trim())) return;
+      await host.commentChange(ref, text);
+    },
+  };
+}
+
 // seamsPath is for tests. seams.yml is read from the factory checkout only, never chosen by a variable.
 export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string): StepContext {
   const name = needEnv(env, "FACTORY_TARGET");
@@ -112,7 +124,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
   addKnownSecrets(...Object.values(secrets), ...providerKeys(seams).map((k) => env[k]));
   if (env.CI_JOB_IMAGE && env.CI_JOB_IMAGE !== target.jobImage) throw new Error(`The job runs image ${env.CI_JOB_IMAGE}, but target ${name} names ${target.jobImage}`);
   const dir = resolve(RUN_DIR, "target");
-  const codeHost = make.codeHost(secrets[ADAPTER_SECRETS.codeHost[seams.codeHost]], target, env);
+  const codeHost = commentOnce(make.codeHost(secrets[ADAPTER_SECRETS.codeHost[seams.codeHost]], target, env));
   return {
     tracker: make.tracker(secrets[ADAPTER_SECRETS.tracker[seams.tracker]], target),
     codeHost,
