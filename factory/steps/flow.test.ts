@@ -1337,6 +1337,24 @@ test("a check-only review after a gate fix that fails blocks after 5 rounds, not
   expect(w.workItemComments.at(-1)).toBe(noteText({ kind: "blocked", reason: "Code review did not pass after 5 rounds.\n\n**Open findings**\n\n- the list never shows the spinner", run: "1" }));
   expect(w.record.rounds.review).toBe(5);
 });
+test("a blocking code review tells the open change of a re-run too", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], [B], [B], [B], [B]] });
+  await w.host.openChange("factory/8-add-a-loading-state", "Add a loading state", "", "8");
+  await runBuildJobs(w);
+  expect(w.mrComments.at(-1)).toContain("Code review did not pass after 5 rounds");
+  expect(w.mrComments.at(-1)).toContain("the list never shows the spinner");
+});
+test("a red precommit gate tells the open change too, and a triage block does not", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, lintFails: 5 });
+  await w.host.openChange("factory/8-add-a-loading-state", "Add a loading state", "", "8");
+  await runBuildJobs(w);
+  expect(w.mrComments.at(-1)).toContain("not green after 5 rounds");
+  const t = fakeWorld({ jev1: "throw" });
+  await t.host.openChange("factory/8-add-a-loading-state", "Add a loading state", "", "8");
+  await runBuildJobs(t);
+  expect(t.workItemComments.at(-1)).toContain("HTTP 503");
+  expect(t.mrComments).toEqual([]);
+});
 test("maxAgentRounds from the settings limits the code review rounds", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 2 } }, reviews: [[B], [B], [B]] }));
   expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 2 rounds");

@@ -94,6 +94,7 @@ export const BUILD_STEPS: readonly string[] = STEPS.slice(0, STEPS.indexOf("appl
 export const FINISH_STEPS: readonly string[] = STEPS.slice(STEPS.indexOf("apply"));
 // A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
 const CONTINUABLE = BUILD_STEPS.slice(2);
+const CODE_STEPS: readonly string[] = STEPS.slice(STEPS.indexOf("prepare-patch"));
 
 // A resumed run skips the build jobs that finished before the one it continues at.
 export function doneBeforeResume(ctx: StepContext, name: string): boolean {
@@ -111,6 +112,11 @@ export async function block(ctx: StepContext, reason: string, { continuable = CO
   await ctx.tracker.setState(ref, "blocked");
   endRun(ctx, "blocked");
   await conversation(ctx).write(ref, { kind: "blocked", reason, ...(continuable ? { run: ctx.ci.vars.run ?? "unknown" } : {}) });
+  // A block about the code goes on the open change too, where people read the code. No run line there: continuing stays on the work item.
+  if (CODE_STEPS.includes(ctx.job ?? ctx.step ?? "")) {
+    const change = await ctx.codeHost.changeOfTicket(ref);
+    if (change?.open) await conversation(ctx).writeOnChange(change.ref, { kind: "blocked", reason });
+  }
   await ctx.tracker.assign(ref, person(ctx, t));
   await ctx.chat.notify("blocked", t.title, [reason], t.url);
   return "stop";
