@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import type { Theme } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 import { AgentChat, useChatOpen } from "./agent-chat";
-import { needsYou, useBoard } from "./board";
+import { WAITING, useBoard } from "./board";
 import { Notifications } from "./notifications";
 import { UsageLimits } from "./usage-limits";
 import { usePreferences } from "./use-preferences";
@@ -79,7 +79,6 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
   const on = (href: string) => path === href || path.startsWith(`${href}/`);
   // The same board query the bell reads, so the counts cost no extra fetch.
   const { data } = useBoard();
-  const waiting = Array.isArray(data) ? needsYou(data) : [];
   return (
     <nav aria-label="Main" className="isolate flex flex-col gap-0.5">
       <NavLink href="/" active={path === "/" || path.startsWith("/runs/")} icon={LayoutList}>
@@ -89,10 +88,11 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
         <ul className="ml-[17px] flex flex-col gap-0.5 border-l border-border pl-2">
           {boards.map((b) => {
             const href = `/boards/${encodeURIComponent(b)}`;
-            const mine = Array.isArray(data) ? data.filter((i) => i.target === b && !i.closed && !waiting.includes(i)) : [];
+            // The board's own columns, so a stuck run counts as running, where its card sits.
+            const mine = Array.isArray(data) ? data.filter((i) => i.target === b && !i.closed) : [];
             // Waiting on you (yellow), then running (green), then ready (blue). A zero badge stays grey so only live counts take a colour.
             const counts = [
-              [waiting.filter((i) => i.target === b).length, "waiting on you", "bg-pill-warning text-pill-warning-ink"],
+              [mine.filter((i) => WAITING.includes(i.state)).length, "waiting on you", "bg-pill-warning text-pill-warning-ink"],
               [mine.filter((i) => i.state === "running").length, "running", "bg-pill-positive text-pill-positive-ink"],
               [mine.filter((i) => i.state === "ready").length, "ready", "bg-pill-info text-pill-info-ink"],
             ] as const;

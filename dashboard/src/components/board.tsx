@@ -66,7 +66,7 @@ export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }
 }
 
 // Ongoing tab. Left: the states that wait for a person. Right: the ones the factory is working through.
-const WAITING: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked"];
+export const WAITING: FactoryState[] = ["needs_approval", "needs_info", "stopped", "blocked"];
 const SIDES: [string, FactoryState[]][] = [
   ["Waiting on you", WAITING],
   ["With the factory", ["running", "waiting", "ready"]],

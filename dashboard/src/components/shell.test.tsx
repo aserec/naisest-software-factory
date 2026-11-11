@@ -66,7 +66,7 @@ test("each target's board shows how many wait on you, run, and are ready", async
   renderWithQuery(<Shell signOut={async () => {}} boards={["api", "api2"]}>x</Shell>);
   const nav = (await screen.findAllByRole("navigation", { name: "Main" }))[0];
   const link = (b: string) => within(nav).getAllByRole("link").find((l) => l.getAttribute("href") === `/boards/${b}`)?.textContent;
-  await waitFor(() => expect(link("api")).toBe("api3 waiting on you1 running2 ready"));
+  await waitFor(() => expect(link("api")).toBe("api2 waiting on you2 running2 ready"));
   expect(link("api2")).toBe("api20 waiting on you1 running0 ready");
 });
 
