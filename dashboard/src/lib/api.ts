@@ -3,7 +3,8 @@
 export async function api(url: string, init?: RequestInit): Promise<Response> {
   const r = await fetch(url, init);
   if (r.status === 401) {
-    window.location.assign("/sign-in");
+    // Already on sign-in: a hook there that calls the API would reload the page forever.
+    if (window.location.pathname !== "/sign-in") window.location.assign("/sign-in");
     throw new Error("Signed out. Sign in again.");
   }
   return r;
