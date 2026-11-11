@@ -2,6 +2,7 @@ import { workItemKey } from "@/lib/utils";
 import type { Db } from "./db";
 import type { BoardRow } from "./seams";
 import type { TargetInfo } from "./targets";
+import { stepLimit } from "./run-view";
 
 // The board's work items, each with what its newest run shows: cost, step, whether it is stuck, the change to review.
 export function boardWithRuns(items: BoardRow[], db: Db, targets: TargetInfo[], now: Date) {
@@ -20,7 +21,7 @@ export function boardWithRuns(items: BoardRow[], db: Db, targets: TargetInfo[], 
     const live = open && view && !view.paused && view.lastStep && !view.lastStep.ended ? view.lastStep : undefined;
     return {
       ...i, run: r?.run, costUsd: r?.costUsd, stuck: !!view?.stuck,
-      step: open ? r.lastStep?.step : undefined, reached: r?.lastStep?.step, stepStartedAt: live?.startedAt, stepLimit: live && limits.get(i.target)?.[live.step],
+      step: open ? r.lastStep?.step : undefined, reached: r?.lastStep?.step, stepStartedAt: live?.since, stepLimit: live && stepLimit(live, limits.get(i.target) ?? {}),
       // A person who moved the card by hand sent no label_change, so the factory's last change counts only when it matches the card's state.
       stateSince: change?.state === i.state ? change.at : undefined,
       round: r?.round, mergeRisk: r?.mergeRisk, mergeRiskMax: r?.mergeRiskMax, 

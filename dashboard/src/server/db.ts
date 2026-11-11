@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type { z } from "zod";
 import { defaultSwitches, type AgentPlan, type planProposal, type PlanState, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings, type UsageLimits } from "software-factory/run-events";
-import { labelState, runView, trackStep, type RunView } from "./run-view";
+import { labelState, runView, trackStep, type LastStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
 
 export interface RunSummary {
@@ -15,7 +15,7 @@ export interface RunSummary {
   endedAt?: string;
   outcome?: string;
   costUsd: number;
-  lastStep?: { step: string; startedAt: string; ended: boolean };
+  lastStep?: LastStep;
   round?: number; // the highest code-review round with a finding
   mergeRisk?: number; // Jev 2's diff_risk, from the decision event
   mergeRiskMax?: number; // the target's diffRiskMax, from the decision event

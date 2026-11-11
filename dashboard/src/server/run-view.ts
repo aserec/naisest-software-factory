@@ -4,7 +4,9 @@ import { STATES, type ControlRequest, type FactoryState, type RunEvent } from "s
 // Pure, so the server (db.request, the routes) and the run page read the same answer.
 
 export type Action = ControlRequest["kind"]; // stop | resume | restart | ready
-export interface LastStep { step: string; startedAt: string; ended: boolean }
+// since and inner time the open round: a gate runs patch rounds inside it, and each round gets its own limit (run 556's
+// gate was called stuck 10 s into its fourth round, 50 min after the gate first started).
+export interface LastStep { step: string; startedAt: string; ended: boolean; since: string; inner?: string }
 
 export interface RunView {
   state?: FactoryState; // the run's newest label_change, else the fallback
@@ -35,10 +37,14 @@ const ACTIONS: Action[] = ["stop", "resume", "restart", "ready"];
 /** The last step after one more event. A patch runs inside code review or the gate, and a code review inside the gate, so the outer step stays the last step. */
 export function trackStep(last: LastStep | undefined, e: { type: string; step?: string; at: string }): LastStep | undefined {
   const nested = e.step === "patch" || (e.step === "code-review" && last?.step === "precommit-gate" && !last.ended);
-  if (e.type === "step_start" && !nested) return { step: e.step ?? "", startedAt: e.at, ended: false };
+  if (e.type === "step_start" && !nested) return { step: e.step ?? "", startedAt: e.at, ended: false, since: e.at };
   if (e.type === "step_end" && last && last.step === (e.step ?? "")) return { ...last, ended: true };
+  if (nested && last && !last.ended) return { ...last, since: e.at, inner: e.type === "step_start" ? e.step : undefined };
   return last;
 }
+
+// The limit of the round that runs now: the nested step's while one runs, else the step's own.
+export const stepLimit = (l: LastStep, limits: Record<string, number>): number | undefined => limits[l.inner ?? l.step];
 
 // The one place that reads a label_change state. Rows saved before the factory dropped the prefix hold the tracker's label name, factory_<state>.
 export const labelState = (to: string) => STATES.find((s) => s === to.replace(/^factory_/, ""));
@@ -54,8 +60,8 @@ export function runView({ events, requests = [], newer = false, limits = {}, now
   }
   state ??= fallback;
   const paused = !!state && PAUSED.includes(state);
-  const limit = lastStep && limits[lastStep.step];
-  const stuck = !ended && !paused && !!lastStep && !lastStep.ended && limit !== undefined && now.getTime() - Date.parse(lastStep.startedAt) > limit * 60_000;
+  const limit = lastStep && stepLimit(lastStep, limits);
+  const stuck = !ended && !paused && !!lastStep && !lastStep.ended && limit !== undefined && now.getTime() - Date.parse(lastStep.since) > limit * 60_000;
 
   const cancelled = requests.some((r) => r.kind === "stop" && r.outcome === "cancelled");
   const restarted = requests.some((r) => r.kind === "restart" && r.outcome === "done");

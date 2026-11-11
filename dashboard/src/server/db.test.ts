@@ -195,7 +195,7 @@ describe("runs", () => {
       ev("run_start", {}, { run: "r2", target: "other", ticket: "T-2" }),
     ]);
     expect(db.runs({ ticket: "T-1" })).toEqual([
-      { run: "r1", target: "react_frontend", ticket: "T-1", startedAt: at(1), costUsd: 0.75, lastStep: { step: "prepare-patch", startedAt: at(1, 2), ended: false } },
+      { run: "r1", target: "react_frontend", ticket: "T-1", startedAt: at(1), costUsd: 0.75, lastStep: { step: "prepare-patch", startedAt: at(1, 2), ended: false, since: at(1, 2) } },
     ]);
     db.addEvents([ev("step_end", { outcome: "stop" }, { step: "prepare-patch" }), ev("run_end", { outcome: "done" }, { at: at(1, 3) })]);
     expect(db.runs({ target: "react_frontend" })[0]).toMatchObject({ endedAt: at(1, 3), outcome: "done", lastStep: { step: "prepare-patch", ended: true } });
@@ -260,7 +260,7 @@ describe("runs", () => {
       ev("step_start", { prompt: "fix it" }, { step: "patch", at: at(1, 2) }),
       ev("step_end", { outcome: "next" }, { step: "patch", at: at(1, 3) }),
     ]);
-    expect(db.runs({ ticket: "T-1" })[0].lastStep).toEqual({ step: "code-review", startedAt: at(1, 1), ended: false });
+    expect(db.runs({ ticket: "T-1" })[0].lastStep).toMatchObject({ step: "code-review", startedAt: at(1, 1), ended: false });
   });
 
   it("keeps the highest review round and the decision's merge risk and merge request", () => {

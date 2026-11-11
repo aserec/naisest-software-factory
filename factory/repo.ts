@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { SANDBOX_RULES_PATH, localCorepackHome, sandboxDenyRead, testEnv } from "./sandbox";
 import { SRT } from "./srt";
 import { withBrowserServer } from "./browser-server";
+import { DEFAULT_PORT } from "./factory-file";
 import type { Repo } from "./seams";
 
 // One word for sh, safe for spaces, quotes and backslashes.
@@ -20,15 +21,44 @@ export const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 export const FACTORY_GIT_EMAIL = "factory@noreply.invalid"; // the author of every commit the factory makes
 export const FACTORY_ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 
-export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
+// With timeoutMs the command gets its own process group. Past the limit the whole group is killed, and once the command
+// ends any process it left in its group is killed too, so a hung test (ticket 556) cannot hold a run forever.
+export function sh(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs?: number): Promise<{ code: number | null; out: string }> {
   return new Promise((done, fail) => {
-    const p = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const p = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: timeoutMs !== undefined });
     let out = "";
+    const killGroup = () => {
+      try {
+        process.kill(-p.pid!, "SIGKILL");
+      } catch {} // the group is already gone
+    };
+    const timer = timeoutMs === undefined ? undefined : setTimeout(() => ((out += `\n[factory] stopped after ${timeoutMs / 60000} min with no end\n`), killGroup()), timeoutMs);
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (out += d));
-    p.on("error", fail);
-    p.on("close", (code) => done({ code, out }));
+    p.on("error", (e) => (clearTimeout(timer), fail(e)));
+    p.on("close", (code) => {
+      clearTimeout(timer);
+      if (timeoutMs !== undefined) killGroup();
+      done({ code, out });
+    });
   });
+}
+
+// Kills whatever listens on port, with its process group. A dev server that a killed run left behind answers no request,
+// and Playwright's reuseExistingServer waits on it forever (ticket 556). Nothing of this run listens there yet.
+// The factory's own group is never killed. A missing lsof or ps just skips it.
+export async function freePort(port: string): Promise<void> {
+  const env = { PATH: process.env.PATH };
+  const ids = async (args: string[]) => (await sh(args[0], args.slice(1), "/", env).catch(() => ({ out: "" }))).out.split(/\s+/).filter(Boolean).map(Number);
+  const pids = await ids(["lsof", "-ti", `tcp:${port}`, "-sTCP:LISTEN"]);
+  if (!pids.length) return;
+  const [own] = await ids(["ps", "-o", "pgid=", "-p", String(process.pid)]);
+  for (const pid of pids) {
+    const [group] = await ids(["ps", "-o", "pgid=", "-p", String(pid)]);
+    try {
+      process.kill(group && group !== own ? -group : pid, "SIGKILL");
+    } catch {} // it ended by itself
+  }
 }
 
 // Sandbox settings for install and gate commands: the shared network allowlist, no /proc,
@@ -48,6 +78,9 @@ export function sandboxSettings(dir: string, home: string, store?: string, platf
   };
 }
 
+// The longest one target command (install, lint, test, build) may take.
+const COMMAND_LIMIT_MS = 30 * 60_000;
+
 // Runs a target command (install, lint, test, build) inside @anthropic-ai/sandbox-runtime.
 async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
   // ponytail: local runs only (local-run.sh sets it; the CI job env list never passes it). One shared store, so an
@@ -64,7 +97,9 @@ async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
     const script = store ? `cd ${shellQuote(dir)} && ${cmd}` : cmd;
     // The target's Playwright tests reach a browser outside the sandbox (see browser-server.ts).
     const corepack = localCorepackHome(env);
-    return await withBrowserServer(dir, env, (browser) => sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { ...testEnv(env), PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }), ...(corepack && { COREPACK_HOME: corepack }), ...browser }));
+    // ponytail: local runs only. A CI job gets a new VM, so nothing is left on its port.
+    if (store) await freePort(env.FACTORY_PORT || DEFAULT_PORT);
+    return await withBrowserServer(dir, env, (browser) => sh(SRT, ["--settings", settings, "-c", script], store ? home : dir, { ...testEnv(env), PATH: env.PATH, LANG: env.LANG, HOME: home, ...(store && { pnpm_config_store_dir: store }), ...(corepack && { COREPACK_HOME: corepack }), ...browser }, COMMAND_LIMIT_MS));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

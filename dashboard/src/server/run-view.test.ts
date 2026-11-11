@@ -84,11 +84,20 @@ describe("stuck", () => {
 
   it("keeps the outer step as the last step while a patch step runs", () => {
     const events = [step(130, { step: "code-review" }), ev("step_start", {}, { step: "patch", at: ago(10) })];
-    expect(view({ events, limits: { "code-review": 120 } })).toMatchObject({ lastStep: { step: "code-review", ended: false }, stuck: true });
+    expect(view({ events, limits: { "code-review": 120 } })).toMatchObject({ lastStep: { step: "code-review", ended: false, inner: "patch" }, stuck: false });
+    expect(view({ events, limits: { "code-review": 120, patch: 5 } }).stuck).toBe(true);
   });
 
   it("keeps the gate as the last step while the review inside it runs", () => {
     const events = [step(130, { step: "precommit-gate" }), ev("step_start", {}, { step: "code-review", at: ago(10) }), ev("step_end", { outcome: "next" }, { step: "code-review", at: ago(5) })];
-    expect(view({ events, limits: { "precommit-gate": 120 } })).toMatchObject({ lastStep: { step: "precommit-gate", ended: false }, stuck: true });
+    expect(view({ events, limits: { "precommit-gate": 120 } })).toMatchObject({ lastStep: { step: "precommit-gate", ended: false }, stuck: false });
+    expect(view({ events, limits: { "precommit-gate": 4 } }).stuck).toBe(true);
+  });
+
+  it("times each gate round from its own start, not from the gate's first start", () => {
+    const gate = { step: "precommit-gate" };
+    const events = [step(50, gate), ev("step_start", {}, { step: "patch", at: ago(40) }), ev("step_end", { outcome: "next" }, { step: "patch", at: ago(1) })];
+    expect(view({ events, limits: { "precommit-gate": 30 } })).toMatchObject({ lastStep: { step: "precommit-gate", startedAt: ago(50), since: ago(1) }, stuck: false });
+    expect(view({ events: [...events.slice(0, 2)], limits: { "precommit-gate": 30, patch: 30 } }).stuck).toBe(true);
   });
 });

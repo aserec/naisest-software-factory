@@ -44,7 +44,7 @@ test("a run counts in its bucket by what the decision said, and runs outside the
   const runs = [
     run("a", "2026-11-03T10:00:00Z", { endedAt: "2026-11-03T10:30:00Z", outcome: "done", costUsd: 2 }),
     run("b", "2026-11-04T10:00:00Z", { costUsd: 4 }),
-    run("c", "2026-10-28T10:00:00Z", { endedAt: "2026-10-28T11:00:00Z", outcome: "blocked", lastStep: { step: "code-review", startedAt: "", ended: true } }),
+    run("c", "2026-10-28T10:00:00Z", { endedAt: "2026-10-28T11:00:00Z", outcome: "blocked", lastStep: { step: "code-review", startedAt: "", ended: true, since: "" } }),
     run("old", "2026-01-01T10:00:00Z"),
   ];
   const events = [ev("a", "2026-11-03T10:20:00Z", "decision", "decision", { auto: true, reasons: [] }), ev("b", "2026-11-04T10:20:00Z", "decision", "decision", { auto: false, reasons: [] })];

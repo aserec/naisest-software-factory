@@ -36,6 +36,7 @@ export const DIFF_RISK_MAX = 4;
 export const STUCK_MINUTES: Record<string, number> = {
   triage: 5,
   "prepare-patch": 120,
+  patch: 120, // a fix round inside code review or the gate
   "code-review": 20,
   "precommit-gate": 30,
   "risk-check": 10,

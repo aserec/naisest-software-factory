@@ -1,10 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { gitRepo, sandboxSettings } from "./repo";
+import { freePort, gitRepo, sandboxSettings, sh } from "./repo";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
@@ -296,4 +296,25 @@ test("mergeBase merges the moved base branch into the work tree, lists the confl
   expect((await repo.diff()).numstat).not.toContain("theirs.txt");
   const sha = await repo.commitAndPush("factory/8-test", "change");
   expect(git(server, "rev-parse", `${sha}^`)).toBe(newBase);
+});
+
+test("a command past its limit is stopped, with the processes it started", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "repo-test-"));
+  const started = Date.now();
+  // The child writes a file after 2 s: if the group kill missed it, the file appears.
+  const r = await sh("sh", ["-c", `(sleep 2; touch ${dir}/late) & sleep 30`], dir, { PATH: process.env.PATH }, 300);
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(r.code).toBeNull();
+  expect(r.out).toContain("stopped after");
+  await new Promise((ok) => setTimeout(ok, 2500));
+  expect(existsSync(join(dir, "late"))).toBe(false);
+});
+
+test("freePort kills a server left on the port, with its process group", async () => {
+  const server = spawn(process.execPath, ["-e", "require('net').createServer().listen(0, '127.0.0.1', function () { console.log(this.address().port) })"], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
+  const port = await new Promise<string>((ok) => server.stdout!.once("data", (d) => ok(String(d).trim())));
+  const ended = new Promise((ok) => server.on("exit", ok));
+  await freePort(port);
+  await ended;
+  expect(server.signalCode).toBe("SIGKILL");
 });

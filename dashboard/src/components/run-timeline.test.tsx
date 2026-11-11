@@ -277,7 +277,7 @@ test("Cost by model shows the run's tokens and cost per role and model, with a t
 test("Earlier runs lists the work item's other runs with a link each, and is hidden when there are none", async () => {
   stream(events);
   const earlier = [
-    { run: "r0", target: "t", ticket: "7", startedAt: "2026-10-28T09:00:00Z", outcome: "blocked", costUsd: 3.2, lastStep: { step: "code-review", startedAt: "", ended: true } },
+    { run: "r0", target: "t", ticket: "7", startedAt: "2026-10-28T09:00:00Z", outcome: "blocked", costUsd: 3.2, lastStep: { step: "code-review", startedAt: "", ended: true, since: "" } },
     { run: "r-1", target: "t", ticket: "7", startedAt: "2026-10-27T09:00:00Z", costUsd: 0 },
   ];
   renderWithQuery(<RunTimeline run="r1" earlier={earlier} />);
