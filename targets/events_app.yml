@@ -1,0 +1,34 @@
+name: events_app
+# Tickets are cards on aserec's own board, and changes are pull requests: both need FACTORY_GITHUB_TOKEN.
+# The board is owned by a user, so the token must be a classic one with the repo and project scopes.
+tracker: github-project
+codeHost: github
+githubRepo: aserec/events-app
+githubProject: 3 # https://github.com/users/aserec/projects/3, a copy of the musicapp board's columns
+projectPath: aserec/events-app # GitLab adapters only; the github ones use githubRepo
+baseBranch: main
+defaultApprover: aserec
+# The agents write comments, questions, commit messages and pull requests in this language. No key: English.
+language: Spanish
+# The token is aserec's own until the factory gets its own GitHub account: aserec's Ready counts. Remove it then.
+sharedAccount: true
+jobImage: gitlab.example.com:5050/ceresa/software-factory/job:main
+protectedPaths:
+  - ".github/**"
+  - "**/.env*"
+  - "src/events/sql/**"
+  - ".factory.yml"
+  - CLAUDE.md
+  - AGENTS.md
+  - ".claude/**"
+  - ".agents/**"
+  - ".cursor/**"
+  - "**/.gitattributes"
+  - ".factory/**"
+# Local runs share the repo's compose Postgres with pgvector (port 5435): each ticket gets its own test database,
+# which the test command in the target's settings creates when it is missing.
+testEnv:
+  TEST_DATABASE_URL: postgresql://events:events@127.0.0.1:5435/events_t{ticket}_test
+dependencyFiles:
+  - "pyproject.toml"
+  - "uv.lock"
