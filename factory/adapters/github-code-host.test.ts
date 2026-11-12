@@ -104,14 +104,16 @@ describe("checks", () => {
   });
   test("no checks yet, or one still in progress, is running", async () => {
     withChecks([]);
-    routes[`${R}/actions/workflows`] = { workflows: [{ state: "disabled_manually" }, { state: "active" }] };
+    routes[`${R}/actions/workflows`] = { workflows: [{ state: "disabled_manually", path: ".github/workflows/old.yml" }, { state: "active", path: ".github/workflows/ci.yml" }] };
+    routes[`${R}/contents/.github/workflows`] = [{ path: ".github/workflows/ci.yml" }];
     expect(await host().checks({ change: "5", sha: "h" })).toBe("running");
     withChecks([{ status: "in_progress", conclusion: null }]);
     expect(await host().checks({ branch: "develop", sha: "h" })).toBe("running");
   });
   test("a pull request with conflicts and no checks gives no result at once: GitHub runs no pull request CI on it", async () => {
     withChecks([]);
-    routes[`${R}/actions/workflows`] = { workflows: [{ state: "active" }] };
+    routes[`${R}/actions/workflows`] = { workflows: [{ state: "active", path: ".github/workflows/ci.yml" }] };
+    routes[`${R}/contents/.github/workflows`] = [{ path: ".github/workflows/ci.yml" }];
     routes[`${R}/pulls/5`] = { head: { sha: "h" }, mergeable: false, mergeable_state: "dirty" };
     expect(await host().checks({ change: "5", sha: "h" })).toBe("none");
   });
@@ -120,6 +122,15 @@ describe("checks", () => {
     routes[`${R}/actions/workflows`] = { workflows: [{ state: "disabled_manually" }] };
     expect(await host().checks({ change: "5", sha: "h" })).toBe("absent");
     delete routes[`${R}/actions/workflows`];
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("running");
+  });
+  test("an active workflow whose file is only on another branch is absent: the commit gets no check from it", async () => {
+    withChecks([]);
+    routes[`${R}/actions/workflows`] = { workflows: [{ state: "active", path: ".github/workflows/ci.yml" }] };
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("absent");
+    routes[`${R}/contents/.github/workflows`] = [{ path: ".github/workflows/other.yml" }];
+    expect(await host().checks({ change: "5", sha: "h" })).toBe("absent");
+    routes[`${R}/contents/.github/workflows`] = [{ path: ".github/workflows/ci.yml" }];
     expect(await host().checks({ change: "5", sha: "h" })).toBe("running");
   });
   test("a canceled check gives no result on the base branch, and is red on a change", async () => {

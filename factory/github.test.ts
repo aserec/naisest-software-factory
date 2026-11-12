@@ -85,3 +85,9 @@ test("a request that never reached GitHub is tried again, for any method; other 
   await expect(new GitHub("tok", gone, async () => {}).graphql("{ viewer { login } }", {})).rejects.toThrow("fetch failed");
   expect(k).toBe(8);
 });
+
+test("a 4xx error names GitHub's reason, so a 422 says which field it rejects", async () => {
+  const body = JSON.stringify({ message: "Validation Failed", errors: [{ field: "state" }] });
+  const gh = new GitHub("tok", (async () => new Response(body, { status: 422 })) as unknown as typeof fetch, async () => {});
+  await expect(gh.call("PATCH", "/repos/a/b/issues/8", { state: "closed" })).rejects.toThrow('failed with status 422: {"message":"Validation Failed"');
+});

@@ -52,7 +52,11 @@ export class GitHub {
         attempt--;
         continue;
       }
-      if (method !== "GET" || once || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) throw new HttpError(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}`, res.status);
+      if (method !== "GET" || once || attempt === 3 || ![429, 502, 503, 504].includes(res.status)) {
+        // A 4xx body says why, such as the field a 422 rejects. A 5xx keeps the bare message: graphql() retries on its ending.
+        const why = res.status < 500 ? await res.text().then((t) => (t ? `: ${t.slice(0, 300)}` : ""), () => "") : "";
+        throw new HttpError(`GitHub ${method} ${path.split("?")[0]} failed with status ${res.status}${why}`, res.status);
+      }
       await this.sleep(1000 * attempt);
     }
   }

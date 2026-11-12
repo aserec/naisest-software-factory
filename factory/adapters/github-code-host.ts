@@ -15,8 +15,16 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
   const r = `/repos/${repo}`;
   const pr = (ref: string) => `${r}/pulls/${Number(ref)}`;
   const opened = (p: any) => ({ ref: String(p.number), url: p.html_url as string });
-  let workflows: Promise<boolean> | undefined;
-  const hasWorkflows = () => (workflows ??= gh.json("GET", `${r}/actions/workflows?per_page=100`).then((w) => w.workflows.some((x: any) => x.state === "active"), () => true));
+  let workflows: Promise<string[] | undefined> | undefined;
+  // An active workflow whose file is in the commit. GitHub lists a workflow pushed on any branch as active, and a
+  // commit without its file gets no check from it. A list or folder it cannot read counts as a workflow.
+  const hasWorkflows = async (sha: string) => {
+    const active: string[] | undefined = await (workflows ??= gh.json("GET", `${r}/actions/workflows?per_page=100`).then((w) => w.workflows.filter((x: any) => x.state === "active").map((x: any) => x.path), () => undefined));
+    if (!active) return true;
+    if (active.length === 0) return false;
+    const files: string[] | undefined = await gh.json("GET", `${r}/contents/.github/workflows?ref=${sha}`).then((f: any[]) => f.map((x) => x.path as string), (e) => (isNotFound(e) ? [] : undefined));
+    return !files || active.some((path) => files.includes(path));
+  };
   const head = async (ref: string) => (await gh.json("GET", pr(ref))).head.sha as string;
   const branchSha = async (branch: string) => (await gh.json("GET", `${r}/git/ref/heads/${branch}`)).object.sha as string;
   const newBranch = (branch: string, sha: string) => gh.json("POST", `${r}/git/refs`, { ref: `refs/heads/${branch}`, sha });
@@ -57,7 +65,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
       if (results.includes("cancelled")) return "change" in at ? "red" : "none";
       // A repo with no active Actions workflow gets no check: say so now, not after the hour waitFor would wait.
       // ponytail: an outside app (Vercel and others) that posts statuses late is missed; it counts as no checks.
-      if (results.length === 0 && !(await hasWorkflows())) return "absent";
+      if (results.length === 0 && !(await hasWorkflows(at.sha))) return "absent";
       // GitHub runs no pull request CI while the change conflicts with its base: no result, so a person gets it and a conflict round starts.
       if (results.length === 0 && (p?.mergeable === false || p?.mergeable_state === "dirty")) return "none";
       if (results.length === 0 || results.some((s) => s === "pending" || s === "queued" || s === "in_progress")) return "running";
