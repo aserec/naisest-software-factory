@@ -47,7 +47,8 @@ ready() { # $1 target, $2 its tickets that run now, comma-separated
 max_runs() { local n; n=$(sed -n 's/^maxRuns: *\([0-9][0-9]*\).*/\1/p' "targets/$1.yml"); echo "${n:-2}"; } # 2: MAX_RUNS_PER_REPO
 # The dir of a free slot of target $1, or fail when every slot is busy.
 free_slot() { local n; for n in $(seq 1 "$(max_runs "$1")"); do busy "$slotdir/$1-$n" || { echo "$slotdir/$1-$n"; return 0; }; done; return 1; }
-alive() { local n d; for n in $(seq 1 "$(max_runs "$1")"); do d="$slotdir/$1-$n"; busy "$d" && cat "$d/ticket"; done | paste -sd, -; }
+# Every slot dir, not only 1..maxRuns: a run in a slot above a lowered maxRuns is still alive.
+alive() { local d; for d in "$slotdir/$1"-*/; do d=${d%/}; busy "$d" && cat "$d/ticket"; done | paste -sd, -; }
 # The port {port} in the .factory.yml commands stands for in slot dir $2 of target $1: 3910, 10 more for each target
 # before it in FACTORY_TARGET, plus the slot number less 1. So no two slots share a dev server port.
 slot_port() { local i=0 t; for t in $targets; do [ "$t" = "$1" ] && break; i=$((i + 1)); done; echo $((3910 + i * 10 + ${2##*-} - 1)); }
