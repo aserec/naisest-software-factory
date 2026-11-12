@@ -72,11 +72,15 @@ export async function ticketText(ctx: StepContext): Promise<string> {
   const t = ctx.record.ticket;
   if (!t) throw new Error("The run record has no triaged ticket");
   // Every agent prompt that writes for people holds the ticket, so the target's language rides along here.
-  // The Settings page's language wins over the target file's; English needs no line, the prompts are English.
+  return wrapTicket(`${t.title}\n\n${t.description}`) + (await languageLine(ctx));
+}
+
+// The target's language as a prompt line, starting with a blank line. The Settings page's language wins over the target file's.
+// English gives "": the prompts are English.
+export async function languageLine(ctx: StepContext): Promise<string> {
   const code = (await controls(ctx)).settings?.language;
   const name = code ? LANGUAGES[code] : ctx.target.language;
-  const language = name && name !== LANGUAGES.en ? `\n\nWrite every text a person reads in ${name}: comments, questions, findings, notes for the dashboard, the commit message and the pull request. Keep code, identifiers and the conventional commit type in English.` : "";
-  return wrapTicket(`${t.title}\n\n${t.description}`) + language;
+  return name && name !== LANGUAGES.en ? `\n\nWrite every text a person reads in ${name}: tickets, comments, questions, findings, notes for the dashboard, the commit message and the pull request. Keep code, identifiers and the conventional commit type in English.` : "";
 }
 
 export const modelRow = (ctx: StepContext): RouterRow => need(facts(ctx).row, "triage router row");

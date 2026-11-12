@@ -86,7 +86,7 @@ export const EVENT_DATA = {
   ready: user,
   switch_change: z.object({ user: z.string(), name: z.enum(SWITCHES), scope: z.string(), on: z.boolean() }),
   // The Settings page's whole new value for the target, so the history shows who set which commands.
-  settings_change: z.object({ user: z.string(), thresholds: z.record(z.unknown()), factoryFile: z.string().optional() }),
+  settings_change: z.object({ user: z.string(), thresholds: z.record(z.unknown()), factoryFile: z.string().optional(), language: z.string().optional() }),
   error: z.object({ message: z.string() }),
   // An agent's prompt, sent when the agent starts: step_start goes before the prompt exists. Masked and cut like a field.
   prompt: z.object({ role: z.string(), prompt: field }),
@@ -177,10 +177,16 @@ export const dispatchInput = z.object({
 export type DispatchInput = z.infer<typeof dispatchInput>;
 export interface Dispatch extends DispatchInput { id: string; at: string }
 
+// The languages the agents can write in, and the dashboard can show. The value is the name the agent prompt uses.
+export const LANGUAGES = { en: "English", es: "Spanish", de: "German" } as const;
+export type Language = keyof typeof LANGUAGES;
+export const isLanguage = (v: unknown): v is Language => typeof v === "string" && Object.hasOwn(LANGUAGES, v);
+
 // A target's Settings page values, raw: the factory checks them (thresholds.ts checkThresholds, config.ts parseFactoryFile).
 export interface TargetSettings {
   thresholds: Record<string, unknown>;
   factoryFile?: string; // the .factory.yml commands as YAML text; none means the factory reads .factory.yml from the repo
+  language?: Language; // what the agents write for people in; none means the target file's language, else English
 }
 
 export interface ControlState {

@@ -17,6 +17,6 @@ export async function GET(req: Request) {
   // Every pending request goes to the poller: between local runs it also finishes a stop no CI cancel reached.
   const stop = all.some((r) => r.kind === "stop" && !r.doneAt && r.run === q.get("run") && r.outcome !== "cancelled");
   const requests = all.filter((r) => !r.doneAt || ((r.kind === "restart" || r.kind === "ready") && Date.parse(r.doneAt) > since));
-  const { thresholds, factoryFile } = db.settings(target);
-  return Response.json({ switches: db.switches(target), stop, requests, settings: { thresholds, ...(factoryFile ? { factoryFile } : {}) } } satisfies ControlState);
+  const { thresholds, factoryFile, language } = db.settings(target);
+  return Response.json({ switches: db.switches(target), stop, requests, settings: { thresholds, ...(factoryFile ? { factoryFile } : {}), ...(language ? { language } : {}) } } satisfies ControlState);
 }

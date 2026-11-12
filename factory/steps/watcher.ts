@@ -4,7 +4,7 @@ import { makeContext, makeLogSource } from "../compose";
 import { loadSeams } from "../config";
 import { runWatcher } from "../watcher/run";
 import { localPath } from "../local-instructions";
-import { agent, isMain, switchOn } from "./context";
+import { agent, isMain, languageLine, switchOn } from "./context";
 
 export async function main(env: NodeJS.ProcessEnv = process.env) {
   if (env.FACTORY_SCHEDULE !== "watch") throw new Error("FACTORY_SCHEDULE must be watch");
@@ -20,6 +20,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env) {
     chat: ctx.chat,
     now: new Date(),
     writerLocal: await ctx.codeHost.readFile(localPath("writer")),
+    language: await languageLine(ctx),
     writer: (prompt) => agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, prompt, cwd: ctx.dir }),
   });
   console.log(`Opened: ${r.opened.join(", ") || "none"}. Blocked: ${r.blocked.join(", ") || "none"}. Skipped groups with an open ticket: ${r.skipped.length}.`);

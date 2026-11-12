@@ -207,7 +207,7 @@ test("evidence is fenced so a sample cannot close the block", () => {
 // Dispatches from outside systems, through the same ticket flow.
 const dispatch = (o: Partial<Dispatch> = {}): Dispatch => ({ id: "s1", target: "react_frontend", source: "pip-audit", key: "requirements.txt", title: "2 vulnerable packages", details: "jinja2 3.1.2 GHSA-h5c8 fixed in 3.1.3", at: NOW.toISOString(), ...o });
 
-async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fakeTracker>; writerOk?: boolean; writerLocal?: string } = {}) {
+async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fakeTracker>; writerOk?: boolean; writerLocal?: string; language?: string } = {}) {
   const tracker = o.tracker ?? fakeTracker();
   const before = tracker.created.length;
   const judge = fakeJudge((q, state): JevAnswer => {
@@ -218,7 +218,7 @@ async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fak
   const writer = async (prompt: string): Promise<HarnessResult> => (prompts.push(prompt), { session: "w", ok: o.writerOk ?? true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: HUMAN });
   const done: string[] = [];
   const urls: (string | undefined)[] = [];
-  const r = await runDispatches({ tracker, judge, chat: fakeChat(), writer, writerLocal: o.writerLocal, now: NOW }, list, async (id, url) => void (done.push(id), urls.push(url))).catch((e: Error) => e);
+  const r = await runDispatches({ tracker, judge, chat: fakeChat(), writer, writerLocal: o.writerLocal, language: o.language, now: NOW }, list, async (id, url) => void (done.push(id), urls.push(url))).catch((e: Error) => e);
   if (r instanceof Error && o.writerOk !== false) throw r;
   return { r: r as Exclude<typeof r, Error>, error: r instanceof Error ? r : undefined, tracker, prompts, done, urls, made: tracker.created.slice(before) };
 }
@@ -256,4 +256,10 @@ test("the writer prompt holds the repo's writer.md after the factory prompt and 
   const p = (await dispatches([dispatch()], { writerLocal: "WRITER RULE" })).prompts[0];
   expect(p.indexOf("WRITER RULE")).toBeGreaterThan(p.indexOf("an outside system reported"));
   expect(p.indexOf("WRITER RULE")).toBeLessThan(p.indexOf("jinja2 3.1.2"));
+});
+
+test("the writer prompt ends with the target's language line, after the data", async () => {
+  const p = (await dispatches([dispatch()], { language: "\n\nWrite every text a person reads in German: tickets." })).prompts[0];
+  expect(p.endsWith("in German: tickets.")).toBe(true);
+  expect(p.indexOf("in German")).toBeGreaterThan(p.indexOf("jinja2 3.1.2"));
 });

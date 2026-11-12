@@ -40,6 +40,16 @@ describe("/api/settings", () => {
     expect(state.settings).toEqual({ thresholds: { diffRiskMax: 6 }, factoryFile: FILE });
   });
 
+  it("saves the agents' language for the factory, refuses an unknown one, and an empty one falls back to the target file", async () => {
+    expect((await put({ target: "demo", thresholds: {}, language: "de" })).status).toBe(204);
+    const state = await (await control.GET(new Request("http://x/api/factory/control?target=demo"))).json();
+    expect(state.settings).toEqual({ thresholds: {}, language: "de" });
+    expect((await put({ target: "demo", thresholds: {}, language: "fr" })).status).toBe(400);
+    expect(getDb().settings("demo").language).toBe("de");
+    await put({ target: "demo", thresholds: {}, language: "" });
+    expect(getDb().settings("demo").language).toBeUndefined();
+  });
+
   it("an empty factoryFile clears the commands, so the factory reads the repo's file again", async () => {
     await put({ target: "demo", thresholds: {}, factoryFile: FILE });
     expect((await put({ target: "demo", thresholds: {}, factoryFile: "  " })).status).toBe(204);

@@ -114,7 +114,7 @@ async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepRes
 async function duplicateQuestion(ctx: StepContext, o: Ticket, injectionYes: number): Promise<string> {
   const fixed = `This work item looks close to #${o.ref} (${o.url}). Does it belong in #${o.ref}, or is it a separate change? If it is separate, say what it adds in a comment that mentions \`@factory\`.`;
   if (!(injectionYes < INJECTION_LIMIT)) return fixed;
-  const text = `${prompt("duplicate-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
+  const text = `${prompt("duplicate-question")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${await ticketText(ctx)}\n\n${wrapTicket(`#${o.ref} ${o.title}\n\n${o.body.slice(0, CANDIDATE_BODY)}`)}`;
   try {
     const r = await agent(ctx, "writer", ctx.router.writer, { tools: "none", maxTurns: 1, cwd: ctx.dir, prompt: text });
     return r.ok && r.text.includes(`#${o.ref}`) ? r.text.trim() : fixed;
@@ -128,7 +128,7 @@ async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: str
   if (!(await switchOn(ctx, "questions"))) return stopped(ctx, "questions", { reason: "switch off questions" });
   const ref = ticketRef(ctx);
   await ctx.repo.clone(await ctx.codeHost.baseBranch());
-  const text = resumeSessionId ? CONTINUE : `${prompt("questions")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${ticketText(ctx)}`;
+  const text = resumeSessionId ? CONTINUE : `${prompt("questions")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${await ticketText(ctx)}`;
   const r = await agent(ctx, "author", row.author, { tools: "code", prompt: text, maxTurns: 15, cwd: ctx.dir, resume: resumeSessionId });
   if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
   if (r.limitHit) return waiting(ctx, "questions", r.session);

@@ -23,6 +23,7 @@ export interface TargetInfo {
   githubRepo?: string; // owner/repo, for a github tracker
   githubProject?: number; // the board number, for a github-project tracker
   weeklyBudgetUsd?: number; // the cost a week of runs should stay under; Insights warns from 80%
+  language?: string; // the agents' language in the file, e.g. Spanish; the Settings page's language wins over it
 }
 
 // A raw read of targets/*.yml. It does not use the factory's loadTarget, which refuses placeholder approvers.
@@ -33,7 +34,7 @@ export function readTargets(dir = process.env.TARGETS_DIR ?? "../targets"): Targ
     .filter((f) => f.endsWith(".yml"))
     .sort()
     .map((f) => {
-      const t = (parse(readFileSync(join(root, f), "utf8")) ?? {}) as { name?: string; projectPath?: string; stuckMinutes?: Record<string, number>; tracker?: string; codeHost?: string; githubRepo?: string; githubProject?: number; weeklyBudgetUsd?: number };
+      const t = (parse(readFileSync(join(root, f), "utf8")) ?? {}) as { name?: string; projectPath?: string; stuckMinutes?: Record<string, number>; tracker?: string; codeHost?: string; githubRepo?: string; githubProject?: number; weeklyBudgetUsd?: number; language?: string };
       if (!t.projectPath) throw new Error(`${f}: projectPath is missing`);
       const tracker = oneOf(TRACKERS, t.tracker ?? "gitlab", f, "tracker");
       const codeHost = oneOf(CODE_HOSTS, t.codeHost ?? "gitlab", f, "codeHost");
@@ -43,6 +44,7 @@ export function readTargets(dir = process.env.TARGETS_DIR ?? "../targets"): Targ
         ...(tracker.startsWith("github") ? { githubRepo: t.githubRepo } : {}),
         ...(tracker === "github-project" && t.githubProject !== undefined ? { githubProject: t.githubProject } : {}),
         ...(typeof t.weeklyBudgetUsd === "number" && t.weeklyBudgetUsd > 0 ? { weeklyBudgetUsd: t.weeklyBudgetUsd } : {}),
+        ...(typeof t.language === "string" && t.language ? { language: t.language } : {}),
       };
     });
 }

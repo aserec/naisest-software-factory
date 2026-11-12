@@ -27,7 +27,7 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
     const attached = readsImages ? Object.keys(images) : [];
     const r = await agent(ctx, "reviewer", row.reviewer, {
       tools: "none",
-      prompt: reviewerPrompt(ticketText(ctx), (await ctx.repo.diff()).text, proofPrompt(proof, attached), localSection(await ctx.repo.readBase(localPath("review")))),
+      prompt: reviewerPrompt(await ticketText(ctx), (await ctx.repo.diff()).text, proofPrompt(proof, attached), localSection(await ctx.repo.readBase(localPath("review")))),
       ...(readsImages ? { images: attached.map((name) => ({ name, data: images[name] })) } : {}),
       cwd: ctx.dir,
       maxTurns: 1,
