@@ -11,6 +11,10 @@ export const LANGUAGE_NAMES: Record<Language, string> = { en: "English", es: "Es
 // A text with no row here shows in English, so a page can be translated one string at a time.
 const SHELL: Record<Exclude<Language, "en">, Record<string, string>> = {
   es: {
+    "factory down": "fábrica caída",
+    "the factory is down. It last polled at {time}.": "la fábrica está caída. Consultó por última vez a las {time}.",
+    "the factory is down. It never polled this dashboard.": "la fábrica está caída. Nunca consultó este panel.",
+    "Nothing runs and no stop or restart is carried out until it starts again.": "No se ejecuta nada ni se cumple ninguna parada o reinicio hasta que vuelva a arrancar.",
     Board: "Tablero",
     Insights: "Métricas",
     Runner: "Runner",
@@ -85,6 +89,10 @@ const SHELL: Record<Exclude<Language, "en">, Record<string, string>> = {
     "Medium and high triage risk always wait for a person: the router's high row may not merge alone.": "El riesgo de triaje medium y high siempre espera a una persona. La fila high del router no puede fusionarse sola.",
   },
   de: {
+    "factory down": "Fabrik aus",
+    "the factory is down. It last polled at {time}.": "die Fabrik ist aus. Sie hat zuletzt um {time} abgefragt.",
+    "the factory is down. It never polled this dashboard.": "die Fabrik ist aus. Sie hat dieses Dashboard nie abgefragt.",
+    "Nothing runs and no stop or restart is carried out until it starts again.": "Nichts läuft, und kein Stopp oder Neustart wird ausgeführt, bis sie wieder startet.",
     Board: "Board",
     Insights: "Auswertungen",
     Runner: "Runner",

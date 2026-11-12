@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 import type { BoardRow, FactoryState, Risk } from "@/server/seams";
 import { ago, cn, usd, when as at, words, workItemKey } from "@/lib/utils";
 import { translator, type T } from "@/lib/i18n";
+import { FactoryDown } from "./factory-status";
 import { LoadError, SectionHeading } from "./shell";
 import { useT } from "./use-preferences";
 
@@ -320,6 +321,7 @@ export function Board({ target = "" }: { target?: string }) {
   const problems = data?.filter((i) => inProblems(i, now));
   return (
     <>
+      <FactoryDown target={target} />
       {error && <LoadError what="the board" query={board} className="mb-6" />}
       {!error && (
         <div className="mb-6 flex flex-wrap items-center gap-2">

@@ -10,6 +10,8 @@ export async function GET(req: Request) {
   const target = q.get("target");
   if (!target) return Response.json({ error: "target is required" }, { status: 400 });
   const db = getDb();
+  // Every poll and every running step asks here, so this is the factory's heartbeat (factory-status route).
+  db.factorySeen(target, new Date().toISOString());
   // ponytail: reads every request of the target. A human clicks these, so the table stays small; add a done_at filter to Db.requests if it grows.
   const all = db.requests({ target });
   const since = Date.now() - RESTART_MS;

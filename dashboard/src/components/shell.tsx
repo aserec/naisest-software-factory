@@ -11,6 +11,7 @@ import type { Theme } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 import { AgentChat, useChatOpen } from "./agent-chat";
 import { WAITING, useBoard } from "./board";
+import { useFactoryStatus } from "./factory-status";
 import { Notifications } from "./notifications";
 import { UsageLimits } from "./usage-limits";
 import { usePreferences, useT } from "./use-preferences";
@@ -81,6 +82,7 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
   const on = (href: string) => path === href || path.startsWith(`${href}/`);
   // The same board query the bell reads, so the counts cost no extra fetch.
   const { data } = useBoard();
+  const status = useFactoryStatus().data;
   const t = useT();
   return (
     <nav aria-label="Main" className="isolate flex flex-col gap-0.5">
@@ -103,7 +105,10 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
               <li key={b} className="relative before:absolute before:top-3.5 before:-left-2 before:w-1.5 before:border-t before:border-border">
                 {/* Two rows: the board's name, then its counts, so a long name never squeezes the badges. */}
                 <NavLink href={href} active={on(href)} className="h-auto flex-col items-start gap-1.5 py-1.5 font-mono text-xs">
-                  <span className="max-w-full truncate">{b}</span>
+                  <span className="flex max-w-full items-center gap-1.5">
+                    <span className="truncate">{b}</span>
+                    {Array.isArray(status) && status.find((s) => s.target === b)?.down && <span className="shrink-0 rounded-full bg-pill-negative px-1.5 font-sans text-pill-negative-ink">{t("factory down")}</span>}
+                  </span>
                   <span className="flex gap-1">
                     {counts.map(([n, label, tone]) => (
                       <span key={label} title={`${n} ${label}`} className={cn("min-w-5 rounded-full px-1.5 text-center tabular-nums", n ? tone : "bg-active text-muted-foreground")}>

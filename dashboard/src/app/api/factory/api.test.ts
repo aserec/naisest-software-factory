@@ -16,6 +16,7 @@ const { getDb } = await import("@/server/db-instance");
 const { POST: postEvents } = await import("../events/route");
 const { GET: getControl } = await import("./control/route");
 const { POST: postDone } = await import("./requests/[id]/done/route");
+const { factoryStatus } = await import("@/server/factory-status");
 
 const auth = { authorization: "Bearer secret-token" };
 const ev = (type: RunEvent["type"], data: Record<string, unknown>, run = "r1"): RunEvent => ({ id: randomUUID(), run, at: new Date().toISOString(), target: "t", ticket: "T-1", type, data }) as RunEvent;
@@ -72,6 +73,14 @@ describe("POST /api/events", () => {
 describe("GET /api/factory/control", () => {
   it("refuses a call without the token", async () => {
     expect((await control("r1", {})).status).toBe(401);
+  });
+
+  it("counts each call as the factory's heartbeat, so a target quiet for 5 minutes shows as down", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-12T07:00:00Z"), toFake: ["Date"] });
+    await control("r1");
+    const status = (now: string) => factoryStatus(["t", "other"], getDb().factoriesSeen(), new Date(now)).map((s) => s.down);
+    expect(status("2026-11-12T07:04:59Z")).toEqual([false, true]);
+    expect(status("2026-11-12T07:05:01Z")).toEqual([true, true]);
   });
 
   it("sets stop for the run with a pending stop only", async () => {

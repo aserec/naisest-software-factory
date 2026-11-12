@@ -84,6 +84,10 @@ export interface Db {
   dispatchStarted(target: string, at: string): void;
   isImported(job: string): boolean;
   markImported(job: string): void;
+  /** The factory of the target asked for its controls now: its poller or a step is alive. */
+  factorySeen(target: string, at: string): void;
+  /** When the factory of each target last asked for its controls; a target never seen is left out. */
+  factoriesSeen(): Record<string, string>;
   /** The user's saved preferences as stored, {} when none. Checked by preferences.ts, not here. */
   preferences(user: string): Record<string, unknown>;
   setPreferences(user: string, prefs: Record<string, unknown>): void;
@@ -121,6 +125,7 @@ CREATE TABLE IF NOT EXISTS dispatches (
   details TEXT NOT NULL, link TEXT, at TEXT NOT NULL, started_at TEXT, done_at TEXT, work_item TEXT
 );
 CREATE INDEX IF NOT EXISTS dispatches_pending ON dispatches (target, done_at, at);
+CREATE TABLE IF NOT EXISTS factory_seen (target TEXT PRIMARY KEY, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS preferences (user TEXT PRIMARY KEY, data TEXT NOT NULL, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (target TEXT PRIMARY KEY, data TEXT NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL);
@@ -448,6 +453,12 @@ export function openDb(path: string): Db {
     markImported(job) {
       db.prepare("INSERT OR IGNORE INTO imported_jobs (job, at) VALUES (?, ?)").run(job, new Date().toISOString());
     },
+
+    factorySeen(target, at) {
+      stmt("INSERT INTO factory_seen (target, at) VALUES (?, ?) ON CONFLICT (target) DO UPDATE SET at = excluded.at").run(target, at);
+    },
+
+    factoriesSeen: () => Object.fromEntries((stmt("SELECT target, at FROM factory_seen").all() as Row[]).map((r) => [r.target as string, r.at as string])),
 
     chat(path, limit) {
       const rows = db.prepare("SELECT * FROM (SELECT * FROM chat_messages WHERE path = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq").all(path, limit) as Row[];
