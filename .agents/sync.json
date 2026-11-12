@@ -1,6 +1,7 @@
 {
-  "commit": "d9c51531214ee2e01a7e17f27a08febccd555975",
+  "commit": "c7724adac34006a20ba59ab744c393aadffc8159",
   "skills": [
+    ".claude",
     "ask-matt",
     "audit-workflow",
     "code-review",
@@ -9,6 +10,7 @@
     "create-skill-and-verify",
     "diagnosing-bugs",
     "diagram-design",
+    "diff-commit",
     "domain-modeling",
     "figma-visual-check",
     "find-skills",
@@ -20,6 +22,7 @@
     "handoff",
     "handoff-feature-ready",
     "handoff-to-share",
+    "impeccable",
     "implement",
     "implement-spec",
     "improve-codebase-architecture",
