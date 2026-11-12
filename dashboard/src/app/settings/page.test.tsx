@@ -24,7 +24,7 @@ test("shows each target's saved values, and saves only what differs from the def
   fireEvent.change(within(api).getByLabelText("Highest triage risk that merges alone"), { target: { value: "trivial" } });
   fireEvent.click(within(api).getByRole("button", { name: "Save" }));
   await waitFor(() =>
-    expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT", body: JSON.stringify({ target: "api", thresholds: { diffRiskMax: 6, clarityMin: 8, autoMergeTriageMax: "trivial" }, factoryFile: FILE }) })),
+    expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT", body: JSON.stringify({ target: "api", thresholds: { diffRiskMax: 6, clarityMin: 8, autoMergeTriageMax: "trivial" }, factoryFile: FILE, language: "" }) })),
   );
   fireEvent.mouseDown(screen.getByRole("tab", { name: "web" }));
   const web = screen.getByRole("tabpanel", { name: "web" });

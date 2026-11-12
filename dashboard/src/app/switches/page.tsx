@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { SWITCHES, type SwitchName } from "software-factory/run-events";
 import { LoadError, PageTitle, SectionHeading } from "@/components/shell";
+import { useT } from "@/components/use-preferences";
 import { Confirm } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,7 +16,7 @@ type Rows = Record<string, Record<SwitchName, boolean>>;
 
 // The glossary's words: "retry" resumes waiting runs, and the glossary avoids "retry" for that.
 const NAMES: Partial<Record<SwitchName, string>> = { retry: "Auto-resume", auto_merge: "Auto-merge", merge_all: "Merge all" };
-const label = (n: SwitchName) => NAMES[n] ?? words(n);
+const englishLabel = (n: SwitchName) => NAMES[n] ?? words(n);
 
 // What stops while a switch is off, from docs/how-it-works.md.
 const OFF: Record<SwitchName, string> = {
@@ -55,6 +56,8 @@ const ASK_ON: Partial<Record<SwitchName, string>> = {
 };
 
 export default function SwitchesPage() {
+  const t = useT();
+  const label = (n: SwitchName) => t(englishLabel(n));
   const client = useQueryClient();
   const switches = useQuery({
     queryKey: ["switches"],
@@ -68,7 +71,7 @@ export default function SwitchesPage() {
     mutationFn: async (v: { scope: string; name: SwitchName; on: boolean }) => {
       const r = await api("/api/switches", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(v) });
       // 403: the server's sentence says which role is missing.
-      if (!r.ok) throw new Error(`Could not turn ${label(v.name)} ${v.on ? "on" : "off"} for ${where(v.scope)}. ${r.status === 403 ? await r.text() : "Try again."}`);
+      if (!r.ok) throw new Error(`${t(v.on ? "Could not turn {name} on for {where}." : "Could not turn {name} off for {where}.", { name: label(v.name), where: where(v.scope) })} ${r.status === 403 ? await r.text() : t("Try again.")}`);
     },
     onSettled: () => client.invalidateQueries({ queryKey: ["switches"] }), // the prefix also reloads the history
   });
@@ -82,34 +85,34 @@ export default function SwitchesPage() {
   });
   const { data, error } = switches;
   const [ask, setAsk] = useState<{ scope: string; name: SwitchName }>();
-  const where = (scope: string) => (scope === "*" ? "all targets" : scope);
+  const where = (scope: string) => (scope === "*" ? t("all targets") : scope);
   const cell = (scope: string, name: SwitchName, on: boolean) => {
-    if (scope !== "*" && data?.["*"]?.[name] === false) return <span className="whitespace-nowrap text-muted-foreground">Off (all targets)</span>;
+    if (scope !== "*" && data?.["*"]?.[name] === false) return <span className="whitespace-nowrap text-muted-foreground">{t("Off (all targets)")}</span>;
     const pending = change.isPending && change.variables?.scope === scope && change.variables.name === name;
-    return <Switch aria-label={`${label(name)} for ${where(scope)}`} checked={on} disabled={pending} onCheckedChange={(v) => (v && ASK_ON[name] ? setAsk({ scope, name }) : change.mutate({ scope, name, on: v }))} />;
+    return <Switch aria-label={t("{name} for {where}", { name: label(name), where: where(scope) })} checked={on} disabled={pending} onCheckedChange={(v) => (v && ASK_ON[name] ? setAsk({ scope, name }) : change.mutate({ scope, name, on: v }))} />;
   };
   return (
     <main>
-      <PageTitle title="Switches">A switch with no saved value is on, except Merge all. A target is off when the all-targets row is off. Current steps finish when you turn a switch off.</PageTitle>
+      <PageTitle title={t("Switches")}>{t("A switch with no saved value is on, except Merge all. A target is off when the all-targets row is off. Current steps finish when you turn a switch off.")}</PageTitle>
       {error && <LoadError what="the switches" query={switches} className="mb-6" />}
       {change.error && (
         <p role="alert" className="mb-6 text-destructive">
           {change.error.message}
         </p>
       )}
-      <p className="mb-2 text-muted-foreground md:hidden">Scroll the table sideways for all {SWITCHES.length} switches.</p>
+      <p className="mb-2 text-muted-foreground md:hidden">{t("Scroll the table sideways for all {count} switches.", { count: SWITCHES.length })}</p>
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className="sticky left-0 bg-background" />
             {GROUPS.map(([group, names]) => (
               <TableHead key={group} colSpan={names.length} className="border-l text-center font-medium text-foreground">
-                {group}
+                {t(group)}
               </TableHead>
             ))}
           </TableRow>
           <TableRow>
-            <TableHead className="sticky left-0 bg-background">Scope</TableHead>
+            <TableHead className="sticky left-0 bg-background">{t("Scope")}</TableHead>
             {GROUPS.flatMap(([, names]) =>
               names.map((n, i) => (
                 <TableHead key={n} className={`text-center font-normal text-muted-foreground ${i === 0 ? "border-l" : ""}`}>
@@ -122,7 +125,7 @@ export default function SwitchesPage() {
         <TableBody>
           {Object.entries(data ?? {}).map(([scope, row]) => (
             <TableRow key={scope}>
-              <TableCell className="sticky left-0 bg-background pr-6 font-medium">{scope === "*" ? "All targets" : <span className="font-mono">{scope}</span>}</TableCell>
+              <TableCell className="sticky left-0 bg-background pr-6 font-medium">{scope === "*" ? t("All targets") : <span className="font-mono">{scope}</span>}</TableCell>
               {GROUPS.flatMap(([, names]) =>
                 names.map((name, i) => (
                   <TableCell key={name} className={`text-center ${i === 0 ? "border-l" : ""}`}>
@@ -137,24 +140,24 @@ export default function SwitchesPage() {
       <Confirm
         open={!!ask}
         onOpenChange={(o) => !o && setAsk(undefined)}
-        title={ask ? `Turn on ${label(ask.name)} for ${where(ask.scope)}?` : ""}
-        description={ask ? ASK_ON[ask.name]! : ""}
-        action="Turn on"
+        title={ask ? t("Turn on {name} for {where}?", { name: label(ask.name), where: where(ask.scope) }) : ""}
+        description={ask ? t(ASK_ON[ask.name]!) : ""}
+        action={t("Turn on")}
         onConfirm={() => ask && change.mutate({ ...ask, on: true })}
       />
       <section className="mt-8">
-        <SectionHeading>History</SectionHeading>
+        <SectionHeading>{t("History")}</SectionHeading>
         {history.error && <LoadError what="the switch history" query={history} />}
-        {history.data?.length === 0 && <p className="text-muted-foreground">No switch was changed yet.</p>}
+        {history.data?.length === 0 && <p className="text-muted-foreground">{t("No switch was changed yet.")}</p>}
         {!!history.data?.length && (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Who</TableHead>
-                <TableHead>Switch</TableHead>
-                <TableHead>Target</TableHead>
-                <TableHead>Turned</TableHead>
-                <TableHead className="text-right">When</TableHead>
+                <TableHead>{t("Who")}</TableHead>
+                <TableHead>{t("Switch")}</TableHead>
+                <TableHead>{t("Target")}</TableHead>
+                <TableHead>{t("Turned")}</TableHead>
+                <TableHead className="text-right">{t("When")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -162,8 +165,8 @@ export default function SwitchesPage() {
                 <TableRow key={`${c.at}-${i}`}>
                   <TableCell>{c.user}</TableCell>
                   <TableCell>{label(c.name)}</TableCell>
-                  <TableCell>{c.scope === "*" ? "All targets" : <span className="font-mono">{c.scope}</span>}</TableCell>
-                  <TableCell>{c.on ? "On" : "Off"}</TableCell>
+                  <TableCell>{c.scope === "*" ? t("All targets") : <span className="font-mono">{c.scope}</span>}</TableCell>
+                  <TableCell>{c.on ? t("On") : t("Off")}</TableCell>
                   <TableCell className="text-right text-muted-foreground" title={new Date(c.at).toLocaleString()}>
                     {ago(c.at)}
                   </TableCell>
@@ -172,15 +175,15 @@ export default function SwitchesPage() {
             </TableBody>
           </Table>
         )}
-        {history.data?.length === 50 && <p className="mt-2 text-muted-foreground">The last 50 changes.</p>}
+        {history.data?.length === 50 && <p className="mt-2 text-muted-foreground">{t("The last 50 changes.")}</p>}
       </section>
       <section className="mt-8 max-w-2xl">
-        <SectionHeading>When a switch is off</SectionHeading>
+        <SectionHeading>{t("When a switch is off")}</SectionHeading>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2">
           {GROUPS.flatMap(([, names]) => names).map((n) => (
             <div key={n} className="contents">
               <dt className="font-medium">{label(n)}</dt>
-              <dd className="text-muted-foreground">{OFF[n]}</dd>
+              <dd className="text-muted-foreground">{t(OFF[n])}</dd>
             </div>
           ))}
         </dl>

@@ -2,16 +2,19 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { SwitchName, TargetSettings } from "software-factory/run-events";
+import { type Language, type SwitchName, type TargetSettings } from "software-factory/run-events";
 import { DEFAULT_THRESHOLDS, THRESHOLD_RULES, TRIAGE_RISKS, type Thresholds } from "software-factory/thresholds";
 import { LoadError, PageTitle, SectionHeading } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useT } from "@/components/use-preferences";
 import { api } from "@/lib/api";
+import { LANGUAGE_NAMES } from "@/lib/i18n";
+import { PREFS } from "@/lib/preferences";
 import { ago } from "@/lib/utils";
 
-type Saved = TargetSettings & { user?: string; at?: string };
+type Saved = TargetSettings & { user?: string; at?: string; fileLanguage?: string };
 type NumberKey = Exclude<keyof Thresholds, "autoMergeTriageMax">;
 
 // The number settings in the order the run meets them, with their limits from THRESHOLD_RULES.
@@ -36,6 +39,8 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
   const client = useQueryClient();
   const [values, setValues] = useState<Thresholds>({ ...DEFAULT_THRESHOLDS, ...(saved.thresholds as Partial<Thresholds>) });
   const [factoryFile, setFactoryFile] = useState(saved.factoryFile ?? "");
+  const [language, setLanguage] = useState<Language | "">(saved.language ?? "");
+  const t = useT();
   // Auto-merge is the target's auto_merge switch, the same value as its cell on the Switches page.
   const switches = useQuery({
     queryKey: ["switches"],
@@ -51,7 +56,7 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
   const autoMerge = autoMergeEdit ?? savedAutoMerge;
   const save = useMutation({
     mutationFn: async () => {
-      const r = await api("/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, thresholds: changed(values), factoryFile }) });
+      const r = await api("/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, thresholds: changed(values), factoryFile, language }) });
       // 400 and 403 carry the server's sentence: which value is wrong, or which role is missing.
       if (!r.ok) throw new Error(`Could not save the settings for ${target}. ${r.status === 400 || r.status === 403 ? await r.text() : "Try again."}`);
       if (autoMerge === undefined || autoMerge === savedAutoMerge) return;
@@ -74,18 +79,32 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
       }}
     >
       <div className="flex flex-col gap-1">
+        <label htmlFor={id("language")} className="font-medium">
+          {t("Agents' language")}
+        </label>
+        <select id={id("language")} value={language} onChange={(e) => setLanguage(e.target.value as Language | "")} className="h-9 w-56 rounded-md border border-input bg-background px-2">
+          <option value="">{t("From the target file ({name})", { name: saved.fileLanguage ?? "English" })}</option>
+          {PREFS.shape.language.options.map((l) => (
+            <option key={l} value={l}>
+              {LANGUAGE_NAMES[l]}
+            </option>
+          ))}
+        </select>
+        <p className="text-muted-foreground">{t("The language the agents write ticket comments, questions, dashboard notes, commit messages and pull requests in.")}</p>
+      </div>
+      <div className="flex flex-col gap-1">
         <div className="flex items-center gap-3">
           <label htmlFor={id("auto_merge")} className="font-medium">
-            Auto-merge
+            {t("Auto-merge")}
           </label>
           <Switch id={id("auto_merge")} checked={!!autoMerge} disabled={autoMerge === undefined || allOff} onCheckedChange={setAutoMerge} />
         </div>
-        <p className="text-muted-foreground">{allOff ? "Off for all targets on the Switches page." : autoMerge === false ? "Every change waits for a person to approve it." : "Low-risk changes whose checks pass merge without a person, within the limits below."}</p>
+        <p className="text-muted-foreground">{t(allOff ? "Off for all targets on the Switches page." : autoMerge === false ? "Every change waits for a person to approve it." : "Low-risk changes whose checks pass merge without a person, within the limits below.")}</p>
         {switches.error && <LoadError what="the auto-merge switch" query={switches} />}
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={id("autoMergeTriageMax")} className="font-medium">
-          Highest triage risk that merges alone
+          {t("Highest triage risk that merges alone")}
         </label>
         <select id={id("autoMergeTriageMax")} value={values.autoMergeTriageMax} onChange={(e) => setValues({ ...values, autoMergeTriageMax: e.target.value as Thresholds["autoMergeTriageMax"] })} className="h-9 w-40 rounded-md border border-input bg-background px-2">
           {TRIAGE_RISKS.map((r) => (
@@ -94,22 +113,22 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
             </option>
           ))}
         </select>
-        <p className="text-muted-foreground">Triage rates each work item trivial, low, medium or high.</p>
+        <p className="text-muted-foreground">{t("Triage rates each work item trivial, low, medium or high.")}</p>
       </div>
       {NUMBERS.map((n) => (
         <div key={n.key} className="flex flex-col gap-1">
           <label htmlFor={id(n.key)} className="font-medium">
-            {n.label}
+            {t(n.label)}
           </label>
           <input id={id(n.key)} type="number" required min={n.min} max={n.max} step={n.step} value={values[n.key]} onChange={(e) => setValues({ ...values, [n.key]: e.target.valueAsNumber })} className="h-9 w-40 rounded-md border border-input bg-background px-2 font-mono" />
           <p className="text-muted-foreground">
-            {n.help} Default {DEFAULT_THRESHOLDS[n.key]}. It must be {THRESHOLD_RULES[n.key].rule}.
+            {t(n.help)} {t("Default {value}. It must be {rule}.", { value: DEFAULT_THRESHOLDS[n.key], rule: THRESHOLD_RULES[n.key].rule })}
           </p>
         </div>
       ))}
       <div className="flex flex-col gap-1">
         <label htmlFor={id("factoryFile")} className="font-medium">
-          .factory.yml commands
+          {t(".factory.yml commands")}
         </label>
         <textarea
           id={id("factoryFile")}
@@ -120,7 +139,7 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
           placeholder={"install: pnpm install --frozen-lockfile\nlint: pnpm lint\ntest: pnpm test\nbuild: pnpm build"}
           className="rounded-md border border-input bg-background p-2 font-mono text-sm"
         />
-        <p className="text-muted-foreground">The commands the precommit gate runs in the runner. Leave it empty to use the .factory.yml in the repo.</p>
+        <p className="text-muted-foreground">{t("The commands the precommit gate runs in the runner. Leave it empty to use the .factory.yml in the repo.")}</p>
       </div>
       {save.error && (
         <p role="alert" className="whitespace-pre-line text-destructive">
@@ -129,11 +148,11 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
       )}
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={save.isPending}>
-          {save.isPending ? "Saving…" : "Save"}
+          {save.isPending ? t("Saving…") : t("Save")}
         </Button>
         {saved.at && (
           <span className="text-muted-foreground" title={new Date(saved.at).toLocaleString()}>
-            Saved by {saved.user} {ago(saved.at)}
+            {t("Saved by {user} {when}", { user: saved.user ?? "", when: ago(saved.at) ?? "" })}
           </span>
         )}
       </div>
@@ -152,9 +171,10 @@ export default function SettingsPage() {
   });
   const targets = Object.entries(settings.data ?? {});
   const [tab, setTab] = useState<string>();
+  const t = useT();
   return (
     <main data-fill>
-      <PageTitle title="Settings">Each target's limits for merging alone and its .factory.yml commands. The next step of a run uses a saved value.</PageTitle>
+      <PageTitle title={t("Settings")}>{t("Each target's limits for merging alone and its .factory.yml commands. The next step of a run uses a saved value.")}</PageTitle>
       {settings.error && <LoadError what="the settings" query={settings} className="mb-6" />}
       <Tabs value={tab ?? targets[0]?.[0] ?? "factory"} onValueChange={setTab} data-fill>
         <TabsList>
@@ -163,7 +183,7 @@ export default function SettingsPage() {
               {target}
             </TabsTrigger>
           ))}
-          <TabsTrigger value="factory">Factory</TabsTrigger>
+          <TabsTrigger value="factory">{t("Factory")}</TabsTrigger>
         </TabsList>
         {/* forceMount keeps unsaved edits in a hidden tab. */}
         {targets.map(([target, saved]) => (
@@ -174,10 +194,10 @@ export default function SettingsPage() {
         ))}
         <TabsContent value="factory" data-scroll>
           <div className="max-w-2xl">
-          <SectionHeading>Always required to merge alone</SectionHeading>
+          <SectionHeading>{t("Always required to merge alone")}</SectionHeading>
           <ul className="list-disc pl-5 text-muted-foreground">
             {FIXED.map((f) => (
-              <li key={f}>{f}</li>
+              <li key={f}>{t(f)}</li>
             ))}
           </ul>
           </div>

@@ -1,9 +1,8 @@
-import { RunControls } from "@/components/run-controls";
+import { RunControls, RunLinks, Tr } from "@/components/run-controls";
 import { RunTimeline } from "@/components/run-timeline";
 import { PageTitle, RunTarget } from "@/components/shell";
 import { getDb } from "@/server/db-instance";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ConflictsBadge } from "@/components/board";
 import { MERGE_EVENTS } from "@/components/merge-problems";
 import { STATE } from "@/lib/state";
@@ -35,31 +34,16 @@ export default async function RunPage({ params }: { params: Promise<{ run: strin
         // The work item's title, as on its board card; without the board, its number.
         title={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {item?.title ?? (first ? `${first.target} #${first.ticket}` : `Run ${run}`)}
+            {item?.title ?? (first ? `${first.target} #${first.ticket}` : <Tr text="Run {id}" values={{ id: run }} />)}
             {/* The ticket's board column now; absent when the board did not load. */}
-            {item?.state && <Badge variant="outline">{STATE[item.state]}</Badge>}
+            {item?.state && <Badge variant="outline"><Tr text={STATE[item.state]} /></Badge>}
             <ConflictsBadge conflicts={summary?.conflicts} />
           </span>
         }
         actions={
           // basis-full: the buttons always take their own line under the title, whatever fits beside it.
           <div className="flex basis-full flex-wrap items-center gap-2">
-            {/* Open PR is the main button while the change waits for a person's merge. */}
-            {changeUrl && target && (
-              <Button asChild variant={item?.state === "needs_approval" ? "default" : "outline"}>
-                <a href={changeUrl} target="_blank" rel="noreferrer" title={`Review and merge in ${codeHostName(target)}`}>Open PR</a>
-              </Button>
-            )}
-            {tracker && ticketUrl && (
-              <Button asChild variant="outline">
-                <a href={ticketUrl} target="_blank" rel="noreferrer" title={`Open the work item in ${tracker.name}`}>Open issue</a>
-              </Button>
-            )}
-            {item?.boardUrl && (
-              <Button asChild variant="outline">
-                <a href={item.boardUrl} target="_blank" rel="noreferrer" title={`Open the board in ${tracker?.name ?? "the tracker"}`}>Open board</a>
-              </Button>
-            )}
+            <RunLinks changeUrl={changeUrl} approving={item?.state === "needs_approval"} codeHost={target && codeHostName(target)} ticketUrl={ticketUrl || undefined} tracker={tracker?.name} boardUrl={item?.boardUrl} />
             <RunControls run={run} />
           </div>
         }

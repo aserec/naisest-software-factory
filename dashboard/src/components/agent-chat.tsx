@@ -5,6 +5,7 @@ import { Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AgentPlan } from "software-factory/run-events";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/components/use-preferences";
 import { api } from "@/lib/api";
 import type { ChatMessage } from "@/server/db";
 
@@ -35,6 +36,7 @@ export function useChatOpen(): [boolean, () => void] {
 const time = (at: string) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 function Plan({ plan, onGo, going, error }: { plan: AgentPlan; onGo: () => void; going: boolean; error?: string }) {
+  const t = useT();
   return (
     <div className="mt-2 rounded-lg border bg-raised p-3">
       <p className="font-medium">{plan.summary}</p>
@@ -47,7 +49,7 @@ function Plan({ plan, onGo, going, error }: { plan: AgentPlan; onGo: () => void;
         {plan.repo}
         {plan.target && ` · ${plan.target}`} · {plan.state}
       </p>
-      {plan.approvedBy && <p className="mt-1 text-xs text-muted-foreground">Approved by {plan.approvedBy}</p>}
+      {plan.approvedBy && <p className="mt-1 text-xs text-muted-foreground">{t("Approved by {user}", { user: plan.approvedBy })}</p>}
       {plan.state === "done" && plan.result && (/^https?:\/\//.test(plan.result) ? (
         <a href={plan.result} className="mt-1 block truncate text-data underline-offset-4 hover:underline">
           {plan.result}
@@ -57,7 +59,7 @@ function Plan({ plan, onGo, going, error }: { plan: AgentPlan; onGo: () => void;
       ))}
       {plan.state === "proposed" && (
         <Button className="mt-3" onClick={onGo} disabled={going}>
-          Go
+          {t("Go")}
         </Button>
       )}
       {error && (
@@ -71,6 +73,7 @@ function Plan({ plan, onGo, going, error }: { plan: AgentPlan; onGo: () => void;
 
 // One chat per page path, shared by everyone who opens that page. The agent answers from the screen's data and may propose a plan; Go approves it.
 export function AgentChat({ path }: { path: string }) {
+  const t = useT();
   const client = useQueryClient();
   const key = ["chat", path];
   const [text, setText] = useState("");
@@ -107,10 +110,10 @@ export function AgentChat({ path }: { path: string }) {
   }, [messages.length, send.isPending]);
 
   return (
-    <aside aria-label="Agent chat" className="fixed inset-x-0 top-12 bottom-0 z-30 flex flex-col bg-background text-sm md:static md:z-auto md:mr-2 md:mb-2 md:min-h-0 md:w-[22rem] md:rounded-xl md:border">
-      <div ref={list} role="log" aria-live="polite" aria-label="Messages" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        {chat.isError && <p role="alert" className="text-destructive">Could not load the chat.</p>}
-        {!chat.isError && !chat.isPending && messages.length === 0 && <p className="text-muted-foreground">Ask about this page. The agent answers from what the page shows.</p>}
+    <aside aria-label={t("Agent chat")} className="fixed inset-x-0 top-12 bottom-0 z-30 flex flex-col bg-background text-sm md:static md:z-auto md:mr-2 md:mb-2 md:min-h-0 md:w-[22rem] md:rounded-xl md:border">
+      <div ref={list} role="log" aria-live="polite" aria-label={t("Messages")} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {chat.isError && <p role="alert" className="text-destructive">{t("Could not load {what}.", { what: t("the chat") })}</p>}
+        {!chat.isError && !chat.isPending && messages.length === 0 && <p className="text-muted-foreground">{t("Ask about this page. The agent answers from what the page shows.")}</p>}
         {messages.map((m) => (
           <div key={m.seq}>
             <p className="text-xs text-muted-foreground">
@@ -120,7 +123,7 @@ export function AgentChat({ path }: { path: string }) {
             {m.plan && <Plan plan={m.plan} going={go.isPending} onGo={() => go.mutate(m.plan!.id)} error={go.variables === m.plan.id ? go.error?.message : undefined} />}
           </div>
         ))}
-        {send.isPending && <p className="text-muted-foreground">Thinking...</p>}
+        {send.isPending && <p className="text-muted-foreground">{t("Thinking...")}</p>}
       </div>
       <form
         className="border-t p-3"
@@ -136,15 +139,15 @@ export function AgentChat({ path }: { path: string }) {
         )}
         <div className="flex gap-2">
           <input
-            aria-label="Message"
+            aria-label={t("Message")}
             value={text}
             onChange={(e) => setText(e.target.value)}
             disabled={send.isPending}
             maxLength={4000}
-            placeholder="Ask the agent"
+            placeholder={t("Ask the agent")}
             className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           />
-          <Button type="submit" size="icon" aria-label="Send" disabled={send.isPending || !text.trim()}>
+          <Button type="submit" size="icon" aria-label={t("Send")} disabled={send.isPending || !text.trim()}>
             <Send strokeWidth={1.5} aria-hidden="true" />
           </Button>
         </div>

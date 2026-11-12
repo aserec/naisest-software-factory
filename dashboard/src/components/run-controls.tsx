@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import type { Action } from "@/server/run-view";
 import type { FactoryState } from "@/server/seams";
 import { LoadError } from "./shell";
+import { useT } from "./use-preferences";
 
 interface RunState {
   state?: FactoryState;
@@ -24,11 +25,12 @@ const ASK: Record<Action, string> = {
   ready: "The factory sets the work item to Ready in your name. A blocked run continues where it stopped.",
 };
 const NAME: Record<Action, string> = { stop: "Stop", resume: "Resume", restart: "Restart", ready: "Set to Ready" };
+const TITLE: Record<Action, string> = { stop: "Stop this run?", resume: "Resume this run?", restart: "Restart this run?", ready: "Set the work item to Ready?" };
 const ALL = Object.keys(NAME) as Action[];
-const why = (refusal = "not allowed now") => `Disabled: ${refusal}.`;
 
 function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => void; busy: boolean }) {
-  const name = NAME[action];
+  const t = useT();
+  const name = t(NAME[action]);
   return (
     <Confirm
       trigger={
@@ -36,8 +38,8 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
           {name}
         </Button>
       }
-      title={action === "ready" ? "Set the work item to Ready?" : `${name} this run?`}
-      description={ASK[action]}
+      title={t(TITLE[action])}
+      description={t(ASK[action])}
       action={name}
       destructive={action === "stop" || action === "restart"}
       onConfirm={onConfirm}
@@ -47,6 +49,7 @@ function Ask({ action, onConfirm, busy }: { action: Action; onConfirm: () => voi
 
 // Every action is a button; the ones the run view refuses (server/run-view.ts) are disabled and say why on hover.
 export function RunControls({ run }: { run: string }) {
+  const t = useT();
   const client = useQueryClient();
   const key = ["run-state", run];
   const runState = useQuery({
@@ -62,8 +65,8 @@ export function RunControls({ run }: { run: string }) {
     mutationFn: async (action: Action) => {
       const r = await api(`/api/runs/${encodeURIComponent(run)}/${action}`, { method: "POST" });
       // 409: the same request already waits. 403: the server's sentence says which role is missing.
-      if (r.status === 409) throw new Error(`${NAME[action]} is already requested.`);
-      if (!r.ok) throw new Error(`Could not send ${NAME[action]}. ${r.status === 403 ? await r.text() : "Try again."}`);
+      if (r.status === 409) throw new Error(t("{name} is already requested.", { name: t(NAME[action]) }));
+      if (!r.ok) throw new Error(t("Could not send {name}. {detail}", { name: t(NAME[action]), detail: r.status === 403 ? await r.text() : t("Try again.") }));
     },
     onSettled: () => client.invalidateQueries({ queryKey: key }),
   });
@@ -83,18 +86,18 @@ export function RunControls({ run }: { run: string }) {
               <TooltipTrigger asChild>
                 <span tabIndex={0}>
                   <Button variant="outline" disabled>
-                    {NAME[a]}
+                    {t(NAME[a])}
                   </Button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent>{why(data.refusals[a])}</TooltipContent>
+              <TooltipContent>{t("Disabled: {reason}.", { reason: data.refusals[a] ?? t("not allowed now") })}</TooltipContent>
             </Tooltip>
           ),
         )}
       </TooltipProvider>
       {data.pending.map((a) => (
         <span key={a} className="text-muted-foreground">
-          {NAME[a]} requested. The factory picks it up within a minute.
+          {t("{name} requested. The factory picks it up within a minute.", { name: t(NAME[a]) })}
         </span>
       ))}
       {send.error && (
@@ -105,3 +108,31 @@ export function RunControls({ run }: { run: string }) {
     </div>
   );
 }
+
+// The run page's links out, in the viewer's language. The page renders on the server, so it passes the names it read there.
+export function RunLinks({ changeUrl, approving, codeHost, ticketUrl, tracker, boardUrl }: { changeUrl?: string; approving: boolean; codeHost?: string; ticketUrl?: string; tracker?: string; boardUrl?: string }) {
+  const t = useT();
+  return (
+    <>
+      {/* Open PR is the main button while the change waits for a person's merge. */}
+      {changeUrl && codeHost && (
+        <Button asChild variant={approving ? "default" : "outline"}>
+          <a href={changeUrl} target="_blank" rel="noreferrer" title={t("Review and merge in {host}", { host: codeHost })}>{t("Open PR")}</a>
+        </Button>
+      )}
+      {tracker && ticketUrl && (
+        <Button asChild variant="outline">
+          <a href={ticketUrl} target="_blank" rel="noreferrer" title={t("Open the work item in {tracker}", { tracker })}>{t("Open issue")}</a>
+        </Button>
+      )}
+      {boardUrl && (
+        <Button asChild variant="outline">
+          <a href={boardUrl} target="_blank" rel="noreferrer" title={t("Open the board in {tracker}", { tracker: tracker ?? t("the tracker") })}>{t("Open board")}</a>
+        </Button>
+      )}
+    </>
+  );
+}
+
+// One text in the viewer's language, for a page that renders on the server.
+export const Tr = ({ text, values }: { text: string; values?: Record<string, string | number> }) => useT()(text, values);

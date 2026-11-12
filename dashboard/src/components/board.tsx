@@ -13,7 +13,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import type { BoardRow, FactoryState, Risk } from "@/server/seams";
 import { ago, cn, usd, when as at, words, workItemKey } from "@/lib/utils";
+import { translator, type T } from "@/lib/i18n";
 import { LoadError, SectionHeading } from "./shell";
+import { useT } from "./use-preferences";
 
 export interface BoardItem extends BoardRow {
   run?: string;
@@ -35,17 +37,19 @@ export interface BoardItem extends BoardRow {
 
 // The change cannot merge until someone resolves its conflicts: the factory's conflict round, or a person.
 export function ConflictsBadge({ conflicts }: { conflicts?: boolean }) {
-  return conflicts ? <Badge variant="warning" title="The change has conflicts with the base branch. The factory starts a round to resolve them.">Conflicts</Badge> : null;
+  const t = useT();
+  return conflicts ? <Badge variant="warning" title={t("The change has conflicts with the base branch. The factory starts a round to resolve them.")}>{t("Conflicts")}</Badge> : null;
 }
 
 // A ready work item that waits for other open work items. The factory starts it once each one is closed.
 export function BlockedByBadge({ blockedBy }: { blockedBy?: string[] }) {
+  const t = useT();
   if (!blockedBy?.length) return null;
   const refs = blockedBy.map((u) => `#${u.split("/").pop()}`).join(", ");
   return (
-    <Badge variant="warning" title={`Waits until ${refs} ${blockedBy.length === 1 ? "is" : "are"} closed. The factory starts this work item after that.`}>
+    <Badge variant="warning" title={t(blockedBy.length === 1 ? "Waits until {refs} is closed. The factory starts this work item after that." : "Waits until {refs} are closed. The factory starts this work item after that.", { refs })}>
       <Link2 aria-hidden />
-      Waits for {refs}
+      {t("Waits for {refs}", { refs })}
     </Badge>
   );
 }
@@ -53,12 +57,13 @@ export function BlockedByBadge({ blockedBy }: { blockedBy?: string[] }) {
 // Triage risk (Jev 1, on the work item), then merge risk (Jev 2, on the diff), each named so they cannot be confused. High or above the merge limit takes the warning pill; nothing is green,
 // so a pill never makes a change look safer than its risk check says.
 export function RiskPills({ risk, mergeRisk, mergeRiskMax: max = DIFF_RISK_MAX }: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }) {
+  const t = useT();
   return (
     <>
-      {risk && <Badge variant={risk === "high" ? "warning" : "default"}>Triage risk {risk}</Badge>}
+      {risk && <Badge variant={risk === "high" ? "warning" : "default"}>{t("Triage risk {risk}", { risk })}</Badge>}
       {mergeRisk !== undefined && (
-        <Badge variant={mergeRisk > max ? "warning" : "default"} title={`Jev 2's risk for the diff. Above ${max} never merges without a person.`}>
-          Merge risk {mergeRisk}/10, limit {max}
+        <Badge variant={mergeRisk > max ? "warning" : "default"} title={t("Jev 2's risk for the diff. Above {max} never merges without a person.", { max })}>
+          {t("Merge risk {risk}/10, limit {max}", { risk: mergeRisk, max })}
         </Badge>
       )}
     </>
@@ -89,11 +94,12 @@ export const boardCounts = (items: BoardItem[], now: number) => ({ ongoing: item
 
 // The ten steps as one line of segments: reached in ink, the live one in the data hue, a stuck or failed run's step in red.
 function Progress({ item: i }: { item: BoardItem }) {
+  const t = useT();
   const at = stepIndex(i.reached);
   if (at < 0) return null;
   const now = i.stuck || i.state === "blocked" ? "bg-destructive" : i.stepStartedAt ? "bg-data" : "bg-foreground";
   return (
-    <div role="img" aria-label={`Step ${at + 1} of ${STEPS.length}, ${words(STEPS[at])}`} className="mt-2 flex gap-0.5">
+    <div role="img" aria-label={t("Step {n} of {total}, {step}", { n: at + 1, total: STEPS.length, step: words(STEPS[at]) })} className="mt-2 flex gap-0.5">
       {STEPS.map((s, n) => (
         <span key={s} className={cn("h-1 w-3 rounded-full", n < at ? "bg-foreground" : n === at ? now : "bg-raised")} />
       ))}
@@ -103,6 +109,7 @@ function Progress({ item: i }: { item: BoardItem }) {
 
 // "12 of 30 m" against the live step's stuck limit, with a thin bar that turns red once over.
 function Clock({ item: i, now }: { item: BoardItem; now: number }) {
+  const t = useT();
   if (!i.stepStartedAt || i.stepLimit === undefined) return null;
   const m = Math.max(0, Math.floor((now - Date.parse(i.stepStartedAt)) / 60_000));
   if (!Number.isFinite(m)) return null;
@@ -113,7 +120,7 @@ function Clock({ item: i, now }: { item: BoardItem; now: number }) {
         <span data-over={over} className={cn("block h-full rounded-full", over ? "bg-destructive" : "bg-data")} style={{ width: `${Math.min(100, (m / i.stepLimit) * 100)}%` }} />
       </span>
       <span className={over ? "text-destructive" : ""}>
-        {m} of {i.stepLimit} m
+        {t("{m} of {limit} m", { m, limit: i.stepLimit })}
       </span>
     </div>
   );
@@ -132,8 +139,9 @@ function IconLink({ href, label, icon, danger }: { href: string; label: string; 
 const link = "font-medium outline-none after:absolute after:inset-0 after:rounded-lg";
 
 function Row({ item: i, now }: { item: BoardItem; now: number }) {
+  const t = useT();
   const when = ago(i.updatedAt);
-  const block = i.conflicts ? "it has conflicts with the base branch" : i.mergeBlock;
+  const block = i.conflicts ? t("it has conflicts with the base branch") : i.mergeBlock;
   const title = i.run ? (
     <Link href={`/runs/${encodeURIComponent(i.run)}`} className={link}>
       {i.title}
@@ -154,12 +162,12 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
             {i.target} #{i.ticket}
           </span>
           {i.step && ` · ${words(i.step)}`}
-          {i.round !== undefined && ` · round ${i.round}`}
+          {i.round !== undefined && ` · ${t("round {n}", { n: i.round })}`}
           {i.stateSince && (
             <>
               {" · "}
               <time dateTime={i.stateSince}>
-                {STATE[i.state]} since {at(i.stateSince)}
+                {t("{state} since {time}", { state: t(STATE[i.state]), time: at(i.stateSince) })}
               </time>
             </>
           )}
@@ -168,7 +176,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
             <>
               {" · "}
               <time dateTime={i.resolvedAt}>
-                Resolved {i.resolvedCount === 1 ? "once" : `${i.resolvedCount} times`}, last {at(i.resolvedAt)}
+                {t(i.resolvedCount === 1 ? "Resolved once, last {time}" : "Resolved {n} times, last {time}", { n: i.resolvedCount ?? 0, time: at(i.resolvedAt) })}
               </time>
             </>
           )}
@@ -177,7 +185,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
         <Clock item={i} now={now} />
       </div>
       <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 pt-px">
-        {i.stuck && <Badge variant="destructive">Stuck</Badge>}
+        {i.stuck && <Badge variant="destructive">{t("Stuck")}</Badge>}
         <ConflictsBadge conflicts={i.conflicts} />
         {i.state === "ready" && <BlockedByBadge blockedBy={i.blockedBy} />}
         <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
@@ -185,8 +193,8 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
         <span className="w-14 text-right">{i.costUsd !== undefined && usd(i.costUsd)}</span>
         {/* relative z-10 lifts the buttons over the card's stretched title link. The PR shows as soon as it exists, red while something stops its merge. */}
         <span className="relative z-10 flex gap-1">
-          {i.changeUrl && <IconLink href={i.changeUrl} label={block && i.state !== "done" ? `Open PR, it cannot merge: ${block}` : "Open PR"} icon={<GitPullRequest />} danger={!!block && i.state !== "done"} />}
-          <IconLink href={i.url} label="Open issue" icon={<Ticket />} />
+          {i.changeUrl && <IconLink href={i.changeUrl} label={block && i.state !== "done" ? t("Open PR, it cannot merge: {block}", { block }) : t("Open PR")} icon={<GitPullRequest />} danger={!!block && i.state !== "done"} />}
+          <IconLink href={i.url} label={t("Open issue")} icon={<Ticket />} />
         </span>
       </div>
     </motion.li>
@@ -196,6 +204,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
 const FINISHED_SHOWN = 10; // Finished columns only grow; the board shows the newest ones.
 
 function Column({ name, items, now, newest }: { name: string; items: BoardItem[]; now: number; newest?: boolean }) {
+  const t = useT();
   const [all, setAll] = useState(false);
   const shown = newest && !all ? [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, FINISHED_SHOWN) : items;
   return (
@@ -210,7 +219,7 @@ function Column({ name, items, now, newest }: { name: string; items: BoardItem[]
       </ul>
       {shown.length < items.length && (
         <Button variant="ghost" size="sm" className="mt-2 text-muted-foreground" onClick={() => setAll(true)}>
-          Show {items.length - shown.length} older
+          {t("Show {n} older", { n: items.length - shown.length })}
         </Button>
       )}
     </section>
@@ -262,12 +271,12 @@ function useTabTitle(n: number | undefined) {
 }
 
 // What turned to need a person between two board loads: entered needs approval or needs info, or a run turned stuck.
-export function newlyWaiting(prev: BoardItem[], next: BoardItem[]) {
+export function newlyWaiting(prev: BoardItem[], next: BoardItem[], t: T = translator("en")) {
   const before = new Map(prev.map((i) => [workItemKey(i), i]));
   return next.flatMap((i) => {
     const p = before.get(workItemKey(i));
-    if ((i.state === "needs_approval" || i.state === "needs_info") && p?.state !== i.state) return [`${STATE[i.state]}: ${i.title}`];
-    if (i.stuck && !p?.stuck) return [`Stuck: ${i.title}`];
+    if ((i.state === "needs_approval" || i.state === "needs_info") && p?.state !== i.state) return [`${t(STATE[i.state])}: ${i.title}`];
+    if (i.stuck && !p?.stuck) return [`${t("Stuck")}: ${i.title}`];
     return [];
   });
 }
@@ -284,6 +293,7 @@ function useNow() {
 
 // One board per target: target keeps only its cards. Without it the board shows every target.
 export function Board({ target = "" }: { target?: string }) {
+  const t = useT();
   const board = useBoard();
   const { data: all, error } = board;
   const client = useQueryClient();
@@ -296,8 +306,8 @@ export function Board({ target = "" }: { target?: string }) {
   // "/" jumps to the search, unless a person is typing somewhere already.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target instanceof HTMLElement ? e.target : null;
-      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || t?.closest("input, textarea") || t?.isContentEditable) return;
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || el?.closest("input, textarea") || el?.isContentEditable) return;
       e.preventDefault();
       search.current?.focus();
     };
@@ -305,7 +315,7 @@ export function Board({ target = "" }: { target?: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const data = all?.filter((i) => matches(i, { q: filter.q, target }));
-  const tab = TABS.find((t) => t === filter.tab) ?? "ongoing";
+  const tab = TABS.find((x) => x === filter.tab) ?? "ongoing";
   const count = (done: boolean) => data?.filter((i) => finished(i) === done).length;
   const problems = data?.filter((i) => inProblems(i, now));
   return (
@@ -316,15 +326,15 @@ export function Board({ target = "" }: { target?: string }) {
           <input
             ref={search}
             type="search"
-            aria-label="Search work items"
-            placeholder="Search title or #number"
+            aria-label={t("Search work items")}
+            placeholder={t("Search title or #number")}
             value={filter.q}
             onChange={(e) => setFilter({ q: e.target.value })}
             className="h-8 w-64 max-w-full rounded-md border border-input bg-background px-2.5 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           />
           <Button variant="outline" size="sm" className="ml-auto" disabled={board.isFetching} onClick={refresh}>
             <RefreshCw className={cn(board.isFetching && "motion-safe:animate-spin")} />
-            Refresh
+            {t("Refresh")}
           </Button>
         </div>
       )}
@@ -332,25 +342,25 @@ export function Board({ target = "" }: { target?: string }) {
         <Tabs value={tab} onValueChange={(v) => setFilter({ tab: v === "ongoing" ? "" : v })} className="mb-6">
           <TabsList>
             <TabsTrigger value="ongoing">
-              Ongoing <span className="ml-1.5 font-normal text-muted-foreground">{count(false)}</span>
+              {t("Ongoing")} <span className="ml-1.5 font-normal text-muted-foreground">{count(false)}</span>
             </TabsTrigger>
             <TabsTrigger value="problems">
-              PR problems <span className="ml-1.5 font-normal text-muted-foreground">{problems?.length}</span>
+              {t("PR problems")} <span className="ml-1.5 font-normal text-muted-foreground">{problems?.length}</span>
             </TabsTrigger>
             <TabsTrigger value="finished">
-              Finished <span className="ml-1.5 font-normal text-muted-foreground">{count(true)}</span>
+              {t("Finished")} <span className="ml-1.5 font-normal text-muted-foreground">{count(true)}</span>
             </TabsTrigger>
           </TabsList>
         </Tabs>
       )}
       <div data-scroll>
-      {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">No work item matches the filter.</p>}
+      {all && data && all.length > 0 && data.length === 0 && <p className="text-muted-foreground">{t("No work item matches the filter.")}</p>}
       {!error && !data && (
         <div aria-busy="true" className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
-          <span className="sr-only">Loading the board…</span>
+          <span className="sr-only">{t("Loading the board…")}</span>
           {SIDES.map(([side]) => (
             <div key={side} className="flex flex-col gap-6">
-              <h2 className="text-lg leading-7 font-semibold">{side}</h2>
+              <h2 className="text-lg leading-7 font-semibold">{t(side)}</h2>
               {[2, 1].map((cards, n) => (
                 <div key={n} className="motion-safe:animate-pulse">
                   <div className="mb-3 border-b pb-2">
@@ -369,16 +379,16 @@ export function Board({ target = "" }: { target?: string }) {
       )}
       {data && (all?.length === 0 || data.length > 0) && tab === "finished" && (
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-2">
-          <Column name={STATE.done} items={data.filter((i) => i.state === "done")} now={now} newest />
-          <Column name="Closed" items={data.filter((i) => i.closed && i.state !== "done")} now={now} newest />
+          <Column name={t(STATE.done)} items={data.filter((i) => i.state === "done")} now={now} newest />
+          <Column name={t("Closed")} items={data.filter((i) => i.closed && i.state !== "done")} now={now} newest />
         </div>
       )}
       {problems && (all?.length === 0 || data!.length > 0) && tab === "problems" && (
         <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-3">
           {/* A live step is the round at work. A run paused for a person is not: its change waits for the next round or a person. */}
-          <Column name="Waiting" items={problems.filter((i) => problem(i) && !i.stepStartedAt)} now={now} />
-          <Column name="Being resolved" items={problems.filter((i) => problem(i) && i.stepStartedAt)} now={now} />
-          <Column name="Resolved" items={problems.filter((i) => !problem(i))} now={now} newest />
+          <Column name={t("Waiting")} items={problems.filter((i) => problem(i) && !i.stepStartedAt)} now={now} />
+          <Column name={t("Being resolved")} items={problems.filter((i) => problem(i) && i.stepStartedAt)} now={now} />
+          <Column name={t("Resolved")} items={problems.filter((i) => !problem(i))} now={now} newest />
         </div>
       )}
       {data && (all?.length === 0 || data.length > 0) && tab === "ongoing" && (
@@ -388,10 +398,10 @@ export function Board({ target = "" }: { target?: string }) {
             const of = (s: FactoryState) => data.filter((i) => i.state === s && !finished(i));
             return (
               <div key={side} className="flex flex-col gap-6">
-                <h2 className="text-lg leading-7 font-semibold">{side}</h2>
+                <h2 className="text-lg leading-7 font-semibold">{t(side)}</h2>
                 {/* Every state keeps its section, an empty one with its 0, so the columns never move. */}
                 {states.map((s) => (
-                  <Column key={s} name={STATE[s]} items={of(s)} now={now} />
+                  <Column key={s} name={t(STATE[s])} items={of(s)} now={now} />
                 ))}
               </div>
             );

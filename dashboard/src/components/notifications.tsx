@@ -13,7 +13,7 @@ import { ago, cn, workItemKey } from "@/lib/utils";
 import { type BoardItem, needsYou, newlyWaiting, useBoard } from "./board";
 import { STATE } from "@/lib/state";
 import { SectionHeading } from "./shell";
-import { usePreferences } from "./use-preferences";
+import { usePreferences, useT } from "./use-preferences";
 
 type RunEnd = EventOf<"run_end"> & { seq: number };
 
@@ -60,13 +60,14 @@ export function useNotifyPref() {
 
 // Browser notifications, only once a person asks.
 function useNotify(data: BoardItem[] | undefined) {
+  const t = useT();
   const pref = useNotifyPref();
   const prev = useRef<BoardItem[]>(undefined);
   useEffect(() => {
     if (!data) return;
-    if (pref.on && prev.current) for (const body of newlyWaiting(prev.current, data)) new Notification("Factory", { body });
+    if (pref.on && prev.current) for (const body of newlyWaiting(prev.current, data, t)) new Notification(t("Factory"), { body });
     prev.current = data;
-  }, [data, pref.on]);
+  }, [data, pref.on, t]);
   return pref;
 }
 
@@ -87,6 +88,7 @@ const card = "flex flex-col gap-1 rounded-lg border bg-card p-3 outline-none hov
 // The bell in the top bar. Its count is what waits on a person plus run ends this browser has not seen.
 // Its panel lists both, and holds the Notify me switch for browser notifications.
 export function Notifications() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const { data: board } = useBoard();
   const { data: ends = [] } = useRunEnds();
@@ -117,7 +119,7 @@ export function Notifications() {
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={n ? `Notifications, ${n} new` : "Notifications"}
+        aria-label={n ? t("Notifications, {n} new", { n }) : t("Notifications")}
         onClick={togglePanel}
         className="relative flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
@@ -131,24 +133,24 @@ export function Notifications() {
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
-        title="Notifications"
-        description={waiting.length ? `${waiting.length} waiting on you` : "Nothing waits on you."}
+        title={t("Notifications")}
+        description={waiting.length ? t("{n} waiting on you", { n: waiting.length }) : t("Nothing waits on you.")}
         footer={
           notify.shown && (
             <Button variant="outline" aria-pressed={notify.on} disabled={!notify.ready} onClick={notify.toggle}>
-              {notify.on ? "Notifying" : "Notify me"}
+              {notify.on ? t("Notifying") : t("Notify me")}
             </Button>
           )
         }
       >
-        <SectionHeading as="h3">Waiting on you</SectionHeading>
-        {waiting.length === 0 && <p className="mb-8 text-muted-foreground">Nothing waits on you.</p>}
+        <SectionHeading as="h3">{t("Waiting on you")}</SectionHeading>
+        {waiting.length === 0 && <p className="mb-8 text-muted-foreground">{t("Nothing waits on you.")}</p>}
         <ul className="mb-8 flex flex-col gap-2">
           {waiting.map((i) => (
             <li key={workItemKey(i)}>
               <Link href={i.run ? `/runs/${encodeURIComponent(i.run)}` : i.url} onClick={() => setOpen(false)} className={card}>
                 <span className="flex flex-wrap items-center gap-2">
-                  <Badge variant={i.stuck || i.state === "blocked" ? "warning" : "default"}>{i.stuck ? "Stuck" : STATE[i.state]}</Badge>
+                  <Badge variant={i.stuck || i.state === "blocked" ? "warning" : "default"}>{t(i.stuck ? "Stuck" : STATE[i.state])}</Badge>
                   <span className="font-medium">{i.title}</span>
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -161,8 +163,8 @@ export function Notifications() {
             </li>
           ))}
         </ul>
-        <SectionHeading as="h3">Run ends</SectionHeading>
-        {ends.length === 0 && <p className="text-muted-foreground">No run has ended yet.</p>}
+        <SectionHeading as="h3">{t("Run ends")}</SectionHeading>
+        {ends.length === 0 && <p className="text-muted-foreground">{t("No run has ended yet.")}</p>}
         <ul className="flex flex-col gap-2">
           {ends.map((e) => {
             const isNew = e.seq > unreadFrom;
@@ -170,8 +172,8 @@ export function Notifications() {
               <li key={e.seq}>
                 <Link href={`/runs/${encodeURIComponent(e.run)}`} onClick={() => setOpen(false)} className={cn(card, isNew && "border-data/40")}>
                   <span className="flex flex-wrap items-center gap-2">
-                    {isNew && <span className="size-2 rounded-full bg-data" aria-label="Unread" />}
-                    <Badge variant={e.data.outcome === "blocked" ? "warning" : "default"}>{ENDED[e.data.outcome]}</Badge>
+                    {isNew && <span className="size-2 rounded-full bg-data" aria-label={t("Unread")} />}
+                    <Badge variant={e.data.outcome === "blocked" ? "warning" : "default"}>{t(ENDED[e.data.outcome])}</Badge>
                     <span className="font-medium">{titles.get(workItemKey(e)) ?? `${e.target} #${e.ticket}`}</span>
                   </span>
                   <span className="text-xs text-muted-foreground">

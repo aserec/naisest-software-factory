@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 import type { Insights } from "@/server/insights";
 import { InsightsView } from "./insights-view";
+import { renderWithQuery } from "./test-utils";
 
 afterEach(cleanup);
 
@@ -26,7 +27,7 @@ const base: Insights = {
 };
 
 test("the figures say what merged alone and what a run costs", () => {
-  render(<InsightsView data={base} />);
+  renderWithQuery(<InsightsView data={base} />);
   expect(screen.getByText("75%")).toBeTruthy(); // 3 of the 4 decided changes merged alone
   expect(screen.getByText("of 4 decided changes")).toBeTruthy();
   expect(screen.getByText("$1.50")).toBeTruthy();
@@ -34,22 +35,22 @@ test("the figures say what merged alone and what a run costs", () => {
 });
 
 test("a week's cost turns to a warning from 80% of its budget, and a target with no budget shows only its cost", () => {
-  render(<InsightsView data={base} />);
+  renderWithQuery(<InsightsView data={base} />);
   expect(screen.getByTitle("90% of the weekly budget").className).toContain("text-pill-warning-ink");
   cleanup();
-  render(<InsightsView data={{ ...base, targets: [{ ...base.targets[0], week: 11 }, base.targets[1]] }} />);
+  renderWithQuery(<InsightsView data={{ ...base, targets: [{ ...base.targets[0], week: 11 }, base.targets[1]] }} />);
   expect(screen.getByTitle("110% of the weekly budget").className).toContain("text-destructive");
   expect(screen.getAllByText("$3.00").length).toBeGreaterThan(0);
 });
 
 test("the line gives each step its runs, its blocks and its times", () => {
-  render(<InsightsView data={base} />);
+  renderWithQuery(<InsightsView data={base} />);
   expect(screen.getByLabelText("Code review: reached by 6, 2 blocked here, 1 m on a usual run, 5 m on a slow one")).toBeTruthy();
   expect(screen.getByText("2 blocked").className).toContain("text-destructive");
 });
 
 test("a step opens the panel with the runs that reached it and their time in that step", () => {
-  render(<InsightsView data={base} />);
+  renderWithQuery(<InsightsView data={base} />);
   fireEvent.click(screen.getByRole("button", { name: /^Code review:/ }));
   const panel = screen.getByRole("dialog");
   expect(within(panel).getByText("Runs that reached Code review")).toBeTruthy();
@@ -59,7 +60,7 @@ test("a step opens the panel with the runs that reached it and their time in tha
 });
 
 test("a review rounds row and a target open their own runs", () => {
-  render(<InsightsView data={base} />);
+  renderWithQuery(<InsightsView data={base} />);
   fireEvent.click(screen.getByRole("button", { name: /^1 round/ }));
   expect(within(screen.getByRole("dialog")).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(["/runs/r1"]);
   fireEvent.click(screen.getByRole("button", { name: "api" }));
@@ -67,6 +68,6 @@ test("a review rounds row and a target open their own runs", () => {
 });
 
 test("a page with no runs says so", () => {
-  render(<InsightsView data={{ ...base, runs: 0 }} />);
+  renderWithQuery(<InsightsView data={{ ...base, runs: 0 }} />);
   expect(screen.getByText("No run started in this range.")).toBeTruthy();
 });

@@ -2,6 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { LoadError, PageTitle, SectionHeading } from "@/components/shell";
+import { useT } from "@/components/use-preferences";
+import type { T } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
@@ -11,9 +13,10 @@ import type { DispatchLog } from "@/server/db";
 type Targets = { target: string; dispatches: DispatchLog[] }[];
 
 // done_at is set once the dispatch has its work item; started_at once a dispatch run was started for it.
-const state = (d: DispatchLog) => (d.doneAt ? <Badge variant="positive">Done</Badge> : d.startedAt ? <Badge>Run started</Badge> : <Badge>Waiting</Badge>);
+const state = (d: DispatchLog, t: T) => (d.doneAt ? <Badge variant="positive">{t("Done")}</Badge> : d.startedAt ? <Badge>{t("Run started")}</Badge> : <Badge>{t("Waiting")}</Badge>);
 
 export default function DispatchesPage() {
+  const t = useT();
   const q = useQuery({
     queryKey: ["dispatches"],
     queryFn: async () => {
@@ -25,9 +28,9 @@ export default function DispatchesPage() {
   const shown = q.data?.filter((t) => t.dispatches.length) ?? [];
   return (
     <main>
-      <PageTitle title="Dispatches">Outside systems ask the factory to open a work item about a problem. The last 50 per target, newest first.</PageTitle>
+      <PageTitle title={t("Dispatches")}>{t("Outside systems ask the factory to open a work item about a problem. The last 50 per target, newest first.")}</PageTitle>
       {q.error && <LoadError what="the dispatches" query={q} className="mb-6" />}
-      {q.data && !shown.length && <p className="text-muted-foreground">No dispatches yet.</p>}
+      {q.data && !shown.length && <p className="text-muted-foreground">{t("No dispatches yet.")}</p>}
       <div className="flex flex-col gap-8">
         {shown.map(({ target, dispatches }) => (
           <section key={target}>
@@ -37,12 +40,12 @@ export default function DispatchesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Key</TableHead>
-                  <TableHead>Asks for</TableHead>
-                  <TableHead>State</TableHead>
-                  <TableHead>Work item</TableHead>
-                  <TableHead className="text-right">When</TableHead>
+                  <TableHead>{t("Source")}</TableHead>
+                  <TableHead>{t("Key")}</TableHead>
+                  <TableHead>{t("Asks for")}</TableHead>
+                  <TableHead>{t("State")}</TableHead>
+                  <TableHead>{t("Work item")}</TableHead>
+                  <TableHead className="text-right">{t("When")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -61,11 +64,11 @@ export default function DispatchesPage() {
                         d.title
                       )}
                     </TableCell>
-                    <TableCell>{state(d)}</TableCell>
+                    <TableCell>{state(d, t)}</TableCell>
                     <TableCell>
                       {d.workItem ? (
                         <a href={d.workItem} className="font-medium hover:underline">
-                          Open
+                          {t("Open")}
                         </a>
                       ) : (
                         // None yet, or one was open already for the same source and key (and rows from before work_item).

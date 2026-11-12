@@ -7,6 +7,7 @@ import type { InsightsPayload } from "@/server/insights-load";
 import { InsightsView } from "./insights-view";
 import { RangePicker, type RangeQuery } from "./range-picker";
 import { LoadError, PageTitle } from "./shell";
+import { useT } from "./use-preferences";
 
 const toSearch = (q: Record<string, string | undefined>) => new URLSearchParams(Object.entries(q).filter((e): e is [string, string] => !!e[1])).toString();
 const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -16,6 +17,7 @@ const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 // initial: what the server rendered for the URL. hasZone: whether that URL carried the viewer's time zone.
 // title and view let the Board overview reuse the panel with its own summary of the same data.
 export function InsightsPanel({ initial, hasZone, title = "Insights", view = (d) => <InsightsView data={d} /> }: { initial: InsightsPayload; hasZone: boolean; title?: string; view?: (data: InsightsPayload["data"]) => React.ReactNode }) {
+  const t = useT();
   const [q, setQ] = useState<RangeQuery & { tz: string }>({ range: initial.range, from: initial.fromDay, to: initial.toDay, tz: initial.tz });
   // A first visit has no time zone in the URL, so the server counted in UTC. Ask again in the viewer's own.
   useEffect(() => {
@@ -45,8 +47,8 @@ export function InsightsPanel({ initial, hasZone, title = "Insights", view = (d)
   const shown = query.data ?? initial;
   return (
     <>
-      <PageTitle title={title}>
-        {shown.said}, every target, by when each run started. Times in {shown.tz}.
+      <PageTitle title={t(title)}>
+        {t("{said}, every target, by when each run started. Times in {tz}.", { said: shown.range === "custom" ? shown.said : t(shown.said), tz: shown.tz })}
       </PageTitle>
       <div className="-mt-4 mb-6">
         <RangePicker value={q} onPick={pick} />

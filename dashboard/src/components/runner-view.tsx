@@ -8,6 +8,7 @@ import type { HostStat, LogLine } from "@/server/seams";
 import { api } from "@/lib/api";
 import { ago, clock } from "@/lib/utils";
 import { LoadError, SectionHeading } from "./shell";
+import { useT } from "./use-preferences";
 
 type Part<T> = T | { error: string } | { unset: string };
 interface Runner {
@@ -38,10 +39,11 @@ function Show<T>({ part, children }: { part: Part<T> | undefined; children: (v: 
 
 // A used share at its true ratio: the data hue, red from FULL.
 function Used({ label, value }: { label: string; value: number }) {
+  const t = useT();
   const known = Number.isFinite(value);
   return (
     <div className="grid grid-cols-[4.5rem_minmax(0,1fr)_2.5rem] items-center gap-3">
-      <span className="text-muted-foreground">{label}</span>
+      <span className="text-muted-foreground">{t(label)}</span>
       <span className="h-1.5 rounded-full bg-raised">
         {known && <span className={`block h-full rounded-full ${value >= FULL ? "bg-destructive" : "bg-data"}`} style={{ width: `${Math.min(value, 100)}%` }} />}
       </span>
@@ -51,6 +53,7 @@ function Used({ label, value }: { label: string; value: number }) {
 }
 
 export function RunnerView() {
+  const t = useT();
   const [source, setSource] = useState(""); // empty until a tab is picked: the first source
   const [host, setHost] = useState("");
   const runner = useQuery({
@@ -72,16 +75,16 @@ export function RunnerView() {
       {error && <LoadError what="the runner view" query={runner} />}
       <div className="grid items-start gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <section>
-          <SectionHeading>Running jobs</SectionHeading>
+          <SectionHeading>{t("Running jobs")}</SectionHeading>
           <Show part={data?.jobs}>
             {(jobs) =>
               jobs.length ? (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Job</TableHead>
-                      <TableHead>Runner</TableHead>
-                      <TableHead className="text-right">Started</TableHead>
+                      <TableHead>{t("Job")}</TableHead>
+                      <TableHead>{t("Runner")}</TableHead>
+                      <TableHead className="text-right">{t("Started")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -90,7 +93,7 @@ export function RunnerView() {
                         <TableCell className="py-2.5">
                           <div className="font-medium">{j.name}</div>
                           <div className="font-mono text-xs text-muted-foreground">
-                            job {j.job} · run {j.run}
+                            {t("job {job} · run {run}", { job: j.job, run: j.run })}
                           </div>
                         </TableCell>
                         <TableCell className={j.runner ? "" : "text-muted-foreground"}>{j.runner ?? "—"}</TableCell>
@@ -103,14 +106,14 @@ export function RunnerView() {
                   </TableBody>
                 </Table>
               ) : (
-                <p className="text-muted-foreground">No job is running.</p>
+                <p className="text-muted-foreground">{t("No job is running.")}</p>
               )
             }
           </Show>
         </section>
 
         <section>
-          <SectionHeading>Hosts</SectionHeading>
+          <SectionHeading>{t("Hosts")}</SectionHeading>
           <Show part={data?.hosts}>
             {(hosts) =>
               hosts.length ? (
@@ -122,7 +125,7 @@ export function RunnerView() {
                         aria-pressed={h.host === host}
                         onClick={() => setHost(h.host === host ? "" : h.host)}
                         className="mb-2 rounded-sm font-medium hover:underline aria-pressed:underline"
-                        title={h.host === host ? "Show logs of every host" : `Show only the logs of ${h.host}`}
+                        title={h.host === host ? t("Show logs of every host") : t("Show only the logs of {host}", { host: h.host })}
                       >
                         {h.host}
                       </button>
@@ -134,7 +137,7 @@ export function RunnerView() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-muted-foreground">No runner host reports.</p>
+                <p className="text-muted-foreground">{t("No runner host reports.")}</p>
               )
             }
           </Show>
@@ -144,10 +147,10 @@ export function RunnerView() {
       <section>
         {/* The tabs' full-width rule stands in for the heading's rule; without tabs the heading keeps its own. */}
         <div className={`flex flex-wrap items-baseline justify-between gap-x-4 ${unset ? "" : "mb-1"}`}>
-          <SectionHeading className={unset ? "flex-1" : "mb-0 border-0 pb-0"}>Logs of the last 15 minutes{host ? ` on ${host}` : ""}</SectionHeading>
+          <SectionHeading className={unset ? "flex-1" : "mb-0 border-0 pb-0"}>{host ? t("Logs of the last 15 minutes on {host}", { host }) : t("Logs of the last 15 minutes")}</SectionHeading>
           {host && (
             <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setHost("")}>
-              Show every host
+              {t("Show every host")}
             </button>
           )}
         </div>
@@ -165,7 +168,7 @@ export function RunnerView() {
         <Show part={data?.logs}>
           {(logs) => (
             <pre className="max-h-[60vh] overflow-auto rounded-lg bg-raised p-4 font-mono text-xs leading-5">
-              {logs.map((l) => `${clock(l.at)}  ${l.host}  ${l.line}`).join("\n") || "No log lines."}
+              {logs.map((l) => `${clock(l.at)}  ${l.host}  ${l.line}`).join("\n") || t("No log lines.")}
             </pre>
           )}
         </Show>

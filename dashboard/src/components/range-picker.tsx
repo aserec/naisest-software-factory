@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RANGES } from "@/server/insights"; // types and Intl only, safe in the browser
+import { useT } from "./use-preferences";
 
 export type RangeQuery = { range: string; from?: string; to?: string };
 
@@ -11,6 +12,7 @@ export const field = "h-8 rounded-md border border-input bg-background px-2.5 te
 
 // One row as tall as a button. Picking a custom range adds the two dates to the right in the same row, so nothing below moves.
 export function RangePicker({ value, onPick }: { value: RangeQuery; onPick: (q: RangeQuery) => void }) {
+  const t = useT();
   const [custom, setCustom] = useState(value.range === "custom");
   const [days, setDays] = useState({ from: value.from ?? "", to: value.to ?? "" });
   return (
@@ -22,7 +24,7 @@ export function RangePicker({ value, onPick }: { value: RangeQuery; onPick: (q: 
       }}
     >
       <label className="sr-only" htmlFor="range">
-        Range
+        {t("Range")}
       </label>
       <select
         id="range"
@@ -36,17 +38,17 @@ export function RangePicker({ value, onPick }: { value: RangeQuery; onPick: (q: 
       >
         {Object.entries(RANGES).map(([k, label]) => (
           <option key={k} value={k}>
-            {label}
+            {t(label)}
           </option>
         ))}
       </select>
       {custom && (
         <>
-          <input type="date" aria-label="From" className={field} value={days.from} max={days.to || undefined} onChange={(e) => setDays({ ...days, from: e.target.value })} required />
-          <span className="text-muted-foreground">to</span>
-          <input type="date" aria-label="To" className={field} value={days.to} min={days.from || undefined} onChange={(e) => setDays({ ...days, to: e.target.value })} required />
+          <input type="date" aria-label={t("From")} className={field} value={days.from} max={days.to || undefined} onChange={(e) => setDays({ ...days, from: e.target.value })} required />
+          <span className="text-muted-foreground">{t("to")}</span>
+          <input type="date" aria-label={t("To")} className={field} value={days.to} min={days.from || undefined} onChange={(e) => setDays({ ...days, to: e.target.value })} required />
           <Button type="submit" variant="outline">
-            Show
+            {t("Show")}
           </Button>
         </>
       )}

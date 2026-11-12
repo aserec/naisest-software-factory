@@ -13,7 +13,9 @@ import { AgentChat, useChatOpen } from "./agent-chat";
 import { WAITING, useBoard } from "./board";
 import { Notifications } from "./notifications";
 import { UsageLimits } from "./usage-limits";
-import { usePreferences } from "./use-preferences";
+import { usePreferences, useT } from "./use-preferences";
+import { LANGUAGE_NAMES, type T } from "@/lib/i18n";
+import { PREFS } from "@/lib/preferences";
 
 const PAGES = [
   { href: "/insights", label: "Insights", icon: ChartColumn },
@@ -49,17 +51,17 @@ export function RunTarget({ target }: { target?: string }) {
   return null;
 }
 
-function crumbs(path: string, runTarget?: string): { label: string; href?: string }[] {
+function crumbs(t: T, path: string, runTarget?: string): { label: string; href?: string }[] {
   // The run id's first 8 characters, as git shortens a hash; the full id is under the page title.
   if (path.startsWith("/runs/")) {
-    const run = { label: `Run ${decodeURIComponent(path.slice(6)).slice(0, 8)}` };
-    const board = { label: "Board", href: "/" };
+    const run = { label: t("Run {id}", { id: decodeURIComponent(path.slice(6)).slice(0, 8) }) };
+    const board = { label: t("Board"), href: "/" };
     return runTarget ? [board, { label: runTarget, href: `/boards/${encodeURIComponent(runTarget)}` }, run] : [board, run];
   }
-  if (path === "/preferences") return [{ label: "Preferences" }];
-  if (path.startsWith("/boards/")) return [{ label: "Board", href: "/" }, { label: decodeURIComponent(path.slice(8)) }];
-  if (path === "/") return [{ label: "Board" }];
-  return [{ label: PAGES.find((n) => n.href === path)?.label ?? "Factory" }];
+  if (path === "/preferences") return [{ label: t("Preferences") }];
+  if (path.startsWith("/boards/")) return [{ label: t("Board"), href: "/" }, { label: decodeURIComponent(path.slice(8)) }];
+  if (path === "/") return [{ label: t("Board") }];
+  return [{ label: t(PAGES.find((n) => n.href === path)?.label ?? "Factory") }];
 }
 
 const navLink = "relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-foreground/80 hover:bg-active/60 hover:text-foreground active:scale-[0.98] aria-[current=page]:text-foreground";
@@ -79,10 +81,11 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
   const on = (href: string) => path === href || path.startsWith(`${href}/`);
   // The same board query the bell reads, so the counts cost no extra fetch.
   const { data } = useBoard();
+  const t = useT();
   return (
     <nav aria-label="Main" className="isolate flex flex-col gap-0.5">
       <NavLink href="/" active={path === "/" || path.startsWith("/runs/")} icon={LayoutList}>
-        Board
+        {t("Board")}
       </NavLink>
       {boards.length > 0 && (
         <ul className="ml-[17px] flex flex-col gap-0.5 border-l border-border pl-2">
@@ -92,9 +95,9 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
             const mine = Array.isArray(data) ? data.filter((i) => i.target === b && !i.closed) : [];
             // Waiting on you (yellow), then running (green), then ready (blue). A zero badge stays grey so only live counts take a colour.
             const counts = [
-              [mine.filter((i) => WAITING.includes(i.state)).length, "waiting on you", "bg-pill-warning text-pill-warning-ink"],
-              [mine.filter((i) => i.state === "running").length, "running", "bg-pill-positive text-pill-positive-ink"],
-              [mine.filter((i) => i.state === "ready").length, "ready", "bg-pill-info text-pill-info-ink"],
+              [mine.filter((i) => WAITING.includes(i.state)).length, t("waiting on you"), "bg-pill-warning text-pill-warning-ink"],
+              [mine.filter((i) => i.state === "running").length, t("running"), "bg-pill-positive text-pill-positive-ink"],
+              [mine.filter((i) => i.state === "ready").length, t("ready"), "bg-pill-info text-pill-info-ink"],
             ] as const;
             return (
               <li key={b} className="relative before:absolute before:top-3.5 before:-left-2 before:w-1.5 before:border-t before:border-border">
@@ -117,7 +120,7 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
       )}
       {PAGES.map((p) => (
         <NavLink key={p.href} href={p.href} active={on(p.href)} icon={p.icon}>
-          {p.label}
+          {t(p.label)}
         </NavLink>
       ))}
     </nav>
@@ -147,14 +150,16 @@ export function PageTitle({ title, children, actions }: { title: React.ReactNode
 // A load that failed: what failed in plain words, the time of the data still on screen, and Retry.
 // The server's status stays out; the server logs it.
 export function LoadError({ what, query, className = "" }: { what: string; query: { dataUpdatedAt: number; isFetching: boolean; refetch: () => unknown }; className?: string }) {
+  const t = useT();
   const asOf = query.dataUpdatedAt ? new Date(query.dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : undefined;
   return (
     <div role="alert" className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 text-destructive", className)}>
       <p>
-        Could not load {what}.{asOf && ` Showing it as of ${asOf}.`}
+        {t("Could not load {what}.", { what: t(what) })}
+        {asOf && ` ${t("Showing it as of {time}.", { time: asOf })}`}
       </p>
       <Button variant="outline" disabled={query.isFetching} onClick={() => query.refetch()}>
-        Retry
+        {t("Retry")}
       </Button>
     </div>
   );
@@ -188,24 +193,50 @@ function applyTheme(t: Theme) {
 // Puts the saved theme on <html> once preferences load and whenever the preferences page changes it.
 // Until then, the theme layout.tsx applied from localStorage stays.
 export function ThemeSync() {
-  const saved = usePreferences().prefs?.theme;
+  const prefs = usePreferences().prefs;
+  const saved = prefs?.theme;
   useEffect(() => {
     if (saved) applyTheme(saved);
   }, [saved]);
+  useEffect(() => {
+    if (prefs) document.documentElement.lang = prefs.language;
+  }, [prefs]);
   return null;
 }
 
 const menuItem = "flex h-9 cursor-default items-center gap-2.5 rounded-md px-2.5 outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-active";
 
 // The account button at the end of the top bar: who is signed in, Preferences, and Sign out.
+// The dashboard's language, beside the account menu. Saved to the person's preferences like the theme.
+function LanguageSwitch() {
+  const { prefs, save } = usePreferences();
+  const t = useT();
+  return (
+    <select
+      aria-label={t("Language")}
+      disabled={!prefs}
+      value={prefs?.language ?? "en"}
+      onChange={(e) => save.mutate({ language: PREFS.shape.language.parse(e.target.value) })}
+      className="h-9 rounded-lg bg-transparent px-1.5 text-sm text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {PREFS.shape.language.options.map((l) => (
+        <option key={l} value={l} title={LANGUAGE_NAMES[l]}>
+          {l.toUpperCase()}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
   const { me } = usePreferences();
+  const t = useT();
   const [leaving, start] = useTransition();
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger className="flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-active data-[state=open]:text-foreground">
         <CircleUser className="size-4" strokeWidth={1.5} aria-hidden="true" />
-        <span className="max-w-32 truncate max-sm:sr-only">{me?.user.username ?? "Account"}</span>
+        <span className="max-w-32 truncate max-sm:sr-only">{me?.user.username ?? t("Account")}</span>
         <ChevronDown className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -214,7 +245,7 @@ export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
             <>
               <DropdownMenu.Label className="px-2.5 py-2">
                 <span className="block truncate font-medium">{me.user.username}</span>
-                <span className="block text-xs text-muted-foreground">Signed in with {me.user.signIn}</span>
+                <span className="block text-xs text-muted-foreground">{t("Signed in with {signIn}", { signIn: me.user.signIn })}</span>
               </DropdownMenu.Label>
               <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
             </>
@@ -222,13 +253,13 @@ export function UserMenu({ signOut }: { signOut: () => Promise<void> }) {
           <DropdownMenu.Item asChild className={menuItem}>
             <Link href="/preferences">
               <Settings className="size-4 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
-              Preferences
+              {t("Preferences")}
             </Link>
           </DropdownMenu.Item>
           <DropdownMenu.Separator className="-mx-1 my-1 h-px bg-border" />
           <DropdownMenu.Item className={menuItem} disabled={leaving} onSelect={() => start(() => signOut())}>
             <LogOut className="size-4 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
-            {leaving ? "Signing out…" : "Sign out"}
+            {leaving ? t("Signing out…") : t("Sign out")}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -244,8 +275,9 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
   const path = usePathname() ?? "/";
   const [runTarget, setRunTarget] = useState<string>();
   const [chatOpen, toggleChat] = useChatOpen();
+  const t = useT();
   if (path === "/sign-in") return <>{children}</>;
-  const trail = crumbs(path, runTarget);
+  const trail = crumbs(t, path, runTarget);
   return (
     <div className="min-h-dvh md:grid md:h-dvh md:grid-cols-[228px_minmax(0,1fr)_auto] md:grid-rows-[48px_minmax(0,1fr)] md:overflow-hidden">
       <aside className="hidden px-3 md:row-span-2 md:block md:overflow-y-auto">
@@ -259,7 +291,7 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
 
       <header className="flex h-12 items-center gap-3 px-4 md:col-span-2 md:pr-6 md:pl-[25px]">
         <details key={path} className="md:hidden" onKeyDown={(e) => e.key === "Escape" && e.currentTarget.removeAttribute("open")}>
-          <summary aria-label="Menu" className="flex size-11 cursor-pointer list-none items-center justify-center rounded-md hover:bg-active [&::-webkit-details-marker]:hidden">
+          <summary aria-label={t("Menu")} className="flex size-11 cursor-pointer list-none items-center justify-center rounded-md hover:bg-active [&::-webkit-details-marker]:hidden">
             <Menu className="size-5" strokeWidth={1.5} />
           </summary>
           <div className="fixed inset-x-0 top-12 bottom-0 z-40 bg-ground px-3 pt-2">
@@ -291,10 +323,11 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
           className="flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-muted-foreground outline-none hover:bg-active hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-active aria-pressed:text-foreground"
         >
           <MessageSquare className="size-4" strokeWidth={1.5} aria-hidden="true" />
-          <span className="max-sm:sr-only">Chat</span>
+          <span className="max-sm:sr-only">{t("Chat")}</span>
         </button>
         <UsageLimits />
         <Notifications />
+        <LanguageSwitch />
         <UserMenu signOut={signOut} />
       </header>
 

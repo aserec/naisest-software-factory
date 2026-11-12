@@ -17,10 +17,10 @@ beforeEach(() => {
 
 describe("/api/preferences", () => {
   it("answers the defaults, saves a change per user, and keeps what the change left out", async () => {
-    expect(await (await GET()).json()).toEqual({ user: { username: "ann", signIn: "GitHub" }, prefs: { theme: "system", notify: false, insightsRange: "7d" } });
+    expect(await (await GET()).json()).toEqual({ user: { username: "ann", signIn: "GitHub" }, prefs: { theme: "system", notify: false, insightsRange: "7d", language: "en" } });
     expect(await (await put({ theme: "dark" })).json()).toMatchObject({ theme: "dark" });
-    await put({ insightsRange: "30d" });
-    expect((await (await GET()).json()).prefs).toEqual({ theme: "dark", notify: false, insightsRange: "30d" });
+    await put({ insightsRange: "30d", language: "en" });
+    expect((await (await GET()).json()).prefs).toEqual({ theme: "dark", notify: false, insightsRange: "30d", language: "en" });
     // Same user id on another sign-in is another person.
     who.user = { userId: 1, username: "ann", signIn: "gitlab" };
     expect((await (await GET()).json()).prefs.theme).toBe("system");
@@ -28,7 +28,7 @@ describe("/api/preferences", () => {
 
   it("falls back to the default for a saved value the schema no longer takes", async () => {
     getDb().setPreferences("github:1", { theme: "neon", notify: true });
-    expect((await (await GET()).json()).prefs).toEqual({ theme: "system", notify: true, insightsRange: "7d" });
+    expect((await (await GET()).json()).prefs).toEqual({ theme: "system", notify: true, insightsRange: "7d", language: "en" });
   });
 
   it("answers 400 for an unknown key or a bad value, 403 cross-site, 401 signed out, and saves nothing", async () => {

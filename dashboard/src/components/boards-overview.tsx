@@ -8,19 +8,21 @@ import { duration, usd } from "@/lib/utils";
 import { boardCounts, useBoard, type BoardItem } from "./board";
 import { InsightsPanel } from "./insights-panel";
 import { LoadError } from "./shell";
+import { useT } from "./use-preferences";
 
 // One card per target: the board as it is now, then its runs in the range; a target with no run still gets its card.
 // board: undefined while the board loads, so its counts read "—".
 export function TargetSummaries({ data, targets, board, now = Date.now() }: { data: Insights; targets: string[]; board?: BoardItem[]; now?: number }) {
-  if (!targets.length) return <p className="text-muted-foreground">No target is set up.</p>;
+  const t = useT();
+  if (!targets.length) return <p className="text-muted-foreground">{t("No target is set up.")}</p>;
   return (
     <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {targets.map((t) => {
-        const rows = data.list.filter((r) => r.target === t);
+      {targets.map((name) => {
+        const rows = data.list.filter((r) => r.target === name);
         const n = (k: string) => rows.filter((r) => r.kind === k).length;
         const cost = rows.reduce((a, r) => a + r.costUsd, 0);
         const secs = rows.flatMap((r) => (r.secs === undefined ? [] : [r.secs]));
-        const live = board && boardCounts(board.filter((i) => i.target === t), now);
+        const live = board && boardCounts(board.filter((i) => i.target === name), now);
         const counts: [string, number | undefined][] = [
           ["Ongoing", live?.ongoing],
           ["Needs you", live?.needsYou],
@@ -35,18 +37,18 @@ export function TargetSummaries({ data, targets, board, now = Date.now() }: { da
           ["Time per run", secs.length ? duration(pct(secs, 50)) : "—"],
         ];
         return (
-          <li key={t} className="relative rounded-xl border p-4 hover:bg-raised">
+          <li key={name} className="relative rounded-xl border p-4 hover:bg-raised">
             <h2 className="mb-3 flex items-baseline justify-between gap-2">
               {/* The link covers the card, so the whole card opens the target's board. */}
-              <Link href={`/boards/${encodeURIComponent(t)}`} className="truncate font-mono text-sm font-semibold outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring">
-                {t}
+              <Link href={`/boards/${encodeURIComponent(name)}`} className="truncate font-mono text-sm font-semibold outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring">
+                {name}
               </Link>
-              <span className="shrink-0 text-xs text-muted-foreground">{rows.length} runs</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{t("{n} runs", { n: rows.length })}</span>
             </h2>
             <dl className="mb-3 grid grid-cols-3 gap-x-4 border-b pb-3 text-sm">
               {counts.map(([label, value]) => (
                 <div key={label} className="min-w-0">
-                  <dt className="truncate text-xs text-muted-foreground">{label}</dt>
+                  <dt className="truncate text-xs text-muted-foreground">{t(label)}</dt>
                   <dd className={value && label !== "Ongoing" ? "font-semibold" : undefined}>{value ?? "—"}</dd>
                 </div>
               ))}
@@ -54,7 +56,7 @@ export function TargetSummaries({ data, targets, board, now = Date.now() }: { da
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               {figures.map(([label, value]) => (
                 <div key={label} className="min-w-0">
-                  <dt className="truncate text-xs text-muted-foreground">{label}</dt>
+                  <dt className="truncate text-xs text-muted-foreground">{t(label)}</dt>
                   <dd>{value}</dd>
                 </div>
               ))}
@@ -67,10 +69,11 @@ export function TargetSummaries({ data, targets, board, now = Date.now() }: { da
 }
 
 export function BoardsOverview({ initial, hasZone, targets }: { initial: InsightsPayload; hasZone: boolean; targets: string[] }) {
+  const t = useT();
   const board = useBoard();
   return (
     <>
-      <InsightsPanel title="Board" initial={initial} hasZone={hasZone} view={(d) => <TargetSummaries data={d} targets={targets} board={board.data} now={board.dataUpdatedAt || undefined} />} />
+      <InsightsPanel title={t("Board")} initial={initial} hasZone={hasZone} view={(d) => <TargetSummaries data={d} targets={targets} board={board.data} now={board.dataUpdatedAt || undefined} />} />
       {board.error && <LoadError what="the board" query={board} className="mt-6" />}
     </>
   );

@@ -1,5 +1,6 @@
 import type { EventData } from "software-factory/run-events";
 import { usd } from "@/lib/utils";
+import { useT } from "./use-preferences";
 
 export const count = (n: number) => n.toLocaleString("en");
 
@@ -22,11 +23,15 @@ export function usageByModel(usage: EventData<"usage">[]) {
   return { rows: [...rows.values()], total, unpriced };
 }
 
-export const Unpriced = ({ models }: { models: string[] }) => models.length > 0 && <div className="text-muted-foreground">Without {models.join(" and ")}: seams.yml sets no price for it</div>;
+export function Unpriced({ models }: { models: string[] }) {
+  const t = useT();
+  return models.length > 0 && <div className="text-muted-foreground">{t("Without {models}: seams.yml sets no price for it", { models: models.join(` ${t("and")} `) })}</div>;
+}
 
 // The whole run's tokens and cost per role and model, for the run page.
 export function CostByModel({ usage }: { usage: EventData<"usage">[] }) {
   const { rows, total, unpriced } = usageByModel(usage);
+  const t = useT();
   const num = "py-2 pl-4 text-right whitespace-nowrap";
   const cells = (u: Usage) => (
     <>
@@ -46,7 +51,7 @@ export function CostByModel({ usage }: { usage: EventData<"usage">[] }) {
             <tr className="border-b">
               {["Role and model", "Input", "Output", "Cache read", "Cache write", "Cost"].map((h, i) => (
                 <th key={h} scope="col" className={i ? `${num} font-normal` : "py-2 text-left font-normal"}>
-                  {h}
+                  {t(h)}
                 </th>
               ))}
             </tr>
@@ -64,7 +69,7 @@ export function CostByModel({ usage }: { usage: EventData<"usage">[] }) {
           <tfoot>
             <tr className="font-medium">
               <th scope="row" className="py-2 text-left font-medium">
-                Total
+                {t("Total")}
               </th>
               {cells(total)}
             </tr>

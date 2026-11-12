@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { translator } from "@/lib/i18n";
 import type { Me, Prefs } from "@/lib/preferences";
 
 const KEY = ["preferences"];
@@ -30,4 +31,9 @@ export function usePreferences() {
     onError: (_e, _change, before) => before && client.setQueryData(KEY, before),
   });
   return { query, me: query.data, prefs: query.data?.prefs, save };
+}
+
+// t("English text", { name: value }) in the signed-in person's language. English until the preferences load.
+export function useT() {
+  return translator(usePreferences().prefs?.language ?? "en");
 }

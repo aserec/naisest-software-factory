@@ -1,4 +1,5 @@
 import { eventsOfType, type RunEvent } from "software-factory/run-events";
+import type { T } from "@/lib/i18n";
 import { words } from "@/lib/utils";
 
 export type SeqEvent = RunEvent & { seq: number };
@@ -16,8 +17,8 @@ export interface StepRow {
   label?: string; // a name that replaces the step's own, such as "PR conflict"
 }
 
-// The name on a row: "Code review 2", "Patch 2", "Precommit gate 1".
-export const stepRowName = (l: StepRow) => l.label ?? `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}`;
+// The name on a row: "Code review 2", "Patch 2", "Precommit gate 1". t translates a label; a step's own name stays as the code names it.
+export const stepRowName = (l: StepRow, t: T = (s) => s) => (l.label && t(l.label)) ?? `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}`;
 
 // A conflict round: the event step that continues the run (its step_start carries a round), right after a change_state with conflicts.
 // ponytail: a request round on a change that also has conflicts reads as a conflict round too; send `conflicts` on the step_start if that matters.

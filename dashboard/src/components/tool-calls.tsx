@@ -1,6 +1,7 @@
 import { Bot, FilePen, FileText, FolderSearch, Globe, ListTodo, type LucideIcon, Search, SquareTerminal, Wrench } from "lucide-react";
 import type { EventOf } from "software-factory/run-events";
 import { duration } from "@/lib/utils";
+import { useT } from "./use-preferences";
 
 export const pre = "rounded-md bg-raised p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words";
 
@@ -23,8 +24,9 @@ const took = (ms: number) => (!Number.isFinite(ms) || ms < 0 ? undefined : ms < 
 
 function ToolCall({ call }: { call: EventOf<"tool_call"> }) {
   const { name, input, result, ms, ok } = call.data;
+  const t = useT();
   const what = toolTarget(input);
-  const time = [took(ms), !ok && "failed"].filter(Boolean).join(", ");
+  const time = [took(ms), !ok && t("failed")].filter(Boolean).join(", ");
   return (
     <details className="group">
       <summary className="flex w-full cursor-pointer list-none items-baseline gap-2 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
@@ -45,6 +47,7 @@ function ToolCall({ call }: { call: EventOf<"tool_call"> }) {
 const FOLD = 3;
 
 export function ToolCalls({ tools }: { tools: EventOf<"tool_call">[] }) {
+  const tr = useT();
   const runs: EventOf<"tool_call">[][] = [];
   for (const t of tools) {
     const last = runs.at(-1);
@@ -61,14 +64,14 @@ export function ToolCalls({ tools }: { tools: EventOf<"tool_call">[] }) {
       {runs.map((run) => {
         if (run.length < FOLD) return run.map(one);
         const failed = run.filter((t) => !t.data.ok).length;
-        const time = [took(run.reduce((sum, t) => sum + t.data.ms, 0)), failed && `${failed} failed`].filter(Boolean).join(", ");
+        const time = [took(run.reduce((sum, t) => sum + t.data.ms, 0)), failed && tr("{n} failed", { n: failed })].filter(Boolean).join(", ");
         return (
           <li key={run[0].id}>
             <details className="group/run">
               <summary className="flex w-full cursor-pointer list-none items-baseline gap-2 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
                 <ToolIcon name={run[0].data.name} />
                 <span className="flex-none font-medium group-open/run:underline">{run[0].data.name}</span>
-                <span className="text-muted-foreground">{run.length} calls in a row</span>
+                <span className="text-muted-foreground">{tr("{n} calls in a row", { n: run.length })}</span>
                 <span className={`ml-auto flex-none text-xs ${failed ? "text-destructive" : "text-muted-foreground"}`}>{time}</span>
               </summary>
               <ul className="mt-1 mb-2 flex flex-col gap-1 border-l border-rule pl-4">{run.map(one)}</ul>

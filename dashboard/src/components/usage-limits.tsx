@@ -5,6 +5,7 @@ import type { UsageLimits as Limits } from "software-factory/run-events";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { ago, cn } from "@/lib/utils";
+import { useT } from "./use-preferences";
 
 type Window = Limits["fiveHour"];
 
@@ -17,6 +18,7 @@ const resets = (w: Window) => new Date(w.resetsAt).toLocaleString(undefined, { w
 
 // The Claude plan's usage beside the bell: the 5-hour window and the 7-day window, as the newest factory run saw them.
 export function UsageLimits() {
+  const t = useT();
   const { data } = useQuery({
     queryKey: ["limits"],
     refetchInterval: 60_000,
@@ -33,15 +35,15 @@ export function UsageLimits() {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span tabIndex={0} aria-label={`Claude usage: ${five}% of 5 hours, ${week}% of 7 days`} className="mr-1 flex items-center gap-1.5 rounded-full text-xs tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span tabIndex={0} aria-label={t("Claude usage: {five}% of 5 hours, {week}% of 7 days", { five, week })} className="mr-1 flex items-center gap-1.5 rounded-full text-xs tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <span className={cn(pill, tone(five))}><span className="opacity-70">5h</span>{five}%</span>
             <span className={cn(pill, tone(week))}><span className="opacity-70">7d</span>{week}%</span>
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          <p>5-hour window resets {resets(data.limits.fiveHour)}</p>
-          <p>7-day window resets {resets(data.limits.sevenDay)}</p>
-          <p>Seen by a run {ago(data.at, now)}</p>
+          <p>{t("5-hour window resets {when}", { when: resets(data.limits.fiveHour) })}</p>
+          <p>{t("7-day window resets {when}", { when: resets(data.limits.sevenDay) })}</p>
+          <p>{t("Seen by a run {ago}", { ago: ago(data.at, now) })}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

@@ -10,12 +10,14 @@ import type { FileLink } from "@/server/compose";
 import { count, Unpriced, usageByModel } from "./cost-by-model";
 import { LoadError, SectionHeading } from "./shell";
 import { pre, ToolCalls } from "./tool-calls";
+import { useT } from "./use-preferences";
 
 
 // A step that ran without CI (local-run.sh, the worker) sends its output with its step_end event instead.
 function JobLog({ job, end, log }: { job?: string; end?: EventOf<"step_end">; log: UseQueryResult<string> }) {
+  const t = useT();
   let { data } = log;
-  const note = (text: string) => <p className="text-muted-foreground">{text}</p>;
+  const note = (text: string) => <p className="text-muted-foreground">{t(text)}</p>;
   if (!job) {
     if (!end) return note("The log shows when the step ends.");
     if (typeof end.data.log !== "string") return note("This step has no CI job and sent no log.");
@@ -63,12 +65,13 @@ const VERDICT = {
 } as const;
 
 export function Verdict({ outcome, className = "" }: { outcome: EventData<"triage_outcome">; className?: string }) {
+  const t = useT();
   const v = VERDICT[outcome.kind] ?? VERDICT.stop;
   return (
-    <section aria-label="Final decision" className={`rounded-lg border px-4 py-3 ${v.box} ${className}`}>
+    <section aria-label={t("Final decision")} className={`rounded-lg border px-4 py-3 ${v.box} ${className}`}>
       <div className="flex items-start justify-between gap-3">
         <h2 className={`font-medium text-pretty ${v.ink}`}>{outcome.title}</h2>
-        <Badge variant={v.badge}>{v.label}</Badge>
+        <Badge variant={v.badge}>{t(v.label)}</Badge>
       </div>
       <ul className="mt-2 flex flex-col gap-1.5">
         {outcome.reasons.map((r) => (
@@ -108,6 +111,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
   const errors = eventsOfType(events, "error").map((e) => e.data.message);
   const { rows: byModel, total, unpriced } = usageByModel(usage);
   const prompt = start.data.prompt ?? eventsOfType(events, "prompt")[0]?.data.prompt;
+  const t = useT();
   const log = useQuery({
     queryKey: ["log", start.job],
     enabled: !!start.job,
@@ -121,7 +125,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
     <div className="flex flex-col gap-8">
       {outcome && <Verdict outcome={outcome} />}
       {errors.length > 0 && (
-        <Section title="Error">
+        <Section title={t("Error")}>
           <ul className="flex flex-col gap-2">
             {errors.map((m, i) => (
               <li key={i} className={`${pre} border border-destructive/30 bg-destructive/5`}>
@@ -132,10 +136,10 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
         </Section>
       )}
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
-        <Fact label="Started">{clock(start.at)}</Fact>
-        <Fact label="Duration">{end ? duration((Date.parse(end.at) - Date.parse(start.at)) / 1000) : "Still running"}</Fact>
+        <Fact label={t("Started")}>{clock(start.at)}</Fact>
+        <Fact label={t("Duration")}>{end ? duration((Date.parse(end.at) - Date.parse(start.at)) / 1000) : t("Still running")}</Fact>
         {byModel.length > 0 && (
-          <Fact label="Model">
+          <Fact label={t("Model")}>
             {byModel.map((m) => (
               <div key={`${m.role} ${m.model}`}>
                 {m.role} · {m.model}
@@ -144,13 +148,13 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
           </Fact>
         )}
         {usage.length > 0 && (
-          <Fact label="Tokens">
-            {count(total.input)} in · {count(total.output)} out
+          <Fact label={t("Tokens")}>
+            {t("{in} in · {out} out", { in: count(total.input), out: count(total.output) })}
           </Fact>
         )}
-        <Fact label="Cost">
+        <Fact label={t("Cost")}>
           {usage.length === 0 ? (
-            <span className="text-muted-foreground">None, no model ran in this step</span>
+            <span className="text-muted-foreground">{t("None, no model ran in this step")}</span>
           ) : (
             <>
               {usd(total.costUsd)}
@@ -159,16 +163,16 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
           )}
         </Fact>
         {start.job && (
-          <Fact label="CI job">
+          <Fact label={t("CI job")}>
             <span className="font-mono">{start.job}</span>
           </Fact>
         )}
       </dl>
 
       {decision && (
-        <Section title="Decision">
+        <Section title={t("Decision")}>
           <div className={`rounded-lg border px-4 py-3 ${decision.auto ? "border-pill-positive-ink/20 bg-pill-positive" : "border-pill-warning-ink/20 bg-pill-warning"}`}>
-            <p className="font-medium">{decision.auto ? "The factory merges this change without a person." : "A person must review and merge this change, because:"}</p>
+            <p className="font-medium">{t(decision.auto ? "The factory merges this change without a person." : "A person must review and merge this change, because:")}</p>
             {!decision.auto && (
               <ul className="mt-2 list-disc divide-y divide-pill-warning-ink/10 pl-5">
                 {decision.reasons.map((r) => (
@@ -182,12 +186,13 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
           {(typeof decision.risk === "number" || decision.changeUrl) && (
             <dl className="mt-4 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
               {typeof decision.risk === "number" && (
-                <Fact label="Merge risk">
-                  {decision.risk} of 10{typeof decision.riskMax === "number" && <span className="text-muted-foreground">, the limit is {decision.riskMax}</span>}
+                <Fact label={t("Merge risk")}>
+                  {t("{risk} of 10", { risk: decision.risk })}
+                  {typeof decision.riskMax === "number" && <span className="text-muted-foreground">{t(", the limit is {max}", { max: decision.riskMax })}</span>}
                 </Fact>
               )}
               {decision.changeUrl && (
-                <Fact label="Change">
+                <Fact label={t("Change")}>
                   {httpUrl(decision.changeUrl) ? (
                     <a href={decision.changeUrl} target="_blank" rel="noreferrer" className="break-all underline underline-offset-4 hover:decoration-2">
                       {decision.changeUrl}
@@ -203,15 +208,15 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
       )}
 
       {findings.length > 0 && (
-        <Section title="Review findings">
-          <p className="mb-4 text-muted-foreground">Each round, the reviewer reads the change. The author fixes the blocking findings, and the next round reads it again.</p>
+        <Section title={t("Review findings")}>
+          <p className="mb-4 text-muted-foreground">{t("Each round, the reviewer reads the change. The author fixes the blocking findings, and the next round reads it again.")}</p>
           <div className="flex flex-col gap-4">
             {rounds.map((round) => {
               const mine = findings.filter((f) => f.round === round);
               return (
                 <details key={round} open className="group">
                   <summary className="mb-3 cursor-pointer font-medium">
-                    Round {round} <span className="font-normal text-muted-foreground">{mine.filter((f) => f.blocking).length} of {mine.length} blocking</span>
+                    {t("Round {round}", { round })} <span className="font-normal text-muted-foreground">{t("{n} of {total} blocking", { n: mine.filter((f) => f.blocking).length, total: mine.length })}</span>
                   </summary>
                   <ul className="flex flex-col gap-3">
                     {mine.map((f, i) => {
@@ -220,7 +225,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
                         <li key={i} className={`rounded-lg border px-4 py-3 ${f.blocking ? "border-destructive/30 bg-destructive/5" : "border-pill-warning-ink/20 bg-pill-warning"}`}>
                           <div className="flex items-start justify-between gap-3">
                             <span className="min-w-0 font-medium">{f.title}</span>
-                            <Badge variant={f.blocking ? "destructive" : "warning"}>{f.blocking ? "Blocking" : "Not blocking"}</Badge>
+                            <Badge variant={f.blocking ? "destructive" : "warning"}>{t(f.blocking ? "Blocking" : "Not blocking")}</Badge>
                           </div>
                           {file && (
                             <div className="mt-1">
@@ -240,13 +245,13 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
       )}
 
       {gates.length > 0 && (
-        <Section title="Gate checks">
+        <Section title={t("Gate checks")}>
           <ul className="flex flex-col gap-4">
             {gates.map((g, i) => (
               <li key={i}>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <code className="min-w-0 truncate font-mono text-xs">{g.command}</code>
-                  <Badge variant={g.exitCode ? "destructive" : "positive"}>exit {g.exitCode}</Badge>
+                  <Badge variant={g.exitCode ? "destructive" : "positive"}>{t("exit {code}", { code: g.exitCode })}</Badge>
                 </div>
                 <pre className={`${pre} max-h-60 overflow-y-auto`}>{g.outputTail}</pre>
               </li>
@@ -256,11 +261,11 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
       )}
 
       {rules.length > 0 && (
-        <Section title="Rule checks">
+        <Section title={t("Rule checks")}>
           <ul className="flex flex-col gap-2">
             {rules.map((r, i) => (
               <li key={i} className="grid grid-cols-[4rem_minmax(0,1fr)] items-baseline gap-3">
-                <Badge variant={r.passed ? "positive" : "destructive"}>{r.passed ? "passed" : "failed"}</Badge>
+                <Badge variant={r.passed ? "positive" : "destructive"}>{t(r.passed ? "passed" : "failed")}</Badge>
                 <span>
                   <span className="font-mono text-xs">{r.rule}</span> <span className="text-muted-foreground">{r.detail}</span>
                 </span>
@@ -271,13 +276,13 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
       )}
 
       {answers.length > 0 && (
-        <Section title="Jev answers">
+        <Section title={t("Jev answers")}>
           <dl className="flex flex-col gap-3">
             {answers.map((a, i) => (
               <div key={i}>
                 <dt>{a.question}</dt>
                 <dd className="text-muted-foreground">
-                  {a.answer} · {a.confidence} confidence
+                  {t("{answer} · {confidence} confidence", { answer: a.answer, confidence: a.confidence })}
                 </dd>
               </div>
             ))}
@@ -289,7 +294,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
         <Section
           title={
             <>
-              Tool calls <span className="font-normal text-muted-foreground">{tools.length}</span>
+              {t("Tool calls")} <span className="font-normal text-muted-foreground">{tools.length}</span>
             </>
           }
         >
@@ -298,7 +303,7 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
       )}
 
       {prompt && (
-        <Section title="Prompt">
+        <Section title={t("Prompt")}>
           <pre className={pre}>{prompt}</pre>
         </Section>
       )}
@@ -306,13 +311,13 @@ export function StepDetail({ start, end, tools = [], events, fileLink }: { start
       {/* The decision's log repeats the reasons above, so it starts closed. */}
       {decision ? (
         <details>
-          <summary className="cursor-pointer text-muted-foreground">{start.job ? "Job log" : "Log"}</summary>
+          <summary className="cursor-pointer text-muted-foreground">{t(start.job ? "Job log" : "Log")}</summary>
           <div className="mt-3">
             <JobLog job={start.job} end={end} log={log} />
           </div>
         </details>
       ) : (
-        <Section title={start.job ? "Job log" : "Log"}>
+        <Section title={t(start.job ? "Job log" : "Log")}>
           <JobLog job={start.job} end={end} log={log} />
         </Section>
       )}

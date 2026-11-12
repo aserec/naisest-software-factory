@@ -2,27 +2,29 @@ import { Badge } from "@/components/ui/badge";
 import { usd, when, words } from "@/lib/utils";
 import type { RunSummary } from "@/server/db";
 import { SectionHeading } from "./shell";
+import { useT } from "./use-preferences";
 
 const OUTCOME_PILL: Record<string, "destructive" | "warning" | "secondary" | "positive"> = { done: "positive", blocked: "destructive", needs_info: "warning" };
 
 // The work item's other runs, newest first, each with a link to its own page.
 export function EarlierRuns({ runs }: { runs: RunSummary[] }) {
+  const t = useT();
   if (!runs.length) return null;
   const cell = "py-2 pr-4 text-left font-normal whitespace-nowrap";
   return (
     <section className="mt-8">
-      <SectionHeading>Earlier runs</SectionHeading>
+      <SectionHeading>{t("Earlier runs")}</SectionHeading>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[32rem]">
           <thead className="text-muted-foreground">
             <tr className="border-b">
               {["Started", "Outcome", "Last step", "Run"].map((h) => (
                 <th key={h} scope="col" className={cell}>
-                  {h}
+                  {t(h)}
                 </th>
               ))}
               <th scope="col" className="py-2 text-right font-normal">
-                Cost
+                {t("Cost")}
               </th>
             </tr>
           </thead>
@@ -32,7 +34,7 @@ export function EarlierRuns({ runs }: { runs: RunSummary[] }) {
                 <td className={cell}>{when(r.startedAt)}</td>
                 <td className={cell}>
                   {/* A run with no run_end may still be paused, so it is not called failed. */}
-                  <Badge variant={OUTCOME_PILL[r.outcome ?? ""] ?? "secondary"}>{r.outcome ? words(r.outcome).toLowerCase() : "not ended"}</Badge>
+                  <Badge variant={OUTCOME_PILL[r.outcome ?? ""] ?? "secondary"}>{t(r.outcome ? words(r.outcome).toLowerCase() : "not ended")}</Badge>
                 </td>
                 <td className={cell}>{r.lastStep ? words(r.lastStep.step) : <span className="text-muted-foreground">—</span>}</td>
                 <td className={cell}>

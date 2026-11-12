@@ -18,6 +18,7 @@ import type { BoardRow, FactoryState, Risk } from "@/server/seams";
 import { RiskPills } from "./board";
 import { STATE } from "@/lib/state";
 import { EarlierRuns } from "./earlier-runs";
+import { useT } from "./use-preferences";
 import { LoadError, SectionHeading } from "./shell";
 
 
@@ -54,17 +55,19 @@ const OUTCOME: Record<string, string> = { next: "passed" };
 // state: the work item's state, passed for the last step only. A run that ended there with "stop" waits for whatever
 // that state says (approval, an answer, a fix), so the pill uses the board's name for it.
 function Pills({ row, stuck, state }: { row: StepRow; stuck: boolean; state?: FactoryState }) {
+  const t = useT();
   const said = row.outcome === "stop" && state ? STATE[state].toLowerCase() : row.outcome && (OUTCOME[row.outcome] ?? row.outcome);
   return (
     <>
-      {stuck && <Badge variant="destructive">Stuck</Badge>}
-      <Badge variant={PILL[row.outcome ?? ""] ?? "secondary"}>{said || "running"}</Badge>
+      {stuck && <Badge variant="destructive">{t("Stuck")}</Badge>}
+      <Badge variant={PILL[row.outcome ?? ""] ?? "secondary"}>{t(said || "running")}</Badge>
     </>
   );
 }
 
 // In a narrow column (a phone, or beside the open panel): name and pills on the first line, the bar, duration and cost on the second. From a 36rem column: one line.
 function StepRowLine({ row, from, span, stuck, state, selected, onSelect }: { row: StepRow; from: number; span: number; stuck: boolean; state?: FactoryState; selected: boolean; onSelect: () => void }) {
+  const t = useT();
   const start = Date.parse(row.start.at);
   const end = row.end ? Date.parse(row.end.at) : from + span;
   // The production line: ended steps in ink, the live one in the data hue, a failed or stuck one in red.
@@ -79,7 +82,7 @@ function StepRowLine({ row, from, span, stuck, state, selected, onSelect }: { ro
         onClick={onSelect}
         className="-mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-2 rounded-md px-2 py-3 text-left hover:bg-raised aria-expanded:bg-active/60 active:scale-[0.995] @xl:flex"
       >
-        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{stepRowName(row)}</span>
+        <span className="col-span-2 truncate font-medium @xl:order-1 @xl:w-40 @xl:flex-none">{stepRowName(row, t)}</span>
         <span className="flex justify-end gap-1 @xl:order-4 @xl:w-32">
           <Pills row={row} stuck={stuck} state={state} />
         </span>
@@ -107,6 +110,7 @@ const latest = <E,>(events: E[], key: (e: E) => string) => [...new Map(events.ma
 // What the change carries for the person who merges it: the review, the checks, and why the factory merges or waits.
 // approving: the run waits for a person to merge, so a missing proof is a warning, not a quiet "None sent".
 function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }) {
+  const t = useT();
   const of = <T extends EventType>(type: T) => eventsOfType(events, type);
   const findings = of("review_finding");
   const round = Math.max(0, ...findings.map((f) => f.data.round));
@@ -115,25 +119,25 @@ function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }
   const rules = latest(of("rule_check"), (r) => r.data.rule);
   const decision = of("decision").at(-1);
   if (!findings.length && !gates.length && !rules.length && !decision) return null;
-  const passed = (ok: number, all: number) => <span className={ok < all ? "text-destructive" : ""}>{ok} of {all} passed</span>;
+  const passed = (ok: number, all: number) => <span className={ok < all ? "text-destructive" : ""}>{t("{ok} of {all} passed", { ok, all })}</span>;
   const reasons = decision?.data.reasons ?? [];
   const none = (what: string, todo: string) =>
-    approving ? <span className="text-pill-warning-ink">The run sent no {what}. {todo} before you merge.</span> : <span className="text-muted-foreground">None sent</span>;
+    approving ? <span className="text-pill-warning-ink">{t("The run sent no {what}. {todo} before you merge.", { what: t(what), todo: t(todo) })}</span> : <span className="text-muted-foreground">{t("None sent")}</span>;
   return (
     <section className="mb-8">
-      <SectionHeading>Proof</SectionHeading>
+      <SectionHeading>{t("Proof")}</SectionHeading>
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2">
         {/* Every row shows, so a missing proof reads as missing and not as hidden. */}
-        <Fact label="Review">
-          {last.length ? `Round ${round}, ${last.filter((f) => f.data.blocking).length} of ${last.length} ${last.length === 1 ? "finding" : "findings"} blocking` : none("review findings", "Read the diff yourself")}
+        <Fact label={t("Review")}>
+          {last.length ? t(last.length === 1 ? "Round {round}, {blocking} of {count} finding blocking" : "Round {round}, {blocking} of {count} findings blocking", { round, blocking: last.filter((f) => f.data.blocking).length, count: last.length }) : none("review findings", "Read the diff yourself")}
         </Fact>
-        <Fact label="Checks">{gates.length ? passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length) : none("check results", "Look at the run's jobs")}</Fact>
-        <Fact label="Rules">{rules.length ? passed(rules.filter((r) => r.data.passed).length, rules.length) : none("rule results", "Look at the changed files")}</Fact>
+        <Fact label={t("Checks")}>{gates.length ? passed(gates.filter((g) => g.data.exitCode === 0).length, gates.length) : none("check results", "Look at the run's jobs")}</Fact>
+        <Fact label={t("Rules")}>{rules.length ? passed(rules.filter((r) => r.data.passed).length, rules.length) : none("rule results", "Look at the changed files")}</Fact>
         {/* On an approval run the line under the title already says why it waits. */}
         {decision && !approving && (
-          <Fact label="Decision">
-            {decision.data.auto ? "Merges without a person" : "Waits for a person"}
-            {reasons.length ? `, because ${reasons.join(", and ")}` : ""}.
+          <Fact label={t("Decision")}>
+            {t(decision.data.auto ? "Merges without a person" : "Waits for a person")}
+            {reasons.length ? t(", because {reasons}", { reasons: reasons.join(t(", and ")) }) : ""}.
           </Fact>
         )}
       </dl>
@@ -144,6 +148,7 @@ function Proof({ events, approving }: { events: SeqEvent[]; approving: boolean }
 // Each state the factory set on the work item, across all its runs, with the time it set it.
 // This run's changes come from its live stream; the other runs' from the server.
 function StateChanges({ run, events, others }: { run: string; events: SeqEvent[]; others: StateChange[] }) {
+  const t = useT();
   const mine = eventsOfType(events, "label_change").flatMap((e) => {
     const state = labelState(e.data.to);
     return state ? [{ run, at: e.at, state }] : [];
@@ -152,12 +157,12 @@ function StateChanges({ run, events, others }: { run: string; events: SeqEvent[]
   if (!changes.length) return null;
   return (
     <section className="mt-8">
-      <SectionHeading>State changes</SectionHeading>
+      <SectionHeading>{t("State changes")}</SectionHeading>
       <ol>
         {changes.map((c, n) => (
           <li key={n} className="flex flex-wrap gap-x-4 border-b border-rule py-2 last:border-0">
             <time dateTime={c.at} className="w-44 flex-none text-muted-foreground">{when(c.at)}</time>
-            <span className="flex-1">{STATE[c.state]}</span>
+            <span className="flex-1">{t(STATE[c.state])}</span>
             {c.run !== run && (
               <a href={`/runs/${encodeURIComponent(c.run)}`} className="font-mono text-xs leading-6 text-muted-foreground underline decoration-input underline-offset-4 hover:decoration-current">
                 {c.run}
@@ -173,17 +178,18 @@ function StateChanges({ run, events, others }: { run: string; events: SeqEvent[]
 // A step with no events in this run: its name and an empty track, so the whole line of ten steps shows.
 // before: a step ahead of the first recorded one, such as a run continued in a new CI run. It ran, but sent no events here.
 function AheadRow({ step, before = false }: { step: string; before?: boolean }) {
+  const t = useT();
   return (
     <li className="border-b border-rule text-muted-foreground last:border-0">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3 @xl:flex">
         <span className="truncate @xl:w-40 @xl:flex-none">
           {words(step)}
-          <span className="sr-only">{before ? ", no events in this run" : " not reached"}</span>
+          <span className="sr-only">{t(before ? ", no events in this run" : " not reached")}</span>
         </span>
         <span className="hidden h-2 rounded-full bg-raised @xl:block @xl:flex-1" />
         {/* As tall as a pill, so this row matches a reached row's height. */}
         <span aria-hidden className="h-5.5 text-right text-xs leading-5.5 @xl:w-[17.5rem]">
-          {before && "no events"}
+          {before && t("no events")}
         </span>
       </div>
     </li>
@@ -261,6 +267,7 @@ function useNow() {
 // changes: every state the factory set on the work item, read on the server; this run's own come from the stream.
 // merge: the board card and the work item's merge events for Merge problems, read on the server.
 export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earlier = [], changes = [], merge }: { run: string; limits?: Record<string, number>; risk?: { risk?: Risk; mergeRisk?: number; mergeRiskMax?: number }; state?: FactoryState; fileLink?: FileLink; earlier?: RunSummary[]; changes?: StateChange[]; merge?: { item?: BoardRow; events: RunEvent[] } }) {
+  const t = useT();
   const events = useRunEvents(run);
   const { data, error } = events;
   const [openId, setOpenId] = useOpenStep();
@@ -272,8 +279,8 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   const lastRow = all.at(-1);
   useStepKeys(rows.map((l) => l.start.id), openId, setOpenId);
   const failed = error && <LoadError what="the run" query={events} className="mb-6" />;
-  if (!data) return failed || <p className="text-muted-foreground">Loading the run…</p>;
-  if (rows.length === 0) return <p className="text-muted-foreground">No steps yet.</p>;
+  if (!data) return failed || <p className="text-muted-foreground">{t("Loading the run…")}</p>;
+  if (rows.length === 0) return <p className="text-muted-foreground">{t("No steps yet.")}</p>;
   const times = data.map((e) => Date.parse(e.at));
   const from = Math.min(...times); // the run's Time; each step line scales its bars on its own
   const ended = eventsOfType(data, "run_end")[0]?.data.outcome;
@@ -297,9 +304,9 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   // The furthest step reached; the steps after it show as not reached.
   const reached = Math.max(...rows.map((l) => stepIndex(l.start.step)));
   const at = live ? stepIndex(live.start.step) : reached; // the last row can be a review that ran inside the gate
-  const nowText = live ? stepRowName(live) : state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—");
-  const step = at >= 0 && <span className="ml-2 text-muted-foreground">{at + 1} of {STEPS.length}</span>;
-  const waited = paused && !view.ended && <span className="ml-2 text-base text-muted-foreground">then waiting {duration((nowMs - last) / 1000)}</span>;
+  const nowText = live ? stepRowName(live, t) : t(state === "needs_approval" ? "Waits for you" : (ended ?? rows.at(-1)?.outcome ?? "—"));
+  const step = at >= 0 && <span className="ml-2 text-muted-foreground">{t("{n} of {total}", { n: at + 1, total: STEPS.length })}</span>;
+  const waited = paused && !view.ended && <span className="ml-2 text-base text-muted-foreground">{t("then waiting {time}", { time: duration((nowMs - last) / 1000) })}</span>;
   const time = (
     <>
       {duration(span / 1000)}
@@ -309,10 +316,10 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
   const cost = usd(rows.reduce((sum, l) => sum + l.costUsd, 0));
   const pills = (risk.risk || risk.mergeRisk !== undefined) && <RiskPills {...risk} />;
   const figures: [string, React.ReactNode][] = [
-    ["Now", <span>{nowText}{step}</span>],
-    ["Time", time],
-    ["Cost", cost],
-    ["Risk", pills || "—"],
+    [t("Now"), <span>{nowText}{step}</span>],
+    [t("Time"), time],
+    [t("Cost"), cost],
+    [t("Risk"), pills || "—"],
   ];
   const approving = state === "needs_approval";
   // Why the run waits, said once at the top, so the person reads it before the merge button's consequences.
@@ -328,13 +335,13 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
       {failed}
       {stoppedBy && (
         <p className="-mt-6 mb-6 text-pill-warning-ink">
-          Stopped by {stoppedBy.data.user} at {when(stoppedBy.at)}.
+          {t("Stopped by {user} at {time}.", { user: stoppedBy.data.user, time: when(stoppedBy.at) })}
         </p>
       )}
       {triage && triage.kind !== "go" && <Verdict outcome={triage} className="-mt-6 mb-6" />}
       {why.length > 0 && (
         <section className="-mt-6 mb-6 rounded-lg border border-pill-warning-ink/20 bg-pill-warning px-4 py-3">
-          <h2 className="font-medium text-pill-warning-ink">Waits for you because</h2>
+          <h2 className="font-medium text-pill-warning-ink">{t("Waits for you because")}</h2>
           <ul className="divide-y divide-pill-warning-ink/10">
             {why.map((reason) => (
               <li key={reason} className="py-2 text-pretty">
@@ -358,28 +365,28 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
           </dl>
         ) : (
           <div className="mb-8 grid grid-cols-2 border-y @3xl:grid-cols-4">
-            <Figure label="Now" className="col-span-2 border-b pr-4 @3xl:col-span-1 @3xl:border-b-0">
+            <Figure label={t("Now")} className="col-span-2 border-b pr-4 @3xl:col-span-1 @3xl:border-b-0">
               {nowText}
               <span className="text-base">{step}</span>
             </Figure>
-            <Figure label="Time" className="pr-4 @3xl:border-l @3xl:pl-4">
+            <Figure label={t("Time")} className="pr-4 @3xl:border-l @3xl:pl-4">
               {time}
             </Figure>
-            <Figure label="Cost" className="border-l pl-4 @3xl:pr-4">
+            <Figure label={t("Cost")} className="border-l pl-4 @3xl:pr-4">
               {cost}
             </Figure>
-            <Figure label="Risk" className="col-span-2 border-t @3xl:col-span-1 @3xl:border-t-0 @3xl:border-l @3xl:pl-4">
+            <Figure label={t("Risk")} className="col-span-2 border-t @3xl:col-span-1 @3xl:border-t-0 @3xl:border-l @3xl:pl-4">
               {pills ? <span className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">{pills}</span> : "—"}
             </Figure>
           </div>
         )}
         <Proof events={data} approving={approving} />
-        <SectionHeading className="mb-0">Steps</SectionHeading>
+        <SectionHeading className="mb-0">{t("Steps")}</SectionHeading>
         <StepList rows={main} before over={over} nowMs={nowMs} line={line} />
         <StateChanges run={run} events={data} others={changes} />
         {usage.length > 0 && (
           <section className="mt-8">
-            <SectionHeading>Cost by model</SectionHeading>
+            <SectionHeading>{t("Cost by model")}</SectionHeading>
             <CostByModel usage={usage} />
           </section>
         )}
@@ -392,7 +399,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
                 <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                   <SectionHeading as="h3" className="mb-0">
                     <span aria-hidden className="inline-block text-muted-foreground transition-transform group-open/round:rotate-90">›</span>
-                    Conflict round {n + 1}
+                    {t("Conflict round {n}", { n: n + 1 })}
                     <time dateTime={c[0].start.at} className="font-normal text-muted-foreground">{when(c[0].start.at)}</time>
                   </SectionHeading>
                 </summary>
@@ -413,7 +420,7 @@ export function RunTimeline({ run, limits = {}, risk = {}, state, fileLink, earl
         title={
           open && (
             <span className="flex flex-wrap items-center gap-2">
-              {stepRowName(open)} <Pills row={open} stuck={stuck(open)} state={open === lastRow ? state : undefined} />
+              {stepRowName(open, t)} <Pills row={open} stuck={stuck(open)} state={open === lastRow ? state : undefined} />
             </span>
           )
         }

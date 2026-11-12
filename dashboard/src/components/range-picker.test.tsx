@@ -1,19 +1,20 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { RangePicker } from "./range-picker";
+import { renderWithQuery } from "./test-utils";
 
 afterEach(cleanup);
 
 test("a preset is picked as soon as it is chosen", () => {
   const onPick = vi.fn();
-  render(<RangePicker value={{ range: "7d" }} onPick={onPick} />);
+  renderWithQuery(<RangePicker value={{ range: "7d" }} onPick={onPick} />);
   fireEvent.change(screen.getByLabelText("Range"), { target: { value: "yesterday" } });
   expect(onPick).toHaveBeenLastCalledWith({ range: "yesterday" });
 });
 
 test("a custom range asks for both dates in the same row and is picked on Show", () => {
   const onPick = vi.fn();
-  render(<RangePicker value={{ range: "7d" }} onPick={onPick} />);
+  renderWithQuery(<RangePicker value={{ range: "7d" }} onPick={onPick} />);
   const row = screen.getByLabelText("Range").parentElement!;
   fireEvent.change(screen.getByLabelText("Range"), { target: { value: "custom" } });
   expect(onPick).not.toHaveBeenCalled(); // nothing to show until both dates are in

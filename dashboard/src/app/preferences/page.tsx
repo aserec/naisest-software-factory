@@ -4,7 +4,8 @@ import { useNotifyPref } from "@/components/notifications";
 import { field } from "@/components/range-picker";
 import { LoadError, PageTitle, SectionHeading, THEMES } from "@/components/shell";
 import { Switch } from "@/components/ui/switch";
-import { usePreferences } from "@/components/use-preferences";
+import { usePreferences, useT } from "@/components/use-preferences";
+import { LANGUAGE_NAMES } from "@/lib/i18n";
 import { DEFAULT_PREFS, PREFS, type Prefs } from "@/lib/preferences";
 import { RANGES } from "@/server/insights"; // types and Intl only, safe in the browser
 
@@ -36,51 +37,59 @@ export default function PreferencesPage() {
   const notify = useNotifyPref();
   const shown = prefs ?? DEFAULT_PREFS;
   const set = (change: Partial<Prefs>) => save.mutate(change);
+  const t = useT();
   return (
     <main className="max-w-2xl">
-      <PageTitle title="Preferences">Saved to your account, so they follow you to any browser.</PageTitle>
+      <PageTitle title={t("Preferences")}>{t("Saved to your account, so they follow you to any browser.")}</PageTitle>
       {query.isError && <LoadError what="your preferences" query={query} className="mb-6" />}
       {save.isError && (
         <p role="alert" className="mb-6 text-destructive">
-          Could not save the change. {save.error.message}
+          {t("Could not save the change.")} {save.error.message}
         </p>
       )}
 
-      <SectionHeading>Appearance</SectionHeading>
-      <Row id="theme" label="Theme" hint="System follows your computer's light or dark setting.">
+      <SectionHeading>{t("Appearance")}</SectionHeading>
+      <Row id="theme" label={t("Theme")} hint={t("System follows your computer's light or dark setting.")}>
         <select id="theme" className={field} disabled={!prefs} value={shown.theme} onChange={(e) => set({ theme: PREFS.shape.theme.parse(e.target.value) })}>
-          {THEMES.map(([t, label]) => (
-            <option key={t} value={t}>
-              {label}
+          {THEMES.map(([key, label]) => (
+            <option key={key} value={key}>
+              {t(label)}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row id="language" label={t("Language")} hint={t("The language of the dashboard. The language the agents write in is set per target on the Settings page.")}>
+        <select id="language" className={field} disabled={!prefs} value={shown.language} onChange={(e) => set({ language: PREFS.shape.language.parse(e.target.value) })}>
+          {PREFS.shape.language.options.map((l) => (
+            <option key={l} value={l}>
+              {LANGUAGE_NAMES[l]}
             </option>
           ))}
         </select>
       </Row>
 
-      <SectionHeading className="mt-8">Notifications</SectionHeading>
-      <Row id="notify" label="Browser notifications" hint={NOTIFY_HINT[notify.perm]}>
+      <SectionHeading className="mt-8">{t("Notifications")}</SectionHeading>
+      <Row id="notify" label={t("Browser notifications")} hint={t(NOTIFY_HINT[notify.perm])}>
         <Switch id="notify" checked={notify.on} disabled={!notify.ready || !notify.shown} onCheckedChange={notify.toggle} />
       </Row>
 
-      <SectionHeading className="mt-8">Insights</SectionHeading>
-      <Row id="range" label="Default range" hint="The range Insights opens with. A link with its own range still shows that range.">
+      <SectionHeading className="mt-8">{t("Insights")}</SectionHeading>
+      <Row id="range" label={t("Default range")} hint={t("The range Insights opens with. A link with its own range still shows that range.")}>
         <select id="range" className={field} disabled={!prefs} value={shown.insightsRange} onChange={(e) => set({ insightsRange: PREFS.shape.insightsRange.parse(e.target.value) })}>
           {PREFS.shape.insightsRange.options.map((k) => (
             <option key={k} value={k}>
-              {RANGES[k]}
+              {t(RANGES[k])}
             </option>
           ))}
         </select>
       </Row>
 
-      <SectionHeading className="mt-8">Account</SectionHeading>
+      <SectionHeading className="mt-8">{t("Account")}</SectionHeading>
       <p className="py-3">
         {me ? (
-          <>
-            Signed in as <span className="font-medium">{me.user.username}</span> with {me.user.signIn}. Sign out from the menu at the top right.
-          </>
+          t("Signed in as {user} with {signIn}. Sign out from the menu at the top right.", { user: me.user.username, signIn: me.user.signIn })
         ) : (
-          <span className="text-muted-foreground">Loading…</span>
+          <span className="text-muted-foreground">{t("Loading…")}</span>
         )}
       </p>
     </main>
