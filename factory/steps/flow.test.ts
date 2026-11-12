@@ -794,12 +794,13 @@ test("a factory-authored label change or comment stops at event, before triage, 
   }
 });
 
-test("the author is told to implement the ticket, tests first, until lint, test and build pass, without committing", async () => {
+test("the author is told to implement the ticket, tests first, run only the touched tests and leave the whole suite to the gate, without committing", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }));
   const p = w.claudeRuns[0].prompt;
   expect(p).toMatch(/implement the ticket/);
   expect(p).toMatch(/tests first, then the code/);
-  expect(p).toMatch(/until lint, test and build pass/);
+  expect(p).toMatch(/until lint, build and the tests your change touches pass/);
+  expect(p).toMatch(/not the whole suite/);
   expect(p).toMatch(/Do not commit/);
 });
 
