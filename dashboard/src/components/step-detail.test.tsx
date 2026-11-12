@@ -118,22 +118,25 @@ test("each tool call has its tool's icon, a bash call shows its command in mono 
   const reads = [1, 2, 3].map((n) => call("Read", { file_path: `src/${n}.ts` }, 500, n !== 2));
   const tools = [call("Bash", { command: "pnpm test --run" }, 2500), ...reads, call("Edit", "cut at the limit", NaN)];
   renderWithQuery(<StepDetail start={start} events={[]} tools={tools} />);
+  // A row's text without its clock, which depends on the time zone; the clock is checked by its dateTime.
+  const text = (el: Element) => [...el.childNodes].filter((n) => n.nodeName !== "TIME").map((n) => n.textContent).join("");
   const bash = screen.getByText("pnpm test --run");
   expect(bash.tagName).toBe("CODE");
   expect(bash.className).toContain("font-mono");
   const bashRow = bash.closest("summary")!;
   expect(bashRow.querySelector("svg")!.getAttribute("class")).toContain("lucide-square-terminal");
-  expect(bashRow.textContent).toBe("Bashpnpm test --run3 s");
+  expect(text(bashRow)).toBe("Bashpnpm test --run3 s");
+  expect(bashRow.querySelector("time")!.getAttribute("datetime")).toBe(tools[0].at);
   // Three reads in a row: one line with the count, the summed time and the failures; each call is still inside it, with its full text.
   const fold = screen.getByText("3 calls in a row").closest("details")!;
-  expect(fold.querySelector("summary")!.textContent).toBe("Read3 calls in a row2 s, 1 failed");
+  expect(text(fold.querySelector("summary")!)).toBe("Read3 calls in a row2 s, 1 failed");
   expect(fold.querySelector("summary svg")!.getAttribute("class")).toContain("lucide-file-text");
-  expect([...fold.querySelectorAll("li summary")].map((s) => s.textContent)).toEqual(["Readsrc/1.ts500 ms", "Readsrc/2.ts500 ms, failed", "Readsrc/3.ts500 ms"]);
+  expect([...fold.querySelectorAll("li summary")].map(text)).toEqual(["Readsrc/1.ts500 ms", "Readsrc/2.ts500 ms, failed", "Readsrc/3.ts500 ms"]);
   expect(fold.textContent).toContain('{"file_path":"src/2.ts"}');
   expect(fold.textContent).toContain("Read result");
   // An input that is not JSON shows no target, and a call with no time shows none.
   const edit = screen.getByText("Edit").closest("summary")!;
-  expect(edit.textContent).toBe("Edit");
+  expect(text(edit)).toBe("Edit");
   expect(edit.querySelector("svg")!.getAttribute("class")).toContain("lucide-file-pen");
 });
 

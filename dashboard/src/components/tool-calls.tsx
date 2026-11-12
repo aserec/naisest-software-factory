@@ -20,6 +20,13 @@ function toolTarget(input: string): string | undefined {
   } catch {}
 }
 
+// When the call ended, to the second, in the viewer's time zone; the full date on hover.
+const Clock = ({ at }: { at: string }) => (
+  <time dateTime={at} title={new Date(at).toLocaleString()} className="flex-none font-mono text-xs text-muted-foreground tabular-nums">
+    {new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+  </time>
+);
+
 const took = (ms: number) => (!Number.isFinite(ms) || ms < 0 ? undefined : ms < 1000 ? `${Math.round(ms)} ms` : duration(ms / 1000));
 
 function ToolCall({ call }: { call: EventOf<"tool_call"> }) {
@@ -30,6 +37,7 @@ function ToolCall({ call }: { call: EventOf<"tool_call"> }) {
   return (
     <details className="group">
       <summary className="flex w-full cursor-pointer list-none items-baseline gap-2 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <Clock at={call.at} />
         <ToolIcon name={name} />
         <span className="flex-none font-medium group-open:underline">{name}</span>
         {what && <code className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{what}</code>}
@@ -69,6 +77,7 @@ export function ToolCalls({ tools }: { tools: EventOf<"tool_call">[] }) {
           <li key={run[0].id}>
             <details className="group/run">
               <summary className="flex w-full cursor-pointer list-none items-baseline gap-2 rounded-md py-1 hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <Clock at={run[0].at} />
                 <ToolIcon name={run[0].data.name} />
                 <span className="flex-none font-medium group-open/run:underline">{run[0].data.name}</span>
                 <span className="text-muted-foreground">{tr("{n} calls in a row", { n: run.length })}</span>

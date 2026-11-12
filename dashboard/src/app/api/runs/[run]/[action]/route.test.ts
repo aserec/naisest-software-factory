@@ -91,6 +91,10 @@ describe("GET /api/runs/[run]/state", () => {
     expect((await post(run, "restart")).status).toBe(200);
     getDb().finish(getDb().requests({ target: "demo" }).find((r) => r.run === run && r.kind === "restart")!.id, "done");
     expect(await (await state(run)).json()).toMatchObject({ restarted: true, actions: [], pending: [] });
+    // The restart's new run: the old run's page links to it.
+    getDb().addEvents([ev("run_start", `${run}-new`)]);
+    expect(((await (await state(run)).json()) as { newest?: string }).newest).toBe(`${run}-new`);
+    expect(((await (await state(`${run}-new`)).json()) as { newest?: string }).newest).toBeUndefined();
     const again = await post(run, "restart");
     expect([again.status, await again.text()]).toEqual([409, "run already restarted"]);
   });

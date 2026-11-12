@@ -15,7 +15,10 @@ export async function GET(_req: Request, { params }: Ctx) {
   const view = db.view(run);
   if (!view) return new Response("run not found", { status: 404 });
   const { state, actions, restarted, pending, refusals } = view;
-  return Response.json({ state, actions, restarted, pending, refusals });
+  // A restart starts a new run with a new id: the page links to it, as this run stays ended.
+  const first = db.events({ run, limit: 1 }).events[0];
+  const latest = first && db.runs({ target: first.target, ticket: first.ticket })[0]?.run;
+  return Response.json({ state, actions, restarted, pending, refusals, ...(latest && latest !== run ? { newest: latest } : {}) });
 }
 
 export async function POST(req: Request, { params }: Ctx) {

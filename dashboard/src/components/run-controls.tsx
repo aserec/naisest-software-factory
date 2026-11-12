@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Confirm } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -16,6 +17,7 @@ interface RunState {
   restarted: boolean;
   pending: Action[];
   refusals: Partial<Record<Action, string>>; // why each action that is not in `actions` is refused
+  newest?: string; // the work item's newest run, when it is not this one
 }
 
 const ASK: Record<Action, string> = {
@@ -100,6 +102,13 @@ export function RunControls({ run }: { run: string }) {
           {t("{name} requested. The factory picks it up within a minute.", { name: t(NAME[a]) })}
         </span>
       ))}
+      {data.newest && (
+        <p className="basis-full">
+          <Link href={`/runs/${encodeURIComponent(data.newest)}`} className="font-medium underline underline-offset-4">
+            {t("The work item has a newer run. Open it.")}
+          </Link>
+        </p>
+      )}
       {send.error && (
         <p role="alert" className="text-destructive">
           {send.error.message}
