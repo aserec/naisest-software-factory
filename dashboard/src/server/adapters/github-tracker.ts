@@ -1,6 +1,6 @@
 // The board of targets whose work items are GitHub issues (tracker github) or cards on a GitHub board (github-project), read with GITHUB_READ_TOKEN.
 import { NotSetUp } from "../not-set-up";
-import { STATES, triageRisk, type BoardRow, type ChangeView, type FactoryState, type Tracker } from "../seams";
+import { STATES, addBlockers, triageRisk, type BoardRow, type ChangeView, type FactoryState, type Tracker } from "../seams";
 import { githubApi } from "./github-url";
 import { timeout } from "./timeout";
 
@@ -79,13 +79,12 @@ export function makeGitHubTracker(fetchFn: typeof fetch = fetch): Tracker {
           .map((c) => ({ target: t.name, ticket: String(c.number), title: c.title, state: c.state, url: c.url, updatedAt: c.updatedAt, risk: c.risk, boardUrl: c.boardUrl, closed: c.closed, changeUrl: c.changeUrl, conflicts: c.conflicts, mergeBlock: c.mergeBlock, checksFailed: c.checksFailed }));
       });
       const rows = (await Promise.all(lists)).flat();
-      // GitHub's "blocked by" issues, read as the factory's poller reads them (factory/adapters/github-tracker.ts). A failed read leaves blockedBy unknown.
-      await Promise.all(rows.filter((r) => r.state === "ready" && !r.closed).map(async (r) => {
+      // GitHub's "blocked by" issues (factory/adapters/github-tracker.ts).
+      return addBlockers(rows, async (r) => {
         const repo = new URL(r.url).pathname.split("/").slice(1, 3).join("/");
-        r.blockedBy = await rest(token, `/repos/${repo}/issues/${r.ticket}/dependencies/blocked_by?per_page=100`)
-          .then((is: { state: string; html_url: string }[]) => is.filter((i) => i.state === "open").map((i) => i.html_url), () => undefined);
-      }));
-      return rows;
+        const is = (await rest(token, `/repos/${repo}/issues/${r.ticket}/dependencies/blocked_by?per_page=100`)) as { state: string; html_url: string }[];
+        return is.filter((i) => i.state === "open").map((i) => i.html_url);
+      });
     },
 
     ticketUrl: (t, ticket) => `${web()}/${t.githubRepo}/issues/${ticket}`,

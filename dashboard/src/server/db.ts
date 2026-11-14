@@ -6,6 +6,7 @@ import type { z } from "zod";
 import { defaultSwitches, type AgentPlan, type planProposal, type PlanState, type ControlRequest, type EventType, type RunEvent, type Dispatch, type DispatchInput, type SwitchName, type TargetSettings, type UsageLimits } from "software-factory/run-events";
 import { labelState, runView, trackStep, type LastStep, type RunView } from "./run-view";
 import type { FactoryState } from "./seams";
+import { workItemKey, type WorkItemRef } from "@/lib/utils";
 
 export interface RunSummary {
   run: string;
@@ -24,10 +25,10 @@ export interface RunSummary {
 }
 
 // A state the factory set on a work item, from its label_change event.
-export interface StateChange { run: string; target: string; ticket: string; at: string; state: FactoryState }
+export interface StateChange extends WorkItemRef { run: string; at: string; state: FactoryState }
 
 // How often the factory resolved a work item's conflicts: a conflict round that reached its decision.
-export interface Resolutions { target: string; ticket: string; count: number; last: string }
+export interface Resolutions extends WorkItemRef { count: number; last: string }
 
 // A dispatch with what became of it, for the dispatches page.
 export interface DispatchLog extends Dispatch { startedAt?: string; doneAt?: string; workItem?: string }
@@ -47,13 +48,13 @@ export interface Db {
   latestLimits(): { at: string; limits: UsageLimits } | undefined;
   runs(q: { target?: string; ticket?: string }): RunSummary[];
   /** The newest run of each work item given, by when it was saved; a work item with no run is left out. */
-  latestRuns(items: { target: string; ticket: string }[]): RunSummary[];
+  latestRuns(items: WorkItemRef[]): RunSummary[];
   /** Every state the factory set on the work items given, across all their runs, oldest first. */
-  stateChanges(items: { target: string; ticket: string }[]): StateChange[];
+  stateChanges(items: WorkItemRef[]): StateChange[];
   /** Per work item given, the conflict rounds that reached a decision, across all its runs; a work item with none is left out. */
-  resolutions(items: { target: string; ticket: string }[]): Resolutions[];
+  resolutions(items: WorkItemRef[]): Resolutions[];
   /** The work item's events of the types, across all its runs, oldest first. */
-  itemEvents(item: { target: string; ticket: string }, types: EventType[]): RunEvent[];
+  itemEvents(item: WorkItemRef, types: EventType[]): RunEvent[];
   /** The CI run (pipeline field) of the run's newest step_start, or undefined when that step_start names none. */
   newestPipeline(run: string): string | undefined;
   switches(target: string): Record<SwitchName, boolean>;
@@ -325,8 +326,9 @@ export function openDb(path: string): Db {
         if (r.type === "change_state") {
           if ((JSON.parse(r.data as string) as { conflicts: boolean }).conflicts) open.add(run);
         } else if (open.delete(run)) {
-          const key = `${r.target}#${r.ticket}`;
-          const n = out.get(key) ?? { target: r.target as string, ticket: r.ticket as string, count: 0, last: "" };
+          const item = { target: r.target as string, ticket: r.ticket as string };
+          const key = workItemKey(item);
+          const n = out.get(key) ?? { ...item, count: 0, last: "" };
           out.set(key, { ...n, count: n.count + 1, last: r.at as string });
         }
       }

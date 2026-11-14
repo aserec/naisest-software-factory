@@ -11,6 +11,12 @@ export type Risk = "trivial" | "low" | "medium" | "high";
 // The triage risk from the work item's factory_risk_* label, or undefined before triage. Every tracker reads the same labels.
 export const triageRisk = (labels: string[]) => labels.map((l) => /^factory_risk_(trivial|low|medium|high)$/.exec(l)?.[1] as Risk | undefined).find(Boolean);
 
+// Fills blockedBy on every open ready row, as the factory's poller reads blockers. A failed read leaves blockedBy unknown.
+export async function addBlockers(rows: BoardRow[], blockersOf: (r: BoardRow) => Promise<string[]>): Promise<BoardRow[]> {
+  await Promise.all(rows.filter((r) => r.state === "ready" && !r.closed).map(async (r) => (r.blockedBy = await blockersOf(r).catch(() => undefined))));
+  return rows;
+}
+
 export interface BoardRow extends ChangeView { target: string; ticket: string; title: string; state: FactoryState; url: string; updatedAt: string; risk?: Risk; boardUrl?: string; closed?: boolean; blockedBy?: string[] } // boardUrl: the tracker's own board the work item sits on. closed: the issue is closed in the tracker. blockedBy: the URLs of the open work items an open ready one waits for; the factory starts it once they are closed. Undefined when the tracker could not tell
 
 // The work item's open change as the code host shows it now. Each field is undefined when the host cannot tell (no change, or still computing).

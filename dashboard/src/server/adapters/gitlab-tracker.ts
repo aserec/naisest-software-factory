@@ -1,6 +1,6 @@
 // The board of targets whose work items are GitLab issues, read with the server's GITLAB_READ_TOKEN.
 import { NotSetUp } from "../not-set-up";
-import { STATES, triageRisk, type BoardRow, type ChangeView, type Tracker } from "../seams";
+import { STATES, addBlockers, triageRisk, type BoardRow, type ChangeView, type Tracker } from "../seams";
 import { gitlabUrl } from "./gitlab-url";
 import { timeout } from "./timeout";
 
@@ -45,13 +45,12 @@ export function makeGitLabTracker(fetchFn: typeof fetch = fetch): Tracker {
         }),
       );
       const rows = (await Promise.all(lists)).flat();
-      // GitLab's "is blocked by" links, read as the factory's poller reads them (factory/adapters/gitlab-tracker.ts). A failed read leaves blockedBy unknown.
-      await Promise.all(rows.filter((r) => r.state === "ready" && !r.closed).map(async (r) => {
+      // GitLab's "is blocked by" links (factory/adapters/gitlab-tracker.ts).
+      return addBlockers(rows, async (r) => {
         const t = targets.find((x) => x.name === r.target)!;
-        r.blockedBy = await get(`/projects/${encodeURIComponent(t.projectPath)}/issues/${r.ticket}/links`)
-          .then((ls: { link_type: string; state: string; web_url: string }[]) => ls.filter((l) => l.link_type === "is_blocked_by" && l.state === "opened").map((l) => l.web_url), () => undefined);
-      }));
-      return rows;
+        const ls = (await get(`/projects/${encodeURIComponent(t.projectPath)}/issues/${r.ticket}/links`)) as { link_type: string; state: string; web_url: string }[];
+        return ls.filter((l) => l.link_type === "is_blocked_by" && l.state === "opened").map((l) => l.web_url);
+      });
     },
 
     ticketUrl: (t, ticket) => {
