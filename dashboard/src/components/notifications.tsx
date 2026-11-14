@@ -170,9 +170,9 @@ export function Notifications() {
             const isNew = e.seq > unreadFrom;
             return (
               <li key={e.seq}>
-                <Link href={`/runs/${encodeURIComponent(e.run)}`} onClick={() => setOpen(false)} className={cn(card, isNew && "border-data/40")}>
+                <Link href={`/runs/${encodeURIComponent(e.run)}`} onClick={() => setOpen(false)} className={cn(card, isNew && "border-foreground/40")}>
                   <span className="flex flex-wrap items-center gap-2">
-                    {isNew && <span className="size-2 rounded-full bg-data" aria-label={t("Unread")} />}
+                    {isNew && <span className="size-2 rounded-full bg-foreground" aria-label={t("Unread")} />}
                     <Badge variant={e.data.outcome === "blocked" ? "warning" : "default"}>{t(ENDED[e.data.outcome])}</Badge>
                     <span className="font-medium">{titles.get(workItemKey(e)) ?? `${e.target} #${e.ticket}`}</span>
                   </span>

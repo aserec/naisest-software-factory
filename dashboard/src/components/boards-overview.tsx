@@ -7,7 +7,7 @@ import type { InsightsPayload } from "@/server/insights-load";
 import { duration, usd } from "@/lib/utils";
 import { boardCounts, useBoard, type BoardItem } from "./board";
 import { InsightsPanel } from "./insights-panel";
-import { LoadError } from "./shell";
+import { LoadError, SectionHeading } from "./shell";
 import { useT } from "./use-preferences";
 
 // One card per target: the board as it is now, then its runs in the range; a target with no run still gets its card.
@@ -38,14 +38,14 @@ export function TargetSummaries({ data, targets, board, now = Date.now() }: { da
         ];
         return (
           <li key={name} className="relative rounded-xl border p-4 hover:bg-raised">
-            <h2 className="mb-3 flex items-baseline justify-between gap-2">
+            <SectionHeading className="justify-between">
               {/* The link covers the card, so the whole card opens the target's board. */}
               <Link href={`/boards/${encodeURIComponent(name)}`} className="truncate font-mono text-sm font-semibold outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring">
                 {name}
               </Link>
               <span className="shrink-0 text-xs text-muted-foreground">{t("{n} runs", { n: rows.length })}</span>
-            </h2>
-            <dl className="mb-3 grid grid-cols-3 gap-x-4 border-b pb-3 text-sm">
+            </SectionHeading>
+            <dl className="mb-3 grid grid-cols-3 gap-x-4 text-sm">
               {counts.map(([label, value]) => (
                 <div key={label} className="min-w-0">
                   <dt className="truncate text-xs text-muted-foreground">{t(label)}</dt>

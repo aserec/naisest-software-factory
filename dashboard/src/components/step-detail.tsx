@@ -47,7 +47,7 @@ function FileName({ path, link }: { path: string; link?: FileLink }) {
     if (!link || !globalThis.crypto?.subtle) return;
     crypto.subtle.digest(link.hash, new TextEncoder().encode(path)).then((d) => setHref(link.base + [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("")));
   }, [path, link]);
-  const cls = "font-mono text-xs break-all text-data";
+  const cls = "font-mono text-xs break-all text-foreground";
   return href ? (
     <a href={href} target="_blank" rel="noreferrer" className={`${cls} underline underline-offset-4 hover:decoration-2`}>
       {path}

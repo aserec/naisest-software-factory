@@ -95,11 +95,11 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
             const href = `/boards/${encodeURIComponent(b)}`;
             // The board's own columns, so a stuck run counts as running, where its card sits.
             const mine = Array.isArray(data) ? data.filter((i) => i.target === b && !i.closed) : [];
-            // Waiting on you (yellow), then running (green), then ready (blue). A zero badge stays grey so only live counts take a colour.
+            // Waiting on you (yellow), then running (green), then ready (neutral). A zero badge stays grey so only live counts take a colour.
             const counts = [
               [mine.filter((i) => WAITING.includes(i.state)).length, t("waiting on you"), "bg-pill-warning text-pill-warning-ink"],
               [mine.filter((i) => i.state === "running").length, t("running"), "bg-pill-positive text-pill-positive-ink"],
-              [mine.filter((i) => i.state === "ready").length, t("ready"), "bg-pill-info text-pill-info-ink"],
+              [mine.filter((i) => i.state === "ready").length, t("ready"), "bg-active text-pill-neutral-ink"],
             ] as const;
             return (
               <li key={b} className="relative before:absolute before:top-3.5 before:-left-2 before:w-1.5 before:border-t before:border-border">
@@ -336,7 +336,7 @@ export function Shell({ children, signOut, boards = [] }: { children: React.Reac
         <UserMenu signOut={signOut} />
       </header>
 
-      <div data-sheet className="relative min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-4 pb-10 md:mr-2 md:mb-2 md:min-h-0 md:overflow-y-auto md:rounded-xl md:border md:px-6 md:pt-6">
+      <div data-sheet className="relative min-h-[calc(100dvh-48px)] min-w-0 bg-background px-4 pt-4 pb-8 md:mr-2 md:mb-2 md:min-h-0 md:overflow-y-auto md:rounded-xl md:border md:px-6 md:pt-6">
         <RunTargetContext.Provider value={setRunTarget}>
           <motion.div key={path} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
             {children}

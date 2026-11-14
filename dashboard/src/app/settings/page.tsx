@@ -70,7 +70,7 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
   const id = (k: string) => `${target}-${k}`;
   return (
     <form
-      className="flex max-w-2xl flex-col gap-5"
+      className="flex max-w-2xl flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
         save.mutate();

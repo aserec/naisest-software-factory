@@ -51,7 +51,7 @@ function Plan({ plan, onGo, going, error }: { plan: AgentPlan; onGo: () => void;
       </p>
       {plan.approvedBy && <p className="mt-1 text-xs text-muted-foreground">{t("Approved by {user}", { user: plan.approvedBy })}</p>}
       {plan.state === "done" && plan.result && (/^https?:\/\//.test(plan.result) ? (
-        <a href={plan.result} className="mt-1 block truncate text-data underline-offset-4 hover:underline">
+        <a href={plan.result} className="mt-1 block truncate text-foreground underline-offset-4 hover:underline">
           {plan.result}
         </a>
       ) : (

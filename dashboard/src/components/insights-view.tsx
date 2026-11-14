@@ -11,7 +11,7 @@ import { SectionHeading } from "./shell";
 import { useT } from "./use-preferences";
 
 const KINDS: [RunKind, string, string][] = [
-  ["auto", "Merged without a person", "bg-data"],
+  ["auto", "Merged without a person", "bg-primary"],
   ["person", "Sent to a person", "bg-foreground/45"],
   ["stopped", "Ended without a change", "bg-raised ring-1 ring-border ring-inset"],
 ];
@@ -99,7 +99,7 @@ function Line({ steps, list, open, openTitle }: { steps: Insights["steps"]; list
               <button type="button" title={said} aria-label={said} aria-haspopup="dialog" aria-expanded={openTitle === title} disabled={!s.reached} onClick={() => open({ title, step: s.step, rows: list.filter((r) => s.step in r.stepSecs) })} className={`group flex w-full flex-col p-1 text-left disabled:cursor-default disabled:hover:bg-transparent ${HIT}`}>
                 <span className="flex h-40 flex-col justify-end">
                   <span className={`block rounded-sm bg-destructive ${GROW} group-hover:opacity-80`} style={{ height: `${(s.blocked / max) * 100}%`, marginBottom: s.blocked ? 2 : 0 }} />
-                  <span className={`block rounded-sm ${i === steps.length - 1 ? "bg-data" : "bg-foreground/45"} ${GROW} group-hover:opacity-80`} style={{ height: `${((s.reached - s.blocked) / max) * 100}%` }} />
+                  <span className={`block rounded-sm ${i === steps.length - 1 ? "bg-primary" : "bg-foreground/45"} ${GROW} group-hover:opacity-80`} style={{ height: `${((s.reached - s.blocked) / max) * 100}%` }} />
                 </span>
                 <span className="mt-2 block border-t pt-2">
                   <span className="block truncate text-xs font-medium">
@@ -245,18 +245,18 @@ export function InsightsView({ data }: { data: Insights }) {
         <Figure className="border-t border-l pl-4 md:border-t-0" label={t("Time per run")} value={data.time.p50 ? duration(data.time.p50) : "—"} note={data.time.p95 ? `p95 ${duration(data.time.p95)}` : t("No run ended yet")} />
       </div>
 
-      <section className="mb-10">
+      <section className="mb-8">
         <SectionHeading>{t(`Runs by ${data.unit}`)}</SectionHeading>
         <Buckets buckets={data.buckets} unit={data.unit} list={data.list} open={open} openTitle={shownTitle} />
       </section>
 
-      <section className="mb-10">
+      <section className="mb-8">
         <SectionHeading>{t("The line")}</SectionHeading>
         <p className="mb-4 text-muted-foreground">{t("How many runs reached each step, how many it blocked, and how long it took on a usual and on a slow run. Pick a step to see its runs.")}</p>
         <Line steps={data.steps} list={data.list} open={open} openTitle={shownTitle} />
       </section>
 
-      <div className="mb-10 grid gap-10 lg:grid-cols-2">
+      <div className="mb-8 grid gap-8 lg:grid-cols-2">
         <section className="overflow-x-auto">
           <SectionHeading>{t("Cost by target")}</SectionHeading>
           <table className="w-full">
@@ -303,7 +303,7 @@ export function InsightsView({ data }: { data: Insights }) {
                 <button key={r.n} type="button" aria-haspopup="dialog" aria-expanded={shownTitle === title} disabled={!r.count} onClick={() => open({ title, rows: data.list.filter((x) => x.round !== undefined && Math.min(x.round, 4) === r.n) })} className={`grid w-full grid-cols-[6rem_minmax(0,1fr)_3rem] items-center gap-3 px-1 py-1.5 text-left disabled:cursor-default disabled:hover:bg-transparent ${HIT}`}>
                   <span className="text-muted-foreground">{r.n === 4 ? t("4 or more") : roundName(r.n)}</span>
                   <span className="h-2 rounded-full bg-raised">
-                    <span className={`block h-full rounded-full bg-data ${GROW}`} style={{ width: `${(r.count / rounded) * 100}%` }} />
+                    <span className={`block h-full rounded-full bg-primary ${GROW}`} style={{ width: `${(r.count / rounded) * 100}%` }} />
                   </span>
                   <span className="text-right">{r.count}</span>
                 </button>
