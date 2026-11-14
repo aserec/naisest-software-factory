@@ -227,8 +227,9 @@ function Column({ name, items, now, newest }: { name: string; items: BoardItem[]
   );
 }
 
-async function loadBoard(fresh = false) {
-  const r = await api(fresh ? "/api/board?fresh=1" : "/api/board");
+// target: with fresh, the server reads only that target again (the board of one project).
+async function loadBoard(fresh = false, target = "") {
+  const r = await api(!fresh ? "/api/board" : target ? `/api/board?fresh=1&target=${encodeURIComponent(target)}` : "/api/board?fresh=1");
   if (!r.ok) throw new Error(`The board answered ${r.status}`);
   return (await r.json()) as BoardItem[];
 }
@@ -298,8 +299,9 @@ export function Board({ target = "" }: { target?: string }) {
   const board = useBoard();
   const { data: all, error } = board;
   const client = useQueryClient();
-  // Skips the server's 60 s tracker cache, so a card just moved in the tracker shows now.
-  const refresh = () => client.fetchQuery({ queryKey: ["board"], queryFn: () => loadBoard(true), staleTime: 0 }).catch(() => {});
+  // Skips the server's 60 s tracker cache, so a card just moved in the tracker shows now. On one project's board only that
+  // project's tracker is read: every board read costs API points (compose.ts CACHE_MS), so reading the others saves nothing.
+  const refresh = () => client.fetchQuery({ queryKey: ["board"], queryFn: () => loadBoard(true, target), staleTime: 0 }).catch(() => {});
   const [filter, setFilter] = useFilter();
   const now = useNow();
   const search = useRef<HTMLInputElement>(null);

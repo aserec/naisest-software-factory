@@ -299,6 +299,15 @@ test("Refresh asks the server for a fresh board", async () => {
   await waitFor(() => expect(f.mock.calls.map((c) => c[0])).toContain("/api/board?fresh=1"));
 });
 
+test("Refresh on one project's board asks the server for that project only", async () => {
+  const f = vi.fn(async (_url: string) => json([item({})]));
+  vi.stubGlobal("fetch", f);
+  renderWithQuery(<Board target="demo" />);
+  await screen.findByText("Fix login");
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(f.mock.calls.map((c) => c[0])).toContain("/api/board?fresh=1&target=demo"));
+});
+
 test("every card links its issue, and its PR as soon as one exists, also mid-run", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([
     item({ run: "r1", state: "needs_approval", changeUrl: "http://gl/mr/1" }),
