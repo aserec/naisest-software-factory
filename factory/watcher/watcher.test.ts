@@ -207,7 +207,7 @@ test("evidence is fenced so a sample cannot close the block", () => {
 // Dispatches from outside systems, through the same ticket flow.
 const dispatch = (o: Partial<Dispatch> = {}): Dispatch => ({ id: "s1", target: "react_frontend", source: "pip-audit", key: "requirements.txt", title: "2 vulnerable packages", details: "jinja2 3.1.2 GHSA-h5c8 fixed in 3.1.3", at: NOW.toISOString(), ...o });
 
-async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fakeTracker>; writerOk?: boolean; writerLocal?: string; language?: string } = {}) {
+async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fakeTracker>; writerOk?: boolean; writerFailsOn?: string; writerLocal?: string; language?: string } = {}) {
   const tracker = o.tracker ?? fakeTracker();
   const before = tracker.created.length;
   const judge = fakeJudge((q, state): JevAnswer => {
@@ -215,11 +215,11 @@ async function dispatches(list: Dispatch[], o: { tracker?: ReturnType<typeof fak
     return { id: q.id, value: q.id === "severity" ? "high" : q.id === "injection" ? p >= 0.5 : true, probability: p, confidence: 0.9 };
   });
   const prompts: string[] = [];
-  const writer = async (prompt: string): Promise<HarnessResult> => (prompts.push(prompt), { session: "w", ok: o.writerOk ?? true, limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: HUMAN });
+  const writer = async (prompt: string): Promise<HarnessResult> => (prompts.push(prompt), { session: "w", ok: (o.writerOk ?? true) && !(o.writerFailsOn && prompt.includes(o.writerFailsOn)), limitHit: false, stopped: false, costUsd: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextTokens: 0, text: HUMAN });
   const done: string[] = [];
   const urls: (string | undefined)[] = [];
   const r = await runDispatches({ tracker, judge, chat: fakeChat(), writer, writerLocal: o.writerLocal, language: o.language, now: NOW }, list, async (id, url) => void (done.push(id), urls.push(url))).catch((e: Error) => e);
-  if (r instanceof Error && o.writerOk !== false) throw r;
+  if (r instanceof Error && o.writerOk !== false && !o.writerFailsOn) throw r;
   return { r: r as Exclude<typeof r, Error>, error: r instanceof Error ? r : undefined, tracker, prompts, done, urls, made: tracker.created.slice(before) };
 }
 
@@ -250,6 +250,12 @@ test("a dispatch's customer data is scrubbed, and a failed writer leaves the dis
   const failed = await dispatches([s], { writerOk: false });
   expect(failed.error?.message).toContain("writer failed");
   expect(failed.done).toEqual([]);
+});
+
+test("a dispatch that fails does not hold back the dispatches after it, and the run still fails", async () => {
+  const r = await dispatches([dispatch({ id: "bad", source: "broken-check" }), dispatch({ id: "s2", source: "npm-audit" })], { writerFailsOn: "broken-check" });
+  expect(r.error?.message).toContain("writer failed");
+  expect(r.done).toEqual(["s2"]);
 });
 
 test("the writer prompt holds the repo's writer.md after the factory prompt and before the data", async () => {

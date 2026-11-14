@@ -98,17 +98,28 @@ export const dispatchFingerprint = (s: Pick<Dispatch, "source" | "key">) => crea
 // `done` gets the url of the ticket the dispatch opened, so the dashboard can link it.
 export async function runDispatches(w: Tickets, dispatches: Dispatch[], done: (id: string, workItem?: string) => Promise<void>): Promise<Outcome> {
   const out: Outcome = { opened: [], blocked: [], skipped: [] };
+  // One dispatch that fails must not hold back the ones after it. The run still fails, so the failed one starts again.
+  const errors: unknown[] = [];
   for (const raw of dispatches) {
-    const s = { ...raw, key: scrub(raw.key), title: scrub(raw.title), details: scrub(raw.details), ...(raw.link === undefined ? {} : { link: scrub(raw.link) }) };
-    const url = await openTicket(w, {
-      fingerprint: dispatchFingerprint(raw),
-      title: `${s.source}: ${s.title.split("\n")[0].slice(0, 120)}`,
-      state: { source: s.source, title: s.title, details: s.details },
-      writerPrompt: "dispatch-writer",
-      data: (severity) => tagged("dispatch", severity, s, "dispatch from an outside system"),
-      agent: (severity) => dispatchPart(s, dispatchFingerprint(raw), severity),
-    }, out);
-    await done(raw.id, url);
+    try {
+      await runDispatch(w, raw, out, done);
+    } catch (e) {
+      errors.push(e);
+    }
   }
+  if (errors.length) throw errors[0];
   return out;
+}
+
+async function runDispatch(w: Tickets, raw: Dispatch, out: Outcome, done: (id: string, workItem?: string) => Promise<void>) {
+  const s = { ...raw, key: scrub(raw.key), title: scrub(raw.title), details: scrub(raw.details), ...(raw.link === undefined ? {} : { link: scrub(raw.link) }) };
+  const url = await openTicket(w, {
+    fingerprint: dispatchFingerprint(raw),
+    title: `${s.source}: ${s.title.split("\n")[0].slice(0, 120)}`,
+    state: { source: s.source, title: s.title, details: s.details },
+    writerPrompt: "dispatch-writer",
+    data: (severity) => tagged("dispatch", severity, s, "dispatch from an outside system"),
+    agent: (severity) => dispatchPart(s, dispatchFingerprint(raw), severity),
+  }, out);
+  await done(raw.id, url);
 }
