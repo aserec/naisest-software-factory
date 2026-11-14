@@ -58,16 +58,16 @@ test("the nav holds Board with one child board per target and marks only the ope
   expect(children.map((l) => l.getAttribute("aria-current"))).toEqual(["page", null]);
 });
 
-test("each target's board shows how many wait on you, run, and are ready, and when its factory is down", async () => {
+test("each target's board shows how many wait on you, run, and are ready, when its factory is down, and when it polls", async () => {
   const p = servePreferences();
   const item = (target: string, state: string) => ({ target, state, ticket: 1, title: "t" });
   const board = [item("api", "needs_approval"), item("api", "needs_info"), item("api", "running"), { ...item("api", "running"), stuck: true }, item("api", "ready"), item("api", "ready"), { ...item("api", "ready"), closed: true }, item("api2", "running")];
-  const status = [{ target: "api", down: false }, { target: "api2", down: true }];
+  const status = [{ target: "api", down: false, polling: true }, { target: "api2", down: true, polling: false }];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => (String(url).includes("/api/board") ? Response.json(board) : String(url).includes("/api/factory-status") ? Response.json(status) : String(url).includes("/api/notifications") ? Response.json([]) : p.handle(init))));
   renderWithQuery(<Shell signOut={async () => {}} boards={["api", "api2"]}>x</Shell>);
   const nav = (await screen.findAllByRole("navigation", { name: "Main" }))[0];
   const link = (b: string) => within(nav).getAllByRole("link").find((l) => l.getAttribute("href") === `/boards/${b}`)?.textContent;
-  await waitFor(() => expect(link("api")).toBe("api2 waiting on you2 running2 ready"));
+  await waitFor(() => expect(link("api")).toBe("api2 waiting on you2 running2 readythe factory is polling the tickets"));
   await waitFor(() => expect(link("api2")).toBe("api2factory down0 waiting on you1 running0 ready"));
 });
 

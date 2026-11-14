@@ -89,6 +89,10 @@ export interface Db {
   factorySeen(target: string, at: string): void;
   /** When the factory of each target last asked for its controls; a target never seen is left out. */
   factoriesSeen(): Record<string, string>;
+  /** A poll tick of the target started (an ISO time) or ended (undefined). */
+  factoryPolling(target: string, since?: string): void;
+  /** When the poll tick in progress of each target started; a target not polling is left out. */
+  factoriesPolling(): Record<string, string>;
   /** The user's saved preferences as stored, {} when none. Checked by preferences.ts, not here. */
   preferences(user: string): Record<string, unknown>;
   setPreferences(user: string, prefs: Record<string, unknown>): void;
@@ -127,6 +131,7 @@ CREATE TABLE IF NOT EXISTS dispatches (
 );
 CREATE INDEX IF NOT EXISTS dispatches_pending ON dispatches (target, done_at, at);
 CREATE TABLE IF NOT EXISTS factory_seen (target TEXT PRIMARY KEY, at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS factory_polling (target TEXT PRIMARY KEY, since TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS imported_jobs (job TEXT PRIMARY KEY, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS preferences (user TEXT PRIMARY KEY, data TEXT NOT NULL, at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (target TEXT PRIMARY KEY, data TEXT NOT NULL, user TEXT NOT NULL, at TEXT NOT NULL);
@@ -464,6 +469,13 @@ export function openDb(path: string): Db {
     },
 
     factoriesSeen: () => Object.fromEntries((stmt("SELECT target, at FROM factory_seen").all() as Row[]).map((r) => [r.target as string, r.at as string])),
+
+    factoryPolling(target, since) {
+      if (since) stmt("INSERT INTO factory_polling (target, since) VALUES (?, ?) ON CONFLICT (target) DO UPDATE SET since = excluded.since").run(target, since);
+      else stmt("DELETE FROM factory_polling WHERE target = ?").run(target);
+    },
+
+    factoriesPolling: () => Object.fromEntries((stmt("SELECT target, since FROM factory_polling").all() as Row[]).map((r) => [r.target as string, r.since as string])),
 
     chat(path, limit) {
       const rows = db.prepare("SELECT * FROM (SELECT * FROM chat_messages WHERE path = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq").all(path, limit) as Row[];

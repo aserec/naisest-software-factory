@@ -6,11 +6,11 @@ import { when } from "@/lib/utils";
 import type { FactoryStatus } from "@/server/factory-status";
 import { useT } from "./use-preferences";
 
-// Shared by the menu and the boards: one fetch every 30 s.
+// Shared by the menu and the boards: one fetch every 5 s, so the menu catches a poll tick of a few seconds.
 export function useFactoryStatus() {
   return useQuery({
     queryKey: ["factory-status"],
-    refetchInterval: 30_000,
+    refetchInterval: 5_000,
     queryFn: async () => {
       const r = await api("/api/factory-status");
       if (!r.ok) throw new Error(`The factory status answered ${r.status}`);

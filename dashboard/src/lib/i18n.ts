@@ -12,6 +12,7 @@ export const LANGUAGE_NAMES: Record<Language, string> = { en: "English", es: "Es
 const SHELL: Record<Exclude<Language, "en">, Record<string, string>> = {
   es: {
     "factory down": "fábrica caída",
+    "the factory is polling the tickets": "la fábrica está consultando los tickets",
     "The work item has a newer run. Open it.": "La tarea tiene una ejecución más reciente. Ábrela.",
     "the factory is down. It last polled at {time}.": "la fábrica está caída. Consultó por última vez a las {time}.",
     "Nothing runs and no stop or restart is carried out until it starts again.": "No se ejecuta nada ni se cumple ninguna parada o reinicio hasta que vuelva a arrancar.",
@@ -90,6 +91,7 @@ const SHELL: Record<Exclude<Language, "en">, Record<string, string>> = {
   },
   de: {
     "factory down": "Fabrik aus",
+    "the factory is polling the tickets": "die Fabrik fragt die Tickets ab",
     "The work item has a newer run. Open it.": "Die Aufgabe hat einen neueren Lauf. Öffne ihn.",
     "the factory is down. It last polled at {time}.": "die Fabrik ist aus. Sie hat zuletzt um {time} abgefragt.",
     "Nothing runs and no stop or restart is carried out until it starts again.": "Nichts läuft, und kein Stopp oder Neustart wird ausgeführt, bis sie wieder startet.",

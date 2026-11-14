@@ -16,6 +16,7 @@ const { getDb } = await import("@/server/db-instance");
 const { POST: postEvents } = await import("../events/route");
 const { GET: getControl } = await import("./control/route");
 const { POST: postDone } = await import("./requests/[id]/done/route");
+const { POST: postPolling } = await import("./polling/route");
 const { factoryStatus } = await import("@/server/factory-status");
 
 const auth = { authorization: "Bearer secret-token" };
@@ -81,6 +82,19 @@ describe("GET /api/factory/control", () => {
     const status = (now: string) => factoryStatus(["t", "other"], getDb().factoriesSeen(), new Date(now)).map((s) => s.down);
     expect(status("2026-11-12T07:04:59Z")).toEqual([false, false]);
     expect(status("2026-11-12T07:05:01Z")).toEqual([true, false]);
+  });
+
+  it("shows a target as polling from the start of its poll tick to its end, and not past 5 minutes", async () => {
+    vi.useFakeTimers({ now: new Date("2026-11-12T07:00:00Z"), toFake: ["Date"] });
+    const tick = (on: boolean, headers: Record<string, string> = auth) => postPolling(new Request("http://x/api/factory/polling", { method: "POST", headers, body: JSON.stringify({ target: "t", on }) }));
+    const polling = (now: string) => factoryStatus(["t"], getDb().factoriesSeen(), new Date(now), getDb().factoriesPolling())[0].polling;
+    expect((await tick(true, {})).status).toBe(401);
+    expect(polling("2026-11-12T07:00:01Z")).toBe(false);
+    expect((await tick(true)).status).toBe(200);
+    expect(polling("2026-11-12T07:00:01Z")).toBe(true);
+    expect(polling("2026-11-12T07:05:01Z")).toBe(false);
+    await tick(false);
+    expect(polling("2026-11-12T07:00:01Z")).toBe(false);
   });
 
   it("sets stop for the run with a pending stop only", async () => {

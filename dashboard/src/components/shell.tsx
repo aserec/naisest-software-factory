@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, ChevronDown, CircleUser, Inbox, LayoutList, LogOut, Menu, MessageSquare, Server, Settings, SlidersHorizontal, ToggleRight } from "lucide-react";
+import { ChartColumn, ChevronDown, CircleUser, Inbox, LayoutList, LogOut, Menu, MessageSquare, RefreshCw, Server, Settings, SlidersHorizontal, ToggleRight } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -109,13 +109,19 @@ function Nav({ path, boards }: { path: string; boards: string[] }) {
                     <span className="truncate">{b}</span>
                     {Array.isArray(status) && status.find((s) => s.target === b)?.down && <span className="shrink-0 rounded-full bg-pill-negative px-1.5 font-sans text-pill-negative-ink">{t("factory down")}</span>}
                   </span>
-                  <span className="flex gap-1">
+                  <span className="flex items-center gap-1">
                     {counts.map(([n, label, tone]) => (
                       <span key={label} title={`${n} ${label}`} className={cn("min-w-5 rounded-full px-1.5 text-center tabular-nums", n ? tone : "bg-active text-muted-foreground")}>
                         {n}
                         <span className="sr-only"> {label}</span>
                       </span>
                     ))}
+                    {Array.isArray(status) && status.find((s) => s.target === b)?.polling && (
+                      <span role="status" title={t("the factory is polling the tickets")}>
+                        <RefreshCw className="size-3 text-muted-foreground motion-safe:animate-spin" strokeWidth={1.5} aria-hidden="true" />
+                        <span className="sr-only">{t("the factory is polling the tickets")}</span>
+                      </span>
+                    )}
                   </span>
                 </NavLink>
               </li>
