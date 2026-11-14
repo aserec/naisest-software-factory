@@ -82,13 +82,21 @@ if [ ! -f "$env_file" ]; then
     ask LOKI_UID "Loki data source UID" "Grafana > Connections > Data sources > your Loki source: the last part of its URL."
     ask METRICS_UID "Metrics data source UID" "The same, for your metrics (Prometheus or Mimir) source."
   fi
-  GL_TOKEN="" FACTORY_GITHUB_TOKEN="" TENSORX_API_KEY="" HETZNER_TOKEN=""
+  GL_TOKEN="" FACTORY_GITHUB_TOKEN="" TENSORX_API_KEY="" HETZNER_TOKEN="" CLAUDE_CODE_OAUTH_TOKEN="" CELERIS_API_KEY="" SLACK_WEBHOOK_URL="" TEAMS_WEBHOOK_URL=""
   if [ "$COMPOSE_PROFILES" = worker ]; then
     [ "$HOSTS" != github ] && ask GL_TOKEN "Factory bot token" \
       "For GitLab targets. Signed in as the factory bot (it reads tickets and pushes and merges in the target repo, docs/setup.md section 1): User settings > Access tokens, scope api."
     [ -n "$ON_GITHUB" ] && ask FACTORY_GITHUB_TOKEN "GitHub token" \
       "For GitHub targets (tracker github or github-project, codeHost github). A fine-grained token on the target repos: Contents, Issues and Pull requests read and write, Commit statuses and Checks read; for a board also Projects read and write."
-    ask TENSORX_API_KEY "TensorX API key" "Your TensorX account > API keys. The agents' models run there (router.yml)."
+    ask TENSORX_API_KEY "TensorX API key" "Your TensorX account > API keys. The writer and the chat models run there (router.yml, seams.yml)."
+    ask CLAUDE_CODE_OAUTH_TOKEN "Claude Code token" \
+      "Run claude setup-token, signed in to the Claude Team plan. The author, the reviewer and the fixer run on it (router.yml provider team-plan)."
+    ask CELERIS_API_KEY "Celeris API key" \
+      "The judge that answers triage, duplicate and risk questions (seams.yml judge: jev-celeris). Without it a step stops with an error."
+    case "$(sed -n 's/^chat: *\([a-z]*\).*/\1/p' seams.yml)" in
+      slack) ask SLACK_WEBHOOK_URL "Slack webhook URL" "A Slack app with Incoming Webhooks on, added to the channel for factory notices (seams.yml chat: slack)." ;;
+      teams) ask TEAMS_WEBHOOK_URL "Teams webhook URL" "A Teams Workflows flow \"Post to a channel when a webhook request is received\" (seams.yml chat: teams)." ;;
+    esac
     if [ "$RUNS_ON" = hetzner ]; then
       ask HETZNER_TOKEN "Hetzner Cloud API token" "Hetzner Cloud console > your project > Security > API tokens > Generate, with Read & Write."
       echo "  The VMs reach the dashboard at https://$DASHBOARD_HOST, so it needs a public name, not localhost."
@@ -128,6 +136,10 @@ $([ "$RUNS_ON" = hetzner ] && echo "FACTORY_DASHBOARD_URL=https://$DASHBOARD_HOS
 GL_TOKEN=$GL_TOKEN
 FACTORY_GITHUB_TOKEN=$FACTORY_GITHUB_TOKEN
 TENSORX_API_KEY=$TENSORX_API_KEY
+CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN
+CELERIS_API_KEY=$CELERIS_API_KEY
+SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL
+TEAMS_WEBHOOK_URL=$TEAMS_WEBHOOK_URL
 EOF
   echo "== wrote $env_file"
   # The VM setup (cloud-init) both Hetzner ways use. The gitlab way also gets the runner config.

@@ -50,6 +50,8 @@ services:
       GL_TOKEN: ${GL_TOKEN:-}
       FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
       TENSORX_API_KEY: ${TENSORX_API_KEY:-}
+      # router.yml's author and reviewer are claude-code on the team plan.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       CELERIS_API_KEY: ${CELERIS_API_KEY:-}
       FACTORY_DASHBOARD_TOKEN: ${FACTORY_DASHBOARD_TOKEN:-}
       # The chat seam's webhook (seams.yml chat: teams or slack). Only the picked one must be set.
