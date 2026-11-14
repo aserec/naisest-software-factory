@@ -29,7 +29,7 @@ export function FactoryDown({ target = "" }: { target?: string }) {
       {down.map((s) => (
         <p key={s.target}>
           <span className="font-mono">{s.target}</span>:{" "}
-          {s.lastSeen ? t("the factory is down. It last polled at {time}.", { time: when(s.lastSeen) }) : t("the factory is down. It never polled this dashboard.")}{" "}
+          {t("the factory is down. It last polled at {time}.", { time: when(s.lastSeen ?? "") })}{" "}
           {t("Nothing runs and no stop or restart is carried out until it starts again.")}
         </p>
       ))}

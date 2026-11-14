@@ -75,12 +75,12 @@ describe("GET /api/factory/control", () => {
     expect((await control("r1", {})).status).toBe(401);
   });
 
-  it("counts each call as the factory's heartbeat, so a target quiet for 5 minutes shows as down", async () => {
+  it("counts each call as the factory's heartbeat, so a target quiet for 5 minutes shows as down and one never seen does not", async () => {
     vi.useFakeTimers({ now: new Date("2026-11-12T07:00:00Z"), toFake: ["Date"] });
     await control("r1");
     const status = (now: string) => factoryStatus(["t", "other"], getDb().factoriesSeen(), new Date(now)).map((s) => s.down);
-    expect(status("2026-11-12T07:04:59Z")).toEqual([false, true]);
-    expect(status("2026-11-12T07:05:01Z")).toEqual([true, true]);
+    expect(status("2026-11-12T07:04:59Z")).toEqual([false, false]);
+    expect(status("2026-11-12T07:05:01Z")).toEqual([true, false]);
   });
 
   it("sets stop for the run with a pending stop only", async () => {
