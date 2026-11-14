@@ -1,4 +1,4 @@
-// The Teams relay (docs/decisions/2026-11-06-dashboard-relays-teams-messages.md). The writer and its reader sit side by side.
+// The Teams relay (docs/adr/2026-11-06-dashboard-relays-teams-messages.md). The writer and its reader sit side by side.
 // The dashboard's Teams bridge posts a Teams message on a work item as the relay bot, a tracker user below Developer, so the
 // comment itself never counts. A person confirms it with a 👍 on the tracker. Each 👍 counts as that person's own comment
 // with the relayed text, at the time of the 👍, and the usual rules apply to it: trusted() for the author, the injection check.

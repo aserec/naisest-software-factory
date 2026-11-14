@@ -2,7 +2,7 @@
 
 Date: 2026-11-05. Source: the architecture review of the same date (six candidates). Related findings live in `docs/reviews/2026-11-05-factory-dashboard-review.md`; IDs such as D-P4 refer to that file.
 
-Spec: none written for this refactor. The binding authorities are `GLOSSARY.md`, the decisions in `docs/decisions/`, the specs in `docs/superpowers/specs/`, and the existing tests. Behaviour that tests assert stays the same unless a task says it fixes a named bug.
+Spec: none written for this refactor. The binding authorities are `GLOSSARY.md`, the decisions in `docs/adr/`, the specs in `docs/superpowers/specs/`, and the existing tests. Behaviour that tests assert stays the same unless a task says it fixes a named bug.
 
 ## Global constraints
 

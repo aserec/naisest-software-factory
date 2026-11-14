@@ -126,7 +126,7 @@ A provider is data, not code: a name, a base URL, the API style (`anthropic` or 
 
 Each harness adapter declares which API styles it can use. Config loading fails early when the router pairs a harness with a provider it cannot use.
 
-Rule: the Team plan token works only with the Claude Code harness. See `docs/decisions/2026-10-29-claude-team-plan-auth.md`.
+Rule: the Team plan token works only with the Claude Code harness. See `docs/adr/2026-10-29-claude-team-plan-auth.md`.
 
 Rule, my call: config loading fails when the author and the reviewer of one router row use the same model family. This replaces today's rule "the reviewer is never Claude while the author is Claude", now that any harness can fill any role. A family is a model line, as `seams.yml` labels it, so Sonnet and Opus are two families. The author and the reviewer may come from the same company.
 
@@ -158,7 +158,7 @@ Real adapter: a file adapter that reads log files from `watcher/fixtures/` in th
 
 One file, `seams.yml` at the repo root, picks the adapter per seam and lists the providers:
 
-> Later decision: the judge is now `jev-celeris`, and `jev-berget` is gone. See [Celeris is the only Jev host](../../decisions/2026-11-06-celeris-is-the-jev-host.md).
+> Later decision: the judge is now `jev-celeris`, and `jev-berget` is gone. See [Celeris is the only Jev host](../../adr/2026-11-06-celeris-is-the-jev-host.md).
 
 ```yaml
 tracker: gitlab

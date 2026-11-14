@@ -87,7 +87,7 @@ Known: followups #5 (mostly fixed), #11, #12.
 
 ## Decisions (2026-11-05)
 
-- D-P1 and F-P10: keep both. New ADR `docs/decisions/2026-11-05-dashboard-starts-dispatch-runs.md` allows the dispatch start and specifies dispatches. Fixed.
+- D-P1 and F-P10: keep both. New ADR `docs/adr/2026-11-05-dashboard-starts-dispatch-runs.md` allows the dispatch start and specifies dispatches. Fixed.
 - F-P7: `.factory/review.md` replaces `CLAUDE.md`/`AGENTS.md` for the reviewer; original spec §6.4 amended. Fixed.
 - F-P8: keep 0.8 and no line limit; original spec §6.6 and oz-lessons spec amended. Fixed.
 - Fix order: real bugs first (F-S3, F-S4, F-S5, F-P1, F-P2, D-S1, D-P4, D-P5), then smells and glossary renames.

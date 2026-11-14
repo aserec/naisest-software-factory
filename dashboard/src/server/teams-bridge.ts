@@ -4,7 +4,7 @@ import { NotSetUp } from "./not-set-up";
 import { readTargets } from "./targets";
 import { plainText, relayText } from "software-factory/relay";
 
-// The Teams inbound bridge (docs/decisions/2026-11-06-dashboard-relays-teams-messages.md). A Teams outgoing webhook, one per target, POSTs here when someone
+// The Teams inbound bridge (docs/adr/2026-11-06-dashboard-relays-teams-messages.md). A Teams outgoing webhook, one per target, POSTs here when someone
 // @mentions it. The bridge checks the HMAC, finds the first `#123`, and posts the message on that work item as a quoted relay.
 // The relay is posted by the relay bot, a tracker user below Developer (GitLab Reporter, GitHub read), so the comment itself never counts.
 // The factory acts on it only when a trusted member adds 👍 on the tracker, and then as that member's comment (factory/relay.ts).

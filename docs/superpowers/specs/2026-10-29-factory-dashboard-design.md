@@ -1,6 +1,6 @@
 # Factory dashboard: design
 
-Date: 2026-10-29. Builds on [2026-10-29-swappable-modules-design.md](2026-10-29-swappable-modules-design.md). Decisions: [dashboard data ownership](../../decisions/2026-10-29-dashboard-data-ownership.md), [the dashboard may cancel a pipeline](../../decisions/2026-10-29-dashboard-cancels-pipelines.md). Words: [GLOSSARY.md](../../../GLOSSARY.md).
+Date: 2026-10-29. Builds on [2026-10-29-swappable-modules-design.md](2026-10-29-swappable-modules-design.md). Decisions: [dashboard data ownership](../../adr/2026-10-29-dashboard-data-ownership.md), [the dashboard may cancel a pipeline](../../adr/2026-10-29-dashboard-cancels-pipelines.md). Words: [GLOSSARY.md](../../../GLOSSARY.md).
 
 ## 1. Why
 
@@ -19,7 +19,7 @@ Today a person sees a run only through labels, comments and CI job logs, and onl
 - Production logs. They wait for the watcher sign-off.
 - Trends across runs, search and filters (v2).
 
-> Later decision: Insights (trends), notifications, preferences and a Set to Ready control now exist. See [the dashboard decision](../../decisions/2026-11-06-dashboard-insights-and-set-to-ready.md).
+> Later decision: Insights (trends), notifications, preferences and a Set to Ready control now exist. See [the dashboard decision](../../adr/2026-11-06-dashboard-insights-and-set-to-ready.md).
 - Alerts. A step that runs too long gets a stuck mark, nothing more.
 - Any GitLab write by the dashboard except a pipeline cancel.
 - An event-driven design (a message bus or stream). Recorded as a later option in the data ownership decision.
@@ -75,7 +75,7 @@ The UI polls every second with a cursor (the row number of the last event it has
 
 Everything else links to GitLab. The dashboard is read-only except for stop, resume, restart and switches.
 
-> Later decision: Set to Ready is a fourth control, and preferences are saved per user. See [the dashboard decision](../../decisions/2026-11-06-dashboard-insights-and-set-to-ready.md).
+> Later decision: Set to Ready is a fourth control, and preferences are saved per user. See [the dashboard decision](../../adr/2026-11-06-dashboard-insights-and-set-to-ready.md).
 
 ## 6. Control
 

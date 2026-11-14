@@ -79,7 +79,7 @@ The factory has failed, even if it runs, when any of these happen:
 - Jev is TypeSafe's decision model. It answers yes/no, choice and score questions about a JSON state in about 300 ms, with a probability for each answer.
 - **Decided:** the factory does not call TypeSafe, which hosts Jev only in the US. It calls Berget AI in Sweden, which serves the same `/v1/systemone` API with open decision models, with `BERGET_API_KEY`. The key comes later; until then, build and test with the client's mock provider, named as the mock on purpose.
 
-> Later decision: the judge is now Celeris, and Berget is gone. See [Celeris is the only Jev host](../../decisions/2026-11-06-celeris-is-the-jev-host.md).
+> Later decision: the judge is now Celeris, and Berget is gone. See [Celeris is the only Jev host](../../adr/2026-11-06-celeris-is-the-jev-host.md).
 - Price: €0.042 per million input tokens, and output is free.
 - Berget's decision models are marked preview. Before the factory relies on them, run the Jev 1 and Jev 2 questions on real past tickets and check the answers by hand, then set the thresholds in 6.2 and 6.6 from that test.
 - Use the client from the `hyper-jev` skill in `disler/ten-levels-of-jev`. Import that skill into agent-config through `upstream/upstream.json`.
