@@ -30,6 +30,7 @@ export function UsageLimits() {
   });
   if (!data) return null;
   const now = Date.now();
+  const seen = ago(data.at, now);
   const [five, week] = [usedNow(data.limits.fiveHour, now), usedNow(data.limits.sevenDay, now)];
   return (
     <TooltipProvider>
@@ -43,7 +44,7 @@ export function UsageLimits() {
         <TooltipContent>
           <p>{t("5-hour window resets {when}", { when: resets(data.limits.fiveHour) })}</p>
           <p>{t("7-day window resets {when}", { when: resets(data.limits.sevenDay) })}</p>
-          <p>{t("Seen by a run {ago}", { ago: ago(data.at, now) })}</p>
+          {seen && <p>{t("Seen by a run {ago}", { ago: seen })}</p>}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
