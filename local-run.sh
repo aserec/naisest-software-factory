@@ -101,10 +101,10 @@ for step in "${steps[@]}"; do
   # A round's event step restored the earlier run's run/ and its run-id: this run keeps its own number.
   [ "$step" != event ] || echo "$run_id" > run/run-id
 done
-# As the worker does: keep run/ without node_modules, with `ok` once decision ended well, for a later round or resume.
+# As the worker does: keep run/ without node_modules or .venv (its scripts name this slot's path; install rebuilds it), with `ok` once decision ended well, for a later round or resume.
 # ponytail: $runs only grows; delete old run dirs by hand when the disk fills.
 mkdir -p "$runs/$run_id"
-rsync -a --delete --exclude /target/node_modules run/ "$runs/$run_id/run/"
+rsync -a --delete --exclude /target/node_modules --exclude /target/.venv run/ "$runs/$run_id/run/"
 [ "$pipeline" = build ] || exit 0 # only a build run vouches with `ok`, as in the worker
 touch "$runs/$run_id/ok"
 # The decision step queued a finish run for this build when it decided to merge. The worker would take it from the queue;
