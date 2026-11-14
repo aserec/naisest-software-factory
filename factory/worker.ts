@@ -18,7 +18,7 @@ import { TSX_IMPORT } from "./agents";
 import { QUEUE_DIR, RUNS_DIR, type QueuedRun } from "./adapters/local-ci";
 import { Hetzner, type Vm } from "./hetzner";
 import { loadSeams, providerKeys } from "./config";
-import { FACTORY_ROOT } from "./repo";
+import { FACTORY_ROOT, SECRET_DIR } from "./repo";
 import { FILE_SECRETS, WORKER_ENV_NAMES } from "./secrets";
 import { BUILD_STEPS, FINISH_STEPS } from "./steps/run";
 
@@ -27,7 +27,6 @@ const PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 // File secrets: a step reads each file and deletes it before any agent runs. Values never go on a command line:
 // provider keys go to docker by name (`-e K`), with the value in docker's own env.
 const WORKER_SECRETS = Object.fromEntries(FILE_SECRETS.map((n) => [n, WORKER_ENV_NAMES[n] ?? n]));
-const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
 export const realExec: Exec = (cmd, args, env = {}, cwd) =>
   new Promise((resolve) => {
@@ -55,7 +54,7 @@ export function stepEnv(base: NodeJS.ProcessEnv, v: { pipeline?: string; schedul
   return e;
 }
 
-// Fresh secret files in dir, and their paths as the step sees them (under seen, the step's <factory root>.tmp).
+// Fresh secret files in dir, and their paths as the step sees them (under seen, the step's <factory root>/.cache/tmp).
 function secretFiles(base: NodeJS.ProcessEnv, dir: string, seen: string): Record<string, string> {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const paths: Record<string, string> = {};

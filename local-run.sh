@@ -26,10 +26,10 @@ fi
 target=${FACTORY_TARGET:-react_frontend}
 [ -n "${GL_TOKEN:-}${FACTORY_GITHUB_TOKEN:-}" ] || { echo "set GL_TOKEN or FACTORY_GITHUB_TOKEN"; exit 1; }
 : "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
-secrets="$root.tmp${slot:+/${slot#-}}" # under the only dir the CI adapter reads secret files from
+secrets="$root/.cache/tmp${slot:+/${slot#-}}" # under the only dir the CI adapter reads secret files from
 mkdir -p "$secrets"
 # A copy-on-write clone of your pnpm store, so sandboxed installs reuse it instead of downloading every package.
-store="$root.cache/pnpm-store"
+store="$root/.cache/pnpm-store"
 if [ ! -d "$store/v11" ] && [ -d "$HOME/Library/pnpm/store/v11" ]; then # macOS only; elsewhere pnpm fills it
   echo "== copying the pnpm store (first run only)"
   mkdir -p "$store" && cp -cR "$HOME/Library/pnpm/store/v11" "$store/"
@@ -69,7 +69,7 @@ else
 fi
 # Each run has its own number, the build run its change names, so a later round can restore it from $runs.
 # The clock in seconds, one up while another run took that number: mkdir reserves it, so parallel runs never share one.
-runs="$root.runs"
+runs="$root/.cache/runs"
 mkdir -p run "$runs"
 if [ -f run/run-id ]; then
   run_id=$(cat run/run-id)
@@ -109,7 +109,7 @@ rsync -a --delete --exclude /target/node_modules --exclude /target/.venv run/ "$
 touch "$runs/$run_id/ok"
 # The decision step queued a finish run for this build when it decided to merge. The worker would take it from the queue;
 # here this script runs it, in a new run/ and with a run number of its own. Older queue files belong to no live run and stay.
-queued=$(grep -l "\"buildRun\":\"$run_id\"" "$root.queue"/*.json 2>/dev/null | xargs grep -l '"kind":"finish"' 2>/dev/null | head -1 || true)
+queued=$(grep -l "\"buildRun\":\"$run_id\"" "$root/.cache/queue"/*.json 2>/dev/null | xargs grep -l '"kind":"finish"' 2>/dev/null | head -1 || true)
 if [ -n "$queued" ]; then
   change=$(sed -n 's/.*"change":"\([0-9]*\)".*/\1/p' "$queued")
   rm -f "$queued"

@@ -260,7 +260,7 @@ test("settings allow local binding for a preview or a local run, as the gate doe
 test("the agent sandbox denies the same reads as the gate sandbox", () => {
   const root = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
   const s = factorySettings({}, "/opt/hooks", "/w/run/target");
-  expect(s.sandbox.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}.tmp`, "/w/run/claude-home", "/w/run/pi-home"]);
+  expect(s.sandbox.filesystem.denyRead).toEqual(["/proc", `${root}/.git`, `${root}/.cache/tmp`, `${root}.tmp`, "/w/run/claude-home", "/w/run/pi-home"]);
   expect(s.sandbox.filesystem.denyRead).toEqual(sandboxSettings("/w/run/target", "/tmp/h").filesystem.denyRead);
 });
 

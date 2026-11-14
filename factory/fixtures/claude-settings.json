@@ -50,6 +50,7 @@
       "denyRead": [
         "/proc",
         "<ROOT>/.git",
+        "<ROOT>/.cache/tmp",
         "<ROOT>.tmp",
         "/w/run/claude-home",
         "/w/run/pi-home"

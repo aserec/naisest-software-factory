@@ -32,14 +32,14 @@ export const localCorepackHome = (env: NodeJS.ProcessEnv): string | undefined =>
 export const harnessHome = (h: Harness, cwd: string) => join(dirname(cwd), h.home);
 
 // What no sandboxed command (agent Bash, install, gate) may read: /proc (from sandbox-rules.json), the factory checkout's .git (it may hold
-// CI_JOB_TOKEN in its remote URL), the runner's File-variable dir <project dir>.tmp, every harness home (sessions and config).
+// CI_JOB_TOKEN in its remote URL), the secret file dirs <ROOT>/.cache/tmp and the GitLab runner's <project dir>.tmp, every harness home (sessions and config).
 // local-factory.sh runs each parallel run in <ROOT>/slots/<slot>: a run there may not read the other slots' harness homes either.
 export const SLOTS_DIR = join(ROOT, "slots");
 const slotRuns = (cwd: string, slots: string) => {
   if (!cwd.startsWith(slots + "/")) return [];
   try { return readdirSync(slots).map((s) => join(slots, s, "run")); } catch { return []; }
 };
-export const sandboxDenyRead = (cwd: string, slots = SLOTS_DIR) => [...RULES.filesystem.denyRead, `${ROOT}/.git`, `${ROOT}.tmp`,
+export const sandboxDenyRead = (cwd: string, slots = SLOTS_DIR) => [...RULES.filesystem.denyRead, `${ROOT}/.git`, `${ROOT}/.cache/tmp`, `${ROOT}.tmp`,
   ...[dirname(cwd), ...slotRuns(cwd, slots)].flatMap((run) => Object.values(HARNESS_HOMES).map((h) => join(run, h)))];
 
 // The clone is <ROOT>/run/target. With blockReadsOutsideWorkingDirectories, a tool that looks for config up the tree

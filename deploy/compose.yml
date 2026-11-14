@@ -62,7 +62,7 @@ services:
       NODE_EXTRA_CA_CERTS: /caddy/caddy/pki/authorities/local/root.crt
     volumes:
     - caddy_data:/caddy:ro
-    - runs:/app.runs # finished runs; only the worker writes here
+    - runs:/app/.cache/runs # finished runs; only the worker writes here
     - ./runner:/app/deploy/runner:ro # the Hetzner VMs' cloud-init.yml, written by install.sh
     # The worker starts the step containers. ponytail: the socket gives the worker root on this machine; no step
     # container gets it, and no agent runs in the worker. Use the hetzner executor to keep runs off this machine.

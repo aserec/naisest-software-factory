@@ -24,7 +24,7 @@ import { newRecord, RUN_DIR } from "./record";
 import { addKnownSecrets } from "./rules";
 import { ADAPTER_SECRETS, FILE_SECRETS } from "./secrets";
 import type { StepContext } from "./steps/context";
-import { FACTORY_ROOT } from "./repo";
+import { FACTORY_ROOT, GITLAB_SECRET_DIR, SECRET_DIR, STATE_DIR } from "./repo";
 import type { Chat, CodeHost } from "./seams";
 import type { SeamsConfig, Target } from "./types";
 
@@ -73,8 +73,8 @@ function pick<S extends Seam>(seams: SeamsConfig, seam: S): (typeof ADAPTERS)[S]
   return all[name as keyof typeof all];
 }
 
-// The runner keeps File-type variables in <project dir>.tmp. Taken from this file's place, not from env.
-const SECRET_DIR = `${FACTORY_ROOT}.tmp`;
+// Where the picked ci seam leaves the secret files. Taken from this file's place and seams.yml, not from env.
+const secretDirFor = (ci: string) => (ci === "gitlab" ? GITLAB_SECRET_DIR : SECRET_DIR);
 
 // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
 // A target may pick its own tracker and code host, so GitLab and GitHub repos share one factory.
@@ -97,13 +97,13 @@ export function commentOnce(host: CodeHost): CodeHost {
 }
 
 // seamsPath is for tests. seams.yml is read from the factory checkout only, never chosen by a variable.
-export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string): StepContext {
+export function makeContext(env: NodeJS.ProcessEnv, secretDir?: string, seamsPath?: string): StepContext {
   const name = needEnv(env, "FACTORY_TARGET");
   const { target, seams } = forTarget(name, loadSeams(seamsPath));
   // Check every name before any adapter is built.
   const make = { ci: pick(seams, "ci"), tracker: pick(seams, "tracker"), codeHost: pick(seams, "codeHost"), judge: pick(seams, "judge"), chat: pick(seams, "chat"), dashboard: pick(seams, "dashboard"), logSource: pick(seams, "logSource") };
   const router = loadRouter(undefined, seams);
-  const ci = make.ci(env, secretDir);
+  const ci = make.ci(env, secretDir ?? secretDirFor(seams.ci));
   // Each picked adapter's secret, read once per distinct name. Reported in FILE_SECRETS order.
   const picked = [ADAPTER_SECRETS.tracker[seams.tracker], ADAPTER_SECRETS.codeHost[seams.codeHost], ADAPTER_SECRETS.chat[seams.chat], "FACTORY_DASHBOARD_TOKEN"];
   const secrets: Record<string, string> = {};
@@ -131,7 +131,7 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
     ci,
     judge: make.judge(env, seams),
     chat: chatSecret ? make.chat(chatSecret) : ADAPTERS.chat.console(),
-    dashboard: make.dashboard(dashboardUrl, dashboardToken, fetch, `${FACTORY_ROOT}.cache/dashboard-spool`),
+    dashboard: make.dashboard(dashboardUrl, dashboardToken, fetch, `${STATE_DIR}/dashboard-spool`),
     harnesses: HARNESSES,
     seams,
     record: newRecord(),
@@ -146,13 +146,13 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seam
 // The fix step's seams: the dashboard, built first so a plan that fails later is still ended on it, and the code host and
 // clone of the factory repo or of a target, built only for the plan's repo. Secrets come through this one CI adapter, as it
 // reads and deletes every secret file: a second adapter would find none.
-export function makeFixSeams(env: NodeJS.ProcessEnv, secretDir = SECRET_DIR, seamsPath?: string) {
+export function makeFixSeams(env: NodeJS.ProcessEnv, secretDir?: string, seamsPath?: string) {
   const seams = loadSeams(seamsPath);
-  const ci = pick(seams, "ci")(env, secretDir);
+  const ci = pick(seams, "ci")(env, secretDir ?? secretDirFor(seams.ci));
   const dashboardToken = ci.secret("FACTORY_DASHBOARD_TOKEN");
   if (!dashboardToken) throw new Error("FACTORY_DASHBOARD_TOKEN is not set");
   addKnownSecrets(dashboardToken);
-  const dashboard = pick(seams, "dashboard")(checkDashboardUrl(seams, env), dashboardToken, fetch, `${FACTORY_ROOT}.cache/dashboard-spool`);
+  const dashboard = pick(seams, "dashboard")(checkDashboardUrl(seams, env), dashboardToken, fetch, `${STATE_DIR}/dashboard-spool`);
   // The factory's own repo lives on GitLab, whatever code host the targets use.
   const factoryCodeHost = () => {
     if (!seams.factoryRepo) throw new Error("seams.yml has no factoryRepo, so a factory plan cannot run");

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import type { QueuedRun } from "./adapters/local-ci";
-import { FACTORY_ROOT } from "./repo";
+import { FACTORY_ROOT, SECRET_DIR, STATE_DIR } from "./repo";
 import { BUILD_STEPS } from "./steps/run";
 import { handler, improveDue, machineHost, nextId, runImprove, runOne, runShort, stepEnv, takeQueue, targetLock, tickTarget, type Exec, type Live } from "./worker";
 
@@ -35,7 +35,7 @@ test("a build run starts each step in its own container, saves run/ and marks it
   expect(d.started()).toEqual(BUILD_STEPS);
   const create = d.calls.find((a) => a[0] === "create" && a.includes("factory/steps/triage.ts"))!;
   expect(create).toContain(`factory-run-7:${FACTORY_ROOT}/run`);
-  expect(create).toContain(`FACTORY_GITLAB_TOKEN=${FACTORY_ROOT}.tmp/FACTORY_GITLAB_TOKEN`); // a path, never the token
+  expect(create).toContain(`FACTORY_GITLAB_TOKEN=${SECRET_DIR}/FACTORY_GITLAB_TOKEN`); // a path, never the token
   expect(create.join(" ")).not.toContain("glpat-x");
   // A provider key goes by name only: its value is in docker's env, never on the command line.
   expect(create).toContain("TENSORX_API_KEY");
@@ -62,7 +62,7 @@ test("a finish run mounts its build run read-only, and only one the worker marke
   const d = fakeDocker();
   await run(d, runs, tmp(), finish);
   expect(d.started()).toEqual(["apply", "verify", "result-saved"]);
-  expect(d.calls.find((a) => a[0] === "create" && a.includes("factory/steps/apply.ts"))).toContain(`factory-ref-7:${FACTORY_ROOT}.runs:ro`);
+  expect(d.calls.find((a) => a[0] === "create" && a.includes("factory/steps/apply.ts"))).toContain(`factory-ref-7:${STATE_DIR}/runs:ro`);
 });
 
 test("a queued run with a bad value starts nothing", async () => {
@@ -149,7 +149,7 @@ test("an improve step gets FACTORY_SCHEDULE=improve", () => {
 // The improve step clones into <cwd>/run/target, so each job needs a folder of its own: one shared folder would hand a
 // later job (or another target) the first clone, and two targets would race on it.
 test("each improve job runs in a new working folder that is gone afterwards", async () => {
-  const secrets = `${FACTORY_ROOT}.tmp`, made = !existsSync(secrets);
+  const secrets = SECRET_DIR, made = !existsSync(secrets);
   mkdirSync(secrets, { recursive: true });
   const seen: { target: string; cwd: string; script: string; existed: boolean; schedule: string }[] = [];
   const exec: Exec = async (_cmd, args, env, cwd) => {
@@ -175,7 +175,7 @@ test("each improve job runs in a new working folder that is gone afterwards", as
 });
 
 test("each tick polls; the hourly tick also retries, watches and starts a due improve job once a week", async () => {
-  const secrets = `${FACTORY_ROOT}.tmp`, made = !existsSync(secrets);
+  const secrets = SECRET_DIR, made = !existsSync(secrets);
   mkdirSync(secrets, { recursive: true });
   const runsDir = mkdtempSync(join(tmpdir(), "tick-"));
   const steps: string[] = [];
@@ -201,7 +201,7 @@ test("each tick polls; the hourly tick also retries, watches and starts a due im
 
 // The fix step gets its plan in the env, may have no target (a plan for the factory repo), and its exit code comes back.
 test("runShort fix passes the plan, accepts an empty target and returns the exit code", async () => {
-  mkdirSync(`${FACTORY_ROOT}.tmp`, { recursive: true });
+  mkdirSync(SECRET_DIR, { recursive: true });
   let env: Record<string, string> = {};
   const exec: Exec = async (_cmd, _args, e) => { env = e!; return { code: 3, out: "" }; };
   expect(await runShort(exec, base, "fix", "", undefined, tmpdir(), { FACTORY_PLAN: '{"id":"x"}' })).toBe(3);

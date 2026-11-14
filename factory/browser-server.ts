@@ -41,7 +41,7 @@ export function playwrightVersion(clone: string): string | undefined {
 
 // Our own copy of that version from npm, never the clone's: the server runs outside the sandbox.
 function playwrightCli(version: string, env: NodeJS.ProcessEnv): string {
-  const dir = `${ROOT}.cache/playwright/${version}`;
+  const dir = `${ROOT}/.cache/playwright/${version}`;
   const cli = join(dir, "node_modules/playwright-core/cli.js");
   const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { env, stdio: "pipe", timeout: 600_000 });
   if (!existsSync(cli)) run("npm", ["install", "--silent", "--no-audit", "--no-fund", "--ignore-scripts", "--prefix", dir, `playwright-core@${version}`]);

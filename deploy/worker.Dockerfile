@@ -12,6 +12,6 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY dashboard/package.json dashboard/
 RUN pnpm install --frozen-lockfile --filter software-factory
 COPY . .
-# The secret, queue and runs dirs next to the checkout (factory/adapters/local-ci.ts).
-RUN mkdir -p /app.tmp /app.queue /app.runs && chmod 700 /app.tmp
+# The secret, queue and runs dirs in the checkout's .cache (factory/repo.ts STATE_DIR).
+RUN mkdir -p /app/.cache/tmp /app/.cache/queue /app/.cache/runs && chmod 700 /app/.cache/tmp
 CMD ["node", "--import", "tsx", "factory/worker.ts"]

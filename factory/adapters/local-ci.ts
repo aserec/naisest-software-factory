@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import { loadRecord, RUN_DIR, type RunRecord } from "../record";
-import { FACTORY_ROOT } from "../repo";
+import { STATE_DIR } from "../repo";
 import { addKnownSecrets } from "../rules";
 import { NotFactoryRunError, type CiRunner, type RunKind, type ChangeRef, type TicketRef } from "../seams";
 import { FILE_SECRETS } from "../secrets";
@@ -12,8 +12,8 @@ import { checkVars, secretFile } from "../ci-vars";
 // start() leaves a request in the queue dir; the worker validates it and runs it.
 // The worker alone writes the runs dir. It puts there a build run's run/ and an `ok` file once its decision
 // step ended well, and mounts the runs a step may read read-only. So only the worker vouches for a run.
-export const QUEUE_DIR = `${FACTORY_ROOT}.queue`;
-export const RUNS_DIR = `${FACTORY_ROOT}.runs`;
+export const QUEUE_DIR = `${STATE_DIR}/queue`;
+export const RUNS_DIR = `${STATE_DIR}/runs`;
 export interface QueuedRun { kind: RunKind; target: string; ticket?: TicketRef; change?: ChangeRef; buildRun?: string; skipApply?: boolean }
 
 export function makeLocalCi(env: NodeJS.ProcessEnv, secretDir: string, dirs = { queue: QUEUE_DIR, runs: RUNS_DIR }): CiRunner {

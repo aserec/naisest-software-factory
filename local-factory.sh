@@ -9,10 +9,10 @@
 # Do not use local-run.sh while the factory runs: both use run/ and the same secret file.
 set -euo pipefail
 cd "$(dirname "$0")"
-state="$PWD.cache"
+state="$PWD/.cache"
 pidfile="$state/factory.pid" log="$state/factory.log" slotdir="$PWD/slots"
 fixpid="$state/fixer.pid" fixlog="$state/fixer.log"
-secrets="$PWD.tmp" # the only dir the CI adapter reads secret files from
+secrets="$state/tmp" # the only dir the CI adapter reads secret files from
 mkdir -p "$state" "$secrets"
 
 # The pid must still be our loop: after a crash or reboot the pid in the file can belong to another process.

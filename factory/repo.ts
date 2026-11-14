@@ -20,6 +20,11 @@ export const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL; the runner keeps File-type variables in <project dir>.tmp.
 export const FACTORY_GIT_EMAIL = "factory@noreply.invalid"; // the author of every commit the factory makes
 export const FACTORY_ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+// Local state inside the checkout, in its git-ignored .cache: the sandbox's rootReads hides it from the agents.
+// Secret files: the worker and the local scripts write them to .cache/tmp. A GitLab job gets them from its runner, in <project dir>.tmp.
+export const STATE_DIR = `${FACTORY_ROOT}/.cache`;
+export const SECRET_DIR = `${STATE_DIR}/tmp`;
+export const GITLAB_SECRET_DIR = `${FACTORY_ROOT}.tmp`;
 
 // With timeoutMs the command gets its own process group. Past the limit the whole group is killed, and once the command
 // ends any process it left in its group is killed too, so a hung test (ticket 556) cannot hold a run forever.
