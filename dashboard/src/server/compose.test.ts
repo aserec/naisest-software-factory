@@ -47,6 +47,19 @@ it("another error fails the board", async () => {
   await expect(makeBoard(f).board()).rejects.toThrow();
 });
 
+it("Refresh of one target reads only that target's tracker and keeps the other rows", async () => {
+  const f = fakeFetch();
+  const board = makeBoard(f);
+  await board.board();
+  vi.mocked(f).mockClear();
+  const rows = await board.board(true, "b");
+  const urls = vi.mocked(f).mock.calls.map((c) => String(c[0]));
+  expect(urls.length).toBeGreaterThan(0);
+  expect(urls.every((u) => u.startsWith("https://api.github.com/"))).toBe(true);
+  expect(rows.map((r) => [r.target, r.ticket])).toEqual([["a", "4"], ["b", "5"]]);
+  expect((await board.board()).map((r) => r.target)).toEqual(["a", "b"]); // the merged board is the cached one
+});
+
 it("the board is cached for 60 s and a failure is not cached", async () => {
   const f = fakeFetch();
   let t = 1_000_000;

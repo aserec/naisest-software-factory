@@ -34,9 +34,11 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
   const all = trackers(fetchFn);
   let cached: { at: number; rows: Promise<BoardRow[]> } | undefined;
 
-  async function fetchBoard() {
+  // only: read just that target's tracker, as the Refresh button of one project's board does.
+  async function fetchBoard(only?: string) {
     const groups = new Map<Tracker, TargetInfo[]>();
     for (const t of readTargets()) {
+      if (only && t.name !== only) continue;
       const tracker = all[t.tracker];
       groups.set(tracker, [...(groups.get(tracker) ?? []), t]);
     }
@@ -49,8 +51,16 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
   let good: { at: number; rows: BoardRow[] } | undefined;
 
   return {
-    // fresh skips the cache: the board's Refresh button asks for it.
-    board(fresh = false) {
+    // fresh skips the cache: the board's Refresh button asks for it. With a target, only that target is read again and
+    // its rows replace the old ones; the other targets keep their rows and their age, so the 60 s cache still runs for them.
+    board(fresh = false, target?: string) {
+      if (fresh && target && good) {
+        const { at, rows: old } = good;
+        const rows = fetchBoard(target).then((mine) => [...old.filter((r) => r.target !== target), ...mine]);
+        // a full read that landed meanwhile is newer for every target: keep it
+        rows.then((r) => good?.at === at && ((good = { at, rows: r }), (cached = { at, rows })), () => {});
+        return rows;
+      }
       if (fresh || !cached || now().getTime() - cached.at >= CACHE_MS) {
         const entry = { at: now().getTime(), rows: fetchBoard() };
         cached = entry;
