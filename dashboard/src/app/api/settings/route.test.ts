@@ -40,6 +40,14 @@ describe("/api/settings", () => {
     expect(state.settings).toEqual({ thresholds: { diffRiskMax: 6 }, factoryFile: FILE });
   });
 
+  it("saves the auto_merge switch in the same write as the limits, and saves neither when a value is bad", async () => {
+    expect((await put({ target: "demo", thresholds: { diffRiskMax: 4 }, autoMerge: false })).status).toBe(204);
+    expect(getDb().switches("demo").auto_merge).toBe(false);
+    expect((await put({ target: "demo", thresholds: { diffRiskMax: "x" }, autoMerge: true })).status).toBe(400);
+    expect(getDb().switches("demo").auto_merge).toBe(false);
+    expect((await put({ target: "demo", thresholds: {}, autoMerge: "yes" })).status).toBe(400);
+  });
+
   it("saves the agents' language for the factory, refuses an unknown one, and an empty one falls back to the target file", async () => {
     expect((await put({ target: "demo", thresholds: {}, language: "de" })).status).toBe(204);
     const state = await (await control.GET(new Request("http://x/api/factory/control?target=demo"))).json();

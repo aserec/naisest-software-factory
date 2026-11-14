@@ -56,12 +56,10 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
   const autoMerge = autoMergeEdit ?? savedAutoMerge;
   const save = useMutation({
     mutationFn: async () => {
-      const r = await api("/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, thresholds: changed(values), factoryFile, language }) });
+      const autoMergeChange = autoMerge === undefined || autoMerge === savedAutoMerge ? {} : { autoMerge };
+      const r = await api("/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, thresholds: changed(values), factoryFile, language, ...autoMergeChange }) });
       // 400 and 403 carry the server's sentence: which value is wrong, or which role is missing.
       if (!r.ok) throw new Error(`Could not save the settings for ${target}. ${r.status === 400 || r.status === 403 ? await r.text() : "Try again."}`);
-      if (autoMerge === undefined || autoMerge === savedAutoMerge) return;
-      const s = await api("/api/switches", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: target, name: "auto_merge", on: autoMerge }) });
-      if (!s.ok) throw new Error(`Saved the limits, but could not turn auto-merge ${autoMerge ? "on" : "off"} for ${target}. ${s.status === 403 ? await s.text() : "Try again."}`);
     },
     onSettled: async () => {
       await client.invalidateQueries({ queryKey: ["switches"] });

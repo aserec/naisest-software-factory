@@ -63,8 +63,8 @@ export interface Db {
   switchChanges(limit: number): SwitchChange[];
   /** The target's Settings page values as stored, raw; empty thresholds when none. Checked by the factory and the settings route. */
   settings(target: string): TargetSettings & { user?: string; at?: string };
-  /** Saves the target's settings and its settings_change audit event in one transaction. */
-  setSettings(target: string, s: TargetSettings, user: string): void;
+  /** Saves the target's settings and its settings_change audit event in one transaction, with its auto_merge switch when given. */
+  setSettings(target: string, s: TargetSettings, user: string, autoMerge?: boolean): void;
   /** Saves the request and its audit event (type = kind) in one transaction. */
   request(r: Omit<ControlRequest, "id" | "at">): ControlRequest | { refused: string };
   requests(q: { target?: string; pending?: boolean; sinceMinutes?: number }): ControlRequest[];
@@ -241,6 +241,13 @@ export function openDb(path: string): Db {
   }
 
   // Call inside a transaction.
+  function writeSwitch(scope: string, name: SwitchName, on: boolean, user: string, at: string) {
+    db.prepare(`INSERT INTO switches (scope, name, "on", user, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (scope, name) DO UPDATE SET "on" = excluded."on", user = excluded.user, at = excluded.at`).run(scope, name, on ? 1 : 0, user, at);
+    // A switch change belongs to no run, so run and ticket stay empty.
+    insertEvents([{ id: randomUUID(), run: "", at, target: scope, ticket: "", type: "switch_change", data: { user, name, scope, on } }]);
+  }
+
+  // Call inside a transaction.
   function insertEvents(events: RunEvent[]): number {
     let added = 0;
     for (const e of events) {
@@ -355,12 +362,7 @@ export function openDb(path: string): Db {
     },
 
     setSwitch(scope, name, on, user) {
-      const at = new Date().toISOString();
-      inTransaction(() => {
-        db.prepare(`INSERT INTO switches (scope, name, "on", user, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (scope, name) DO UPDATE SET "on" = excluded."on", user = excluded.user, at = excluded.at`).run(scope, name, on ? 1 : 0, user, at);
-        // A switch change belongs to no run, so run and ticket stay empty.
-        insertEvents([{ id: randomUUID(), run: "", at, target: scope, ticket: "", type: "switch_change", data: { user, name, scope, on } }]);
-      });
+      inTransaction(() => writeSwitch(scope, name, on, user, new Date().toISOString()));
     },
 
     settings(target) {
@@ -369,12 +371,13 @@ export function openDb(path: string): Db {
       return { ...(JSON.parse(r.data as string) as TargetSettings), user: r.user as string, at: r.at as string };
     },
 
-    setSettings(target, s, user) {
+    setSettings(target, s, user, autoMerge) {
       const at = new Date().toISOString();
       const value: TargetSettings = { thresholds: s.thresholds, ...(s.factoryFile ? { factoryFile: s.factoryFile } : {}), ...(s.language ? { language: s.language } : {}) };
       inTransaction(() => {
         db.prepare("INSERT INTO settings (target, data, user, at) VALUES (?, ?, ?, ?) ON CONFLICT (target) DO UPDATE SET data = excluded.data, user = excluded.user, at = excluded.at").run(target, JSON.stringify(value), user, at);
         insertEvents([{ id: randomUUID(), run: "", at, target, ticket: "", type: "settings_change", data: { user, ...value } }]);
+        if (autoMerge !== undefined) writeSwitch(target, "auto_merge", autoMerge, user, at);
       });
     },
 

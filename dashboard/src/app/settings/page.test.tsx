@@ -45,7 +45,7 @@ test("the Factory tab lists the rules every target must meet to merge alone", as
   expect(screen.getByRole("tabpanel", { name: "Factory" }).textContent).toContain("Every hard rule passes");
 });
 
-test("the auto-merge toggle changes the target's auto_merge switch only on Save", async () => {
+test("the auto-merge toggle changes the target's auto_merge switch only on Save, in the same request as the limits", async () => {
   const sw = { "*": { auto_merge: true }, api: { auto_merge: true } };
   const f = vi.fn(async (url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response(null, { status: 204 }) : url === "/api/switches" ? json(sw) : json({ api: { thresholds: {} } })));
   vi.stubGlobal("fetch", f);
@@ -54,9 +54,10 @@ test("the auto-merge toggle changes the target's auto_merge switch only on Save"
   const toggle = within(api).getByRole("switch", { name: "Auto-merge" });
   await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
   fireEvent.click(toggle);
-  expect(f).not.toHaveBeenCalledWith("/api/switches", expect.objectContaining({ method: "PUT" }));
+  expect(f).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "PUT" }));
   fireEvent.click(within(api).getByRole("button", { name: "Save" }));
-  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/switches", expect.objectContaining({ method: "PUT", body: JSON.stringify({ scope: "api", name: "auto_merge", on: false }) })));
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT", body: expect.stringContaining('"autoMerge":false') })));
+  expect(f).not.toHaveBeenCalledWith("/api/switches", expect.objectContaining({ method: "PUT" }));
 });
 
 test("Save leaves the auto_merge switch alone when the toggle did not change", async () => {
@@ -67,7 +68,7 @@ test("Save leaves the auto_merge switch alone when the toggle did not change", a
   await waitFor(() => expect(within(api).getByRole("switch", { name: "Auto-merge" }).getAttribute("aria-checked")).toBe("true"));
   fireEvent.click(within(api).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT" })));
-  expect(f).not.toHaveBeenCalledWith("/api/switches", expect.objectContaining({ method: "PUT" }));
+  expect(f).not.toHaveBeenCalledWith("/api/settings", expect.objectContaining({ body: expect.stringContaining("autoMerge") }));
 });
 
 test("the auto-merge toggle is locked when the all-targets switch is off", async () => {
