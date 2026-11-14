@@ -15,7 +15,7 @@ The dashboard posts with a separate relay bot, never with the factory's token:
 
 The relay bot is below Developer, so `trusted()` is false for it and the relay comment itself never counts. Each line is quoted with `> `, and `@factory` is broken with a zero-width space, so no quick action or factory command runs from it.
 
-A person confirms a relay with a 👍 on the tracker. The tracker adapter turns each 👍 into a comment of the person who gave it, with the quoted text, at the time of the 👍 (`factory/relay.ts`). From there the usual rules apply: `trusted()` for that person, the injection check, `@factory stop` in a run, `@factory` requests. A 👍 from before the comment's last edit does not count. A 👍 sends no comment webhook, so the poller resumes a stopped run on a confirmed relayed `@factory resume` (`resumeRelayed` in `factory/steps/run.ts`). The target names the relay bot in `teamsRelay`.
+A person confirms a relay with a 👍 on the tracker. The tracker adapter turns each 👍 into a comment of the person who gave it, with the quoted text, at the time of the 👍 (`factory/relay.ts`). From there the usual rules apply: `trusted()` for that person, the injection check, `@factory stop` in a run, `@factory` requests. A 👍 from before the comment's last edit does not count. A 👍 sends no comment webhook, so the poller resumes a stopped run on a confirmed relayed `@factory resume` (`resumeRelayed` in `factory/steps/poller.ts`). The target names the relay bot in `teamsRelay`.
 
 ## Why
 

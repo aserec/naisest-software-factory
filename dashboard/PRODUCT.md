@@ -25,7 +25,7 @@ The dashboard shows the software factory's work. The factory turns a labeled Git
 
 - Runs live in GitLab work items, labels, merge requests and pipelines. The dashboard reads them; people still merge in GitLab.
 - Sign-in is GitLab OAuth.
-- Pages: the board of work items as cards, a run page with the step timeline and step logs, switches, the runner page (Grafana data, optional), and sign-in.
+- Pages: the board of work items as cards with the factory status, the boards of all targets, a run page with the step timeline and step logs, switches, settings, dispatches, insights, preferences, the runner page (Grafana data, optional), and sign-in. The agent chat sits beside every page.
 - Self-hosted behind HTTPS on the team's machine (`deploy/`).
 
 ## Capabilities and Constraints
