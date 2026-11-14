@@ -1822,6 +1822,14 @@ test("merge_all on merges a medium-risk change without a person, but never one w
   expect(s.finishTriggered).toBe(false);
   expect(s.states).toEqual(["needs_approval"]);
 });
+test("merge_all on never merges a change whose proof failed", async () => {
+  const w = fakeWorld({ jev1: { risk: "medium" }, proof: null, reviews: [[]], gate: "green", jev2: "pass" });
+  w.ctx.dashboard = fakeDashboard({ switches: { ...defaultSwitches(), merge_all: true } });
+  await runBuildJobs(w, tmp());
+  expect(w.finishTriggered).toBe(false);
+  expect(w.states).toEqual(["needs_approval"]);
+  expect(approvalReasons(w)).toContain("no proof: no run/proof/proof.json");
+});
 test("new_runs off: a webhook ready starts nothing and the ticket stays ready", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   withSwitches(w, "new_runs");

@@ -14,11 +14,12 @@ const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a 
 
 // A fix for an error that does not exist must never reach the default branch alone.
 // A run with a person's request never merges without a person, also when it resumes later.
-// mergeAll (the merge_all switch) merges past the risk checks, but never a change with a secret in it.
+// mergeAll (the merge_all switch) merges past the risk checks, but never a change with a secret in it
+// and never a change whose proof failed: a change with no proof a person can trust always goes to a person.
 function decide(ctx: StepContext, ticket: Ticket, mergeAll: boolean): MergeDecision {
   let d = decideByChecks(ctx);
   const secret = facts(ctx).riskCheck?.rules.some((r) => r.rule === "secret" && !r.passed);
-  if (mergeAll && !secret) d = { kind: "auto" };
+  if (mergeAll && !secret && !proofOf(ctx).length) d = { kind: "auto" };
   const reasons = () => (d.kind === "needs_approval" ? d.reasons : []);
   if (ticket.marks.includes("watcher") && ctx.seams.logSource === "files") d = { kind: "needs_approval", reasons: [...reasons(), FAKE_ERRORS] };
   const bad = facts(ctx).riskCheck?.thresholdErrors ?? [];
@@ -26,11 +27,16 @@ function decide(ctx: StepContext, ticket: Ticket, mergeAll: boolean): MergeDecis
   return facts(ctx).requested ? { kind: "needs_approval", reasons: [ASKED, ...reasons()] } : d;
 }
 
+function proofOf(ctx: StepContext): string[] {
+  const f = facts(ctx);
+  return proofReasons(f.proof, !!need(f.commands, ".factory.yml commands").preview, f.uploadFailed ?? [], need(f.riskCheck, "risk check").testOnly === true);
+}
+
 function decideByChecks(ctx: StepContext): MergeDecision {
   const f = facts(ctx);
   const rc = need(f.riskCheck, "risk check");
   const failedRules = rc.rules.filter((r) => !r.passed).map((r) => `hard rule ${r.rule} failed: ${r.detail}`);
-  const proof = proofReasons(f.proof, !!need(f.commands, ".factory.yml commands").preview, f.uploadFailed ?? [], rc.testOnly === true);
+  const proof = proofOf(ctx);
   if (rc.riskError) return { kind: "needs_approval", reasons: [`Jev 2 risk check failed: ${rc.riskError}`, ...failedRules, ...proof] };
   const d = decideMerge({
     triageRisk: need(f.triageRisk, "triage risk"),
