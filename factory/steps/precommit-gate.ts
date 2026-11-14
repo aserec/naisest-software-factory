@@ -5,9 +5,9 @@ import { readImages, readProof, readVideo, proofSection } from "../proof";
 import { need } from "../record";
 import { findSecrets } from "../rules";
 import { review } from "./code-review";
-import { endOutcome, facts, fix, install, isMain, runStep, save, thresholds, ticketRef, type StepContext, type StepResult } from "./context";
+import { endKind, NEXT, facts, fix, install, isMain, runStep, save, thresholds, ticketRef, type StepContext, type StepOutcome } from "./context";
 import { runLine, withoutMarks } from "./change-text";
-import { block, endIfClosed, stopReason, stopped, waiting } from "./run";
+import { block, closedOutcome, stopReason, stopped, waiting } from "./run";
 import { withStep } from "./with-step";
 
 const COMMIT_TITLE = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^()]+\))?!?: \S.*$/;
@@ -44,7 +44,7 @@ async function attachAll(ctx: StepContext, images: Record<string, Buffer>) {
   return { links, failed };
 }
 
-export async function run(ctx: StepContext): Promise<StepResult> {
+export async function run(ctx: StepContext): Promise<StepOutcome> {
   const ref = ticketRef(ctx);
   const stop = await install(ctx);
   if (stop) return stop;
@@ -62,24 +62,24 @@ export async function run(ctx: StepContext): Promise<StepResult> {
       return r;
     } }, need(facts(ctx).commands, ".factory.yml commands"), max, start);
     ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, gate: result.rounds } };
-    if (result.kind === "limit") return waiting(ctx, "precommit-gate", result.sessionId);
-    if (result.kind === "stopped") return stopped(ctx, "precommit-gate", { session: result.sessionId, reason: stopReason(ctx) });
-    if (result.kind === "blocked") return block(ctx, `The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.map((o) => `\`\`\`\n${o}\n\`\`\``).join("\n\n")}`);
+    if (result.kind === "limit") return waiting("precommit-gate", result.sessionId);
+    if (result.kind === "stopped") return stopped("precommit-gate", { session: result.sessionId, reason: stopReason(ctx) });
+    if (result.kind === "blocked") return block(`The precommit-gate is not green after ${result.rounds} rounds.\n\n${result.open.map((o) => `\`\`\`\n${o}\n\`\`\``).join("\n\n")}`);
     if (!unreviewed && result.rounds === start) break; // passed with no fix since the last review
     // The rounds add up across passes, so this ends inside the review and gate round limits.
     await ctx.tracker.unmark(ref, "reviewed");
     // Its own code-review step, so the dashboard shows this review as a row after the gate's patch.
-    const r = await withStep(ctx, "code-review", () => review(ctx, "precommit-gate"), { outcome: (r) => endOutcome(ctx, typeof r === "string" ? r : "next") });
-    if (typeof r === "string") return r;
+    const r = await withStep(ctx, "code-review", () => review(ctx, "precommit-gate"), { outcome: (r) => ("kind" in r ? endKind(r) : "next") });
+    if ("kind" in r) return r;
     if (!r.fixed) break; // review passed on the code the gate passed
     unreviewed = false; // the review fixed code: run the gate again
   }
   const commit = commitMessage(ctx, (await ctx.tracker.ticket(ref)).url);
   const { title, body: scanned } = changeText(ctx, {}, [], commit);
   // Scan before anything leaves the runner. The raw manifest holds the test tails, which the section does not show.
-  if (findSecrets((await ctx.repo.diff()).text + scanned + (readProof(ctx.repo.readFile).raw ?? "")).length > 0) return block(ctx, "The change contains a secret-looking value, so the factory did not push it.");
+  if (findSecrets((await ctx.repo.diff()).text + scanned + (readProof(ctx.repo.readFile).raw ?? "")).length > 0) return block("The change contains a secret-looking value, so the factory did not push it.");
   // Before attachAll: it uploads images, which is a write.
-  const end = await endIfClosed(ctx);
+  const end = await closedOutcome(ctx);
   if (end) return end;
   const { links, failed } = await attachAll(ctx, { ...readImages(ctx.repo.readBytes, facts(ctx).proof?.proof), ...readVideo(ctx.repo.readBytes, facts(ctx).proof?.proof) });
   const { body } = changeText(ctx, links, failed, commit);
@@ -88,7 +88,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   const c = await ctx.codeHost.openChange(branch, title, body, ref);
   save(ctx, "precommit-gate", { passed: true, rounds: result.rounds, branch, sha, change: c.ref, changeUrl: c.url, images: links, uploadFailed: failed, commit });
   await ctx.tracker.mark(ref, "checked"); // after the secret scan: a change that is not pushed is not checked
-  return "next";
+  return NEXT;
 }
 
 export const main = () => runStep("precommit-gate", run);

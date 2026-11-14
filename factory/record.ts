@@ -34,7 +34,7 @@ export interface RunRecord {
   heardUntil?: string; // the time of the newest comment already taken into the run
 }
 
-// What stopped() and waiting() save when an agent run pauses. A paused run resumes from it.
+// What applyOutcome saves for a stopped or waiting step outcome when an agent run pauses. A paused run resumes from it.
 export interface PauseData { sessionId?: string; limit?: true; stopped?: true; switchOff?: boolean }
 
 // The data each step saves in the record, by step name. Old records keep loading, so a field that an older
@@ -129,7 +129,7 @@ export function runFacts(r: RunRecord) {
     reviewedHead: riskCheck?.headSha, // the commit that was reviewed and checked: apply merges only this one
     decisionKind: decision && "kind" in decision ? decision.kind : undefined,
     mergedSha: applied && "sha" in applied ? applied.sha : undefined,
-    // The last step, if stopped() or waiting() saved it: where and how the run paused.
+    // The last step, if a stopped or waiting step outcome saved it: where and how the run paused.
     paused: pause?.limit || pause?.stopped ? { step: end!.step, ...pause } : undefined,
     blockedStep: end?.step === "blocked" ? (end.data as StepData["blocked"]).step : undefined, // the job that blocked the run
     // Why this record cannot continue for this work item, or undefined if it can.

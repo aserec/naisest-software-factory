@@ -13,14 +13,14 @@ import { localPath, localSection } from "../local-instructions";
 import { DEFAULT_PORT, withPort } from "../factory-file";
 import { writeShooter } from "../proof";
 import { modelChoice } from "../config";
-import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type RunRecord, type StepData, type StepName } from "../record";
-import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
+import { addStep, loadRecord, need, newRecord, RUN_DIR, runFacts, saveRecord, type PausableStep, type RunRecord, type StepData, type StepName } from "../record";
+import { NotFactoryRunError, type Chat, type FactoryState, type JevQuestion, type CiRunner, type ChangeRef, type CodeHost, type Dashboard, type Harness, type HarnessJob, type HarnessResult, type Judge, type Notice, type Repo, type Role, type SwitchName, type Ticket, type ToolCall, type TicketRef, type Tracker } from "../seams";
 import { LANGUAGES, MAX_FIELD, OFF_UNTIL_SET, type ControlRequest, type TargetSettings } from "../run-events";
 import { DEFAULT_THRESHOLDS, checkThresholds, type Thresholds } from "../thresholds";
 import type { HarnessName } from "../harnesses";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
-import { block, closedByPerson, doneBeforeResume } from "./run";
-import { withStep } from "./with-step";
+import { applyOutcome, block, closedByPerson, doneBeforeResume, type Closed } from "./run";
+import { withStep, type EndKind } from "./with-step";
 
 export interface StepContext {
   tracker: Tracker;
@@ -43,7 +43,16 @@ export interface StepContext {
   dashboardStop?: boolean; // the dashboard asked this run to stop (seen by the inbox)
   snapshot?: () => Promise<Controls>; // set by takeSnapshot: the dashboard's controls for this step or poll tick
 }
-export type StepResult = "next" | "stop";
+// GLOSSARY.md: Step outcome. A step returns it; applyOutcome (run.ts) makes the writes a pause or a block needs.
+export type StepOutcome =
+  | { kind: "next" }
+  | { kind: "ended" } // the step ended the run itself: it asked a person, closed a duplicate or started nothing
+  | { kind: "blocked"; reason: string; continuable?: boolean }
+  | { kind: "waiting"; step: PausableStep; session: string; extra?: { commands?: FactoryCommands } }
+  | { kind: "stopped"; step: PausableStep; session?: string; reason: string; change?: ChangeRef; extra?: { commands?: FactoryCommands } }
+  | { kind: "closed"; ref: TicketRef; closed: Closed };
+export const NEXT: StepOutcome = { kind: "next" };
+export const ENDED: StepOutcome = { kind: "ended" };
 
 const POLL_MS = 30_000;
 const POLL_TRIES = 120; // one hour
@@ -87,9 +96,9 @@ export const modelRow = (ctx: StepContext): RouterRow => need(facts(ctx).row, "t
 
 // Installs the target's dependencies in the sandbox. Each job that runs target code needs it,
 // because node_modules is not kept between jobs.
-export async function install(ctx: StepContext, commands: FactoryCommands = need(facts(ctx).commands, ".factory.yml commands")): Promise<StepResult | undefined> {
+export async function install(ctx: StepContext, commands: FactoryCommands = need(facts(ctx).commands, ".factory.yml commands")): Promise<StepOutcome | undefined> {
   const r = await ctx.repo.run(commands.install);
-  if (!r.ok) return block(ctx, `The install command failed:\n${r.output.slice(-2000)}`);
+  if (!r.ok) return block(`The install command failed:\n${r.output.slice(-2000)}`);
   return undefined;
 }
 
@@ -138,7 +147,7 @@ export const switchOn = async (ctx: StepContext, name: SwitchName): Promise<bool
 // The ticket's inbox from the start of this run (the newest event step), so a stop posted
 // between agent runs is still seen. A resumed run starts after the old stop, so it does not see it again.
 // It also asks the dashboard whether a person stopped this run there, and the tracker and code host whether a person
-// closed the work item or the run's change. The stop step then ends a closed run (stopped() in run.ts).
+// closed the work item or the run's change. The stop step then ends a closed run (applyOutcome in run.ts).
 // Once the run has pushed, the change's comments come too. A request round reads from its cursor; any other start reads from the event.
 export const inbox = (ctx: StepContext) => {
   const f = facts(ctx);
@@ -249,12 +258,8 @@ function copyOutput(): () => string {
 }
 
 const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN/;
-// A stop saved by stopped() or waiting() ends the step as "stopped" or "waiting".
-export function endOutcome(ctx: StepContext, result: StepResult): "next" | "stop" | "stopped" | "waiting" {
-  if (result === "next") return "next";
-  const p = facts(ctx).paused;
-  return p?.stopped ? "stopped" : p?.limit ? "waiting" : "stop";
-}
+// What the step_end event says: the dashboard reads "stopped" and "waiting".
+export const endKind = (o: StepOutcome): EndKind => (o.kind === "next" || o.kind === "stopped" || o.kind === "waiting" ? o.kind : "stop");
 
 // Sends a label_change for every state the steps set and a jev_answer for every Jev answer, so no step has to.
 // The event names the state without the tracker's factory_ label prefix; the dashboard picks the run's buttons by the last one.
@@ -279,10 +284,10 @@ function watch(ctx: StepContext): void {
 }
 
 // The CI job body: skip if an earlier job stopped the run, run the step, save the record.
-// A "stop" is a normal end. Only unexpected errors fail the job, and they block the ticket first.
+// An outcome other than next is a normal end. Only unexpected errors fail the job, and they block the ticket first.
 export async function runStep(
   name: string,
-  run: (ctx: StepContext) => Promise<StepResult>,
+  run: (ctx: StepContext) => Promise<StepOutcome>,
   opts: { env?: NodeJS.ProcessEnv; make?: (env: NodeJS.ProcessEnv) => StepContext; dir?: string } = {},
 ): Promise<void> {
   const dir = opts.dir ?? RUN_DIR;
@@ -299,12 +304,12 @@ export async function runStep(
   ctx.job = ctx.step = name;
   ctx.stepEvent = undefined;
   takeSnapshot(ctx);
-  // Do not leave the ticket stuck in a running state. block() needs a ticket; without one it throws and we go on.
+  // Do not leave the ticket stuck in a running state. A block needs a ticket; without one it throws and we go on.
   const fail = async (e: unknown) => {
     emit(ctx, "error", { message: errText(e, 500) });
-    await block(ctx, `The \`${name}\` step failed:\n\n\`\`\`\n${errText(e, 500)}\n\`\`\``, { continuable: false }).catch(() => {});
+    await applyOutcome(ctx, block(`The \`${name}\` step failed:\n\n\`\`\`\n${errText(e, 500)}\n\`\`\``, { continuable: false })).catch(() => {});
   };
-  let result: StepResult;
+  let result: StepOutcome;
   try {
     try {
       ctx.record = await loadRunRecord(ctx, dir).catch((e) => {
@@ -328,14 +333,14 @@ export async function runStep(
       console.log(`Skipping ${name}: it finished before the run was resumed.`);
       return;
     }
-    result = await withStep(ctx, name, () => run(ctx), { outcome: (r) => endOutcome(ctx, r), endData: log, onError: fail, deferStart: name === "event" });
+    result = await withStep(ctx, name, async () => applyOutcome(ctx, await run(ctx)), { outcome: endKind, endData: log, onError: fail, deferStart: name === "event" });
   } finally {
     output?.(); // stops the copy when the step ended before step_end, as in a skip
     saveRecord(ctx.record, dir); // also creates the dir
     await ctx.dashboard.flush();
     ctx.snapshot = undefined; // the next step reads the dashboard again
   }
-  if (result === "stop") writeFileSync(stopFile, name);
+  if (result.kind !== "next") writeFileSync(stopFile, name);
 }
 
 // Runs main() only when the file is the script node started, not when a test imports it.

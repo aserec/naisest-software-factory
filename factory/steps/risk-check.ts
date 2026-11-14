@@ -4,7 +4,7 @@ import { need } from "../record";
 import { checkHardRules, parseNumstat, testOnly, type ChangedFile, type RuleResult } from "../rules";
 import type { Target } from "../types";
 import { stopReason, stopped } from "./run";
-import { facts, inbox, isMain, runStep, save, thresholds as readThresholds, ticketRef, waitFor, type StepContext, type StepResult } from "./context";
+import { NEXT, facts, inbox, isMain, runStep, save, thresholds as readThresholds, ticketRef, waitFor, type StepContext, type StepOutcome } from "./context";
 
 // Fails closed: if the changed files cannot be read, the three rules that need them fail.
 function hardRules(files: ChangedFile[] | Error, diffText: string, target: Target, pipelineGreen: boolean, pipelineDetail?: string): RuleResult[] {
@@ -21,7 +21,7 @@ function changedFiles(numstat: string): ChangedFile[] | Error {
   }
 }
 
-export async function run(ctx: StepContext): Promise<StepResult> {
+export async function run(ctx: StepContext): Promise<StepOutcome> {
   // headSha is the commit that was reviewed and checked. apply merges only that commit.
   const f = facts(ctx);
   const change = need(f.change, "change");
@@ -29,7 +29,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   // The wait can take an hour, and no agent runs to hear a stop: ask the inbox on each try. A failed read does not stop.
   const box = inbox(ctx);
   const checks = await waitFor(ctx, async () => ((await box.poll().catch(() => undefined))?.stop ? ("stopped" as const) : ctx.codeHost.checks({ change, sha: headSha })));
-  if (checks === "stopped") return stopped(ctx, "risk-check", { session: f.session, reason: stopReason(ctx) });
+  if (checks === "stopped") return stopped("risk-check", { session: f.session, reason: stopReason(ctx) });
   const diff = await ctx.repo.diff();
   const files = changedFiles(diff.numstat);
   // A repo with no CI: the precommit gate, which ran the target's lint, test and build on this head, stands in for the pipeline.
@@ -45,11 +45,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   } catch (e) {
     // No guessing: the decision step sends this change to a person.
     save(ctx, "risk-check", { headSha, checks, rules, riskError: String(e), thresholds, thresholdErrors, testOnly: tests });
-    return "next";
+    return NEXT;
   }
   save(ctx, "risk-check", { headSha, checks, rules, risk, thresholds, thresholdErrors, testOnly: tests });
   if (thresholdErrors.length === 0 && riskReasons(risk, thresholds).length === 0) await ctx.tracker.mark(ticketRef(ctx), "risk_checked");
-  return "next";
+  return NEXT;
 }
 
 export const main = () => runStep("risk-check", run);

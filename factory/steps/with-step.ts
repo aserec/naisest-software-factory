@@ -4,10 +4,10 @@ import { emit } from "../emit";
 import type { EventData } from "../run-events";
 import type { StepContext } from "./context";
 
-export type StepOutcome = EventData<"step_end">["outcome"];
+export type EndKind = EventData<"step_end">["outcome"];
 
 export interface StepOptions<R> {
-  outcome(result: R): StepOutcome; // what the end says when fn returns
+  outcome(result: R): EndKind; // what the end says when fn returns
   data?: EventData<"step_start">; // the start's data
   endData?: () => Omit<EventData<"step_end">, "outcome">; // more data for the end, read when it is sent
   // The event step sends its start from startStep, once it knows the run goes on, so a declined start or resume sends nothing.
@@ -21,7 +21,7 @@ export async function withStep<R>(ctx: StepContext, name: string, fn: () => Prom
   const outer = { step: ctx.step, stepEvent: ctx.stepEvent };
   ctx.step = name;
   ctx.stepEvent = o.deferStart ? undefined : emit(ctx, "step_start", o.data ?? {});
-  let outcome: StepOutcome = "error";
+  let outcome: EndKind = "error";
   try {
     const r = await fn();
     outcome = o.outcome(r);

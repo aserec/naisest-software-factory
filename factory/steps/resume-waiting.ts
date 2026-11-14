@@ -4,7 +4,7 @@ import { makeContext } from "../compose";
 import { conversation } from "../conversation";
 import type { TicketRef } from "../seams";
 import { isMain, switchOn, type StepContext } from "./context";
-import { activeRuns, block, maxRuns } from "./run";
+import { activeRuns, applyOutcome, block, maxRuns } from "./run";
 
 export async function resumeWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if (!(await switchOn(ctx, "retry"))) return [];
@@ -14,7 +14,7 @@ export async function resumeWaiting(ctx: StepContext): Promise<TicketRef[]> {
   for (const { ref } of await ctx.tracker.list("waiting")) {
     const run = (await conversation(ctx).newest(ref, "waiting"))?.run;
     if (!run) {
-      await block({ ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } }, "The factory could not resume this run: it found no waiting-run comment from the factory. Add factory_ready to start again.");
+      await applyOutcome({ ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } }, block("The factory could not resume this run: it found no waiting-run comment from the factory. Add factory_ready to start again."));
       continue;
     }
     await ctx.ci.start({ kind: "build", ticket: ref, buildRun: run });

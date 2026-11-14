@@ -11,9 +11,9 @@ import { addStep, loadRecord, newRecord, type RunRecord, type StepData, type Ste
 import type { Checks, FactoryEvent, FactoryState, Harness, HarnessResult, JevAnswer, PersonRef, Repo, RunKind } from "../seams";
 import { HARNESS_NAMES, type HarnessName } from "../harnesses";
 import type { Risk } from "../types";
-import { runStep, type StepContext } from "./context";
+import { runStep, type StepContext, type StepOutcome } from "./context";
 import { noteText, newestNote, type Read, type ReadKind } from "../conversation";
-import { BUILD_STEPS, FINISH_STEPS } from "./run";
+import { applyOutcome, BUILD_STEPS, FINISH_STEPS } from "./run";
 import * as event from "./event";
 import * as triage from "./triage";
 import * as preparePatch from "./prepare-patch";
@@ -241,14 +241,16 @@ export function fakeWorld(o: WorldOptions = {}) {
 
 type World = ReturnType<typeof fakeWorld>;
 // Each step's module, in the order of STEPS.
-const MODULES: Record<string, { run(ctx: StepContext): Promise<"next" | "stop"> }> = {
+const MODULES: Record<string, { run(ctx: StepContext): Promise<StepOutcome> }> = {
   event, triage, "prepare-patch": preparePatch, "code-review": codeReview, "precommit-gate": precommitGate, "risk-check": riskCheck, decision, apply, verify, "result-saved": resultSaved,
 };
-const BUILD = BUILD_STEPS.map((n) => MODULES[n]);
-const FINISH = FINISH_STEPS.map((n) => MODULES[n]);
 
-async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next" | "stop"> }[]) {
-  for (const s of steps) if ((await s.run(w.ctx)) === "stop") break;
+// Like runStep without its files: the job names the step, and the step's outcome is applied before the next one.
+async function runSteps(w: World, names: readonly string[]) {
+  for (const name of names) {
+    w.ctx.job = name;
+    if ((await applyOutcome(w.ctx, await MODULES[name].run(w.ctx))).kind !== "next") break;
+  }
   return w;
 }
 // A build pipeline whose decision job ended well (no job failed; a stopped or waiting run counts, its jobs skip) leaves
@@ -256,13 +258,13 @@ async function runSteps(w: World, steps: { run(ctx: StepContext): Promise<"next"
 // and a finish pipeline never does: the real CIs refuse both (gitlab: no successful decision job; local-ci: no `ok` file).
 const keep = (w: World, record: RunRecord) => void (w.ci.vars.run && w.ci.save(w.ci.vars.run, record));
 export async function runBuildPipeline(w: World) {
-  await runSteps(w, BUILD);
+  await runSteps(w, BUILD_STEPS);
   keep(w, w.ctx.record);
   return w;
 }
 // The build pipeline as CI runs it: one runStep per job, with the record passed through dir.
 export async function runBuildJobs(w: World, dir = mkdtempSync(join(tmpdir(), "jobs-"))) {
-  for (const [i, s] of BUILD.entries()) await runStep(BUILD_STEPS[i], s.run, { dir, make: () => w.ctx });
+  for (const name of BUILD_STEPS) await runStep(name, MODULES[name].run, { dir, make: () => w.ctx });
   keep(w, loadRecord(dir));
   return w;
 }
@@ -325,7 +327,7 @@ export function runFinishPipeline(w: World, o: { decision?: "auto" | "needs_appr
   add("risk-check", { headSha: "head5", checks: "green", rules: [] });
   add("decision", o.decision === "needs_approval" ? { kind: "needs_approval", reasons: [] } : { kind: "auto" });
   w.ctx.record = r;
-  return runSteps(w, FINISH);
+  return runSteps(w, FINISH_STEPS);
 }
 
 // What a comment the factory wrote says, read back through the conversation module.

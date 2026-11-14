@@ -9,14 +9,14 @@ vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();
   return { ...real, loadTarget: (name: string) => real.loadTarget(name, { defaultApprover: "approver" }) };
 });
-import { CONTINUE, agentCommands, inbox, prompt, rootLine, runStep, save, ticketText } from "./context";
+import { CONTINUE, NEXT, agentCommands, inbox, prompt, rootLine, runStep, save, ticketText } from "./context";
 import type { HarnessJob, HarnessResult } from "../seams";
 import { previewLine } from "./prepare-patch";
 import * as preparePatchStep from "./prepare-patch";
 import { conversation, md, noteText } from "../conversation";
 import { pollRequests } from "./requests";
 import { parseFactoryFile } from "../config";
-import { endIfClosed } from "./run";
+import { closedOutcome } from "./run";
 import { handleRequests, resumeRelayed, resumeSwitchedOff } from "./poller";
 import { makeContext } from "../compose";
 import { reviewerPrompt, type Finding } from "../agents";
@@ -405,7 +405,7 @@ test("runStep skips when an earlier job stopped the run", async () => {
   const dir = tmp();
   writeFileSync(join(dir, "stop"), "event");
   let ran = false;
-  await runStep("triage", async () => ((ran = true), "next"), { dir, make: () => fakeWorld().ctx });
+  await runStep("triage", async () => ((ran = true), NEXT), { dir, make: () => fakeWorld().ctx });
   expect(ran).toBe(false);
 });
 test("runStep saves the record and writes the stop file on a stop", async () => {
@@ -420,11 +420,11 @@ test("runStep sends the step's output with step_end when no CI job holds a log",
   const w = fakeWorld();
   w.ci.vars = { ...w.ci.vars, ticket: "8", job: undefined };
   saveRecord({ ...newRecord(), runId: "r1" }, dir);
-  await runStep("triage", async () => (process.stdout.write("installed 12 packages\n"), "next"), { dir, make: () => w.ctx });
+  await runStep("triage", async () => (process.stdout.write("installed 12 packages\n"), NEXT), { dir, make: () => w.ctx });
   const end = readFileSync(join(dirname(w.ctx.dir), "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "step_end");
   expect(end.data.log).toContain("installed 12 packages");
   w.ci.vars.job = "7";
-  await runStep("triage", async () => (process.stdout.write("in the CI log\n"), "next"), { dir, make: () => w.ctx });
+  await runStep("triage", async () => (process.stdout.write("in the CI log\n"), NEXT), { dir, make: () => w.ctx });
   expect(readFileSync(join(dirname(w.ctx.dir), "events.jsonl"), "utf8")).not.toContain("in the CI log");
 });
 test("runStep blocks the work item on an unexpected error and still fails the job", async () => {
@@ -443,7 +443,7 @@ test("finish waits for the build record, then blocks with the env work item if i
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", change: "5", buildRun: "41" };
   w.ci.buildRecord = async () => { tries++; throw new Error("GitLab GET failed with status 404"); };
   let ran = false;
-  await expect(runStep("apply", async () => ((ran = true), "next"), { dir, make: () => w.ctx })).rejects.toThrow(/build pipeline 41/);
+  await expect(runStep("apply", async () => ((ran = true), NEXT), { dir, make: () => w.ctx })).rejects.toThrow(/build pipeline 41/);
   expect(tries).toBeGreaterThan(1);
   expect(ran).toBe(false);
   expect(w.states).toEqual(["blocked"]);
@@ -458,7 +458,7 @@ test("finish loads the build record once it is uploaded", async () => {
     return { ...w.ctx.record, workItem: "from-build" };
   };
   let seen = "";
-  await runStep("apply", async (ctx) => ((seen = ctx.record.workItem), "next"), { dir, make: () => w.ctx });
+  await runStep("apply", async (ctx) => ((seen = ctx.record.workItem), NEXT), { dir, make: () => w.ctx });
   expect(seen).toBe("from-build");
 });
 
@@ -516,7 +516,7 @@ test("a build record that fails the provenance check is not retried", async () =
   w.ci.vars = { ...w.ci.vars, payload: undefined, ticket: "8", change: "5", buildRun: "41" };
   let tries = 0;
   w.ci.buildRecord = async () => { tries++; throw new NotFactoryRunError("Pipeline 41 is not a factory build pipeline"); };
-  await expect(runStep("apply", async () => "next", { dir: tmp(), make: () => w.ctx })).rejects.toThrow(/not a factory build pipeline/);
+  await expect(runStep("apply", async () => NEXT, { dir: tmp(), make: () => w.ctx })).rejects.toThrow(/not a factory build pipeline/);
   expect(tries).toBe(1);
   expect(w.states).toEqual(["blocked"]);
 });
@@ -541,7 +541,7 @@ test("finish waits while the decision job is still running, then loads the recor
   const real = makeGitLabCi({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(secrets, "gl") }, secrets, fetchFn);
   w.ci.buildRecord = real.buildRecord;
   let seen = "";
-  await runStep("apply", async (ctx) => ((seen = ctx.record.workItem), "next"), { dir: tmp(), make: () => w.ctx });
+  await runStep("apply", async (ctx) => ((seen = ctx.record.workItem), NEXT), { dir: tmp(), make: () => w.ctx });
   expect(jobPolls).toBe(3);
   expect(seen).toBe("from-build");
 });
@@ -2132,10 +2132,10 @@ test("a work item closed and opened again before the gate's push goes on", async
 test("the factory's own close never ends a run: result-saved ends done, and a merged change never counts", async () => {
   const w = await runFinishPipeline(fakeWorld());
   expect(w.states).toEqual(["done"]);
-  expect(await endIfClosed(w.ctx)).toBeUndefined();
+  expect(await closedOutcome(w.ctx)).toBeUndefined();
   // Between the merge and result-saved the ticket is closed and running, and its change is merged.
   w.tracker.tickets.get("8")!.state = "running";
-  expect(await endIfClosed(w.ctx)).toBeUndefined();
+  expect(await closedOutcome(w.ctx)).toBeUndefined();
   expect(w.tracker.cleared).toEqual([]);
 });
 // Regression: an older run's change stays the newest one on the branch until this run pushes.

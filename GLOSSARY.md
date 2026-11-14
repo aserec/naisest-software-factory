@@ -31,6 +31,10 @@ _Avoid_: Job, execution, workflow
 One of the ten fixed stages of a run, such as triage, prepare patch or verify.
 _Avoid_: Phase, stage, workflow step
 
+**Step outcome**:
+How a step ended for its run: go on to the next step, blocked, waiting at the author's usage limit, stopped, closed, or ended as the step meant to, such as when it asks a person for information or approval or starts no run.
+_Avoid_: Step result, status
+
 **State label**:
 The single `factory_*` label that says where a work item is right now.
 _Avoid_: Status

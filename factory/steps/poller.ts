@@ -7,7 +7,7 @@ import { SWITCHES, type ControlRequest } from "../run-events";
 import type { FactoryState, SwitchName, Ticket, TicketRef } from "../seams";
 import { controls, type StepContext } from "./context";
 import { buildRunOf } from "./change-text";
-import { ACTIVE_STATES, closedNow, endClosed, endRun, mayStart, readyActor, RESTART_MS, startStopped } from "./run";
+import { ACTIVE_STATES, applyOutcome, closedNow, endRun, mayStart, readyActor, RESTART_MS, startStopped } from "./run";
 
 // The runs with no step running. A running run's own steps check for itself.
 const PAUSED: FactoryState[] = ACTIVE_STATES.filter((s) => s !== "running");
@@ -19,7 +19,7 @@ const pushed = async (ctx: StepContext, t: Ticket) => {
 };
 
 // The poller: a paused run whose work item or change a person closed would keep its run slot for good. Same outcomes
-// as endIfClosed. Returns the tickets it ended. One failed ticket is logged and tried again next minute.
+// as closedOutcome. Returns the tickets it ended. One failed ticket is logged and tried again next minute.
 export async function endClosedRuns(ctx: StepContext): Promise<TicketRef[]> {
   const closed = (await ctx.tracker.listClosed(100)).filter((t) => t.state && PAUSED.includes(t.state));
   const open = (await Promise.all(PAUSED.map((s) => ctx.tracker.list(s)))).flat();
@@ -29,7 +29,7 @@ export async function endClosedRuns(ctx: StepContext): Promise<TicketRef[]> {
       const one = { ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } };
       const found = await closedNow(one, ref, PAUSED, (t) => pushed(ctx, t));
       if (!found) continue;
-      await endClosed(one, ref, found);
+      await applyOutcome(one, { kind: "closed", ref, closed: found });
       ended.push(ref);
     } catch (e) {
       console.log(`Ending closed ticket ${ref} failed: ${errText(e)}`);

@@ -6,8 +6,8 @@ import { decideMerge, type MergeDecision } from "../decision";
 import type { PersonRef, Ticket } from "../seams";
 import { CODEOWNERS_PATHS, parseCodeowners, topOwners } from "../codeowners";
 import { changeText } from "./precommit-gate";
-import { facts, inbox, isMain, modelRow, notify, runStep, save, switchOn, ticketRef, type StepContext, type StepResult } from "./context";
-import { block, endIfClosed, stopReason, stopped } from "./run";
+import { NEXT, ENDED, facts, inbox, isMain, modelRow, notify, runStep, save, switchOn, ticketRef, type StepContext, type StepOutcome } from "./context";
+import { block, closedOutcome, stopReason, stopped } from "./run";
 
 export const ASKED = "a person asked for changes";
 const FAKE_ERRORS = "this ticket comes from fake errors (logSource files), so a person must merge it";
@@ -46,7 +46,7 @@ function decideByChecks(ctx: StepContext): MergeDecision {
   return d.kind === "needs_approval" ? { ...d, reasons: [...d.reasons, ...proof] } : d;
 }
 
-export async function run(ctx: StepContext): Promise<StepResult> {
+export async function run(ctx: StepContext): Promise<StepOutcome> {
   const ref = ticketRef(ctx);
   const f = facts(ctx);
   const change = need(f.change, "change");
@@ -56,7 +56,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     await ctx.codeHost.openChange(need(f.branch, "change branch"), title, body, ref);
   }
   // After that re-open, or a continued run whose change was closed would block again at once.
-  const end = await endIfClosed(ctx);
+  const end = await closedOutcome(ctx);
   if (end) return end;
   const ticket = await ctx.tracker.ticket(ref);
   const mergeAll = await switchOn(ctx, "merge_all");
@@ -66,16 +66,16 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (d.kind === "auto" && ctx.ci.vars.noFinish) d = { kind: "needs_approval", reasons: ["the local factory cannot run the finish run that merges"] };
   // A stop posted after the last author run (during review, the gate or the risk check) must not merge.
   // With no author session the resume blocks, which is still better than a merge.
-  if (d.kind === "auto" && (await inbox(ctx).poll()).stop) return stopped(ctx, "decision", { session: facts(ctx).session, reason: stopReason(ctx) });
+  if (d.kind === "auto" && (await inbox(ctx).poll()).stop) return stopped("decision", { session: facts(ctx).session, reason: stopReason(ctx) });
   // The finish run loads this run's record from this run.
-  if (d.kind === "auto" && !ctx.ci.vars.run) return block(ctx, "This run has no run id, so the finish run could not find this run's record.");
+  if (d.kind === "auto" && !ctx.ci.vars.run) return block("This run has no run id, so the finish run could not find this run's record.");
   save(ctx, "decision", d);
   emit(ctx, "decision", { auto: d.kind === "auto", reasons: d.kind === "auto" ? [] : d.reasons, risk: f.riskCheck?.risk?.diffRisk.value, riskMax: f.riskCheck?.thresholds?.diffRiskMax, changeUrl: f.changeUrl });
   if (d.kind === "auto") {
     const rules = need(facts(ctx).riskCheck, "risk check").rules.map((r) => `- **${r.rule}:** ${r.detail}`).join("\n");
     await ctx.codeHost.commentChange(change, md("🚀", "Merging without a person", mergeAll ? "The Merge all switch is on, so the factory merges this change whatever its risk." : "Triage risk was trivial or low. Code review, precommit-gate, every hard rule and Jev 2 passed.", rules));
     await ctx.ci.start({ kind: "finish", ticket: ref, change, buildRun: ctx.ci.vars.run });
-    return "next";
+    return NEXT;
   }
   return askPerson(ctx, d.reasons);
 }
@@ -130,7 +130,7 @@ const LEGEND = "🔴 a check failed · 🟡 a check is unsure · 🔵 a person, 
 export const needsPersonText = (reasons: string[]) =>
   md("👀", "Needs a person", "This change needs a person to review and merge it. **Who stopped the merge, and why:**", reasons.map(reasonLine).join("\n"), `<sub>${LEGEND}</sub>`);
 
-export async function askPerson(ctx: StepContext, reasons: string[]): Promise<StepResult> {
+export async function askPerson(ctx: StepContext, reasons: string[]): Promise<StepOutcome> {
   const ref = ticketRef(ctx);
   const { change, changeUrl } = facts(ctx);
   if (!change) throw new Error("The run record has no change");
@@ -155,7 +155,7 @@ export async function askPerson(ctx: StepContext, reasons: string[]): Promise<St
   }
   await ctx.codeHost.assignChange(change, await reviewer(ctx, ticket));
   await notify(ctx, "needs_approval", reasons, changeUrl ?? "");
-  return "stop";
+  return ENDED;
 }
 
 export const main = () => runStep("decision", run);

@@ -3,14 +3,14 @@ import { emit } from "../emit";
 import { localPath, localSection } from "../local-instructions";
 import { codeReviewLoop } from "../loops";
 import { proofPrompt, readFrames, readImages, readProof, screenVerdicts, type ProofRecord } from "../proof";
-import { agent, fix, install, isMain, modelRow, runStep, save, facts, thresholds, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { NEXT, agent, fix, install, isMain, modelRow, runStep, save, facts, thresholds, ticketRef, ticketText, type StepContext, type StepOutcome } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 class ReviewerFailed extends Error {}
 
 // One code review loop from the record's next round. The gate job runs it again after a gate fix.
 // fixed: the author changed the code during this loop.
-export async function review(ctx: StepContext, job: "code-review" | "precommit-gate"): Promise<StepResult | { fixed: boolean }> {
+export async function review(ctx: StepContext, job: "code-review" | "precommit-gate"): Promise<StepOutcome | { fixed: boolean }> {
   const row = modelRow(ctx);
   const { harness, provider, model } = row.reviewer;
   // Both must agree, or the reviewer would judge screens it cannot see.
@@ -50,13 +50,13 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
       diff: async () => (await ctx.repo.diff()).text + (readProof(ctx.repo.readFile).raw ?? ""),
     }, max, start);
   } catch (e) {
-    if (e instanceof ReviewerFailed) return block(ctx, `The reviewer run failed: ${e.message.slice(0, 2000)}`);
+    if (e instanceof ReviewerFailed) return block(`The reviewer run failed: ${e.message.slice(0, 2000)}`);
     throw e;
   }
   ctx.record = { ...ctx.record, rounds: { ...ctx.record.rounds, review: result.rounds } };
-  if (result.kind === "limit") return waiting(ctx, job, result.sessionId);
-  if (result.kind === "stopped") return stopped(ctx, job, { session: result.sessionId, reason: stopReason(ctx) });
-  if (result.kind === "blocked") return block(ctx, `Code review did not pass after ${result.rounds} rounds.\n\n**Open findings**\n\n${result.open.map((t) => `- ${t}`).join("\n")}`);
+  if (result.kind === "limit") return waiting(job, result.sessionId);
+  if (result.kind === "stopped") return stopped(job, { session: result.sessionId, reason: stopReason(ctx) });
+  if (result.kind === "blocked") return block(`Code review did not pass after ${result.rounds} rounds.\n\n**Open findings**\n\n${result.open.map((t) => `- ${t}`).join("\n")}`);
   const proof: ProofRecord = {
     proof: last?.proof.proof,
     error: last?.proof.error,
@@ -69,11 +69,11 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
   return { fixed: result.rounds > start };
 }
 
-export async function run(ctx: StepContext): Promise<StepResult> {
+export async function run(ctx: StepContext): Promise<StepOutcome> {
   const stop = await install(ctx);
   if (stop) return stop;
   const r = await review(ctx, "code-review");
-  return typeof r === "string" ? r : "next";
+  return "kind" in r ? r : NEXT;
 }
 
 export const main = () => runStep("code-review", run);

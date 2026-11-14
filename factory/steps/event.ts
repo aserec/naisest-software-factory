@@ -1,7 +1,7 @@
 import type { FactoryEvent } from "../seams";
 import { buildRunOf } from "./change-text";
 import { answerRequests, requestRound } from "./requests";
-import { isMain, runStep, save, switchOn, type StepContext, type StepResult } from "./context";
+import { ENDED, isMain, runStep, save, switchOn, type StepContext, type StepOutcome } from "./context";
 // The start rules sit in run.ts: run.ts cannot import this file, whose isMain line runs at load.
 import { activeRuns, continueBlocked, decideStart, maxRuns, mayStart, readyActor, resume, resumeOnCommand, startRun } from "./run";
 
@@ -10,8 +10,8 @@ import { activeRuns, continueBlocked, decideStart, maxRuns, mayStart, readyActor
 
 // A person merged a factory change by hand. Start the finish run with apply skipped.
 // An approval starts nothing. The build run itself stops here.
-async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "merged" }>): Promise<StepResult> {
-  const noStart = (reason: string) => (save(ctx, "event", { start: false, reason, change: e.change }), "stop" as const);
+async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "merged" }>): Promise<StepOutcome> {
+  const noStart = (reason: string) => (save(ctx, "event", { start: false, reason, change: e.change }), ENDED);
   // The factory's own merge in apply sends a merge event too.
   if (await ctx.tracker.isFactory(e.actor)) return noStart("bot");
   if (!(await ctx.tracker.trusted(e.actor))) return noStart("not-member");
@@ -22,12 +22,12 @@ async function changeEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "m
   save(ctx, "event", { start: true, ticket: e.ticket, actor: e.actor, action: e.kind, change: e.change });
   await ctx.tracker.setState(e.ticket, "running");
   await ctx.ci.start({ kind: "finish", ticket: e.ticket, change: e.change, ...(buildRun ? { buildRun } : {}), skipApply: true });
-  return "stop";
+  return ENDED;
 }
 
 // A person's `@factory stop` or `@factory resume`. A stop only matters inside a run, where the agent's inbox or the decision step sees it.
-async function commandEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "command" }>): Promise<StepResult> {
-  const noStart = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: e.ticket, command: e.command }), "stop" as const);
+async function commandEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "command" }>): Promise<StepOutcome> {
+  const noStart = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: e.ticket, command: e.command }), ENDED);
   const state = (await ctx.tracker.ticket(e.ticket)).state;
   if (e.command === "stop") return noStart(state === "running" ? "in-run" : "not-running");
   if (await ctx.tracker.isFactory(e.actor)) return noStart("bot");
@@ -37,8 +37,8 @@ async function commandEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "
 }
 
 // A person's `@factory` request: the poller's answer, given at once. The round itself starts in the build that answerRequests starts.
-async function requestEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "request" }>): Promise<StepResult> {
-  const noStart = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: e.ticket }), "stop" as const);
+async function requestEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "request" }>): Promise<StepOutcome> {
+  const noStart = (reason: string) => (save(ctx, "event", { start: false, reason, ticket: e.ticket }), ENDED);
   if (await ctx.tracker.isFactory(e.actor)) return noStart("bot");
   if (!(await ctx.tracker.trusted(e.actor))) return noStart("not-member");
   // Only the ticket's open change counts.
@@ -46,7 +46,7 @@ async function requestEvent(ctx: StepContext, e: Extract<FactoryEvent, { kind: "
   return noStart(await answerRequests(ctx, await ctx.tracker.ticket(e.ticket)));
 }
 
-export async function run(ctx: StepContext): Promise<StepResult> {
+export async function run(ctx: StepContext): Promise<StepOutcome> {
   const { payload, ticket, buildRun, change } = ctx.ci.vars;
   // With a change: the poller's round build for a request (requestRound stops quietly unless the change still waits). Without: a paused run to continue.
   if (payload === undefined && ticket && buildRun) return change ? requestRound(ctx, ticket, buildRun, change) : resume(ctx, ticket, buildRun);
@@ -58,12 +58,12 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   if (e.kind === "request") return requestEvent(ctx, e);
   if (e.kind !== "ready") {
     save(ctx, "event", { start: false, reason: e.kind === "ignored" ? e.reason : "not-added" });
-    return "stop";
+    return ENDED;
   }
   // The ticket stays ready, so the poller starts it once new_runs is on again.
   if (!(await switchOn(ctx, "new_runs"))) {
     save(ctx, "event", { start: false, reason: "switch-off" });
-    return "stop";
+    return ENDED;
   }
   const t = await ctx.tracker.ticket(e.ticket);
   const ready = await readyActor(ctx, e.ticket, e.actor);
@@ -83,7 +83,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   }
   ctx.record = { ...ctx.record, workItem: `${ctx.target.projectPath}#${e.ticket}` };
   save(ctx, "event", { ticket: e.ticket, actor: e.actor, ...decision });
-  if (!decision.start) return "stop";
+  if (!decision.start) return ENDED;
   // A new run: the marks of the earlier run no longer say anything.
   for (const m of t.marks) if (m !== "watcher") await ctx.tracker.unmark(e.ticket, m);
   return startRun(ctx, e.ticket);

@@ -6,7 +6,7 @@ import { runFacts } from "../record";
 import { localPath, localSection } from "../local-instructions";
 import { writeShooter } from "../proof";
 import type { FactoryCommands } from "../types";
-import { agent, agentCommands, controls, rootLine, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runPort, runStep, save, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { NEXT, agent, agentCommands, controls, rootLine, switchOn, CONTINUE, facts, install, isMain, modelRow, prompt, runPort, runStep, save, ticketRef, ticketText, type StepContext, type StepOutcome } from "./context";
 import { block, stopReason, stopped, waiting } from "./run";
 
 export const previewLine = (c: FactoryCommands) =>
@@ -25,8 +25,8 @@ async function conflictsText(ctx: StepContext, base: string, files: string[]): P
   ].filter(Boolean).join("\n\n");
 }
 
-export async function run(ctx: StepContext): Promise<StepResult> {
-  if (!(await switchOn(ctx, "prepare_patch"))) return stopped(ctx, "prepare-patch", { reason: "switch off prepare_patch" });
+export async function run(ctx: StepContext): Promise<StepOutcome> {
+  if (!(await switchOn(ctx, "prepare_patch"))) return stopped("prepare-patch", { reason: "switch off prepare_patch" });
   const base = await ctx.codeHost.baseBranch();
   await ctx.repo.clone(base);
   // A resumed run continues the session that hit the limit, in the clone restored from that pipeline.
@@ -42,11 +42,11 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   let raw: FactoryCommands | undefined;
   if (resumeSessionId || facts(ctx).roundStart) {
     raw = runFacts(ctx.record).commands;
-    if (!raw) return block(ctx, "The factory could not resume this run: the record has no saved .factory.yml commands.");
+    if (!raw) return block("The factory could not resume this run: the record has no saved .factory.yml commands.");
   } else {
     // The Settings page's commands; a target with none there still reads .factory.yml from the repo.
     const factoryFile = (await controls(ctx)).settings?.factoryFile ?? ctx.repo.readFile(".factory.yml");
-    if (!factoryFile) return block(ctx, "The target has no .factory.yml commands. Set them on the dashboard's Settings page.");
+    if (!factoryFile) return block("The target has no .factory.yml commands. Set them on the dashboard's Settings page.");
     raw = parseFactoryFile(factoryFile);
   }
   const commands = withPort(raw, runPort());
@@ -69,14 +69,14 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   let r = await agent(ctx, "author", author, { ...job, prompt: text, resume: resumeSessionId });
   // The saved session cannot be loaded: do the round in a new session.
   if ((requests || conflicts) && resumeSessionId && !r.ok && !r.stopped && !r.limitHit) r = await agent(ctx, "author", author, { ...job, prompt: await fresh() });
-  if (r.stopped) return stopped(ctx, "prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands: raw } });
-  if (r.limitHit) return waiting(ctx, "prepare-patch", r.session, { commands: raw });
-  if (!r.ok) return block(ctx, `The author run failed: ${r.text.slice(0, 2000)}`);
+  if (r.stopped) return stopped("prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands: raw } });
+  if (r.limitHit) return waiting("prepare-patch", r.session, { commands: raw });
+  if (!r.ok) return block(`The author run failed: ${r.text.slice(0, 2000)}`);
   // The round's comment shows the author's whole answer; the post cuts it. A round finished after a pause (CONTINUE) keeps its answer too.
   if (facts(ctx).openRound) ctx.record = { ...ctx.record, requestRounds: ctx.record.requestRounds?.map((x, i, all) => (i === all.length - 1 ? { ...x, answer: r.text } : x)) };
   save(ctx, "prepare-patch", { sessionId: r.session, commands: raw });
   await ctx.tracker.mark(ticketRef(ctx), "implemented");
-  return "next";
+  return NEXT;
 }
 
 export const main = () => runStep("prepare-patch", run);

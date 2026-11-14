@@ -9,10 +9,10 @@ import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type Triage
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
 import { conversation, md } from "../conversation";
-import { agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, thresholds, ticketRef, ticketText, type StepContext, type StepResult } from "./context";
+import { ENDED, NEXT, agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, thresholds, ticketRef, ticketText, type StepContext, type StepOutcome } from "./context";
 import { block, endRun, stopReason, stopped, waiting } from "./run";
 
-export async function run(ctx: StepContext): Promise<StepResult> {
+export async function run(ctx: StepContext): Promise<StepOutcome> {
   const ref = ticketRef(ctx);
   // A resumed run: triage already ran, and the questions agent hit the limit or was stopped.
   // A switch stop saved no session, so its resume asks for questions afresh.
@@ -24,7 +24,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   try {
     answers = await askTriage(ctx.judge, state);
   } catch (e) {
-    return block(ctx, `Triage failed, so the factory did not guess: ${String(e)}`);
+    return block(`Triage failed, so the factory did not guess: ${String(e)}`);
   }
   // A dashboard the factory cannot reach keeps the default clarity limit here.
   const outcome = decideTriage(answers, (await thresholds(ctx)).values.clarityMin);
@@ -46,7 +46,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
 
   if (outcome.kind === "blocked") {
     emit(ctx, "triage_outcome", { kind: "stop", title: "Stopped: a person must look at this work item", reasons: [outcome.reason] });
-    return block(ctx, outcome.reason);
+    return block(outcome.reason);
   }
   if (outcome.kind === "build") {
     emit(ctx, "triage_outcome", { kind: "go", title: "Go: the factory builds this work item", reasons: [`Risk ${outcome.risk}, clarity ${a.clarity.value}, effort ${a.effort.value}.`] });
@@ -55,7 +55,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
     for (const m of ticket.marks) if (m !== risk && ["risk_trivial", "risk_low", "risk_medium", "risk_high"].includes(m)) await ctx.tracker.unmark(ref, m);
     await ctx.tracker.mark(ref, "triaged");
     await ctx.tracker.mark(ref, risk);
-    return "next";
+    return NEXT;
   }
 
   emit(ctx, "triage_outcome", { kind: "ask", title: "Asks first: the work item is not clear enough to build", reasons: [`Clarity ${a.clarity.value} is under the limit, so an agent asks the open questions on the work item.`] });
@@ -71,7 +71,7 @@ async function requestText(ctx: StepContext, ticket: Ticket): Promise<string> {
 
 // A work item a person wrote may repeat an open one. A sure duplicate is closed, a near one gets a question.
 // Undefined means go on. The factory's own earlier duplicate comment means the person already decided.
-async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepResult | undefined> {
+async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepOutcome | undefined> {
   const ref = ticketRef(ctx);
   if (ticket.marks.includes("watcher")) return undefined;
   const conv = conversation(ctx);
@@ -84,7 +84,7 @@ async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepRes
   } catch (e) {
     const reason = `The duplicate check failed, so the factory did not guess: ${String(e)}`;
     emit(ctx, "triage_outcome", { kind: "stop", title: "Stopped: a person must look at this work item", reasons: [reason] });
-    return block(ctx, reason);
+    return block(reason);
   }
   if (!answers) return undefined;
   const verdict = decideDuplicate(answers);
@@ -99,7 +99,7 @@ async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepRes
     await ctx.tracker.clearState(ref);
     await ctx.tracker.close(ref);
     endRun(ctx, "closed");
-    return "stop";
+    return ENDED;
   }
   emit(ctx, "triage_outcome", { kind: "ask", title: `Asks first: it may repeat #${o.ref}`, reasons: [why, "The factory closes a work item only when the answer is a sure same and the original is older, so it asked a person."], url: o.url });
   const text = await duplicateQuestion(ctx, o, answers.injectionYes);
@@ -107,7 +107,7 @@ async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepRes
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked whether the work item repeats another one."], "");
-  return "stop";
+  return ENDED;
 }
 
 // The writer agent words the question, unless the candidates look like an injection or it forgets to name the original.
@@ -124,20 +124,20 @@ async function duplicateQuestion(ctx: StepContext, o: Ticket, injectionYes: numb
 }
 
 // needs_info: an agent drafts questions from the ticket and the code. This step posts them.
-async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: string): Promise<StepResult> {
-  if (!(await switchOn(ctx, "questions"))) return stopped(ctx, "questions", { reason: "switch off questions" });
+async function questions(ctx: StepContext, row: RouterRow, resumeSessionId?: string): Promise<StepOutcome> {
+  if (!(await switchOn(ctx, "questions"))) return stopped("questions", { reason: "switch off questions" });
   const ref = ticketRef(ctx);
   await ctx.repo.clone(await ctx.codeHost.baseBranch());
   const text = resumeSessionId ? CONTINUE : `${prompt("questions")}${localSection(await ctx.codeHost.readFile(localPath("writer")))}\n\n${await ticketText(ctx)}`;
   const r = await agent(ctx, "author", row.author, { tools: "code", prompt: text, maxTurns: 15, cwd: ctx.dir, resume: resumeSessionId });
-  if (r.stopped) return stopped(ctx, "questions", { session: r.session, reason: stopReason(ctx) });
-  if (r.limitHit) return waiting(ctx, "questions", r.session);
-  if (!r.ok) return block(ctx, `The agent could not write questions: ${r.text.slice(0, 500)}`);
+  if (r.stopped) return stopped("questions", { session: r.session, reason: stopReason(ctx) });
+  if (r.limitHit) return waiting("questions", r.session);
+  if (!r.ok) return block(`The agent could not write questions: ${r.text.slice(0, 500)}`);
   await ctx.tracker.comment(ref, md("❓", "Questions before the build", "This ticket is not clear enough to build yet.", `- 🟡 **Triage:** Decided the ticket needs more information.\n- 🤖 **Author agent, ${row.author.model}:** Read the code and wrote the questions below.\n- 🔵 **You:** Answer in a comment that mentions \`@factory\`, or edit the ticket and add \`factory_ready\` again.`, r.text));
   await ctx.tracker.setState(ref, "needs_info");
   endRun(ctx, "needs_info");
   await notify(ctx, "needs_info", ["The factory asked questions on the ticket."], "");
-  return "stop";
+  return ENDED;
 }
 
 export const main = () => runStep("triage", run);

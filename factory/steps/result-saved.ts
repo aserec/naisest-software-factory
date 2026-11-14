@@ -1,9 +1,9 @@
 import { md } from "../conversation";
 import { formatResult } from "../record";
-import { facts, isMain, notify, runStep, save, ticketRef, type StepContext, type StepResult } from "./context";
+import { NEXT, facts, isMain, notify, runStep, save, ticketRef, type StepContext, type StepOutcome } from "./context";
 import { endRun } from "./run";
 
-export async function run(ctx: StepContext): Promise<StepResult> {
+export async function run(ctx: StepContext): Promise<StepOutcome> {
   const ref = ticketRef(ctx);
   const changeUrl = facts(ctx).changeUrl ?? `change ${ctx.ci.vars.change}`;
   const text = formatResult(ctx.record, changeUrl, ctx.ci.vars.runUrl, new Date());
@@ -17,7 +17,7 @@ export async function run(ctx: StepContext): Promise<StepResult> {
   await ctx.tracker.setState(ref, "done");
   endRun(ctx, "done");
   await notify(ctx, "done", text.split("\n"), changeUrl);
-  return "next";
+  return NEXT;
 }
 
 export const main = () => runStep("result-saved", run);

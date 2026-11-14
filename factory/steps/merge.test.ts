@@ -21,10 +21,8 @@ test("merge refuses when the change head differs from the reviewed head", async 
   const w = fakeWorld({ mrHead: "pushed-after-review", state: "running" });
   w.ctx.ci.vars.ticket = "8";
   w.openChange();
-  expect(await mergeReviewed(w.ctx, "5", "head5", "[AM] m")).toBe("stop");
+  expect(await mergeReviewed(w.ctx, "5", "head5", "[AM] m")).toEqual({ kind: "blocked", reason: expect.stringContaining("Someone pushed to change 5 after the review (head pushed-after-review, expected head5)") });
   expect(w.host.merged).toBe(false);
-  expect(w.states).toEqual(["blocked"]);
-  expect(w.workItemComments.at(-1)).toContain("Someone pushed to change 5 after the review (head pushed-after-review, expected head5)");
 });
 
 test("merge merges the reviewed head on green checks", async () => {

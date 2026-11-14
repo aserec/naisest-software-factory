@@ -3,7 +3,7 @@ import { errText } from "../errors";
 import { conversation, later, md, refusal, stateReply } from "../conversation";
 import { emit } from "../emit";
 import type { Change, ChangeRef, FactoryState, Ticket, TicketRef } from "../seams";
-import { facts, save, type StepContext, type StepResult } from "./context";
+import { ENDED, facts, save, type StepContext, type StepOutcome } from "./context";
 import { buildRunOf } from "./change-text";
 import { ACTIVE_STATES, block, continueAt } from "./run";
 
@@ -87,8 +87,8 @@ export async function pollRequests(ctx: StepContext, skip: TicketRef[] = []): Pr
 // Starting a round means a `@factory` request on a change that waits for a person; the event step runs this for the poller's build.
 // ponytail: the poller starts the same round build every minute until this step sets factory_running or writes a cursor line, and
 // the event job runs one at a time per target: the second build finds no needs_approval and stops quietly. Add a start marker if that is too noisy.
-export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: string, changeRef: ChangeRef): Promise<StepResult> {
-  const noStart = (reason: string, error?: string) => (save(ctx, "event", { start: false, reason, ticket: ref, ...(error ? { error } : {}) }), "stop" as const);
+export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: string, changeRef: ChangeRef): Promise<StepOutcome> {
+  const noStart = (reason: string, error?: string) => (save(ctx, "event", { start: false, reason, ticket: ref, ...(error ? { error } : {}) }), ENDED);
   const t = await ctx.tracker.ticket(ref);
   if (t.state !== "needs_approval") return noStart("not-waiting");
   // A late duplicate: a round already ran and its change names a newer build run.
@@ -99,7 +99,7 @@ export async function requestRound(ctx: StepContext, ref: TicketRef, buildRun: s
   // An empty record: the build run was never saved (local runs before local-run.sh saved them), so there is nothing to continue.
   const saved = ctx.record.workItem !== "";
   const why = saved && facts(ctx).cannotContinue(`${ctx.target.projectPath}#${ref}`, buildRun);
-  if (why) return block(ctx, `The factory could not start a round: ${why}. Add factory_ready to start again.`);
+  if (why) return block(`The factory could not start a round: ${why}. Add factory_ready to start again.`);
   // Requests wait for a change that is open. A noStart stop writes nothing: there is nothing to answer.
   const conv = conversation(ctx);
   // A conflict round's cursor: no request was unread up to here. A request written during the reads below stays new.
