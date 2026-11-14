@@ -197,11 +197,11 @@ export async function runOne(q: QueuedRun, id: string, { exec, base, open, image
     }
     for (const step of stepsOf(q)) {
       if (live.cancelled) break;
-      const ok = await (step === "event" ? lock(q.target, () => runStep(step)) : runStep(step));
+      const ok = await (step === "event" ? lock(q.target, () => runStepContainer(step)) : runStepContainer(step));
       if (step === "decision") decisionOk = ok;
       if (!ok) break;
     }
-    async function runStep(step: string): Promise<boolean> {
+    async function runStepContainer(step: string): Promise<boolean> {
       const env = stepEnv(base, { pipeline, target: q.target, run: q, id });
       const c = `factory-${id}-${step}`;
       const local = mkdtempSync(join(tmpdir(), "sec-"));

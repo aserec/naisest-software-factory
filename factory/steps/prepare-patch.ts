@@ -69,8 +69,8 @@ export async function run(ctx: StepContext): Promise<StepOutcome> {
   let r = await agent(ctx, "author", author, { ...job, prompt: text, resume: resumeSessionId });
   // The saved session cannot be loaded: do the round in a new session.
   if ((requests || conflicts) && resumeSessionId && !r.ok && !r.stopped && !r.limitHit) r = await agent(ctx, "author", author, { ...job, prompt: await fresh() });
-  if (r.stopped) return stopped("prepare-patch", { session: r.session, reason: stopReason(ctx), extra: { commands: raw } });
-  if (r.limitHit) return waiting("prepare-patch", r.session, { commands: raw });
+  if (r.stopped) return stopped("prepare-patch", { session: r.session, reason: stopReason(ctx), commands: raw });
+  if (r.limitHit) return waiting("prepare-patch", r.session, raw);
   if (!r.ok) return block(`The author run failed: ${r.text.slice(0, 2000)}`);
   // The round's comment shows the author's whole answer; the post cuts it. A round finished after a pause (CONTINUE) keeps its answer too.
   if (facts(ctx).openRound) ctx.record = { ...ctx.record, requestRounds: ctx.record.requestRounds?.map((x, i, all) => (i === all.length - 1 ? { ...x, answer: r.text } : x)) };

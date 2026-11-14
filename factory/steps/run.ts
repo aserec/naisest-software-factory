@@ -109,9 +109,9 @@ export function doneBeforeResume(ctx: StepContext, name: string): boolean {
 // Without continuable, a block can continue when its job can (CONTINUABLE).
 export const block = (reason: string, o: { continuable?: boolean } = {}): StepOutcome => ({ kind: "blocked", reason, ...o });
 // The agent hit a usage limit: keep the session so a later run can resume it.
-export const waiting = (step: PausableStep, session: string, extra?: { commands?: FactoryCommands }): StepOutcome => ({ kind: "waiting", step, session, extra });
+export const waiting = (step: PausableStep, session: string, commands?: FactoryCommands): StepOutcome => ({ kind: "waiting", step, session, commands });
 // A person (`@factory stop`) or a dashboard switch stopped the run.
-export const stopped = (step: PausableStep, o: { session?: string; reason: string; change?: ChangeRef; extra?: { commands?: FactoryCommands } }): StepOutcome => ({ kind: "stopped", step, ...o });
+export const stopped = (step: PausableStep, o: { session?: string; reason: string; change?: ChangeRef; commands?: FactoryCommands }): StepOutcome => ({ kind: "stopped", step, ...o });
 
 // GLOSSARY.md: Step outcome. The one place a run halts: runStep applies what each step returns, and the schedules
 // apply what they build. Gives back the outcome it applied: a stop on a closed work item ends the run as closed.
@@ -126,7 +126,7 @@ export async function applyOutcome(ctx: StepContext, o: StepOutcome): Promise<St
     case "waiting": {
       // The hourly retry reads the note.
       const ref = ticketRef(ctx);
-      save(ctx, o.step, { ...o.extra, sessionId: o.session, limit: true });
+      save(ctx, o.step, { ...(o.commands && { commands: o.commands }), sessionId: o.session, limit: true });
       await ctx.tracker.setState(ref, "waiting");
       await conversation(ctx).write(ref, { kind: "waiting", run: ctx.ci.vars.run });
       return o;
@@ -137,7 +137,7 @@ export async function applyOutcome(ctx: StepContext, o: StepOutcome): Promise<St
       const end = await closedOutcome(ctx).catch((e) => void console.log(`Closed check before the stop failed: ${errText(e)}`));
       if (end) return applyOutcome(ctx, end);
       const ref = ticketRef(ctx);
-      save(ctx, o.step, { ...o.extra, sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
+      save(ctx, o.step, { ...(o.commands && { commands: o.commands }), sessionId: o.session, stopped: true, switchOff: o.reason.startsWith("switch off") });
       await ctx.tracker.setState(ref, "stopped");
       await conversation(ctx).write(ref, { kind: "stopped", run: ctx.ci.vars.run ?? "unknown", step: o.step, reason: o.reason, change: o.change, buildRun: ctx.ci.vars.buildRun });
       return o;

@@ -48,8 +48,8 @@ export type StepOutcome =
   | { kind: "next" }
   | { kind: "ended" } // the step ended the run itself: it asked a person, closed a duplicate or started nothing
   | { kind: "blocked"; reason: string; continuable?: boolean }
-  | { kind: "waiting"; step: PausableStep; session: string; extra?: { commands?: FactoryCommands } }
-  | { kind: "stopped"; step: PausableStep; session?: string; reason: string; change?: ChangeRef; extra?: { commands?: FactoryCommands } }
+  | { kind: "waiting"; step: PausableStep; session: string; commands?: FactoryCommands }
+  | { kind: "stopped"; step: PausableStep; session?: string; reason: string; change?: ChangeRef; commands?: FactoryCommands }
   | { kind: "closed"; ref: TicketRef; closed: Closed };
 export const NEXT: StepOutcome = { kind: "next" };
 export const ENDED: StepOutcome = { kind: "ended" };
