@@ -160,6 +160,7 @@ export interface Dashboard {
   flush(): Promise<void>; // at most 5 s
   control(target: string, run?: string): Promise<ControlState>; // throws when the dashboard cannot be reached
   requestDone(id: string, outcome: "done" | "refused" | "cancelled"): Promise<void>;
+  polling(target: string, on: boolean): Promise<void>; // a poll tick starts (true) or ends (false), for the menu's spinner; never throws
   dispatches(target: string): Promise<Dispatch[]>; // pending dispatches from outside systems, oldest first
   dispatchDone(id: string, workItem?: string): Promise<void>; // workItem: the url of the ticket it opened
   plans(): Promise<AgentPlan[]>; // approved plans no worker has claimed yet, oldest first

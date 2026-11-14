@@ -304,6 +304,7 @@ export function fakeDashboard(state: Partial<ControlState> = {}, pending: Dispat
       if (dash.down) throw new Error("dashboard is down");
       return { switches: defaultSwitches(), stop: false, requests: [], ...state };
     },
+    polling: async () => {},
     requestDone: async (id: string, outcome: "done" | "refused" | "cancelled") => {
       if (dash.down) throw new Error("dashboard is down");
       dash.done.push([id, outcome]);

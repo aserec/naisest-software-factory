@@ -100,12 +100,20 @@ test("every call carries the bearer token, and control and requestDone use the f
   await dash.flush();
   await dash.control("react_frontend", "42");
   await dash.requestDone("a/b", "refused");
+  await dash.polling("react_frontend", true);
   expect(seen.map((s) => [s.method ?? "GET", s.url, s.auth])).toEqual([
     ["POST", "https://d.example/api/events", "Bearer tok"],
     ["GET", "https://d.example/api/factory/control?target=react_frontend&run=42", "Bearer tok"],
     ["POST", "https://d.example/api/factory/requests/a%2Fb/done", "Bearer tok"],
+    ["POST", "https://d.example/api/factory/polling", "Bearer tok"],
   ]);
   expect(seen[2].body).toBe('{"outcome":"refused"}');
+  expect(seen[3].body).toBe('{"target":"react_frontend","on":true}');
+});
+
+test("polling never throws, so a dead dashboard does not stop the poll tick", async () => {
+  const dash = makeHttpDashboard("https://d.example", "tok", (async () => { throw new Error("down"); }) as unknown as typeof fetch);
+  await expect(dash.polling("t", true)).resolves.toBeUndefined();
 });
 
 test("control throws when the dashboard cannot be reached or refuses", async () => {

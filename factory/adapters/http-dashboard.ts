@@ -115,6 +115,12 @@ export function makeHttpDashboard(url: string, token: string, fetchFn: typeof fe
       const res = await call(`/api/factory/requests/${encodeURIComponent(id)}/done`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ outcome }) });
       if (!res.ok) throw new Error(`dashboard requestDone: HTTP ${res.status}`);
     },
+    async polling(target, on) {
+      await call("/api/factory/polling", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, on }) }).then(
+        (r) => r.ok || warnOnce(`polling: HTTP ${r.status}`),
+        (e) => warnOnce(`polling: ${e instanceof Error ? e.message : e}`),
+      );
+    },
     async dispatches(target) {
       const res = await call(`/api/factory/dispatches?${new URLSearchParams({ target })}`);
       if (!res.ok) throw new Error(`dashboard dispatches: HTTP ${res.status}`);

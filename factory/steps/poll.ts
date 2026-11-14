@@ -78,6 +78,7 @@ export async function main(ctx?: StepContext) {
 // One poll: the work of the minute, in this order.
 async function tick(ctx: StepContext, idle = false, alive: TicketRef[] = []) {
   takeSnapshot(ctx); // one read of the dashboard for the whole tick
+  await ctx.dashboard.polling(ctx.target.name, true);
   try {
     // Cancelled stops first, so a restart never meets the running state of a cancelled run.
     console.log(`Stopped tickets whose pipeline the dashboard cancelled: ${(await finishCancelledStops(ctx, idle, alive)).join(", ") || "none"}`);
@@ -103,6 +104,7 @@ async function tick(ctx: StepContext, idle = false, alive: TicketRef[] = []) {
     console.log(`Resumed runs a switch stopped: ${switched.join(", ") || "none"}`);
     console.log(`Resumed runs on a confirmed Teams resume: ${(await resumeRelayed(ctx, [...handled, ...switched])).join(", ") || "none"}`);
   } finally {
+    await ctx.dashboard.polling(ctx.target.name, false);
     await ctx.dashboard.flush(); // send() only queues: the restart's run_end must go out before the process ends
   }
 }
