@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, expect, test, vi } from "vitest";
 import { ago, duration } from "@/lib/utils";
 import { Board, ConflictsBadge, newlyWaiting, RiskPills, type BoardItem } from "./board";
-import { json, renderWithQuery } from "./test-utils";
+import { json, renderWithPrefs, renderWithQuery } from "./test-utils";
 
 afterEach(() => {
   cleanup();
@@ -128,7 +128,7 @@ test("a ready card that waits for open work items shows which ones; a free one a
   ]);
 });
 test("the run page's conflicts badge shows only for a change with conflicts", () => {
-  const { rerender } = render(<ConflictsBadge conflicts />);
+  const { rerender } = renderWithPrefs(<ConflictsBadge conflicts />);
   expect(screen.getByText("Conflicts").getAttribute("title")).toMatch(/conflicts with the base branch/);
   rerender(<ConflictsBadge conflicts={false} />);
   expect(screen.queryByText("Conflicts")).toBeNull();
@@ -136,7 +136,7 @@ test("the run page's conflicts badge shows only for a change with conflicts", ()
 
 test("high triage risk and a merge risk above the limit take the warning pill, the rest stay neutral", () => {
   const variants = (p: Parameters<typeof RiskPills>[0]) => {
-    const { container, unmount } = render(<RiskPills {...p} />);
+    const { container, unmount } = renderWithPrefs(<RiskPills {...p} />);
     const v = [...container.querySelectorAll("[data-variant]")].map((b) => b.getAttribute("data-variant"));
     unmount();
     return v;
@@ -146,7 +146,7 @@ test("high triage risk and a merge risk above the limit take the warning pill, t
   expect(variants({})).toEqual([]);
   // The target's own limit, when the run sent it.
   expect(variants({ mergeRisk: 5, mergeRiskMax: 6 })).toEqual(["default"]);
-  render(<RiskPills mergeRisk={5} mergeRiskMax={6} />);
+  renderWithPrefs(<RiskPills mergeRisk={5} mergeRiskMax={6} />);
   expect(screen.getByText("Merge risk 5/10, limit 6")).toBeTruthy();
 });
 

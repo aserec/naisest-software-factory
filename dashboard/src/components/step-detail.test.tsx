@@ -2,7 +2,7 @@ import { cleanup, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { usageByModel } from "./cost-by-model";
 import { StepDetail } from "./step-detail";
-import { ev, renderWithQuery } from "./test-utils";
+import { ev, renderWithPrefs } from "./test-utils";
 
 // The real api(), watched, so a test can see the job log goes through it (a 401 there sends the user to sign-in).
 const api = vi.hoisted(() => vi.fn());
@@ -25,14 +25,14 @@ const events = [
 
 test("an agent step shows the prompt its agent was sent", () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response("")));
-  renderWithQuery(<StepDetail start={ev("step_start", "00", { step: "code-review" })} events={[ev("prompt", "01", { data: { role: "reviewer", prompt: "Review this diff" } })]} />);
+  renderWithPrefs(<StepDetail start={ev("step_start", "00", { step: "code-review" })} events={[ev("prompt", "01", { data: { role: "reviewer", prompt: "Review this diff" } })]} />);
   expect(document.body.textContent).toContain("Review this diff");
 });
 
 test("shows everything about the step and asks GitLab for its job log once", async () => {
   const fetchFn = vi.fn(async () => new Response("log line one"));
   vi.stubGlobal("fetch", fetchFn);
-  renderWithQuery(<StepDetail start={start} events={events} />);
+  renderWithPrefs(<StepDetail start={start} events={events} />);
   expect(await screen.findByText("log line one")).toBeTruthy();
   for (const text of ["Fix the bug", "Missing test", "Blocking", "pnpm test", "exit 1", "no-secrets", "clean", "Which API?", "v2 · high confidence", "$0.50"]) {
     expect(document.body.textContent).toContain(text);
@@ -45,7 +45,7 @@ test("a triage outcome url that is not http(s) shows as text, not as a link", ()
   vi.stubGlobal("fetch", vi.fn());
   const step = ev("step_start", "00", { step: "triage", data: {} });
   const outcome = ev("triage_outcome", "01", { step: "triage", data: { kind: "stop", title: "Stopped", reasons: ["r"], url: "javascript:alert(1)" } });
-  renderWithQuery(<StepDetail start={step} events={[outcome]} />);
+  renderWithPrefs(<StepDetail start={step} events={[outcome]} />);
   expect(screen.queryByRole("link")).toBeNull();
   expect(document.body.textContent).toContain("javascript:alert(1)");
 });
@@ -55,7 +55,7 @@ test("a step without a CI job shows the log its step_end event sent, and asks no
   vi.stubGlobal("fetch", fetchFn);
   const local = ev("step_start", "00", { step: "triage", data: {} });
   const end = ev("step_end", "03", { step: "triage", data: { outcome: "next", log: "installed 12 packages" } });
-  renderWithQuery(<StepDetail start={local} end={end} events={[]} />);
+  renderWithPrefs(<StepDetail start={local} end={end} events={[]} />);
   expect(await screen.findByText("installed 12 packages")).toBeTruthy();
   expect(fetchFn).not.toHaveBeenCalled();
 });
@@ -66,7 +66,7 @@ test("groups findings by round, splits the file from the text, and links the fil
     ev("review_finding", "01", { data: { text: "src/a.ts: Misses a test", blocking: true, round: 1 } }),
     ev("review_finding", "02", { data: { text: "src/b.ts: Checks the empty name", blocking: false, round: 2, title: "Empty name checked", file: "src/b.ts" } }),
   ];
-  renderWithQuery(<StepDetail start={start} events={found} fileLink={{ base: "https://host/change/1/diffs#", hash: "SHA-1" }} />);
+  renderWithPrefs(<StepDetail start={start} events={found} fileLink={{ base: "https://host/change/1/diffs#", hash: "SHA-1" }} />);
   expect(screen.getAllByText(/^Round \d/).map((e) => e.textContent)).toEqual(["Round 1 1 of 1 blocking", "Round 2 0 of 1 blocking"]);
   expect(screen.getByText("Misses a test")).toBeTruthy(); // an older event: the file comes from the text
   expect(screen.getByText("Empty name checked")).toBeTruthy();
@@ -81,7 +81,7 @@ test("a decision shows its reasons as a list, the merge risk and the change, and
   const step = ev("step_start", "00", { step: "decision", data: {} });
   const end = ev("step_end", "03", { step: "decision", data: { outcome: "stop", log: "[chat needs_approval] title" } });
   const decision = ev("decision", "01", { step: "decision", data: { auto: false, reasons: ["hard rule size failed: 1538 lines", "no proof: no proof.json"], risk: 6, riskMax: 4, changeUrl: "https://example.com/pull/441" } });
-  renderWithQuery(<StepDetail start={step} end={end} events={[decision]} />);
+  renderWithPrefs(<StepDetail start={step} end={end} events={[decision]} />);
   const items = [...document.querySelectorAll("li")].map((li) => li.textContent);
   expect(items).toEqual(["Hard rule size failed: 1538 lines", "No proof: no proof.json"]);
   expect(document.body.textContent).toContain("6 of 10, the limit is 4");
@@ -93,7 +93,7 @@ test("a decision shows its reasons as a list, the merge risk and the change, and
 test("a model with no price shows its cost is missing, not just $0.00", () => {
   vi.stubGlobal("fetch", vi.fn());
   const usage = ev("usage", "02", { data: { model: "glm-flash", input: 900, output: 40, costUsd: 0 } });
-  renderWithQuery(<StepDetail start={start} events={[usage]} />);
+  renderWithPrefs(<StepDetail start={start} events={[usage]} />);
   expect(document.body.textContent).toContain("Without glm-flash: seams.yml sets no price for it");
 });
 
@@ -102,7 +102,7 @@ test("a triage stop shows its final decision first, in its own color, with the r
   const step = ev("step_start", "00", { step: "triage", data: {} });
   const outcome = ev("triage_outcome", "01", { step: "triage", data: { kind: "stop", title: "Stopped: a duplicate of #328, so the factory closed it", reasons: ['Jev compared it with #328 "Marcar" and answered "same" with 0.95 confidence.'], url: "https://github.com/o/r/issues/328" } });
   const answer = ev("jev_answer", "01", { step: "triage", data: { question: "Which candidate is closest?", answer: "328", confidence: "0.9" } });
-  renderWithQuery(<StepDetail start={step} events={[outcome, answer]} />);
+  renderWithPrefs(<StepDetail start={step} events={[outcome, answer]} />);
   const box = screen.getByRole("region", { name: "Final decision" });
   expect(box.textContent).toContain("Stop");
   expect(box.textContent).toContain('answered "same" with 0.95 confidence');
@@ -117,7 +117,7 @@ test("each tool call has its tool's icon, a bash call shows its command in mono 
   const call = (name: string, input: unknown, ms = 40, ok = true) => ev("tool_call", "01", { data: { name, input: typeof input === "string" ? input : JSON.stringify(input), result: `${name} result`, ms, ok } });
   const reads = [1, 2, 3].map((n) => call("Read", { file_path: `src/${n}.ts` }, 500, n !== 2));
   const tools = [call("Bash", { command: "pnpm test --run" }, 2500), ...reads, call("Edit", "cut at the limit", NaN)];
-  renderWithQuery(<StepDetail start={start} events={[]} tools={tools} />);
+  renderWithPrefs(<StepDetail start={start} events={[]} tools={tools} />);
   // A row's text without its clock, which depends on the time zone; the clock is checked by its dateTime.
   const text = (el: Element) => [...el.childNodes].filter((n) => n.nodeName !== "TIME").map((n) => n.textContent).join("");
   const bash = screen.getByText("pnpm test --run");
@@ -152,7 +152,7 @@ test("usageByModel sums the usage per role and model and in all, and names the m
 });
 
 test("shows the error a failed step sent", async () => {
-  renderWithQuery(<StepDetail start={ev("step_start", "00", { step: "triage" })} events={[ev("error", "01", { data: { message: "Jev did not answer" } })]} />);
+  renderWithPrefs(<StepDetail start={ev("step_start", "00", { step: "triage" })} events={[ev("error", "01", { data: { message: "Jev did not answer" } })]} />);
   expect(screen.getByRole("heading", { name: "Error" })).toBeTruthy();
   expect(screen.getByText("Jev did not answer")).toBeTruthy();
 });

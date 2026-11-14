@@ -1,13 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { MergeProblems } from "./merge-problems";
+import { renderWithPrefs } from "./test-utils";
 import type { BoardRow } from "@/server/seams";
 
 const card = (o: Partial<BoardRow>) => ({ target: "t", ticket: "7", title: "Fix login", state: "needs_approval", url: "", updatedAt: "", changeUrl: "http://gl/pr/1", ...o }) as BoardRow;
 const env = (id: string, run: string) => ({ id, run, at: "2026-11-06T10:00:00Z", target: "t", ticket: "7" });
 
 test("lists the conflict round, a failed build check and the decision, and links events of other runs", () => {
-  render(
+  renderWithPrefs(
     <MergeProblems
       run="r2"
       item={card({ conflicts: true })}
@@ -28,7 +29,7 @@ test("lists the conflict round, a failed build check and the decision, and links
 });
 
 test("says why the change cannot merge, and shows nothing with no change and no events", () => {
-  const { container, rerender } = render(<MergeProblems run="r1" item={card({ mergeBlock: "a required review or check is missing" })} events={[]} />);
+  const { container, rerender } = renderWithPrefs(<MergeProblems run="r1" item={card({ mergeBlock: "a required review or check is missing" })} events={[]} />);
   expect(screen.getByText("Cannot merge: a required review or check is missing")).toBeTruthy();
   rerender(<MergeProblems run="r1" item={card({ checksFailed: true })} events={[]} />);
   expect(screen.getByText("A check of the change failed")).toBeTruthy();

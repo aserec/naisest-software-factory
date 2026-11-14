@@ -9,6 +9,15 @@ export const wrapper = ({ children }: { children: React.ReactNode }) => (
 );
 export const renderWithQuery = (ui: ReactElement) => render(ui, { wrapper });
 
+// Like renderWithQuery, with English preferences already loaded, so useT() sends no /api/preferences request
+// and a test can count the component's own fetches.
+export function renderWithPrefs(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryDefaults(["preferences"], { staleTime: Infinity });
+  client.setQueryData(["preferences"], { user: { username: "ann", signIn: "Forge" }, prefs: { theme: "system", notify: false, insightsRange: "7d", language: "en" } });
+  return render(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
+
 export const json = (body: unknown) => new Response(JSON.stringify(body));
 
 let seq = 0;

@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { Insights } from "@/server/insights";
 import type { InsightsPayload } from "@/server/insights-load";
 import { InsightsPanel } from "./insights-panel";
-import { json, renderWithQuery } from "./test-utils";
+import { json, renderWithPrefs } from "./test-utils";
 
 afterEach(() => [cleanup(), vi.unstubAllGlobals()]);
 
@@ -17,7 +17,7 @@ test("a new range loads in place: the page asks /api/insights and rewrites the U
   const fetch = vi.fn(async (_url: string) => json({ ...payload("Yesterday", 3), range: "yesterday" }));
   vi.stubGlobal("fetch", fetch);
   const replace = vi.spyOn(window.history, "replaceState");
-  renderWithQuery(<InsightsPanel initial={payload("Last 7 days", 5)} hasZone />);
+  renderWithPrefs(<InsightsPanel initial={payload("Last 7 days", 5)} hasZone />);
   expect(screen.getByText(/^Last 7 days, every target/)).toBeTruthy();
   expect(fetch).not.toHaveBeenCalled(); // the server already rendered this range
   fireEvent.change(screen.getByLabelText("Range"), { target: { value: "yesterday" } });
@@ -29,7 +29,7 @@ test("a new range loads in place: the page asks /api/insights and rewrites the U
 test("a first visit with no time zone in the URL asks again in the viewer's own", async () => {
   const fetch = vi.fn(async (_url: string) => json(payload("Last 7 days", 2)));
   vi.stubGlobal("fetch", fetch);
-  renderWithQuery(<InsightsPanel initial={{ ...payload("Last 7 days", 5), tz: "UTC" }} hasZone={false} />);
+  renderWithPrefs(<InsightsPanel initial={{ ...payload("Last 7 days", 5), tz: "UTC" }} hasZone={false} />);
   await waitFor(() => expect(fetch).toHaveBeenCalled());
   expect(String(fetch.mock.calls[0][0])).toContain(`tz=${encodeURIComponent(tz)}`);
 });
