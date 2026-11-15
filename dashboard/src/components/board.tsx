@@ -100,7 +100,7 @@ function Progress({ item: i }: { item: BoardItem }) {
   if (at < 0) return null;
   const now = i.stuck || i.state === "blocked" ? "bg-destructive" : i.stepStartedAt ? "bg-data" : "bg-foreground";
   return (
-    <div role="img" aria-label={t("Step {n} of {total}, {step}", { n: at + 1, total: STEPS.length, step: words(STEPS[at]) })} className="mt-2 flex gap-0.5">
+    <div role="img" aria-label={t("Step {n} of {total}, {step}", { n: at + 1, total: STEPS.length, step: words(STEPS[at]) })} className="flex shrink-0 gap-0.5">
       {STEPS.map((s, n) => (
         <span key={s} className={cn("h-1 w-3 rounded-full", n < at ? "bg-foreground" : n === at ? now : "bg-raised")} />
       ))}
@@ -116,7 +116,7 @@ function Clock({ item: i, now }: { item: BoardItem; now: number }) {
   if (!Number.isFinite(m)) return null;
   const over = m > i.stepLimit;
   return (
-    <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
       <span className="h-1 w-12 overflow-hidden rounded-full bg-raised">
         <span data-over={over} className={cn("block h-full rounded-full", over ? "bg-destructive" : "bg-data")} style={{ width: `${Math.min(100, (m / i.stepLimit) * 100)}%` }} />
       </span>
@@ -156,56 +156,64 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
   // The whole card is the link, so the focus ring goes on the card.
   // layoutId: a card that changes state slides from its old section to its new one. MotionConfig in providers.tsx honours reduced motion.
   return (
-    <motion.li layout="position" layoutId={workItemKey(i)} transition={{ layout: { duration: 0.4 } }} className="relative flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
-      <div className="min-w-0 flex-1 basis-48">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge className="font-mono" title={t("Issue")}>
-            <Ticket aria-hidden />#{i.ticket}
+    <motion.li layout="position" layoutId={workItemKey(i)} transition={{ layout: { duration: 0.4 } }} className="relative flex flex-col gap-1 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+      {/* Three fixed lines, so every card has the same height: badges and progress, the title, the state. */}
+      <div className="flex items-center gap-2">
+        <Badge className="shrink-0 font-mono" title={t("Issue")}>
+          <Ticket aria-hidden />#{i.ticket}
+        </Badge>
+        {pr && (
+          <Badge className="shrink-0 font-mono" title={t("PR")}>
+            <GitPullRequest aria-hidden />#{pr}
           </Badge>
-          {pr && (
-            <Badge className="font-mono" title={t("PR")}>
-              <GitPullRequest aria-hidden />#{pr}
-            </Badge>
-          )}
-          {title}
-        </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">
-          <span className="font-mono">{i.target}</span>
-          {i.step && ` · ${words(i.step)}`}
-          {i.round !== undefined && ` · ${t("round {n}", { n: i.round })}`}
-          {i.stateSince && (
-            <>
-              {" · "}
-              <time dateTime={i.stateSince}>
-                {t("{state} since {time}", { state: t(STATE[i.state]), time: at(i.stateSince) })}
-              </time>
-            </>
-          )}
-          {when && ` · ${when}`}
-          {i.resolvedAt && (
-            <>
-              {" · "}
-              <time dateTime={i.resolvedAt}>
-                {t(i.resolvedCount === 1 ? "Resolved once, last {time}" : "Resolved {n} times, last {time}", { n: i.resolvedCount ?? 0, time: at(i.resolvedAt) })}
-              </time>
-            </>
-          )}
-        </div>
+        )}
         <Progress item={i} />
+        {when && (
+          <time dateTime={i.updatedAt} title={t("Last activity")} className="shrink-0 text-xs text-muted-foreground">
+            {when}
+          </time>
+        )}
         <Clock item={i} now={now} />
-      </div>
-      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 pt-px">
-        {i.stuck && <Badge variant="destructive">{t("Stuck")}</Badge>}
-        <ConflictsBadge conflicts={i.conflicts} />
-        {i.state === "ready" && <BlockedByBadge blockedBy={i.blockedBy} />}
-        <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
+        {/* One line tall: a pill that does not fit wraps to a hidden second line, instead of showing cut. The empty first span lets even a lone pill wrap. */}
+        <div className="ml-auto flex h-6 min-w-0 flex-wrap content-start items-center justify-end gap-2 overflow-hidden">
+          <span aria-hidden className="-mr-2 h-6 w-0" />
+          {i.stuck && <Badge variant="destructive">{t("Stuck")}</Badge>}
+          <ConflictsBadge conflicts={i.conflicts} />
+          {i.state === "ready" && <BlockedByBadge blockedBy={i.blockedBy} />}
+          <RiskPills risk={i.risk} mergeRisk={i.mergeRisk} mergeRiskMax={i.mergeRiskMax} />
+        </div>
         {/* No run yet, no cost: the empty span keeps the buttons lined up. */}
-        <span className="w-14 text-right">{i.costUsd !== undefined && usd(i.costUsd)}</span>
+        <span className="w-14 shrink-0 text-right">{i.costUsd !== undefined && usd(i.costUsd)}</span>
         {/* relative z-10 lifts the buttons over the card's stretched title link. The PR shows as soon as it exists, red while something stops its merge. */}
-        <span className="relative z-10 flex gap-1">
+        <span className="relative z-10 flex shrink-0 gap-1">
           {i.changeUrl && <IconLink href={i.changeUrl} label={block && i.state !== "done" ? t("Open PR, it cannot merge: {block}", { block }) : t("Open PR")} icon={<GitPullRequest />} danger={!!block && i.state !== "done"} />}
           <IconLink href={i.url} label={t("Open issue")} icon={<Ticket />} />
         </span>
+      </div>
+      <div className="truncate" title={i.title}>
+        {title}
+      </div>
+      <div className="truncate text-xs text-muted-foreground">
+        <span className="font-mono">{i.target}</span>
+        {i.step && ` · ${words(i.step)}`}
+        {i.round !== undefined && ` · ${t("round {n}", { n: i.round })}`}
+        {i.stateSince && (
+          <>
+            {" · "}
+            <time dateTime={i.stateSince}>
+              {t("{state} since {time}", { state: t(STATE[i.state]), time: at(i.stateSince) })}
+            </time>
+          </>
+        )}
+        {when && ` · ${when}`}
+        {i.resolvedAt && (
+          <>
+            {" · "}
+            <time dateTime={i.resolvedAt}>
+              {t(i.resolvedCount === 1 ? "Resolved once, last {time}" : "Resolved {n} times, last {time}", { n: i.resolvedCount ?? 0, time: at(i.resolvedAt) })}
+            </time>
+          </>
+        )}
       </div>
     </motion.li>
   );
@@ -381,7 +389,7 @@ export function Board({ target = "" }: { target?: string }) {
                   </div>
                   <div className="flex flex-col gap-2">
                     {Array.from({ length: cards }, (_, c) => (
-                      <div key={c} className="h-[74px] rounded-lg border bg-raised/60" />
+                      <div key={c} className="h-[94px] rounded-lg border bg-raised/60" />
                     ))}
                   </div>
                 </div>

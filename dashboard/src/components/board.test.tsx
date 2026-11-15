@@ -90,11 +90,15 @@ test("a PR that cannot merge takes the red button with the reason; a done one ne
   expect(screen.queryByText("—")).toBeNull();
 });
 
-test("a card shows its issue and PR numbers before the title", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json([item({ ticket: "599", title: "Pasar lista", changeUrl: "https://github.com/o/r/pull/612" }), item({ ticket: "600", title: "No PR yet" })])));
+test("a card shows its issue and PR numbers on the top line and the title on its own line", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({ ticket: "599", title: "Pasar lista", changeUrl: "https://github.com/o/r/pull/612", updatedAt: new Date(Date.now() - 8 * 3_600_000).toISOString() }), item({ ticket: "600", title: "No PR yet" })])));
   renderWithQuery(<Board />);
   await screen.findByText("Pasar lista");
-  expect(screen.getAllByTitle("Issue")[0].parentElement!.textContent).toMatch(/^#599#612Pasar lista/);
+  const top = screen.getAllByTitle("Issue")[0].parentElement!;
+  expect(top.textContent).toMatch(/^#599#612/);
+  expect(top.textContent).not.toContain("Pasar lista");
+  expect(within(top).getByTitle("Last activity").textContent).toMatch(/8 h/);
+  expect(screen.getByTitle("Pasar lista").textContent).toBe("Pasar lista");
   expect(screen.getAllByTitle("PR")).toHaveLength(1);
 });
 
@@ -131,7 +135,7 @@ test("a ready card that waits for open work items shows which ones; a free one a
   ])));
   renderWithQuery(<Board />);
   await screen.findByText("Add docs");
-  expect(screen.getAllByText(/^Waits for/).map((b) => [b.closest("li")!.querySelector("a")!.textContent, b.textContent, b.getAttribute("title")])).toEqual([
+  expect(screen.getAllByText(/^Waits for/).map((b) => [within(b.closest("li")!).getAllByRole("link").at(-1)!.textContent, b.textContent, b.getAttribute("title")])).toEqual([
     ["Fix login", "Waits for #2, #3", "Waits until #2, #3 are closed. The factory starts this work item after that."],
   ]);
 });
