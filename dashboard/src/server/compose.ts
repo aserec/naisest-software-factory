@@ -8,13 +8,16 @@ import { NotSetUp } from "./not-set-up";
 import type { BoardRow, Ci, HostMetrics, Tracker } from "./seams";
 import { readTargets, type CodeHostKey, type TargetInfo, type TrackerKey } from "./targets";
 
-// One GitHub board read costs 35 GraphQL points at 441 cards (2026-11-10). At 15 s the dashboard alone spent
-// about 8400 of the token's 5000 points an hour, and the factory's polls failed on the same budget.
-export const CACHE_MS = 60_000;
-const STALE_MS = 10 * 60_000;
+// One GitHub board read cost 35 GraphQL points at 441 cards (2026-11-10): at 15 s the dashboard alone spent about 8400
+// of the token's 5000 points an hour, and the factory's polls failed on the same budget. Now a read asks only the
+// factory's columns and each card's column, 1 point a board, and the details at most every 30 s (github-tracker.ts
+// DETAILS_MS): about 2000 points an hour for two boards at 5 s, and none while no page is shown.
+export const CACHE_MS = 5_000;
+// A page polls every 5 s while it is shown (board.tsx useBoard), so a board this old means nobody watched: a page that comes back waits for a new read.
+const STALE_MS = 15_000;
 
-const trackers = (fetchFn: typeof fetch): Record<TrackerKey, Tracker> => {
-  const github = makeGitHubTracker(fetchFn);
+const trackers = (fetchFn: typeof fetch, now: () => Date = () => new Date()): Record<TrackerKey, Tracker> => {
+  const github = makeGitHubTracker(fetchFn, () => now().getTime());
   return { gitlab: makeGitLabTracker(fetchFn), github, "github-project": github };
 };
 const defaultTrackers = trackers((...a) => fetch(...a));
@@ -31,38 +34,38 @@ export const codeHostName = (t: TargetInfo): string => CODE_HOST_NAME[t.codeHost
 
 // Every target's work items in a factory state, each from its own tracker. A tracker that is not set up leaves its targets out; any other error fails the board.
 export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () => new Date()) {
-  const all = trackers(fetchFn);
+  const all = trackers(fetchFn, now);
   let cached: { at: number; rows: Promise<BoardRow[]> } | undefined;
 
   // only: read just that target's tracker, as the Refresh button of one project's board does.
-  async function fetchBoard(only?: string) {
+  async function fetchBoard(only?: string, fresh = false) {
     const groups = new Map<Tracker, TargetInfo[]>();
     for (const t of readTargets()) {
       if (only && t.name !== only) continue;
       const tracker = all[t.tracker];
       groups.set(tracker, [...(groups.get(tracker) ?? []), t]);
     }
-    const lists = [...groups].map(([tracker, targets]) => tracker.rows(targets).catch((e) => (e instanceof NotSetUp ? [] : Promise.reject(e))));
+    const lists = [...groups].map(([tracker, targets]) => tracker.rows(targets, fresh).catch((e) => (e instanceof NotSetUp ? [] : Promise.reject(e))));
     return (await Promise.all(lists)).flat();
   }
 
-  // The last board that loaded. A GitHub board takes seconds to read, so a request past the 60 s answers with this one
+  // The last board that loaded. A GitHub board takes seconds to read, so a request past the 5 s answers with this one
   // while the new read runs, up to STALE_MS old; past that the request waits, so a broken tracker still shows its error.
   let good: { at: number; rows: BoardRow[] } | undefined;
 
   return {
     // fresh skips the cache: the board's Refresh button asks for it. With a target, only that target is read again and
-    // its rows replace the old ones; the other targets keep their rows and their age, so the 60 s cache still runs for them.
+    // its rows replace the old ones; the other targets keep their rows and their age, so the 5 s cache still runs for them.
     board(fresh = false, target?: string) {
       if (fresh && target && good) {
         const { at, rows: old } = good;
-        const rows = fetchBoard(target).then((mine) => [...old.filter((r) => r.target !== target), ...mine]);
+        const rows = fetchBoard(target, true).then((mine) => [...old.filter((r) => r.target !== target), ...mine]);
         // a full read that landed meanwhile is newer for every target: keep it
         rows.then((r) => good?.at === at && ((good = { at, rows: r }), (cached = { at, rows })), () => {});
         return rows;
       }
       if (fresh || !cached || now().getTime() - cached.at >= CACHE_MS) {
-        const entry = { at: now().getTime(), rows: fetchBoard() };
+        const entry = { at: now().getTime(), rows: fetchBoard(undefined, fresh) };
         cached = entry;
         entry.rows.then((rows) => (good = { at: entry.at, rows }), () => cached === entry && (cached = undefined)); // do not cache a failure
       }
@@ -73,7 +76,7 @@ export function makeBoard(fetchFn: typeof fetch = fetch, now: () => Date = () =>
 
 let board: ReturnType<typeof makeBoard> | undefined;
 
-// One instance, so the 60 s board cache is shared by every request.
+// One instance, so the 5 s board cache is shared by every request.
 export const getBoard = () => (board ??= makeBoard());
 
 let ci: Ci | undefined;

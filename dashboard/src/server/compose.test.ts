@@ -2,7 +2,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
-import { codeHostName, makeBoard, trackerOf } from "./compose";
+import { DETAILS_MS } from "./adapters/github-tracker";
+import { CACHE_MS, codeHostName, makeBoard, trackerOf } from "./compose";
 import { NotSetUp } from "./not-set-up";
 import { readTargets } from "./targets";
 
@@ -60,16 +61,16 @@ it("Refresh of one target reads only that target's tracker and keeps the other r
   expect((await board.board()).map((r) => r.target)).toEqual(["a", "b"]); // the merged board is the cached one
 });
 
-it("the board is cached for 60 s and a failure is not cached", async () => {
+it("the board is cached for CACHE_MS and a failure is not cached", async () => {
   const f = fakeFetch();
   let t = 1_000_000;
   const board = makeBoard(f, () => new Date(t));
   await board.board();
   const calls = vi.mocked(f).mock.calls.length;
-  t += 59_000;
+  t += CACHE_MS - 1_000;
   await board.board();
   expect(vi.mocked(f).mock.calls.length).toBe(calls);
-  t += 2_000;
+  t += DETAILS_MS; // past the GitHub tracker's own cache of the labeled issues too
   await board.board();
   await new Promise((r) => setTimeout(r, 0)); // the new read runs behind the answer
   expect(vi.mocked(f).mock.calls.length).toBe(2 * calls);
@@ -77,22 +78,23 @@ it("the board is cached for 60 s and a failure is not cached", async () => {
   expect(vi.mocked(f).mock.calls.length).toBe(3 * calls);
 
   vi.mocked(f).mockResolvedValueOnce(new Response("no", { status: 500 }));
-  t += 61_000;
+  t += CACHE_MS + 1_000;
   await expect(board.board(true)).rejects.toThrow();
   const failed = vi.mocked(f).mock.calls.length;
+  t += DETAILS_MS; // the GitHub tracker keeps its labeled issues that long, even when the GitLab read failed
   await board.board();
   await new Promise((r) => setTimeout(r, 0));
   expect(vi.mocked(f).mock.calls.length).toBe(failed + calls);
 });
 
-it("past 60 s the board answers with the last one at once and reads the new one behind it", async () => {
+it("past CACHE_MS the board answers with the last one at once and reads the new one behind it", async () => {
   let t = 1_000_000;
   let release = () => {};
   const f = vi.fn(fakeFetch());
   const board = makeBoard(f, () => new Date(t));
   const first = await board.board();
 
-  t += 61_000;
+  t += CACHE_MS + 1_000;
   const gate = new Promise<void>((r) => (release = r));
   const real = f.getMockImplementation()!;
   f.mockImplementation(async (...a) => (await gate, real(...a)));

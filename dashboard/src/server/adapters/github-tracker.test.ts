@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { trackerContract, type Seed } from "../contracts/tracker.contract";
 import type { TargetInfo } from "../targets";
-import { makeGitHubTracker } from "./github-tracker";
+import { DETAILS_MS, makeGitHubTracker } from "./github-tracker";
 
 beforeEach(() => vi.stubEnv("GITHUB_READ_TOKEN", "read-token"));
 
@@ -10,7 +10,12 @@ const card = (repo: string, number: number, status: string | null, state = "OPEN
   updatedAt: "2026-11-03T10:00:00Z", fieldValueByName: status ? { name: status } : null,
   content: { number, title, url: `https://github.com/${repo}/issues/${number}`, state, repository: { nameWithOwner: repo }, labels: { nodes: labels.map((name) => ({ name })) } },
 });
-const graphql = (nodes: unknown[]) => Response.json({ data: { repositoryOwner: { projectV2: { url: "https://github.com/users/o/projects/1", items: { pageInfo: { hasNextPage: false }, nodes } } } } });
+// One answer for both reads: the cards (active and done lists) and the details (items, outside Done).
+const graphql = (nodes: ReturnType<typeof card>[]) => {
+  const list = (n: unknown[]) => ({ pageInfo: { hasNextPage: false }, nodes: n });
+  const done = (c: ReturnType<typeof card>) => c.fieldValueByName?.name === "Factory: Done";
+  return Response.json({ data: { repositoryOwner: { projectV2: { url: "https://github.com/users/o/projects/1", active: list(nodes.filter((c) => !done(c))), done: list(nodes.filter(done)), items: list(nodes.filter((c) => !done(c))) } } } });
+};
 const riskLabels = (s: Seed) => (s.risk ? [`factory_risk_${s.risk}`] : []);
 
 // A fake GitHub holding `seed` in o/r: as labeled issues, and as cards in board columns ("needs_approval" -> "Factory: Needs approval").
@@ -32,6 +37,10 @@ it("reads a shared GitHub board once and gives each target its issue cards in fa
   const f = vi.fn(async (url: string, init: RequestInit) => {
     expect(url).toBe("https://ghe.test/api/graphql");
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer read-token");
+    const v = JSON.parse(String(init.body)).variables;
+    expect(v.active ?? v.q).toMatch(/^status:"factory: ready",.*"factory: needs approval",.*"factory: blocked"$/); // GitHub leaves out the people's columns
+    expect(v.active ?? v.q).not.toContain("done");
+    if (v.done) expect(v.done).toBe('status:"factory: done" updated:>@today-7d');
     reads++;
     return graphql([
       card("o/web", 1, "Factory: Ready"), card("o/web", 2, "Factory: Needs approval", "OPEN", ["bug", "factory_risk_medium"]), card("o/web", 3, "Backlog"), card("o/web", 4, "Factory: Done", "CLOSED"),
@@ -40,7 +49,7 @@ it("reads a shared GitHub board once and gives each target its issue cards in fa
   }) as unknown as typeof fetch;
   vi.stubEnv("GITHUB_API_URL", "https://ghe.test/api");
   const rows = await makeGitHubTracker(f).rows([target("web", "o/web", 2), target("api", "o/api", 2)]);
-  expect(reads).toBe(1);
+  expect(reads).toBe(2); // the cards and their details, once for both targets
   expect(rows.map((r) => [r.target, r.ticket, r.state, r.risk])).toEqual([["web", "1", "ready", undefined], ["web", "2", "needs_approval", "medium"], ["web", "4", "done", undefined], ["api", "5", "running", undefined]]);
   expect(rows.find((r) => r.target === "api")?.boardUrl).toBe("https://github.com/users/o/projects/1");
 });
@@ -99,4 +108,24 @@ it("gives an open ready issue the open issues that block it, from a label or a b
     const rows = await makeGitHubTracker(f).rows([target("a", "o/r", project)]);
     expect(["5", "6", "7"].map((t) => rows.find((r) => r.ticket === t)!.blockedBy)).toEqual([["https://github.com/o/r/issues/2"], undefined, undefined]);
   }
+});
+
+it("reads each card's column on every read and its details at most every DETAILS_MS, or at once when fresh", async () => {
+  let t = 0;
+  const queries: string[] = [];
+  const f = vi.fn(async (_url: string, init: RequestInit) => {
+    const { query } = JSON.parse(String(init.body));
+    queries.push(query.includes("labels(") ? "details" : "cards");
+    return graphql([card("o/r", 1, "Factory: Ready", "OPEN", ["factory_risk_high"]), card("o/r", 2, "Factory: Done", "CLOSED")]);
+  }) as unknown as typeof fetch;
+  vi.stubEnv("GITHUB_API_URL", "https://ghe.test/api");
+  const tracker = makeGitHubTracker(f, () => t);
+  const read = async (fresh = false) => (await tracker.rows([target("a", "o/r", 2)], fresh)).map((r) => [r.ticket, r.risk]);
+  expect(await read()).toEqual([["1", "high"], ["2", undefined]]); // a Done card gets no details
+  t += DETAILS_MS - 1;
+  expect(await read()).toEqual([["1", "high"], ["2", undefined]]); // the kept details still show
+  t += 1;
+  await read();
+  await read(true);
+  expect(queries).toEqual(["cards", "details", "cards", "cards", "details", "cards", "details"]);
 });

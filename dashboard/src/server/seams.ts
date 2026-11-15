@@ -25,7 +25,7 @@ export interface ChangeView { changeUrl?: string; conflicts?: boolean; mergeBloc
 // Where a target's work items live. A target's `tracker` key picks it.
 export interface Tracker {
   readonly name: string; // the display name
-  rows(targets: TargetInfo[]): Promise<BoardRow[]>; // work items in a factory state, open or closed, newest update first; throws NotSetUp without its address or read token
+  rows(targets: TargetInfo[], fresh?: boolean): Promise<BoardRow[]>; // work items in a factory state, open or closed, newest update first; throws NotSetUp without its address or read token. fresh: read again what the tracker keeps for a while
   ticketUrl(target: TargetInfo, ticket: string): string; // empty when the tracker is not set up
   postRelay(target: TargetInfo, ticket: string, body: string): Promise<Response>; // posts a relayed message as the relay bot; throws NotSetUp without the relay token
 }

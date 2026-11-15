@@ -251,8 +251,9 @@ async function loadBoard(fresh = false, target = "") {
   return (await r.json()) as BoardItem[];
 }
 
+// React Query stops the 5 s poll while the tab is hidden and reads again when it comes back (its defaults).
 export function useBoard() {
-  return useQuery({ queryKey: ["board"], refetchInterval: 15_000, queryFn: () => loadBoard() });
+  return useQuery({ queryKey: ["board"], refetchInterval: 5_000, queryFn: () => loadBoard() });
 }
 
 // The search and the tab live in the URL (?q=, ?tab=), so a link or a reload keeps them.
@@ -316,7 +317,7 @@ export function Board({ target = "" }: { target?: string }) {
   const board = useBoard();
   const { data: all, error } = board;
   const client = useQueryClient();
-  // Skips the server's 60 s tracker cache, so a card just moved in the tracker shows now. On one project's board only that
+  // Skips the server's 5 s tracker cache, so a card just moved in the tracker shows now. On one project's board only that
   // project's tracker is read: every board read costs API points (compose.ts CACHE_MS), so reading the others saves nothing.
   const refresh = () => client.fetchQuery({ queryKey: ["board"], queryFn: () => loadBoard(true, target), staleTime: 0 }).catch(() => {});
   const [filter, setFilter] = useFilter();
