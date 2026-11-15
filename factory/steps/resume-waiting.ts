@@ -12,7 +12,9 @@ export async function resumeWaiting(ctx: StepContext): Promise<TicketRef[]> {
   if ((await activeRuns(ctx)) - 1 >= maxRuns(ctx)) return [];
   const started: TicketRef[] = [];
   for (const { ref } of await ctx.tracker.list("waiting")) {
-    const run = (await conversation(ctx).newest(ref, "waiting"))?.run;
+    const note = await conversation(ctx).newest(ref, "waiting");
+    if (note?.kind === "networkWait") continue; // its job tries the step again itself
+    const run = note?.run;
     if (!run) {
       await applyOutcome({ ...ctx, ci: { ...ctx.ci, vars: { ...ctx.ci.vars, ticket: ref } } }, block("The factory could not resume this run: it found no waiting-run comment from the factory. Add factory_ready to start again."));
       continue;

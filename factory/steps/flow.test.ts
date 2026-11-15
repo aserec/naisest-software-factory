@@ -436,6 +436,25 @@ test("runStep blocks the work item on an unexpected error and still fails the jo
   expect(w.workItemComments.at(-1)).toContain("reviewer crashed");
   expect(existsSync(join(dir, "record.json"))).toBe(true);
 });
+test("runStep waits and tries a step again after a network error, then blocks after the last try", async () => {
+  const clone = new Error("git clone failed: error: RPC failed; curl 56 Recv failure: Connection reset by peer");
+  const w = fakeWorld();
+  w.ci.vars.ticket = "8";
+  const waits: string[] = [];
+  w.ctx.sleep = async (ms) => void waits.push(`${w.states[0]} ${ms}`);
+  let runs = 0;
+  await runStep("prepare-patch", async () => (++runs < 3 ? Promise.reject(clone) : NEXT), { dir: tmp(), make: () => w.ctx });
+  expect(runs).toBe(3);
+  expect(waits).toEqual(["waiting 600000", "waiting 600000"]);
+  expect(w.states).toEqual(["running"]);
+  expect(w.workItemComments.at(-1)).toContain("try 2 of 5");
+  const v = fakeWorld();
+  v.ci.vars.ticket = "8";
+  runs = 0;
+  await expect(runStep("prepare-patch", async () => (runs++, Promise.reject(clone)), { dir: tmp(), make: () => v.ctx })).rejects.toThrow("RPC failed");
+  expect(runs).toBe(6);
+  expect(v.states.at(-1)).toBe("blocked");
+});
 test("finish waits for the build record, then blocks with the env work item if it never comes", async () => {
   const dir = tmp();
   let tries = 0;

@@ -68,11 +68,14 @@ const DUPLICATE_CLOSE_MARKER = "<!-- factory:dedupe -->";
 const DUPLICATE_QUESTION_MARKER = "<!-- factory:dedupe-question -->";
 // A conflict round started: the poller starts no other one until the base branch gets a commit after this note.
 const CONFLICT_MARKER = "<!-- factory:conflict-round -->";
+// A step lost its connection and runStep tries it again in its own job. The hourly retry leaves such a work item alone.
+const NETWORK_WAIT_MARKER = "<!-- factory:network-wait -->";
 
 // What a factory note says. `text` is the sentence people read; the lines after it are what the factory reads back.
 export type Note =
   | { kind: "blocked"; reason: string; run?: string } // run: the pipeline to continue; none when the run cannot continue
   | { kind: "waiting"; run: string | undefined }
+  | { kind: "networkWait"; text: string }
   // `@factory resume` continues a person's stop, the poller a switch stop once the switch is on again.
   | { kind: "stopped"; run: string; step: string; reason: string; change?: ChangeRef; buildRun?: string }
   | { kind: "cancelled"; user: PersonRef }
@@ -88,6 +91,8 @@ export function noteText(n: Note): string {
       return md("🛑", "Blocked", `**${BLOCKED}**`, n.reason, n.run && hidden(`Blocked run: pipeline ${n.run}`));
     case "waiting":
       return md("⏳", "Waiting for the usage limit", "The author agent reached its usage limit. The factory tries again every hour and continues this run.", hidden(`Waiting run: pipeline ${n.run ?? "unknown"}`));
+    case "networkWait":
+      return `${n.text}\n\n${NETWORK_WAIT_MARKER}`;
     case "stopped":
       return md(
         "⏸️",
@@ -115,6 +120,7 @@ export function noteText(n: Note): string {
 interface Fields {
   blocked: { run?: string };
   waiting: { run: string };
+  networkWait: object;
   // An old stopped note has only its run.
   stopped: { run: string; step?: string; reason?: string; change?: ChangeRef; buildRun?: string };
   cancelled: object;
@@ -139,6 +145,7 @@ const PARSE: { [K in keyof Fields]: (body: string) => Fields[K] | undefined } = 
     const [step, reason, change] = [field(b, "Stopped step"), field(b, "Reason"), field(b, "Change")];
     return { run, ...(step && reason ? { step, reason, ...(change ? { change, buildRun: field(b, "Build run") } : {}) } : {}) };
   },
+  networkWait: (b) => (b.includes(NETWORK_WAIT_MARKER) ? {} : undefined),
   cancelled: (b) => (b.split("\n").includes(CANCEL_REASON) ? {} : undefined),
   readyFor: (b) => {
     const person = READY_FOR.exec(b)?.[1];
@@ -153,7 +160,8 @@ const PARSE: { [K in keyof Fields]: (body: string) => Fields[K] | undefined } = 
   conflictRound: (b) => (b.includes(CONFLICT_MARKER) ? {} : undefined),
 };
 // The kinds a read finds. A stopped read also finds a cancel note: the run cannot be resumed, only restarted.
-const READS = { blocked: ["blocked"], waiting: ["waiting"], stopped: ["cancelled", "stopped"], readyFor: ["readyFor"], cursor: ["cursor"], duplicate: ["duplicate_question", "duplicate_close"], conflictRound: ["conflictRound"] } as const;
+// A waiting read also finds a network wait: that run is still alive in its job.
+const READS = { blocked: ["blocked"], waiting: ["waiting", "networkWait"], stopped: ["cancelled", "stopped"], readyFor: ["readyFor"], cursor: ["cursor"], duplicate: ["duplicate_question", "duplicate_close"], conflictRound: ["conflictRound"] } as const;
 export type ReadKind = keyof typeof READS;
 export type Read<K extends ReadKind> = Extract<Found, { kind: (typeof READS)[K][number] }>;
 

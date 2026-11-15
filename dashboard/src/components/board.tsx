@@ -143,6 +143,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
   const t = useT();
   const when = ago(i.updatedAt);
   const block = i.conflicts ? t("it has conflicts with the base branch") : i.mergeBlock;
+  const pr = i.changeUrl && /\/(\d+)\/?$/.exec(i.changeUrl)?.[1]; // GitHub /pull/12, GitLab /merge_requests/12
   const title = i.run ? (
     <Link href={`/runs/${encodeURIComponent(i.run)}`} className={link}>
       {i.title}
@@ -157,11 +158,19 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
   return (
     <motion.li layout="position" layoutId={workItemKey(i)} transition={{ layout: { duration: 0.4 } }} className="relative flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
       <div className="min-w-0 flex-1 basis-48">
-        {title}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge className="font-mono" title={t("Issue")}>
+            <Ticket aria-hidden />#{i.ticket}
+          </Badge>
+          {pr && (
+            <Badge className="font-mono" title={t("PR")}>
+              <GitPullRequest aria-hidden />#{pr}
+            </Badge>
+          )}
+          {title}
+        </div>
         <div className="mt-0.5 text-xs text-muted-foreground">
-          <span className="font-mono">
-            {i.target} #{i.ticket}
-          </span>
+          <span className="font-mono">{i.target}</span>
           {i.step && ` · ${words(i.step)}`}
           {i.round !== undefined && ` · ${t("round {n}", { n: i.round })}`}
           {i.stateSince && (

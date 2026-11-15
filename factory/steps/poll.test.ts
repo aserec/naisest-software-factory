@@ -19,6 +19,12 @@ test("retry resumes waiting runs with their saved session", async () => {
   expect(ctx.resumed).toEqual(["s9"]);
 });
 
+test("retry leaves a run alone while its own job waits for the network", async () => {
+  const ctx = fakeCtx({ waiting: [{ iid: 9, sessionId: "s9" }], running: 0 });
+  ctx.world.ctx.tracker.comments = async () => [{ author: BOT, byFactory: true, body: noteText({ kind: "networkWait", text: "Waiting for the network" }), at: "2026-10-30T00:00:00Z" }];
+  expect(await resumeWaiting(ctx)).toEqual([]);
+  expect(ctx.world.tracker.tickets.get("9")!.state).toBe("waiting");
+});
 // Waiting and other active runs hold their slots.
 test("poller starts nothing while the repo already has 2 active runs", async () => {
   const err = vi.spyOn(console, "error").mockImplementation(() => {});

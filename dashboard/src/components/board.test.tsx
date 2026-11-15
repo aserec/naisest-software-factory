@@ -90,6 +90,14 @@ test("a PR that cannot merge takes the red button with the reason; a done one ne
   expect(screen.queryByText("—")).toBeNull();
 });
 
+test("a card shows its issue and PR numbers before the title", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => json([item({ ticket: "599", title: "Pasar lista", changeUrl: "https://github.com/o/r/pull/612" }), item({ ticket: "600", title: "No PR yet" })])));
+  renderWithQuery(<Board />);
+  await screen.findByText("Pasar lista");
+  expect(screen.getAllByTitle("Issue")[0].parentElement!.textContent).toMatch(/^#599#612Pasar lista/);
+  expect(screen.getAllByTitle("PR")).toHaveLength(1);
+});
+
 test("a card shows the live step, the round and both risks", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => json([item({ run: "r1", step: "code-review", round: 2, risk: "low", mergeRisk: 3 })])));
   renderWithQuery(<Board />);
