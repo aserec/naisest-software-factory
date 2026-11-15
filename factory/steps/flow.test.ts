@@ -1869,6 +1869,13 @@ test("merge_all on never merges a change whose proof failed", async () => {
   expect(w.states).toEqual(["needs_approval"]);
   expect(approvalReasons(w)).toContain("no proof: no run/proof/proof.json");
 });
+test("merge_all on merges a change whose proof reviewer is unsure", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" }, proof: VISUAL_PROOF, factoryFile: PREVIEW, reviews: [[reviewOf("unsure")]] });
+  w.ctx.dashboard = fakeDashboard({ switches: { ...defaultSwitches(), merge_all: true } });
+  await runBuildPipeline(w);
+  expect(w.finishTriggered).toBe(true);
+  expect(w.mrComments.at(-1)).toContain("Merge all switch is on");
+});
 test("new_runs off: a webhook ready starts nothing and the ticket stays ready", async () => {
   const w = fakeWorld({ jev1: { risk: "trivial" } });
   withSwitches(w, "new_runs");
