@@ -50,6 +50,9 @@ export function fromApiAnswer(q: JevQuestion, a: ApiAnswer | undefined): JevAnsw
   return { id: q.id, value, probability: p, confidence: a.confidence ?? p };
 }
 
+// Jev over its usage limit (429) or down (5xx). The step waits and asks again instead of blocking the ticket.
+export const JEV_BUSY = /Celeris Jev call failed: HTTP (429|5\d\d)/;
+
 export function makeJevClient(env: NodeJS.ProcessEnv, fetchFn: typeof fetch = fetch): JevClient {
   const host = JEV_HOST;
   const key = env[host.keyEnv];

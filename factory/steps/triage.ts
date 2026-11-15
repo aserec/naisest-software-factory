@@ -2,6 +2,7 @@ import { wrapTicket } from "../agents";
 import { CANDIDATE_BODY, MAX_CANDIDATES, askDuplicateCheck, decideDuplicate } from "../duplicate-check";
 import { emit } from "../emit";
 import { errText } from "../errors";
+import { JEV_BUSY } from "../jev";
 import { need } from "../record";
 import { pickModels } from "../router";
 import type { Ticket } from "../seams";
@@ -24,6 +25,7 @@ export async function run(ctx: StepContext): Promise<StepOutcome> {
   try {
     answers = await askTriage(ctx.judge, state);
   } catch (e) {
+    if (JEV_BUSY.test(errText(e))) throw e; // runStep waits and runs triage again
     return block(`Triage failed, so the factory did not guess: ${String(e)}`);
   }
   // A dashboard the factory cannot reach keeps the default clarity limit here.
@@ -82,6 +84,7 @@ async function duplicateCheck(ctx: StepContext, ticket: Ticket): Promise<StepOut
     open = await ctx.tracker.listOpen(MAX_CANDIDATES + 1);
     answers = await askDuplicateCheck(ctx.judge, { ref, ...ctx.record.ticket! }, open);
   } catch (e) {
+    if (JEV_BUSY.test(errText(e))) throw e; // runStep waits and runs triage again
     const reason = `The duplicate check failed, so the factory did not guess: ${String(e)}`;
     emit(ctx, "triage_outcome", { kind: "stop", title: "Stopped: a person must look at this work item", reasons: [reason] });
     return block(reason);

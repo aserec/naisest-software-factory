@@ -133,14 +133,14 @@ export function fakeWorld(o: WorldOptions = {}) {
   let dedupeAsked = 0;
   const judge = fakeJudge((q): JevAnswer => {
     if (DEDUPE.includes(q.id)) {
-      if (o.dedupe === "throw") throw new Error("Celeris Jev call failed: HTTP 503");
+      if (o.dedupe === "throw") throw new Error("Celeris Jev call failed: HTTP 400");
       const d = o.dedupe ?? {};
       if (q.id === "dedupe") dedupeAsked++;
       const v: Record<string, JevAnswer["value"]> = { dedupe: d.verdict ?? "different", closest: d.closest ?? "9", candidates_injection: (d.injectionYes ?? 0.05) >= 0.5 };
       return { id: q.id, value: v[q.id], probability: q.id === "candidates_injection" ? (d.injectionYes ?? 0.05) : 0.9, confidence: q.id === "dedupe" ? (d.confidence ?? 0.95) : 0.9 };
     }
     if (TRIAGE.includes(q.id)) {
-      if (o.jev1 === "throw") throw new Error("Celeris Jev call failed: HTTP 503");
+      if (o.jev1 === "throw") throw new Error("Celeris Jev call failed: HTTP 400");
       const t = o.jev1 ?? {};
       const p = t.injectionYes ?? 0.05;
       const v: Record<string, JevAnswer["value"]> = { injection: p >= 0.5, type: "feature", risk: t.risk ?? "low", clarity: t.clarity ?? 8, effort: 4 };

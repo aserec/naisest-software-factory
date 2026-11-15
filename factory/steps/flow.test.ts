@@ -150,7 +150,7 @@ test("event reads live labels: an active run on the work item stops quietly", as
 test("a Jev failure at triage blocks with the error and a card", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: "throw" }));
   expect(w.states).toEqual(["blocked"]);
-  expect(w.workItemComments.at(-1)).toContain("HTTP 503");
+  expect(w.workItemComments.at(-1)).toContain("HTTP 400");
   expect(w.cards.map((c) => c.kind)).toEqual(["blocked"]);
   expect(w.claudeCalls).toBe(0);
 });
@@ -1188,6 +1188,26 @@ test("a failed duplicate check blocks", async () => {
   expect(w.workItemComments.join("\n")).toContain("The duplicate check failed");
 });
 
+test("a Jev usage limit or outage in triage waits 5 minutes in waiting and asks again instead of blocking", async () => {
+  const w = fakeWorld({ jev1: { risk: "trivial" } });
+  const ask = w.judge.ask;
+  let busy = 2; // the triage ask, then the duplicate check
+  w.judge.ask = async (state, qs) => {
+    if (busy > 0 && qs.some((q) => q.id === "injection" || q.id === "dedupe")) {
+      busy--;
+      throw new Error(`Celeris Jev call failed: HTTP ${busy ? 429 : 503}`);
+    }
+    return ask(state, qs);
+  };
+  const waits: string[] = [];
+  w.ctx.sleep = async (ms) => void waits.push(`${w.states.at(-1)} ${ms}`);
+  w.ci.vars.ticket = "8";
+  await runBuildJobs(w);
+  expect(waits.slice(0, 2)).toEqual(["waiting 300000", "waiting 300000"]);
+  expect(w.states).not.toContain("blocked");
+  expect(w.workItemComments.join("\n")).toContain("Waiting for Jev");
+});
+
 // factory_ready on a blocked ticket. The factory's block comment names run 1, and `first` is that run.
 async function readyAgain(o: WorldOptions, first: { ci: { runs: Map<string, RunRecord> }; workItemComments: string[] }, marks: Mark[] = []) {
   const w = fakeWorld({ jev1: { risk: "trivial" }, ...o, runs: first.ci.runs });
@@ -1387,7 +1407,7 @@ test("a red precommit gate tells the open change too, and a triage block does no
   const t = fakeWorld({ jev1: "throw" });
   await t.host.openChange("factory/8-add-a-loading-state", "Add a loading state", "", "8");
   await runBuildJobs(t);
-  expect(t.workItemComments.at(-1)).toContain("HTTP 503");
+  expect(t.workItemComments.at(-1)).toContain("HTTP 400");
   expect(t.mrComments).toEqual([]);
 });
 test("maxAgentRounds from the settings limits the code review rounds", async () => {

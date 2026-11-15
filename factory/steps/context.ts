@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { wrapTicket } from "../agents";
+import { JEV_BUSY } from "../jev";
 import { makeInbox } from "../inbox";
 import { conversation, later, md } from "../conversation";
 import { makeContext } from "../compose";
@@ -262,8 +263,16 @@ const TRANSIENT = /status 5\d\d|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|E
 const NETWORK = /fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|RPC failed|early EOF|remote end hung up|Could not resolve host|Connection (timed out|reset|refused)|Operation timed out/i;
 export const NETWORK_TRIES = 5;
 export const NETWORK_WAIT_MS = 10 * 60_000;
+export const JEV_WAIT_MS = 5 * 60_000;
 
-// Runs the step again after a network error, up to NETWORK_TRIES more times, NETWORK_WAIT_MS apart. The ticket shows waiting meanwhile.
+// How long a step waits before it runs again after this error, and what the ticket says meanwhile. Undefined: the error blocks.
+function retryWait(e: unknown, name: string): { ms: number; title: string; why: string } | undefined {
+  const t = errText(e);
+  if (JEV_BUSY.test(t)) return { ms: JEV_WAIT_MS, title: "Waiting for Jev", why: `Jev refused the \`${name}\` step's call: it is over its usage limit or down.` };
+  if (NETWORK.test(t)) return { ms: NETWORK_WAIT_MS, title: "Waiting for the network", why: `The \`${name}\` step lost its connection.` };
+}
+
+// Runs the step again after a network error or a Jev usage limit, up to NETWORK_TRIES more times. The ticket shows waiting meanwhile.
 // ponytail: the job holds its slot for the whole wait; a worker that dies mid-wait leaves the ticket waiting for a person.
 async function withNetworkRetry(ctx: StepContext, name: string, run: (ctx: StepContext) => Promise<StepOutcome>): Promise<StepOutcome> {
   for (let attempt = 1; ; attempt++) {
@@ -271,11 +280,12 @@ async function withNetworkRetry(ctx: StepContext, name: string, run: (ctx: StepC
       return await run(ctx);
     } catch (e) {
       const ref = ctx.ci.vars.ticket ?? facts(ctx).ticket;
-      if (attempt > NETWORK_TRIES || !ref || !NETWORK.test(errText(e))) throw e;
-      const text = md("⏳", "Waiting for the network", `The \`${name}\` step lost its connection. The factory tries it again in ${NETWORK_WAIT_MS / 60_000} minutes (try ${attempt} of ${NETWORK_TRIES}).`, `\`\`\`\n${errText(e, 500)}\n\`\`\``);
+      const wait = retryWait(e, name);
+      if (attempt > NETWORK_TRIES || !ref || !wait) throw e;
+      const text = md("⏳", wait.title, `${wait.why} The factory tries it again in ${wait.ms / 60_000} minutes (try ${attempt} of ${NETWORK_TRIES}).`, `\`\`\`\n${errText(e, 500)}\n\`\`\``);
       await conversation(ctx).write(ref, { kind: "networkWait", text });
       await ctx.tracker.setState(ref, "waiting");
-      await ctx.sleep(NETWORK_WAIT_MS);
+      await ctx.sleep(wait.ms);
       await ctx.tracker.setState(ref, "running");
     }
   }
