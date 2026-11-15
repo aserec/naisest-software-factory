@@ -40,7 +40,7 @@ export const VISUAL_PROOF = {
 
 type Status = "success" | "failed" | "running" | "none" | "absent"; // absent: the repo has no CI
 export interface WorldOptions {
-  settings?: TargetSettings; // the target's Settings page values in the dashboard's control answer
+  settings?: TargetSettings; // the target's Settings page values in the dashboard's control answer; without it, 5 agent rounds keep the block tests short
   jev1?: { risk?: Risk; injectionYes?: number; clarity?: number } | "throw";
   jev2?: "pass" | "throw";
   reviews?: Finding[][];
@@ -193,7 +193,7 @@ export function fakeWorld(o: WorldOptions = {}) {
   const harnesses = {} as Record<HarnessName, Harness>;
   for (const n of HARNESS_NAMES) harnesses[n] = harness;
   const ctx: StepContext = {
-    tracker, codeHost: host, ci, judge, chat, dashboard: fakeDashboard(o.settings ? { settings: o.settings } : {}),
+    tracker, codeHost: host, ci, judge, chat, dashboard: fakeDashboard({ settings: o.settings ?? { thresholds: { maxAgentRounds: 5 } } }),
     harnesses,
     seams,
     record: newRecord(),

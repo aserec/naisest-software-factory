@@ -6,7 +6,7 @@ export const TRIAGE_RISKS = ["trivial", "low"] as const;
 export type AutoMergeTriageMax = (typeof TRIAGE_RISKS)[number];
 
 export interface Thresholds { diffRiskMax: number; autoMergeConfidenceMin: number; clarityMin: number; maxAgentRounds: number; autoMergeTriageMax: AutoMergeTriageMax }
-export const DEFAULT_THRESHOLDS: Thresholds = { diffRiskMax: DIFF_RISK_MAX, autoMergeConfidenceMin: 0.8, clarityMin: 6, maxAgentRounds: 5, autoMergeTriageMax: "low" };
+export const DEFAULT_THRESHOLDS: Thresholds = { diffRiskMax: DIFF_RISK_MAX, autoMergeConfidenceMin: 0.8, clarityMin: 6, maxAgentRounds: 10, autoMergeTriageMax: "low" };
 
 const whole = (lo: number, hi: number) => ({ rule: `a whole number from ${lo} to ${hi}`, ok: (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi });
 export const THRESHOLD_RULES: Record<keyof Thresholds, { rule: string; ok: (v: unknown) => boolean }> = {

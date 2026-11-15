@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
 import { codeReviewLoop, precommitGate, type GateDeps, type ReviewDeps } from "./loops.js";
-import { DEFAULT_THRESHOLDS } from "./thresholds.js";
 import type { Finding } from "./agents.js";
 import type { HarnessResult } from "./seams.js";
 
@@ -40,7 +39,7 @@ test("review passes on round 2 after one fix", async () => {
 test("non-blocking findings alone pass", async () => expect(await codeReviewLoop(fakeDeps({ reviews: [[{ blocking: false, text: "nit" }]] }))).toEqual({ kind: "passed", rounds: 1 }));
 test("five rounds with blocking findings block", async () => {
   const deps = fakeDeps({ reviews: [[B], [B], [B], [B], [B]] });
-  expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
+  expect(await codeReviewLoop(deps, 5)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
   expect(deps.fixCalls).toHaveLength(4);
 });
 test("gate runs lint, test and build in order and reruns all three after a fix", async () => {
@@ -50,7 +49,7 @@ test("gate runs lint, test and build in order and reruns all three after a fix",
 });
 test("gate blocks after 5 failing rounds and names the command", async () => {
   const deps = fakeDeps({ results: { "pnpm test:unit": [false, false, false, false, false] } });
-  const r = await precommitGate(deps, cmds);
+  const r = await precommitGate(deps, cmds, 5);
   expect(r).toMatchObject({ kind: "blocked", rounds: 5 });
   expect(JSON.stringify(r)).toContain("pnpm test:unit");
   expect(deps.fixCalls).toHaveLength(4);
@@ -68,10 +67,10 @@ test("a failed author run blocks with the findings it was asked to fix and its o
 // A resumed run continues its round count, so the round limit is never exceeded across a resume.
 test("loops started at a later round stop at the same limit", async () => {
   const d = fakeDeps({ reviews: [[B]] });
-  expect(await codeReviewLoop(d, DEFAULT_THRESHOLDS.maxAgentRounds, 5)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
+  expect(await codeReviewLoop(d, 5, 5)).toEqual({ kind: "blocked", rounds: 5, open: ["bug"] });
   expect(d.fixCalls).toHaveLength(0);
   const g = fakeDeps({ results: { lint: [false] } });
-  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, DEFAULT_THRESHOLDS.maxAgentRounds, 5)).toMatchObject({ kind: "blocked", rounds: 5 });
+  expect(await precommitGate(g, { install: "i", lint: "lint", test: "test", build: "build" }, 5, 5)).toMatchObject({ kind: "blocked", rounds: 5 });
   expect(g.fixCalls).toHaveLength(0);
 });
 test("a stopped fix run stops the loop with its session, not blocked", async () => {
@@ -84,10 +83,17 @@ test("a limit result carries the round it stopped in", async () => {
   const d = fakeDeps({ reviews: [[B]], fixResult: { limitHit: true, ok: false } });
   expect(await codeReviewLoop(d, 3, 2)).toMatchObject({ kind: "limit", rounds: 2 });
 });
-test("a fix that leaves the diff the same blocks with the author's answer instead of asking again", async () => {
-  const deps = { ...fakeDeps({ reviews: [[B], [B]], fixResult: { text: "the sandbox denied uv run python" } }), diff: async () => "same" };
-  expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 1, open: ["bug", "The author changed no code. Its answer: the sandbox denied uv run python"] });
-  expect(deps.fixCalls).toHaveLength(1);
+test("a fix that leaves the diff the same is asked again, and blocks after the third unchanged fix", async () => {
+  const deps = { ...fakeDeps({ reviews: [[B]], fixResult: { text: "the sandbox denied uv run python" } }), diff: async () => "same" };
+  expect(await codeReviewLoop(deps)).toEqual({ kind: "blocked", rounds: 1, open: ["bug", "The author changed no code after 3 asks. Its last answer: the sandbox denied uv run python"] });
+  expect(deps.fixCalls).toHaveLength(3);
+  expect(deps.fixCalls[1]).toContain("Your last fix changed no code. Its answer: the sandbox denied uv run python");
+});
+test("an unchanged fix followed by a change goes back to the review", async () => {
+  const diffs = ["a", "a", "a", "b"];
+  const deps = { ...fakeDeps({ reviews: [[B], []] }), diff: async () => diffs.shift() ?? "b" };
+  expect(await codeReviewLoop(deps)).toEqual({ kind: "passed", rounds: 2 });
+  expect(deps.fixCalls).toHaveLength(2);
   let n = 0;
   const changing = { ...fakeDeps({ reviews: [[B], []] }), diff: async () => String(n++) };
   expect(await codeReviewLoop(changing)).toEqual({ kind: "passed", rounds: 2 });

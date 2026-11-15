@@ -1400,11 +1400,11 @@ test("maxAgentRounds from the settings limits the precommit gate rounds", async 
   expect(w.workItemComments.at(-1)).toContain("not green after 2 rounds");
   expect(w.harness.jobs.filter((j) => j.role === "author" && j.resume)).toHaveLength(1);
 });
-test("a bad maxAgentRounds keeps the default of 5 rounds", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 0 } }, reviews: [[B], [B], [B], [B], [B]], lintFails: 0 }));
-  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 5 rounds");
-  const g = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 0 } }, lintFails: 5 }));
-  expect(g.workItemComments.at(-1)).toContain("not green after 5 rounds");
+test("a bad maxAgentRounds keeps the default of 10 rounds", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 0 } }, reviews: Array(10).fill([B]), lintFails: 0 }));
+  expect(w.workItemComments.at(-1)).toContain("Code review did not pass after 10 rounds");
+  const g = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: { maxAgentRounds: 0 } }, lintFails: 10 }));
+  expect(g.workItemComments.at(-1)).toContain("not green after 10 rounds");
 });
 // 5 gate rounds are used before the review fix, so the gate after it is a check only.
 test("a check-only gate after a review fix counts 5 rounds, not 6", async () => {
