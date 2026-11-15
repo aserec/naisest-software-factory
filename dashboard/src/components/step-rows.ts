@@ -1,5 +1,5 @@
 import { eventsOfType, type RunEvent } from "software-factory/run-events";
-import type { T } from "@/lib/i18n";
+import { translator, type T } from "@/lib/i18n";
 import { words } from "@/lib/utils";
 
 export type SeqEvent = RunEvent & { seq: number };
@@ -15,10 +15,12 @@ export interface StepRow {
   round?: number; // a code review or gate round, or the patch that fixed it
   stepAt?: string; // for a round: when its step started
   label?: string; // a name that replaces the step's own, such as "PR conflict"
+  ask?: number; // a patch the factory asked again because the last one changed no code: 2, 3 ...
 }
 
 // The name on a row: "Code review 2", "Patch 2", "Precommit gate 1". t translates a label; a step's own name stays as the code names it.
-export const stepRowName = (l: StepRow, t: T = (s) => s) => (l.label && t(l.label)) ?? `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}`;
+export const stepRowName = (l: StepRow, t: T = translator("en")) =>
+  (l.label && t(l.label)) ?? `${words(l.start.step ?? "")}${l.round ? ` ${l.round}` : ""}${l.ask ? `, ${t("ask {n}", { n: l.ask })}` : ""}`;
 
 // A conflict round: the event step that continues the run (its step_start carries a round), right after a change_state with conflicts.
 // ponytail: a request round on a change that also has conflicts reads as a conflict round too; send `conflicts` on the step_start if that matters.
@@ -81,16 +83,29 @@ function split(c: StepRow, kids: (c: StepRow) => StepRow[]): StepRow[] {
   if (inner.length === 0) return [c];
   const out: StepRow[] = [];
   let from: SeqEvent = c.start;
-  for (const [i, k] of inner.entries()) {
+  let n = 0;
+  for (const k of inner) {
     // A round a patch followed ends "blocking": it found what the patch fixed. A gate round before a review passed.
-    const r = round(c, i + 1, from, { ...k.start, type: "step_end", data: { outcome: "next" } }, k.start.step === "patch" ? "blocking" : "next");
-    out.push(r, ...(k.start.step === "patch" ? [{ ...k, round: r.round }] : split(k, kids)));
+    const r = round(c, n + 1, from, { ...k.start, type: "step_end", data: { outcome: "next" } }, k.start.step === "patch" ? "blocking" : "next");
+    const prev = out.at(-1);
+    if (k.start.step === "patch" && prev?.start.step === "patch" && reaskGap(c, r)) out.push({ ...k, round: prev.round, ask: (prev.ask ?? 1) + 1 });
+    else {
+      n++;
+      out.push(r, ...(k.start.step === "patch" ? [{ ...k, round: r.round }] : split(k, kids)));
+    }
     if (!k.end) return out;
     from = k.end;
   }
-  out.push(round(c, inner.length + 1, from, c.end, c.outcome));
+  const last = round(c, n + 1, from, c.end, c.outcome);
+  const prev = out.at(-1)!;
+  // The review gave up because the author changed no code: that last patch carries the outcome, no review ran after it.
+  if (prev.start.step === "patch" && c.end && reaskGap(c, last)) out[out.length - 1] = { ...prev, outcome: c.outcome };
+  else out.push(last);
   return out;
 }
+
+// No reviewer ran in this gap of a code review: the patch before it changed no code, so the factory asked the author again.
+const reaskGap = (c: StepRow, r: StepRow) => c.start.step === "code-review" && !!r.end && !r.events.some((e) => e.type === "prompt" || e.type === "usage" || e.type === "review_finding");
 
 // n counts the rounds in this step. A review round takes its findings' round, which goes on across the review and gate jobs.
 function round(c: StepRow, n: number, from: SeqEvent, end: StepRow["end"], outcome?: string): StepRow {

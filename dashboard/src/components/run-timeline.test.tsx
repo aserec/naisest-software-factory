@@ -320,6 +320,25 @@ test("a code review with fixes shows each round, then the patch that fixed it, i
   expect(panel.textContent).not.toContain("Round 1");
 });
 
+test("a patch the author changed no code in shows the next asks as Patch n, ask 2, with no review row between, and the last ask carries the block", async () => {
+  stream([
+    ev("step_start", "00", { step: "code-review" }),
+    ev("review_finding", "01", { step: "code-review", data: { text: "a", blocking: true, round: 1 } }),
+    ev("step_start", "02", { step: "patch" }),
+    ev("step_end", "03", { step: "patch", data: { outcome: "next" } }),
+    ev("step_start", "04", { step: "patch" }),
+    ev("step_end", "05", { step: "patch", data: { outcome: "next" } }),
+    ev("step_start", "06", { step: "patch" }),
+    ev("step_end", "07", { step: "patch", data: { outcome: "next" } }),
+    ev("step_end", "08", { step: "code-review", data: { outcome: "blocked" } }),
+  ]);
+  renderWithQuery(<RunTimeline run="r1" />);
+  await screen.findByRole("button", { name: /Code review 1/ });
+  const rows = [...document.querySelectorAll("[data-step-row]")].map((b) => b.textContent ?? "");
+  expect(rows.map((t) => t.match(/^(Code review|Patch) \d(, ask \d)?/)?.[0])).toEqual(["Code review 1", "Patch 1", "Patch 1, ask 2", "Patch 1, ask 3"]);
+  expect(rows[3]).toContain("blocked");
+});
+
 test("the gate shows its rounds with its patches, and the code review it runs after a fix splits into its own rounds", async () => {
   stream([
     ev("step_start", "00", { step: "precommit-gate" }),
