@@ -2,7 +2,7 @@
 # The local factory: every minute it asks each target's tracker for ready tickets and runs each one with local-run.sh.
 # Each target runs up to its maxRuns (targets/<name>.yml, default 2) tickets at once, each in its own slot dir slots/<target>-<n>,
 # with its output in factory.log, every line prefixed with the slot. FACTORY_TARGET names the targets, space-separated (default react_frontend). Needs TENSORX_API_KEY,
-# FACTORY_DASHBOARD_TOKEN (the dashboard's value), and GL_TOKEN or FACTORY_GITHUB_TOKEN for the targets' tracker and code host. FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
+# FACTORY_DASHBOARD_TOKEN (the dashboard's value, by default the one in dashboard/.env.local), and GL_TOKEN or FACTORY_GITHUB_TOKEN for the targets' tracker and code host. FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
 # Usage: ./local-factory.sh start|stop|status   (run: the same loop in the foreground)
 #        ./local-factory.sh fixer-start|fixer-stop|fixer-status   (the fix worker for plans approved in the dashboard chat;
 #        a loop of its own, so start and stop of the factory never end a fix in progress)
@@ -26,6 +26,8 @@ busy() { [ -f "$1/pid" ] && ps -p "$(cat "$1/pid")" -o command= 2>/dev/null | gr
 in_progress() { local d; for d in "$slotdir"/*/; do d=${d%/}; busy "$d" && echo "$(basename "$d") $(cat "$d/ticket" 2>/dev/null)"; done; return 0; }
 targets=${FACTORY_TARGET:-react_frontend}
 need_tokens() {
+  # Unset: the local dashboard's own value, which the default FACTORY_DASHBOARD_URL needs. Exported for the runs local-run.sh starts.
+  [ -n "${FACTORY_DASHBOARD_TOKEN:-}" ] || export FACTORY_DASHBOARD_TOKEN=$(sed -n 's/^FACTORY_DASHBOARD_TOKEN=//p' dashboard/.env.local 2>/dev/null)
   [ -n "${GL_TOKEN:-}${FACTORY_GITHUB_TOKEN:-}" ] || { echo "set GL_TOKEN or FACTORY_GITHUB_TOKEN"; exit 1; }
   : "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
 }
