@@ -80,3 +80,9 @@ These two go into `deploy/runner/config.toml`, not into `deploy/.env`.
 ## How it works
 
 See [docs/how-it-works.md](docs/how-it-works.md) for the run, its steps and the switches, and [docs/setup.md](docs/setup.md) for the GitLab and CI set-up.
+
+## Tests
+
+- `pnpm precommit` runs the unit tests and the typecheck of the factory and the dashboard.
+- `pnpm e2e` runs the dashboard's Playwright tests.
+- `docker compose -f compose.test.yml run --rm test` runs all of them in Linux, in the same image as CI. Only Docker is needed.

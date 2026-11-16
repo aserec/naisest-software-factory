@@ -15,8 +15,9 @@
     "./model-call": "./factory/adapters/model-call.ts"
   },
   "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "test": "vitest run && pnpm --filter factory-dashboard test",
+    "typecheck": "tsc --noEmit && pnpm --filter factory-dashboard typecheck",
+    "e2e": "pnpm --filter factory-dashboard exec playwright test",
     "precommit": "pnpm test && pnpm typecheck"
   },
   "dependencies": {

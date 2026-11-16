@@ -3,6 +3,8 @@ import { defineConfig } from "vitest/config";
 
 const alias = { "@": fileURLToPath(new URL("./src", import.meta.url)) };
 const esbuild = { jsx: "automatic" as const };
+// One zone on every machine, and not UTC: the insights panel asks again only when the viewer is outside UTC. The workers inherit it.
+process.env.TZ = "Europe/Madrid";
 
 // Component tests (*.test.tsx) run in happy-dom, everything else in node.
 // The node project hides node:sqlite's ExperimentalWarning.

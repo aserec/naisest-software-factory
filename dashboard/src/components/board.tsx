@@ -143,7 +143,7 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
   const t = useT();
   const when = ago(i.updatedAt);
   const block = i.conflicts ? t("it has conflicts with the base branch") : i.mergeBlock;
-  const pr = i.changeUrl && /\/(\d+)\/?$/.exec(i.changeUrl)?.[1]; // GitHub /pull/12, GitLab /merge_requests/12
+  const pr = i.changeUrl && /\/(\d+)\/?$/.exec(i.changeUrl)?.[1]; // the change number at the end of its URL, /pull/12 or /merge_requests/12
   const title = i.run ? (
     <Link href={`/runs/${encodeURIComponent(i.run)}`} className={link}>
       {i.title}
