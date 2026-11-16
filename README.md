@@ -11,6 +11,8 @@
    cd software-factory && ./install.sh
    ```
 
+   On Windows, run these commands in Git Bash (it comes with [Git for Windows](https://git-scm.com/download/win)) or in WSL2. `install.sh` is a bash script, and cmd and PowerShell cannot run it.
+
 The installer asks for each value, with where to get it, and writes `deploy/.env` (never in git). It then starts the dashboard behind HTTPS and the factory worker (`factory/worker.ts`, seams.yml `ci: local`), which runs each step of a run in a new container. Where those containers run is the answer to "Where tickets run": `machine` (the default) on this machine, `hetzner` on a new Hetzner VM per run that the worker deletes after the run, or `gitlab`, where a GitLab Runner starts one Hetzner VM per CI job in place of the worker (set `ci: gitlab` in seams.yml). Run `./install.sh` again after `git pull` to update. To change a value, edit `deploy/.env` and run it again.
 
 Which values you need depends on three choices: where people sign in, which tracker each target uses (`tracker` in its target file) and what runs the factory (`FACTORY_CI`). A GitHub-only setup needs no GitLab value at all. The installer asks where your tickets and code live (gitlab, github or both, guessed from `targets/`) and asks only for those values.
