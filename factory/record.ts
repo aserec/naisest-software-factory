@@ -35,7 +35,7 @@ export interface RunRecord {
 }
 
 // What applyOutcome saves for a stopped or waiting step outcome when an agent run pauses. A paused run resumes from it.
-export interface PauseData { sessionId?: string; limit?: true; stopped?: true; switchOff?: boolean }
+export interface PauseData { sessionId?: string; limit?: true; stopped?: true; switchOff?: boolean; network?: true }
 
 // The data each step saves in the record, by step name. Old records keep loading, so a field that an older
 // factory version did not save is optional here.

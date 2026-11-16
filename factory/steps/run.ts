@@ -95,7 +95,7 @@ export { STEPS };
 export const BUILD_STEPS: readonly string[] = STEPS.slice(0, STEPS.indexOf("apply"));
 export const FINISH_STEPS: readonly string[] = STEPS.slice(STEPS.indexOf("apply"));
 // A ready on a blocked ticket continues the run at one of these jobs. A block anywhere else starts a new run.
-const CONTINUABLE = BUILD_STEPS.slice(2);
+export const CONTINUABLE = BUILD_STEPS.slice(2);
 const CODE_STEPS: readonly string[] = STEPS.slice(STEPS.indexOf("prepare-patch"));
 
 // A resumed run skips the build jobs that finished before the one it continues at.
@@ -110,6 +110,8 @@ export function doneBeforeResume(ctx: StepContext, name: string): boolean {
 export const block = (reason: string, o: { continuable?: boolean } = {}): StepOutcome => ({ kind: "blocked", reason, ...o });
 // The agent hit a usage limit: keep the session so a later run can resume it.
 export const waiting = (step: PausableStep, session: string, commands?: FactoryCommands): StepOutcome => ({ kind: "waiting", step, session, commands });
+// The network stayed down through every try: the hourly retry runs the step again, with the run's newest session.
+export const networkWaiting = (step: PausableStep, session?: string): StepOutcome => ({ kind: "waiting", step, session, network: true });
 // A person (`@factory stop`) or a dashboard switch stopped the run.
 export const stopped = (step: PausableStep, o: { session?: string; reason: string; change?: ChangeRef; commands?: FactoryCommands }): StepOutcome => ({ kind: "stopped", step, ...o });
 
@@ -126,9 +128,9 @@ export async function applyOutcome(ctx: StepContext, o: StepOutcome): Promise<St
     case "waiting": {
       // The hourly retry reads the note.
       const ref = ticketRef(ctx);
-      save(ctx, o.step, { ...(o.commands && { commands: o.commands }), sessionId: o.session, limit: true });
+      save(ctx, o.step, { ...(o.commands && { commands: o.commands }), sessionId: o.session, limit: true, ...(o.network && { network: true as const }) });
       await ctx.tracker.setState(ref, "waiting");
-      await conversation(ctx).write(ref, { kind: "waiting", run: ctx.ci.vars.run });
+      await conversation(ctx).write(ref, { kind: "waiting", run: ctx.ci.vars.run, ...(o.network && { network: true as const }) });
       return o;
     }
     case "stopped": {
@@ -240,8 +242,8 @@ function continuePoint(ctx: StepContext, ref: TicketRef, buildRun: string, kind:
   if (why) return { why };
   if (kind === "blocked") return f.blockedStep && CONTINUABLE.includes(f.blockedStep) ? { at: f.blockedStep } : { why: `the record of pipeline ${buildRun} does not show which step blocked` };
   const p = f.paused;
-  // A run a switch stopped has no session: that step starts afresh.
-  if (!p || !(p.sessionId || p.switchOff)) return { why: `the record of pipeline ${buildRun} has no saved session` };
+  // A run a switch stopped, or one that waited out the network before any agent ran, has no session: that step starts afresh.
+  if (!p || !(p.sessionId || p.switchOff || p.network)) return { why: `the record of pipeline ${buildRun} has no saved session` };
   // The questions agent runs inside the triage job.
   return { at: p.step === "questions" ? "triage" : p.step, sessionId: p.sessionId };
 }

