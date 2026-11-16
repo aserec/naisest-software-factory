@@ -8,7 +8,7 @@ RUN apt-get update \
 # npm puts both CLIs in /usr/local/bin, which is on the fixed PATH of every factory command.
 RUN npm install -g @anthropic-ai/claude-code@2.1.316 @earendil-works/pi-coding-agent@1.4.0 \
  && npm cache clean --force
-# uv and Python for Python targets (musicapp_backend). The sandbox reaches PyPI but not the Python downloads, so
+# uv and Python for Python targets (core_app, events_app). The sandbox reaches PyPI but not the Python downloads, so
 # Python is in the image: uv finds python3.15 on PATH, as a target's .python-version asks. Bump uv with the targets' required-version.
 COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
 RUN UV_PYTHON_INSTALL_DIR=/opt/uv-python UV_PYTHON_BIN_DIR=/usr/local/bin uv python install 3.15 \

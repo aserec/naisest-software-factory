@@ -302,10 +302,10 @@ test("a code agent keeps npm's and uv's caches in the clone's run dir; an agent 
 });
 
 test("each ticket of a target with testEnv gets its own value, so two branches never share one test database", () => {
-  const db = (ticket: string) => codeEnv({ tools: "code" }, "/w/run/target", { FACTORY_TARGET: "musicapp_backend", FACTORY_WORK_ITEM_IID: ticket }).TEST_DATABASE_URL;
-  expect(db("123")).toMatch(/\/musicapp_t123_test$/);
+  const db = (ticket: string) => codeEnv({ tools: "code" }, "/w/run/target", { FACTORY_TARGET: "events_app", FACTORY_WORK_ITEM_IID: ticket }).TEST_DATABASE_URL;
+  expect(db("123")).toMatch(/\/events_t123_test$/);
   expect(db("116")).not.toBe(db("123"));
-  expect(codeEnv({ tools: "code" }, "/w/run/target", { FACTORY_TARGET: "musicapp_webapp", FACTORY_WORK_ITEM_IID: "1" })).not.toHaveProperty("TEST_DATABASE_URL");
+  expect(codeEnv({ tools: "code" }, "/w/run/target", { FACTORY_TARGET: "core_app", FACTORY_WORK_ITEM_IID: "1" })).not.toHaveProperty("TEST_DATABASE_URL");
 });
 
 test("on a local run the agent reads the Mac's Corepack cache, since Corepack cannot download pnpm through the sandbox", () => {

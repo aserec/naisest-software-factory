@@ -539,7 +539,7 @@ test("a target on GitHub needs only the GitHub token and builds the GitHub track
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gh", "chat", "dash"]) writeFileSync(join(dir, k), "x");
-    return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "musicapp_webapp", TENSORX_API_KEY: "k", CELERIS_API_KEY: "k", SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
+    return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "core_app", TENSORX_API_KEY: "k", CELERIS_API_KEY: "k", SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   expect(() => makeContext(env({}), dir, seamsFile(dir))).toThrow(/FACTORY_GITHUB_TOKEN is not set/);
   const ctx = makeContext(env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") }), dir, seamsFile(dir));

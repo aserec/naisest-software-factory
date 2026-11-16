@@ -115,7 +115,7 @@ Result: factory-side. Fix the sandbox settings in factory code, run the tests,
 ### Factory-side failure, restart
 
 ```text
-Input:  log shows "Error: SLACK_WEBHOOK_URL is not set" and "the musicapp_webapp poll failed" every minute.
+Input:  log shows "Error: SLACK_WEBHOOK_URL is not set" and "the core_app poll failed" every minute.
 Result: factory-side. The loop started without the variable. Wait for no ticket in progress,
         then factory-musica stop and factory-musica start.
 ```

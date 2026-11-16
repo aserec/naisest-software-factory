@@ -130,7 +130,7 @@ function mainWorld(plan: AgentPlan) {
 afterEach(() => vi.unstubAllGlobals());
 
 test("main runs a target plan in a clone of the target, reading each secret file only once, and ends the plan done", async () => {
-  const plan: AgentPlan = { ...PLAN, target: "musicapp_webapp" };
+  const plan: AgentPlan = { ...PLAN, target: "core_app" };
   const w = mainWorld(plan);
   const seen: Parameters<typeof fix>[0][] = [];
   await main(w.env, { secretDir: w.secretDir, fix: async (s) => (seen.push(s), { url: "https://example.test/pr/1" }) });

@@ -54,7 +54,7 @@ Create three schedules for the target (Build > Pipeline schedules). Sign in as t
 
 ## A repo on GitHub
 
-The target file picks `tracker: github-project` (or `github`) and `codeHost: github`, which replace `seams.yml` for that target only. See `targets/musicapp_webapp.yml`.
+The target file picks `tracker: github-project` (or `github`) and `codeHost: github`, which replace `seams.yml` for that target only. See `targets/core_app.yml`.
 
 - [ ] Until the factory has its own GitHub account, a token of a person's account works with `sharedAccount: true` in the target: that person's Ready counts, and the factory tells its own comments apart by the AI line.
 - [ ] Set `githubRepo` (`owner/name`), `githubProject` (the board number from its URL) and `defaultApprover` (a GitHub login).

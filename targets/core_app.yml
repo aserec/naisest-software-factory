@@ -1,0 +1,41 @@
+name: core_app
+# Tickets are cards on the Core App board, and changes are pull requests: both need FACTORY_GITHUB_TOKEN.
+tracker: github-project
+codeHost: github
+githubRepo: musicapp/core-app
+githubProject: 3 # https://github.com/orgs/musicapp/projects/3, a copy of the musicapp board's columns
+projectPath: musicapp/core-app # GitLab adapters only; the github ones use githubRepo
+baseBranch: main
+# One run at a time: the repo's .factory.yml starts the preview on the fixed port 3910, not {port}. Back to 2 once it uses {port}.
+maxRuns: 1
+defaultApprover: aserec
+# The agents write comments, questions, commit messages and pull requests in this language. No key: English.
+language: Spanish
+# The token is aserec's own until the factory gets its own GitHub account: aserec's Ready counts. Remove it then.
+sharedAccount: true
+# apps/backend is Python (uv, requires-python >=3.14). A local run needs that Python on PATH: the run sandbox cannot download it.
+jobImage: gitlab.example.com:5050/ceresa/software-factory/job:main
+protectedPaths:
+  - ".github/**"
+  - "**/.env*"
+  - "**/migrations/**"
+  - "**/alembic/**"
+  # legacy/ is the old app, kept for reference only; check-apps.sh is the lint rule that keeps apps/ away from it.
+  - "legacy/**"
+  - "scripts/check-apps.sh"
+  - ".factory.yml"
+  - CLAUDE.md
+  - AGENTS.md
+  - ".claude/**"
+  - ".agents/**"
+  - ".codex/**"
+  - ".cursor/**"
+  - ".gemini/**"
+  - ".mcp.json"
+  - "**/.gitattributes"
+  - ".factory/**"
+dependencyFiles:
+  - "**/package.json"
+  - "**/pnpm-lock.yaml"
+  - "**/pyproject.toml"
+  - "**/uv.lock"
