@@ -18,3 +18,9 @@ dist/
 /.claude/skills/impeccable/scripts/bin/
 /.cursor/skills/impeccable/scripts/bin/
 /.gemini/skills/impeccable/scripts/bin/
+
+# Real targets stay on this machine. The tracked ones are samples the tests load.
+/targets/*.yml
+!/targets/react_frontend.yml
+!/targets/core_app.yml
+!/targets/events_app.yml
