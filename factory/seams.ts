@@ -92,7 +92,7 @@ export interface CodeHost {
   commentChange(ref: ChangeRef, text: string): Promise<void>;
   changeComments(ref: ChangeRef, since?: string): Promise<Comment[]>; // people's and the factory's comments, newest first, only those created after since; system notes left out
   changeEdits(ref: ChangeRef, since?: string): Promise<{ author: PersonRef; byFactory: boolean; field: "title" | "body"; at: string }[]>; // edits of the title and the text after since, newest first, from the newest 100; byFactory: made by the token's own user
-  changeCommits(ref: ChangeRef): Promise<{ sha: string; byFactory: boolean }[]>; // byFactory: the commit's author email is FACTORY_GIT_EMAIL
+  changeCommits(ref: ChangeRef): Promise<{ sha: string; byFactory: boolean }[]>; // byFactory: the commit's author email is FACTORY_GIT_EMAIL or the bot account's
   baseCommits(since: string): Promise<{ sha: string; title: string; message: string; at: string }[]>; // the commits on the base branch since, newest first
   recentChanges(since: string): Promise<{ ref: ChangeRef; ticket: TicketRef }[]>; // the open changes of this repo from branches factory/<ticket>-, or factory/<ticket>-- for a ref that is not a number, updated after since, newest first, at most 100, from one listing call; forks left out
   assignChange(ref: ChangeRef, person: PersonRef): Promise<void>;

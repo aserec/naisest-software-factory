@@ -48,7 +48,7 @@ export function stepEnv(base: NodeJS.ProcessEnv, v: { pipeline?: string; schedul
     FACTORY_SKIP_APPLY: v.run?.skipApply ? "1" : "", FACTORY_RUN_ID: v.id ?? "",
   };
   if (v.source) e.CI_PIPELINE_SOURCE = v.source; // web: a person started it (the watcher with logSource files)
-  for (const k of ["FACTORY_DASHBOARD_URL", "NODE_EXTRA_CA_CERTS", ...providerKeys(seams)]) if (base[k]) e[k] = base[k]!;
+  for (const k of ["FACTORY_DASHBOARD_URL", "NODE_EXTRA_CA_CERTS", "FACTORY_GIT_EMAIL", ...providerKeys(seams)]) if (base[k]) e[k] = base[k]!;
   // A plan for the factory repo has no target, so only the fix step may leave it empty.
   checkVars(e, { FACTORY_RUN_ID: /^([0-9]+)?$/, FACTORY_TARGET: v.pipeline === "fix" ? /^[a-z0-9_-]*$/ : /^[a-z0-9_-]+$/ });
   return e;

@@ -3,6 +3,6 @@ import { makeContext } from "./compose";
 import { loadRecord } from "./record";
 import { ticketRef } from "./steps/context";
 
-const ctx = makeContext(process.env);
+const ctx = await makeContext(process.env);
 ctx.record = loadRecord();
 await ctx.tracker.setState(ticketRef(ctx), "running");

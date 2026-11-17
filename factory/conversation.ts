@@ -26,6 +26,9 @@ const hidden = (...lines: string[]) => `<!--\n${lines.join("\n")}\n-->`;
 
 const COMMANDS = [STOP_COMMAND, RESUME_COMMAND];
 const REQUEST_MENTION = /(^|[^\w@.-])@factory(?![\w-])/i;
+// A mention of the factory's own account, `@<login>`, written as `@factory`, so the rules below read one name.
+export const asFactoryMention = (body: string, login: string) =>
+  body.replace(new RegExp(`(^|[^\\w@.-])@${login.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "gi"), "$1@factory");
 
 export function isRequest(body: string): boolean {
   if (body.split("\n").some((l) => COMMANDS.includes(l.trim().toLowerCase()))) return false;

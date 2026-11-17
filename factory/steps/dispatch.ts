@@ -8,7 +8,7 @@ import { agent, isMain, languageLine, switchOn } from "./context";
 
 export async function main(env: NodeJS.ProcessEnv = process.env) {
   if (env.FACTORY_PIPELINE !== "dispatch") throw new Error("FACTORY_PIPELINE must be dispatch");
-  const ctx = makeContext(env);
+  const ctx = await makeContext(env);
   // Its own switch, but the same daily cap of ready tickets as the watcher: both open watcher-marked tickets.
   if (!(await switchOn(ctx, "dispatches"))) return console.log("The dispatches switch is off on the dashboard, so dispatches wait.");
   const r = await runDispatches({

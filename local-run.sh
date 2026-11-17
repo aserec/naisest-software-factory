@@ -11,6 +11,8 @@ set -euo pipefail
 iid=${1:?usage: ./local-run.sh <ticket iid> [step to start from]}
 from=${2:-}
 cd "$(dirname "$0")"
+# .env in the repo root (git-ignored, see .env.example): NAME=value lines, no quotes. A variable set in the shell wins.
+while IFS='=' read -r k v || [ -n "$k" ]; do [[ $k =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && [ -z "${!k+x}" ] && export "$k=$v"; done < <(cat .env 2>/dev/null); unset k v
 root=$PWD
 work=${FACTORY_WORK_DIR:-$root}
 slot=${FACTORY_WORK_DIR:+-$(basename "$FACTORY_WORK_DIR")}
@@ -88,6 +90,8 @@ for step in "${steps[@]}"; do
   tokens=()
   [ -z "${GL_TOKEN:-}" ] || { printf %s "$GL_TOKEN" > "$secrets/gl"; tokens+=(FACTORY_GITLAB_TOKEN="$secrets/gl"); }
   [ -z "${FACTORY_GITHUB_TOKEN:-}" ] || { printf %s "$FACTORY_GITHUB_TOKEN" > "$secrets/gh"; tokens+=(FACTORY_GITHUB_TOKEN="$secrets/gh"); }
+  [ -z "${FACTORY_BOT_GITHUB_TOKEN:-}" ] || { printf %s "$FACTORY_BOT_GITHUB_TOKEN" > "$secrets/ghbot"; tokens+=(FACTORY_BOT_GITHUB_TOKEN="$secrets/ghbot"); }
+  [ -z "${FACTORY_BOT_GITLAB_TOKEN:-}" ] || { printf %s "$FACTORY_BOT_GITLAB_TOKEN" > "$secrets/glbot"; tokens+=(FACTORY_BOT_GITLAB_TOKEN="$secrets/glbot"); }
   [ -z "${TEAMS_WEBHOOK_URL:-}" ] || { printf %s "$TEAMS_WEBHOOK_URL" > "$secrets/teams"; tokens+=(TEAMS_WEBHOOK_URL="$secrets/teams"); }
   [ -z "${SLACK_WEBHOOK_URL:-}" ] || { printf %s "$SLACK_WEBHOOK_URL" > "$secrets/slack"; tokens+=(SLACK_WEBHOOK_URL="$secrets/slack"); }
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
@@ -96,7 +100,7 @@ for step in "${steps[@]}"; do
   # Its own Claude config, as the worker has: your ~/.claude hooks, plugins and CLAUDE.md must not reach the agents.
   env -i PATH="$PATH" HOME="$HOME" CLAUDE_CONFIG_DIR="$PWD/run/claude-home" PLAYWRIGHT_BROWSERS_PATH="$browsers" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID="$run_id" FACTORY_PIPELINE="$pipeline" FACTORY_LOCAL_FINISH=1 FACTORY_TARGET="$target" \
-    FACTORY_WORK_ITEM_IID="$iid" FACTORY_PORT="${FACTORY_PORT:-}" FACTORY_BUILD_PIPELINE_ID="${FACTORY_BUILD_PIPELINE_ID:-}" FACTORY_MR_IID="${FACTORY_MR_IID:-}" FACTORY_SKIP_APPLY="${FACTORY_SKIP_APPLY:-}" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
+    FACTORY_WORK_ITEM_IID="$iid" FACTORY_PORT="${FACTORY_PORT:-}" FACTORY_BUILD_PIPELINE_ID="${FACTORY_BUILD_PIPELINE_ID:-}" FACTORY_MR_IID="${FACTORY_MR_IID:-}" FACTORY_SKIP_APPLY="${FACTORY_SKIP_APPLY:-}" FACTORY_GIT_EMAIL="${FACTORY_GIT_EMAIL:-}" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
     node --import "$tsx" "$root/$([ "$step" = resume ] && echo factory/local-resume.ts || echo "factory/steps/$step.ts")"
   # A round's event step restored the earlier run's run/ and its run-id: this run keeps its own number.
   [ "$step" != event ] || echo "$run_id" > run/run-id

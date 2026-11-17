@@ -6,8 +6,11 @@ export const ADAPTER_SECRETS: { tracker: Record<string, string>; codeHost: Recor
   chat: { teams: "TEAMS_WEBHOOK_URL", slack: "SLACK_WEBHOOK_URL" },
 };
 
-// Secrets that arrive as File-type CI variables: every adapter secret once, then the dashboard token.
-export const FILE_SECRETS: string[] = [...new Set([...Object.values(ADAPTER_SECRETS).flatMap((m) => Object.values(m)), "FACTORY_DASHBOARD_TOKEN"])];
+// The factory's own account on each host. compose.ts uses it in place of the token it is keyed by, only for a target it may write to.
+export const BOT_SECRETS: Record<string, string> = { FACTORY_GITHUB_TOKEN: "FACTORY_BOT_GITHUB_TOKEN", FACTORY_GITLAB_TOKEN: "FACTORY_BOT_GITLAB_TOKEN" };
+
+// Secrets that arrive as File-type CI variables: every adapter secret once, the bot tokens, then the dashboard token.
+export const FILE_SECRETS: string[] = [...new Set([...Object.values(ADAPTER_SECRETS).flatMap((m) => Object.values(m)), ...Object.values(BOT_SECRETS), "FACTORY_DASHBOARD_TOKEN"])];
 
 // A secret the worker's own env holds under another name: deploy/compose.yml and install.sh name the GitLab token GL_TOKEN.
 export const WORKER_ENV_NAMES: Record<string, string> = { FACTORY_GITLAB_TOKEN: "GL_TOKEN" };

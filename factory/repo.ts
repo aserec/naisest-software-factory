@@ -18,7 +18,7 @@ export const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 // Paths come from this file's place, not from env, which a trigger caller can set.
 // The factory checkout's .git may hold CI_JOB_TOKEN in its remote URL; the runner keeps File-type variables in <project dir>.tmp.
-export const FACTORY_GIT_EMAIL = "factory@noreply.invalid"; // the author of every commit the factory makes
+export const FACTORY_GIT_EMAIL = "factory@noreply.invalid"; // the author of every commit the factory makes with a person's token; the bot account has its own email
 export const FACTORY_ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
 // Local state inside the checkout, in its git-ignored .cache: the sandbox's rootReads hides it from the agents.
 // Secret files: the worker and the local scripts write them to .cache/tmp. A GitLab job gets them from its runner, in <project dir>.tmp.
@@ -114,7 +114,7 @@ async function sandboxed(cmd: string, dir: string, env: NodeJS.ProcessEnv) {
 // The server's own trouble, not a refused push: worth a second try.
 const TRANSIENT_PUSH = /fatal error in|Internal Server Error|RPC failed|remote end hung up|early EOF|Could not resolve host|Connection (timed out|reset)|\b50[234]\b/;
 
-export function gitRepo(dir: string, gitDir: string, url: string, token: string, env: NodeJS.ProcessEnv, retryMs = 5000): Repo {
+export function gitRepo(dir: string, gitDir: string, url: string, token: string, env: NodeJS.ProcessEnv, retryMs = 5000, email = FACTORY_GIT_EMAIL): Repo {
   // The token goes in a header through env, so it is never written to any config file.
   const auth = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "http.extraHeader", GIT_CONFIG_VALUE_0: `Authorization: Basic ${Buffer.from(`oauth2:${token}`).toString("base64")}` };
   const base = { PATH: env.PATH, HOME: env.HOME, LANG: env.LANG, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
@@ -125,7 +125,7 @@ export function gitRepo(dir: string, gitDir: string, url: string, token: string,
     return r.out;
   };
   const ours = ["--git-dir", gitDir, "--work-tree", dir];
-  const who = { GIT_AUTHOR_NAME: "Software Factory", GIT_AUTHOR_EMAIL: FACTORY_GIT_EMAIL, GIT_COMMITTER_NAME: "Software Factory", GIT_COMMITTER_EMAIL: FACTORY_GIT_EMAIL };
+  const who = { GIT_AUTHOR_NAME: "Software Factory", GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: "Software Factory", GIT_COMMITTER_EMAIL: email };
   return {
     async clone(ref) {
       if (existsSync(dir)) return;

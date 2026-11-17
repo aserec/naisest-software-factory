@@ -523,17 +523,17 @@ test("decision blocks instead of starting finish without a build pipeline id", a
   expect(w.states).toEqual(["blocked"]);
 });
 
-test("makeContext rejects a target with no targets/<name>.yml, and a job image the target does not name", () => {
+test("makeContext rejects a target with no targets/<name>.yml, and a job image the target does not name", async () => {
   const dir = tmp();
   const env = (o: Record<string, string>) => {
     for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x");
     return { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", CELERIS_API_KEY: "k", TENSORX_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
   const seams = seamsFile(dir);
-  expect(() => makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "../router" }), dir, seams)).toThrow(/Unknown FACTORY_TARGET/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir, seams)).toThrow(/image/);
-  expect(() => makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "gitlab.example.com:5050/ceresa/software-factory/job:main" }), dir, seams)).not.toThrow();
+  await expect(makeContext(env({ FACTORY_TARGET: "nope" }), dir, seams)).rejects.toThrow(/Unknown FACTORY_TARGET/);
+  await expect(makeContext(env({ FACTORY_TARGET: "../router" }), dir, seams)).rejects.toThrow(/Unknown FACTORY_TARGET/);
+  await expect(makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "evil/image:1" }), dir, seams)).rejects.toThrow(/image/);
+  await expect(makeContext(env({ FACTORY_TARGET: "react_frontend", CI_JOB_IMAGE: "gitlab.example.com:5050/ceresa/software-factory/job:main" }), dir, seams)).resolves.toBeDefined();
 });
 test("a target on GitHub needs only the GitHub token and builds the GitHub tracker and code host", async () => {
   const dir = tmp();
@@ -541,13 +541,13 @@ test("a target on GitHub needs only the GitHub token and builds the GitHub track
     for (const k of ["gh", "chat", "dash"]) writeFileSync(join(dir, k), "x");
     return { FACTORY_PIPELINE: "build", FACTORY_TARGET: "core_app", TENSORX_API_KEY: "k", CELERIS_API_KEY: "k", SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash"), ...o };
   };
-  expect(() => makeContext(env({}), dir, seamsFile(dir))).toThrow(/FACTORY_GITHUB_TOKEN is not set/);
-  const ctx = makeContext(env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") }), dir, seamsFile(dir));
+  await expect(makeContext(env({}), dir, seamsFile(dir))).rejects.toThrow(/FACTORY_GITHUB_TOKEN is not set/);
+  const ctx = await makeContext(env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") }), dir, seamsFile(dir));
   expect(ctx.seams).toMatchObject({ tracker: "github-project", codeHost: "github" });
   expect(ctx.repo).toBeDefined();
   // A missing chat webhook does not stop the step: notices go to the console.
   const { SLACK_WEBHOOK_URL: _, ...noChat } = env({ FACTORY_GITHUB_TOKEN: join(dir, "gh") });
-  const quiet = makeContext(noChat, dir, seamsFile(dir));
+  const quiet = await makeContext(noChat, dir, seamsFile(dir));
   const log = vi.spyOn(console, "log").mockImplementation(() => {});
   await quiet.chat.notify("blocked", "t", ["l"], "u");
   expect(log).toHaveBeenCalledWith(expect.stringContaining("[chat blocked] t"));
@@ -810,11 +810,11 @@ test("the MR pipeline status is read for the reviewed head commit in risk-check 
   expect(f.merged).toBe(true);
 });
 
-test("makeContext registers the secrets it holds, so no comment or push can carry them", () => {
+test("makeContext registers the secrets it holds, so no comment or push can carry them", async () => {
   const dir = tmp();
   const file = (name: string, v: string) => (writeFileSync(join(dir, name), `${v}\n`), join(dir, name));
   const chat = "https://hooks.slack.example/services/0123456789";
-  makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", CELERIS_API_KEY: "celeris-key-0123456789",
+  await makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", CELERIS_API_KEY: "celeris-key-0123456789",
     TENSORX_API_KEY: "tensorx-key-0123456789", CLAUDE_CODE_OAUTH_TOKEN: "oauth-0123456789abcdef",
     FACTORY_GITLAB_TOKEN: file("gl", "gitlab-token-0123456789"), SLACK_WEBHOOK_URL: file("chat", chat), FACTORY_DASHBOARD_TOKEN: file("dash", "dashboard-token-0123456789"), FACTORY_TRIGGER_TOKEN: file("trig", "trigger-0123456789") }, dir, seamsFile(dir, (t) => t.replace(/^ci: local$/m, "ci: gitlab")));
   for (const v of ["celeris-key-0123456789", "tensorx-key-0123456789", "oauth-0123456789abcdef", "gitlab-token-0123456789", chat, "dashboard-token-0123456789", "trigger-0123456789"]) {
@@ -903,17 +903,17 @@ test("a resume of a record from an older factory version blocks", async () => {
   expect(w.claudeRuns).toHaveLength(0);
 });
 // Review Focus 2: an adapter name not in the map fails before any adapter is built.
-test("makeContext refuses an unknown adapter in seams.yml before it builds any", () => {
+test("makeContext refuses an unknown adapter in seams.yml before it builds any", async () => {
   const dir = tmp();
   const seams = join(dir, "seams.yml");
   writeFileSync(seams, readFileSync(fileURLToPath(new URL("../../seams.yml", import.meta.url)), "utf8").replace("tracker: gitlab", "tracker: jira"));
   writeFileSync(join(dir, "gl"), "glpat-x");
-  expect(() => makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl") }, dir, seams)).toThrow("seams.yml tracker: unknown adapter jira");
+  await expect(makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl") }, dir, seams)).rejects.toThrow("seams.yml tracker: unknown adapter jira");
   expect(existsSync(join(dir, "gl"))).toBe(true); // the CI adapter never ran, so it read no secret
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: jira", "tracker: toString"));
-  expect(() => makeContext({ FACTORY_TARGET: "react_frontend" }, dir, seams)).toThrow("seams.yml tracker: unknown adapter toString");
+  await expect(makeContext({ FACTORY_TARGET: "react_frontend" }, dir, seams)).rejects.toThrow("seams.yml tracker: unknown adapter toString");
   writeFileSync(seams, readFileSync(seams, "utf8").replace("tracker: toString", "tracker: gitlab").replace("logSource: files", "logSource: filez"));
-  expect(() => makeContext({ FACTORY_TARGET: "react_frontend" }, dir, seams)).toThrow("seams.yml logSource: unknown adapter filez");
+  await expect(makeContext({ FACTORY_TARGET: "react_frontend" }, dir, seams)).rejects.toThrow("seams.yml logSource: unknown adapter filez");
 });
 test("prepare patch and the questions agent clone the base branch", async () => {
   expect((await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" } }))).cloned).toEqual(["develop"]);
@@ -922,22 +922,22 @@ test("prepare patch and the questions agent clone the base branch", async () => 
 test("makeContext builds a context on the adapters seams.yml names", async () => {
   const dir = tmp();
   for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x");
-  const ctx = makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", CELERIS_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
+  const ctx = await makeContext({ CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", TENSORX_API_KEY: "k", CELERIS_API_KEY: "k", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") }, dir, seamsFile(dir));
   expect(typeof ctx.dashboard.send).toBe("function");
   expect(ctx.ci.vars.ticket).toBe("8");
   expect(await ctx.codeHost.baseBranch()).toBe("develop");
   expect(ctx.seams.tracker).toBe("gitlab");
   expect(Object.keys(ctx.harnesses).sort()).toEqual(["claude-code", "pi"]);
 });
-test("seams.yml judge: model-call builds the model judge from judgeModel, and needs that provider's key", () => {
+test("seams.yml judge: model-call builds the model judge from judgeModel, and needs that provider's key", async () => {
   const dir = tmp();
   const seams = seamsFile(dir, (t) => t.replace("judge: jev-celeris", "judge: model-call"));
   const files = () => { for (const k of ["gl", "chat", "dash"]) writeFileSync(join(dir, k), "x"); }; // a secret file is read once, then removed
   const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_WORK_ITEM_IID: "8", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
   files();
-  expect(() => makeContext(env, dir, seams)).toThrow("TENSORX_API_KEY is not set");
+  await expect(makeContext(env, dir, seams)).rejects.toThrow("TENSORX_API_KEY is not set");
   files();
-  expect(makeContext({ ...env, TENSORX_API_KEY: "tx-key-0123456789" }, dir, seams).judge.provider).toBe("model");
+  expect((await makeContext({ ...env, TENSORX_API_KEY: "tx-key-0123456789" }, dir, seams)).judge.provider).toBe("model");
 });
 
 // The inbox. A stop comment ends an author run; a resume comment continues it.
@@ -1641,15 +1641,15 @@ test("an upload that works on its last retry adds no reason", async () => {
   expect(w.mrDescription).not.toContain("image upload failed");
   expect(w.finishTriggered).toBe(true);
 });
-test("makeContext needs the dashboard token and a real dashboardUrl", () => {
+test("makeContext needs the dashboard token and a real dashboardUrl", async () => {
   const dir = tmp();
   const env = { CI_SERVER_URL: GITLAB_URL, CI_PROJECT_ID: "3", FACTORY_PIPELINE: "build", FACTORY_TARGET: "react_frontend", FACTORY_GITLAB_TOKEN: join(dir, "gl"), SLACK_WEBHOOK_URL: join(dir, "chat"), FACTORY_DASHBOARD_TOKEN: join(dir, "dash") };
   const files = (...ks: string[]) => { for (const k of ks) writeFileSync(join(dir, k), "x"); };
   files("gl", "chat");
-  expect(() => makeContext({ ...env, FACTORY_DASHBOARD_TOKEN: "" }, dir, seamsFile(dir))).toThrow("FACTORY_DASHBOARD_TOKEN is not set");
+  await expect(makeContext({ ...env, FACTORY_DASHBOARD_TOKEN: "" }, dir, seamsFile(dir))).rejects.toThrow("FACTORY_DASHBOARD_TOKEN is not set");
   files("gl", "chat", "dash");
   const placeholder = seamsFile(dir, (t) => t.replace(/^dashboardUrl: .*$/m, "dashboardUrl: REPLACE_WITH_DASHBOARD_URL"));
-  expect(() => makeContext(env, dir, placeholder)).toThrow(/dashboardUrl is still a placeholder/);
+  await expect(makeContext(env, dir, placeholder)).rejects.toThrow(/dashboardUrl is still a placeholder/);
 });
 
 // Task B2: each run has an ID, and its steps send events to the dashboard.

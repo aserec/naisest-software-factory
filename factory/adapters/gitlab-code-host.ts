@@ -5,7 +5,7 @@ import { GitLab, GITLAB_URL, refuseSecrets } from "../gitlab";
 import { FACTORY_GIT_EMAIL, gitRepo } from "../repo";
 import { changeBranchPrefix, ticketOfBranch, type Checks, type CodeHost } from "../seams";
 
-export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<unknown> = wait): CodeHost {
+export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<unknown> = wait, commitEmail = FACTORY_GIT_EMAIL): CodeHost {
   let project: Promise<number> | undefined;
   const projectId = () => (project ??= gitlab.getJson(`/projects/${encodeURIComponent(projectPath)}`).then((p: { id: number }) => p.id));
   const mrUrl = async (ref: string) => `/projects/${await projectId()}/merge_requests/${Number(ref)}`;
@@ -24,7 +24,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
 
   return {
     baseBranch: async () => baseBranch,
-    cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `${GITLAB_URL}/${projectPath}.git`, token, env),
+    cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `${GITLAB_URL}/${projectPath}.git`, token, env, undefined, commitEmail),
     async openChange(branch, title, body, ticket) {
       const text = [AI_LINE, ...(ticket ? [`Closes #${ticket}`] : []), body].join("\n\n");
       const id = await projectId();
@@ -137,7 +137,7 @@ export function makeGitLabCodeHost(gitlab: GitLab, projectPath: string, token: s
     },
     async changeCommits(ref) {
       const commits = await gitlab.all<{ id: string; author_email: string }>(`${await mrUrl(ref)}/commits?per_page=100`);
-      return commits.map((c) => ({ sha: c.id, byFactory: c.author_email === FACTORY_GIT_EMAIL }));
+      return commits.map((c) => ({ sha: c.id, byFactory: [FACTORY_GIT_EMAIL, commitEmail].includes(c.author_email) }));
     },
     // Every revert that reached the base branch is a commit here: a revert commit, a merged revert change, or a Revert button.
     async baseCommits(since) {

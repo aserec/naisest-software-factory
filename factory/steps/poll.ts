@@ -49,7 +49,7 @@ export async function pollReady(ctx: StepContext, skip: TicketRef[] = []): Promi
 // Tests pass their own context.
 export async function main(ctx?: StepContext) {
   if (process.env.FACTORY_SCHEDULE !== "poll") throw new Error("FACTORY_SCHEDULE must be poll");
-  ctx = { ...(ctx ?? makeContext(process.env)) };
+  ctx = { ...(ctx ?? (await makeContext(process.env))) };
   if (!process.argv.includes("--list")) return tick(ctx);
   // --alive=a,b: the tickets local-factory.sh runs right now. Their running state is a live run, not a dead one.
   const alive = process.argv.find((a) => a.startsWith("--alive="))?.slice("--alive=".length).split(",").filter(Boolean) ?? [];

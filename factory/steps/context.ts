@@ -329,7 +329,7 @@ function watch(ctx: StepContext): void {
 export async function runStep(
   name: string,
   run: (ctx: StepContext) => Promise<StepOutcome>,
-  opts: { env?: NodeJS.ProcessEnv; make?: (env: NodeJS.ProcessEnv) => StepContext; dir?: string } = {},
+  opts: { env?: NodeJS.ProcessEnv; make?: (env: NodeJS.ProcessEnv) => StepContext | Promise<StepContext>; dir?: string } = {},
 ): Promise<void> {
   const dir = opts.dir ?? RUN_DIR;
   const stopFile = join(dir, "stop");
@@ -337,7 +337,7 @@ export async function runStep(
     console.log(`Skipping ${name}: the run stopped at ${readFileSync(stopFile, "utf8")}.`);
     return;
   }
-  const ctx = (opts.make ?? makeContext)(opts.env ?? process.env);
+  const ctx = await (opts.make ?? makeContext)(opts.env ?? process.env);
   watch(ctx);
   // Without a CI job there is no job log to read, so the step's output goes with its step_end event.
   const output = ctx.ci.vars.job ? undefined : copyOutput();

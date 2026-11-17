@@ -153,7 +153,7 @@ export async function improve(ctx: StepContext, now: Date): Promise<{ change?: C
 
 export async function main(env: NodeJS.ProcessEnv = process.env) {
   if (env.FACTORY_SCHEDULE !== "improve") throw new Error("FACTORY_SCHEDULE must be improve");
-  const ctx = makeContext(env);
+  const ctx = await makeContext(env);
   try {
     console.log(`Improve: ${JSON.stringify(await improve(ctx, new Date()))}`);
   } finally {

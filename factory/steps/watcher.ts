@@ -11,7 +11,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env) {
   // Checked before makeContext reads any secret. A pipeline variable can forge the source, so this is only
   // a second check: the CI job is manual, and a person must start it.
   if (loadSeams().logSource === "files" && env.CI_PIPELINE_SOURCE !== "web") throw new Error("With logSource files the watcher runs only in a pipeline started by hand (web)");
-  const ctx = makeContext(env);
+  const ctx = await makeContext(env);
   if (!(await switchOn(ctx, "watcher"))) return console.log("The watcher switch is off on the dashboard.");
   const r = await runWatcher({
     logs: makeLogSource(ctx.seams),

@@ -9,6 +9,8 @@
 # Do not use local-run.sh while the factory runs: both use run/ and the same secret file.
 set -euo pipefail
 cd "$(dirname "$0")"
+# .env in the repo root (git-ignored, see .env.example): NAME=value lines, no quotes. A variable set in the shell wins.
+while IFS='=' read -r k v || [ -n "$k" ]; do [[ $k =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && [ -z "${!k+x}" ] && export "$k=$v"; done < <(cat .env 2>/dev/null); unset k v
 state="$PWD/.cache"
 pidfile="$state/factory.pid" log="$state/factory.log" slotdir="$PWD/slots"
 fixpid="$state/fixer.pid" fixlog="$state/fixer.log"
@@ -19,7 +21,7 @@ mkdir -p "$state" "$secrets"
 running() { [ -f "$pidfile" ] && ps -p "$(cat "$pidfile")" -o command= 2>/dev/null | grep -q "local-factory.sh run"; }
 fixer_running() { [ -f "$fixpid" ] && ps -p "$(cat "$fixpid")" -o command= 2>/dev/null | grep -q "factory/fixer.ts"; }
 # A step deletes the token files once it read them; a run that was killed may have left them behind.
-drop_tokens() { local d; for d in "$secrets" "$secrets"/*/; do rm -f "$d/gl" "$d/gh" "$d/dash" "$d/teams" "$d/slack"; done; }
+drop_tokens() { local d; for d in "$secrets" "$secrets"/*/; do rm -f "$d/gl" "$d/gh" "$d/glbot" "$d/ghbot" "$d/dash" "$d/teams" "$d/slack"; done; }
 # A slot is busy while the loop's subshell that runs its ticket lives.
 busy() { [ -f "$1/pid" ] && ps -p "$(cat "$1/pid")" -o command= 2>/dev/null | grep -q "local-factory.sh run"; }
 # The tickets that run now, one "<slot> <ticket>" per line.
@@ -38,6 +40,8 @@ ready() { # $1 target, $2 its tickets that run now, comma-separated
   local tokens=()
   [ -z "${GL_TOKEN:-}" ] || { printf %s "$GL_TOKEN" > "$secrets/gl"; tokens+=(FACTORY_GITLAB_TOKEN="$secrets/gl"); }
   [ -z "${FACTORY_GITHUB_TOKEN:-}" ] || { printf %s "$FACTORY_GITHUB_TOKEN" > "$secrets/gh"; tokens+=(FACTORY_GITHUB_TOKEN="$secrets/gh"); }
+  [ -z "${FACTORY_BOT_GITHUB_TOKEN:-}" ] || { printf %s "$FACTORY_BOT_GITHUB_TOKEN" > "$secrets/ghbot"; tokens+=(FACTORY_BOT_GITHUB_TOKEN="$secrets/ghbot"); }
+  [ -z "${FACTORY_BOT_GITLAB_TOKEN:-}" ] || { printf %s "$FACTORY_BOT_GITLAB_TOKEN" > "$secrets/glbot"; tokens+=(FACTORY_BOT_GITLAB_TOKEN="$secrets/glbot"); }
   [ -z "${TEAMS_WEBHOOK_URL:-}" ] || { printf %s "$TEAMS_WEBHOOK_URL" > "$secrets/teams"; tokens+=(TEAMS_WEBHOOK_URL="$secrets/teams"); }
   [ -z "${SLACK_WEBHOOK_URL:-}" ] || { printf %s "$SLACK_WEBHOOK_URL" > "$secrets/slack"; tokens+=(SLACK_WEBHOOK_URL="$secrets/slack"); }
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"

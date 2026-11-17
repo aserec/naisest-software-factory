@@ -22,10 +22,12 @@ import { GitLab, GITLAB_URL } from "./gitlab";
 import { makeJevClient } from "./jev";
 import { newRecord, RUN_DIR } from "./record";
 import { addKnownSecrets } from "./rules";
-import { ADAPTER_SECRETS, FILE_SECRETS } from "./secrets";
+import { ADAPTER_SECRETS, BOT_SECRETS, FILE_SECRETS } from "./secrets";
 import type { StepContext } from "./steps/context";
 import { FACTORY_ROOT, GITLAB_SECRET_DIR, SECRET_DIR, STATE_DIR } from "./repo";
-import type { Chat, CodeHost } from "./seams";
+import type { Chat, CodeHost, Comment, Tracker } from "./seams";
+import { asFactoryMention } from "./conversation";
+import { errText } from "./errors";
 import type { SeamsConfig, Target } from "./types";
 
 // Adapter names in seams.yml, and what each one builds. A new adapter is one line here.
@@ -41,8 +43,8 @@ const ADAPTERS = {
     },
   },
   codeHost: {
-    gitlab: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitLabCodeHost(new GitLab(GITLAB_URL, token), target.projectPath, token, env, target.baseBranch),
-    github: (token: string, target: Target, env: NodeJS.ProcessEnv) => makeGitHubCodeHost(new GitHub(token), needRepo(target), token, env, target.baseBranch),
+    gitlab: (token: string, target: Target, env: NodeJS.ProcessEnv, email?: string) => makeGitLabCodeHost(new GitLab(GITLAB_URL, token), target.projectPath, token, env, target.baseBranch, undefined, email),
+    github: (token: string, target: Target, env: NodeJS.ProcessEnv, email?: string) => makeGitHubCodeHost(new GitHub(token), needRepo(target), token, env, target.baseBranch, undefined, email),
   },
   judge: {
     "jev-celeris": (env: NodeJS.ProcessEnv) => makeJevClient(env),
@@ -96,8 +98,42 @@ export function commentOnce(host: CodeHost): CodeHost {
   };
 }
 
+// The bot account behind a bot token, when it may write to the target: push on the GitHub repo and an editable
+// project board, or Developer on the GitLab project. Else undefined, and the target keeps its usual token.
+// email: FACTORY_GIT_EMAIL, or else the account's no-reply address, so the host links the commits to the account.
+export async function botAccount(name: string, token: string, target: Target, env: NodeJS.ProcessEnv): Promise<{ login: string; email: string } | undefined> {
+  try {
+    if (name === BOT_SECRETS.FACTORY_GITHUB_TOKEN) {
+      const gh = new GitHub(token);
+      const repo = needRepo(target);
+      if (!(await gh.json("GET", `/repos/${repo}`)).permissions?.push) return undefined;
+      if (target.githubProject !== undefined) {
+        const d = await gh.graphql(`query($owner: String!, $n: Int!) { repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $n) { viewerCanUpdate } } } }`, { owner: repo.split("/")[0], n: target.githubProject });
+        if (!d.repositoryOwner?.projectV2?.viewerCanUpdate) return undefined;
+      }
+      const u = await gh.json("GET", "/user");
+      return { login: u.login, email: env.FACTORY_GIT_EMAIL || `${u.id}+${u.login}@users.noreply.github.com` };
+    }
+    const gl = new GitLab(GITLAB_URL, token);
+    const p = (await gl.getJson(`/projects/${encodeURIComponent(target.projectPath)}`)).permissions;
+    if (Math.max(p?.project_access?.access_level ?? 0, p?.group_access?.access_level ?? 0) < 30) return undefined; // 30: Developer
+    const u = await gl.getJson("/user");
+    return { login: u.username, email: env.FACTORY_GIT_EMAIL || u.commit_email || `${u.id}-${u.username}@users.noreply.${new URL(GITLAB_URL).host}` };
+  } catch (e) {
+    console.warn(`${name} cannot reach target ${target.name}, so it keeps its usual token: ${errText(e)}`);
+    return undefined;
+  }
+}
+
+// Every string in a webhook payload with the bot's @login written as @factory.
+const aliasAll = (v: unknown, login: string): unknown =>
+  typeof v === "string" ? asFactoryMention(v, login)
+  : Array.isArray(v) ? v.map((x) => aliasAll(x, login))
+  : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, aliasAll(x, login)])) : v;
+const aliasComments = (cs: Comment[], login: string) => cs.map((c) => ({ ...c, body: asFactoryMention(c.body, login) }));
+
 // seamsPath is for tests. seams.yml is read from the factory checkout only, never chosen by a variable.
-export function makeContext(env: NodeJS.ProcessEnv, secretDir?: string, seamsPath?: string): StepContext {
+export async function makeContext(env: NodeJS.ProcessEnv, secretDir?: string, seamsPath?: string): Promise<StepContext> {
   const name = needEnv(env, "FACTORY_TARGET");
   const { target, seams } = forTarget(name, loadSeams(seamsPath));
   // Check every name before any adapter is built.
@@ -117,6 +153,16 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir?: string, seamsPat
     if (!v) throw new Error(`${n} is not set`);
     secrets[n] = v;
   }
+  // A bot token takes the place of the tracker's or code host's token for a target the bot may write to.
+  const accounts: Record<string, { login: string; email: string }> = {};
+  for (const user of new Set([ADAPTER_SECRETS.tracker[seams.tracker], ADAPTER_SECRETS.codeHost[seams.codeHost]])) {
+    const bot = BOT_SECRETS[user];
+    const token = bot && ci.secret(bot);
+    if (!token) continue;
+    addKnownSecrets(token);
+    const account = await botAccount(bot, token, target, env);
+    if (account) [secrets[user], accounts[user]] = [token, account];
+  }
   const dashboardToken = secrets.FACTORY_DASHBOARD_TOKEN;
   const chatSecret = secrets[ADAPTER_SECRETS.chat[seams.chat]];
   const dashboardUrl = checkDashboardUrl(seams, env);
@@ -124,9 +170,18 @@ export function makeContext(env: NodeJS.ProcessEnv, secretDir?: string, seamsPat
   addKnownSecrets(...Object.values(secrets), ...providerKeys(seams).map((k) => env[k]));
   if (env.CI_JOB_IMAGE && env.CI_JOB_IMAGE !== target.jobImage) throw new Error(`The job runs image ${env.CI_JOB_IMAGE}, but target ${name} names ${target.jobImage}`);
   const dir = resolve(RUN_DIR, "target");
-  const codeHost = commentOnce(make.codeHost(secrets[ADAPTER_SECRETS.codeHost[seams.codeHost]], target, env));
+  const hostAccount = accounts[ADAPTER_SECRETS.codeHost[seams.codeHost]];
+  const trackerAccount = accounts[ADAPTER_SECRETS.tracker[seams.tracker]];
+  const host = make.codeHost(secrets[ADAPTER_SECRETS.codeHost[seams.codeHost]], target, env, hostAccount?.email);
+  const codeHost = commentOnce(hostAccount ? { ...host, changeComments: async (ref, since) => aliasComments(await host.changeComments(ref, since), hostAccount.login) } : host);
+  // With the bot's token the account is no person's, so sharedAccount no longer holds.
+  let tracker: Tracker = make.tracker(secrets[ADAPTER_SECRETS.tracker[seams.tracker]], trackerAccount ? { ...target, sharedAccount: false } : target);
+  if (trackerAccount) {
+    const t = tracker;
+    tracker = { ...t, comments: async (ref, since) => aliasComments(await t.comments(ref, since), trackerAccount.login), parseEvent: (p) => t.parseEvent(aliasAll(p, trackerAccount.login)) };
+  }
   return {
-    tracker: make.tracker(secrets[ADAPTER_SECRETS.tracker[seams.tracker]], target),
+    tracker,
     codeHost,
     ci,
     judge: make.judge(env, seams),

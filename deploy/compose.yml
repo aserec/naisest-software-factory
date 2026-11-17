@@ -49,6 +49,10 @@ services:
       HETZNER_TOKEN: ${HETZNER_TOKEN:-}
       GL_TOKEN: ${GL_TOKEN:-}
       FACTORY_GITHUB_TOKEN: ${FACTORY_GITHUB_TOKEN:-}
+      # The factory's own accounts, used for each target they may write to (factory/compose.ts botAccount).
+      FACTORY_BOT_GITHUB_TOKEN: ${FACTORY_BOT_GITHUB_TOKEN:-}
+      FACTORY_BOT_GITLAB_TOKEN: ${FACTORY_BOT_GITLAB_TOKEN:-}
+      FACTORY_GIT_EMAIL: ${FACTORY_GIT_EMAIL:-}
       TENSORX_API_KEY: ${TENSORX_API_KEY:-}
       # router.yml's author and reviewer are claude-code on the team plan.
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}

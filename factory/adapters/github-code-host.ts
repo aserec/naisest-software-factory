@@ -11,7 +11,7 @@ const ASSETS = "factory-assets"; // the branch that holds attached images, so th
 
 // The fields of a GitHub commit the factory reads.
 type Commit = { sha: string; commit?: { message?: string; author?: { email?: string; date?: string }; committer?: { date?: string } } };
-export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<unknown> = wait): CodeHost {
+export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env: NodeJS.ProcessEnv, baseBranch: string, sleep: (ms: number) => Promise<unknown> = wait, commitEmail = FACTORY_GIT_EMAIL): CodeHost {
   const r = `/repos/${repo}`;
   const pr = (ref: string) => `${r}/pulls/${Number(ref)}`;
   const opened = (p: any) => ({ ref: String(p.number), url: p.html_url as string });
@@ -32,7 +32,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
 
   return {
     baseBranch: async () => baseBranch,
-    cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `https://github.com/${repo}.git`, token, env),
+    cloneAt: (dir) => gitRepo(dir, `${dir}.git`, `https://github.com/${repo}.git`, token, env, undefined, commitEmail),
     // A re-run reuses the open pull request of the factory branch and updates its text.
     async openChange(branch, title, body, ticket) {
       const text = [AI_LINE, ...(ticket ? [`Closes #${ticket}`] : []), body].join("\n\n");
@@ -174,7 +174,7 @@ export function makeGitHubCodeHost(gh: GitHub, repo: string, token: string, env:
     // GitHub lists at most 250 commits of a pull request.
     async changeCommits(ref) {
       const commits = await gh.all<Commit>(`${pr(ref)}/commits?per_page=100`);
-      return commits.map((c) => ({ sha: c.sha, byFactory: c.commit?.author?.email === FACTORY_GIT_EMAIL }));
+      return commits.map((c) => ({ sha: c.sha, byFactory: [FACTORY_GIT_EMAIL, commitEmail].includes(c.commit?.author?.email ?? "") }));
     },
     // Every revert that reached the base branch is a commit here: a revert commit, a merged revert pull request, or a Revert button.
     async baseCommits(since) {

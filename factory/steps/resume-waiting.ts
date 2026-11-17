@@ -27,6 +27,6 @@ export async function resumeWaiting(ctx: StepContext): Promise<TicketRef[]> {
 
 export async function main() {
   if (process.env.FACTORY_SCHEDULE !== "retry") throw new Error("FACTORY_SCHEDULE must be retry");
-  console.log(`Resumed tickets: ${(await resumeWaiting(makeContext(process.env))).join(", ") || "none"}`);
+  console.log(`Resumed tickets: ${(await resumeWaiting(await makeContext(process.env))).join(", ") || "none"}`);
 }
 if (isMain(import.meta.url)) await main();
