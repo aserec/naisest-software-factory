@@ -1,5 +1,5 @@
 {
-  "commit": "86955ca19a7d97839982ae4b0b2beefa4600ec84",
+  "commit": "6fefc0700a5d66698283492e20655ebcba150713",
   "skills": [
     ".claude",
     "ask-matt",
@@ -12,6 +12,7 @@
     "diagram-design",
     "diff-commit",
     "domain-modeling",
+    "fable-playbook",
     "figma-visual-check",
     "find-skills",
     "global-agent-guardrails",
@@ -50,6 +51,7 @@
     "wayfinder",
     "weekly-status-report",
     "wizard",
+    "working-rules",
     "writing-for-agents"
   ],
   "plugins": [],
@@ -57,8 +59,11 @@
     "dangerous-patterns.txt",
     "deny-dangerous.sh",
     "jev.sh",
+    "load-fable-playbook.sh",
     "load-plugins.sh",
+    "load-skill.sh",
     "load-structured-output.sh",
+    "load-working-rules.sh",
     "test-guard.sh"
   ]
 }

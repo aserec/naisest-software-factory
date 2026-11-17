@@ -22,6 +22,9 @@
   },
   "instructions": [
     ".agents/skills/structured-output/SKILL.md",
-    ".agents/skills/structured-output/references/unslop-rules.md"
+    ".agents/skills/structured-output/references/unslop-rules.md",
+    ".agents/skills/fable-playbook/SKILL.md",
+    ".agents/skills/working-rules/SKILL.md",
+    ".agents/skills/fable-playbook/references/mistakes.md"
   ]
 }
