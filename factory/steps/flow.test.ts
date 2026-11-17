@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, vi } from "vitest";
-// targets/react_frontend.yml keeps its placeholder approver until go-live, and loadTarget refuses it.
+// factory/fixtures/targets/react_frontend.yml keeps its placeholder approver until go-live, and loadTarget refuses it.
 // makeContext loads the real file, so these tests fill in an approver.
 vi.mock("../config", async (importOriginal) => {
   const real = await importOriginal<typeof import("../config")>();

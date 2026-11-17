@@ -17,7 +17,7 @@ import { checkVars } from "./ci-vars";
 import { TSX_IMPORT } from "./agents";
 import { QUEUE_DIR, RUNS_DIR, type QueuedRun } from "./adapters/local-ci";
 import { Hetzner, type Vm } from "./hetzner";
-import { loadSeams, providerKeys } from "./config";
+import { loadSeams, providerKeys, TARGETS_DIR } from "./config";
 import { FACTORY_ROOT, SECRET_DIR } from "./repo";
 import { FILE_SECRETS, WORKER_ENV_NAMES } from "./secrets";
 import { BUILD_STEPS, FINISH_STEPS } from "./steps/run";
@@ -288,7 +288,7 @@ export async function main(base: NodeJS.ProcessEnv = process.env, exec: Exec = r
   const mode = base.FACTORY_EXECUTOR || "machine";
   if (mode !== "machine" && mode !== "hetzner") throw new Error("FACTORY_EXECUTOR must be machine or hetzner");
   const open = mode === "machine" ? machineHost() : hetznerHost(exec, base, image);
-  const targets = readdirSync(join(FACTORY_ROOT, "targets")).filter((f) => f.endsWith(".yml")).map((f) => f.slice(0, -4));
+  const targets = readdirSync(TARGETS_DIR).filter((f) => f.endsWith(".yml")).map((f) => f.slice(0, -4));
   const lock = targetLock();
   mkdirSync(SECRET_DIR, { recursive: true, mode: 0o700 });
   const runs = new Map<string, Live>();

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the local factory for every local target: each targets/*.yml that git ignores. The tracked ones are samples for the tests.
+# Starts the local factory for every local target: each targets/*.yml, which git ignores.
 # It needs the tokens that local-factory.sh needs.
 # A target added later runs only after ./local-factory.sh stop and this script again. Stop and status stay with local-factory.sh.
 set -euo pipefail

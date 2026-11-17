@@ -13,7 +13,7 @@ import { HARNESSES } from "./harnesses";
 import { makeTeamsChat } from "./adapters/teams-chat";
 import { makeSlackChat } from "./adapters/slack-chat";
 import { needEnv } from "./ci-vars";
-import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, providerKeys } from "./config";
+import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, providerKeys, TARGETS_DIR } from "./config";
 import { makeLocalCi } from "./adapters/local-ci";
 import { makeGitHubTracker } from "./adapters/github-tracker";
 import { makeGitHubCodeHost } from "./adapters/github-code-host";
@@ -79,7 +79,7 @@ const secretDirFor = (ci: string) => (ci === "gitlab" ? GITLAB_SECRET_DIR : SECR
 // FACTORY_TARGET comes from a trigger variable: allow only a name with its own targets/<name>.yml.
 // A target may pick its own tracker and code host, so GitLab and GitHub repos share one factory.
 function forTarget(name: string, base: SeamsConfig) {
-  if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(fileURLToPath(new URL(`../targets/${name}.yml`, import.meta.url)))) throw new Error(`Unknown FACTORY_TARGET ${name}`);
+  if (!/^[a-z0-9_-]+$/.test(name) || !existsSync(`${TARGETS_DIR}${name}.yml`)) throw new Error(`Unknown FACTORY_TARGET ${name}`);
   const target = loadTarget(name);
   return { target, seams: { ...base, tracker: target.tracker ?? base.tracker, codeHost: target.codeHost ?? base.codeHost } };
 }

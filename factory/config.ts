@@ -9,6 +9,8 @@ import type { FactoryCommands, RoleChoice, Router, SeamsConfig, Target } from ".
 
 // Repo root, found from this file, so tests and CI agree whatever the cwd is.
 const root = fileURLToPath(new URL("..", import.meta.url));
+// The real targets are local files git ignores. Tests read the sample targets in the fixtures. Both paths are fixed, never taken from a variable.
+export const TARGETS_DIR = process.env.VITEST ? `${root}factory/fixtures/targets/` : `${root}targets/`;
 
 const role = z.object({
   harness: z.enum(HARNESS_NAMES),
@@ -134,9 +136,9 @@ export function modelChoice(c: Pick<RoleChoice, "provider" | "model" | "effort">
   return { provider: { name: c.provider, ...seams.providers[c.provider] }, model: c.model, effort: c.effort };
 }
 
-// override is for tests: targets/react_frontend.yml keeps its placeholder approver until go-live.
+// override is for tests.
 export function loadTarget(name: string, override: Partial<Target> = {}): Target {
-  return validate(targetSchema, { ...readYaml(`${root}targets/${name}.yml`), ...override }, `targets/${name}.yml`);
+  return validate(targetSchema, { ...readYaml(`${TARGETS_DIR}${name}.yml`), ...override }, `targets/${name}.yml`);
 }
 
 export { parseFactoryFile } from "./factory-file";

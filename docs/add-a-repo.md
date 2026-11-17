@@ -37,8 +37,8 @@ Do these steps for each new target repo. Replace `<name>` with the target name.
 
 ## 2. In this repo
 
-- [ ] Add `targets/<name>.yml`. Copy `targets/react_frontend.yml`. Set `projectPath`, `baseBranch` (the branch the factory clones, targets and merges into, for example `develop`; required), `defaultApprover` (a real GitLab username), `jobImage` (must be the image in `.gitlab-ci.yml`), `maxChangedLines` (optional; leave it out for no line limit), `protectedPaths` (`.factory/**` is always added), `dependencyFiles` and `language` (optional, for example `Spanish`: the agents write comments, questions, commit messages and pull requests in it; leave it out for English).
-- [ ] Open a merge request here. `<name>` must match the file name. Other names stop the job.
+- [ ] Add `targets/<name>.yml` on the machine that runs the factory. Git ignores it, so it stays out of this repo. Copy `factory/fixtures/targets/react_frontend.yml`. Set `projectPath`, `baseBranch` (the branch the factory clones, targets and merges into, for example `develop`; required), `defaultApprover` (a real GitLab username), `jobImage` (must be the image in `.gitlab-ci.yml`), `maxChangedLines` (optional; leave it out for no line limit), `protectedPaths` (`.factory/**` is always added), `dependencyFiles` and `language` (optional, for example `Spanish`: the agents write comments, questions, commit messages and pull requests in it; leave it out for English).
+- [ ] `<name>` must match the file name. Other names stop the job.
 
 ## 3. Schedules
 
@@ -54,7 +54,7 @@ Create three schedules for the target (Build > Pipeline schedules). Sign in as t
 
 ## A repo on GitHub
 
-The target file picks `tracker: github-project` (or `github`) and `codeHost: github`, which replace `seams.yml` for that target only. See `targets/core_app.yml`.
+The target file picks `tracker: github-project` (or `github`) and `codeHost: github`, which replace `seams.yml` for that target only. See `factory/fixtures/targets/core_app.yml`.
 
 - [ ] Until the factory has its own GitHub account, a token of a person's account works with `sharedAccount: true` in the target: that person's Ready counts, and the factory tells its own comments apart by the AI line.
 - [ ] Set `githubRepo` (`owner/name`), `githubProject` (the board number from its URL) and `defaultApprover` (a GitHub login).

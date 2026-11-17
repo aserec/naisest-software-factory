@@ -47,8 +47,11 @@ test("every factory job starts its step through the env -i allowlist", () => {
 test("every target names the .factory image, the runner image with Chromium", () => {
   const image = ci[".factory"].image as string;
   expect(image).toMatch(/\/ceresa\/software-factory\/job[:@]/);
-  for (const f of readdirSync(new URL("../targets/", import.meta.url))) {
-    expect(parse(readFileSync(new URL(`../targets/${f}`, import.meta.url), "utf8")).jobImage, f).toBe(image);
+  // The samples, and the local targets of this machine when it has some.
+  for (const dir of ["../targets/", "./fixtures/targets/"]) {
+    for (const f of readdirSync(new URL(dir, import.meta.url)).filter((f) => f.endsWith(".yml"))) {
+      expect(parse(readFileSync(new URL(`${dir}${f}`, import.meta.url), "utf8")).jobImage, f).toBe(image);
+    }
   }
 });
 
