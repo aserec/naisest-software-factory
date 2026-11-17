@@ -25,9 +25,11 @@ export async function review(ctx: StepContext, job: "code-review" | "precommit-g
     const proof = readProof(ctx.repo.readFile);
     const images = { ...readImages(ctx.repo.readBytes, proof.proof), ...readFrames(ctx.repo.readBytes, proof.proof) };
     const attached = readsImages ? Object.keys(images) : [];
+    // ponytail: a resumed run starts with no earlier findings; save them in the record if that matters.
+    const earlier = (last?.findings ?? []).filter((f) => f.blocking).map((f) => (f.file ? `${f.file}: ${f.text}` : f.text));
     const r = await agent(ctx, "reviewer", row.reviewer, {
       tools: "none",
-      prompt: reviewerPrompt(await ticketText(ctx), (await ctx.repo.diff()).text, proofPrompt(proof, attached), localSection(await ctx.repo.readBase(localPath("review")))),
+      prompt: reviewerPrompt(await ticketText(ctx), (await ctx.repo.diff()).text, proofPrompt(proof, attached), localSection(await ctx.repo.readBase(localPath("review"))), earlier),
       ...(readsImages ? { images: attached.map((name) => ({ name, data: images[name] })) } : {}),
       cwd: ctx.dir,
       maxTurns: 1,

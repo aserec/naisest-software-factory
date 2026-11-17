@@ -74,5 +74,6 @@ const reviewPrompt = readFileSync(fileURLToPath(new URL("../prompts/review.md", 
 
 // ticketText comes already wrapped (context.ticketText), so it is not wrapped again here.
 // local is the repo's own review.md as localSection made it.
-export const reviewerPrompt = (ticketText: string, diffText: string, proofText = "", local = "") =>
-  `${reviewPrompt}${local}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>${proofText ? `\n\n<proof>\n${proofText}\n</proof>` : ""}`;
+// earlier: the blocking findings of the round before, so a review after a fix checks them first.
+export const reviewerPrompt = (ticketText: string, diffText: string, proofText = "", local = "", earlier: string[] = []) =>
+  `${reviewPrompt}${local}\n\n${ticketText}\n\n<diff>\n${diffText}\n</diff>${proofText ? `\n\n<proof>\n${proofText}\n</proof>` : ""}${earlier.length ? `\n\n<earlier-findings>\n${earlier.map((t) => `- ${t}`).join("\n")}\n</earlier-findings>` : ""}`;

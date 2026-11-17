@@ -27,6 +27,11 @@ test("the reviewer prompt carries the security checklist", () => {
   const p = reviewerPrompt("<ticket>t</ticket>", "diff");
   for (const s of ["[SECURITY]", "input validation", "authorization", "secrets", "dependencies", "insecure defaults", "a real bug, a likely exploitable security fault, a missing requirement, a weakened test, or a proof that cannot show the change"]) expect(p).toContain(s);
 });
+test("the reviewer prompt marks old faults as not blocking and holds earlier findings only when given", () => {
+  expect(reviewerPrompt("T", "D")).toContain("Start its text with `[PRE-EXISTING]` and use blocking false.");
+  expect(reviewerPrompt("T", "D")).not.toContain("</earlier-findings>");
+  expect(reviewerPrompt("T", "D", "", "", ["a.ts: bug"])).toMatch(/<\/diff>\n\n<earlier-findings>\n- a\.ts: bug\n<\/earlier-findings>$/);
+});
 test("a finding keeps its screen and verdict", () => {
   expect(parseFindings('[{"blocking":false,"screen":"a","verdict":"matches","text":"ok"}]')[0].verdict).toBe("matches");
 });

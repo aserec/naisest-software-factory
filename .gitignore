@@ -21,3 +21,6 @@ dist/
 
 # Real targets stay on this machine. The samples the tests load are in factory/fixtures/targets/.
 /targets/*.yml
+
+# Reviewer eval cases hold target code, so they stay on this machine.
+/evals/

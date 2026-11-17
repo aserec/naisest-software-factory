@@ -18,7 +18,8 @@
     "test": "vitest run && pnpm --filter factory-dashboard test",
     "typecheck": "tsc --noEmit && pnpm --filter factory-dashboard typecheck",
     "e2e": "pnpm --filter factory-dashboard exec playwright test",
-    "precommit": "pnpm test && pnpm typecheck"
+    "precommit": "pnpm test && pnpm typecheck",
+    "eval:review": "tsx factory/eval/review-eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.79",

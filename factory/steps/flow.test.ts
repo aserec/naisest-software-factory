@@ -2071,6 +2071,12 @@ test("the reviewer prompt holds review.md from the base commit", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, baseFiles: { ".factory/review.md": "REVIEW RULE" } }));
   expect(w.harness.jobs.find((j) => j.role === "reviewer")!.prompt).toContain("REVIEW RULE");
 });
+test("a review after a fix gets the last round's blocking findings, and the first review gets none", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, reviews: [[B], []] }));
+  const [first, second] = w.harness.jobs.filter((j) => j.role === "reviewer");
+  expect(first.prompt).not.toContain("</earlier-findings>");
+  expect(second.prompt).toContain(`<earlier-findings>\n- ${B.file}: ${B.text}\n</earlier-findings>`);
+});
 test("the questions writer holds writer.md from the base branch", async () => {
   const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, files: { ".factory/writer.md": "WRITER RULE" } }));
   expect(w.claudeRuns[0].prompt).toContain("WRITER RULE");

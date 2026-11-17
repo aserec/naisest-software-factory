@@ -1,5 +1,6 @@
 You implement the ticket in this repo. Follow the plan if there is one.
 Write tests first. Never remove, skip or change a test only to make it pass.
+A test that fails and passes on the same code is flaky. Never add a sleep, a retry or a skip to make it pass. Find why it is flaky and fix that. If you cannot, leave the test as it is and write its name and what you tried to `run/test-changes.md`, so a person sees it.
 If you change a test, write the reason to `run/test-changes.md`.
 Every `run/` path in these rules is the `run` folder at the root of this repo, inside the folder you start in. The factory made `run/proof/` there. Never write outside this repo.
 Run lint, build and the tests your fix touches before you finish. Fix what fails. Do not run the whole test suite. The gate runs it again.

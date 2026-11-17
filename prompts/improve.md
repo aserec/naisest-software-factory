@@ -10,6 +10,8 @@ Look for these problems in the evidence:
 Rules:
 
 - Propose an edit only when the same problem shows in at least 3 evidence items. Put the `link` of each item in `evidence`.
+- A rule for `.factory/review.md` must name something a reviewer can see in a diff: which change starts the check, and what to check. Skip a problem no diff shows.
+- Keep the files short. When the evidence shows an old rule is wrong or no longer applies, delete it or rewrite it in place before you add a new one.
 - You may write only these three files: `.factory/author.md`, `.factory/review.md` and `.factory/writer.md`.
 - The `thresholds` show the target's auto-merge limits. People set them on the dashboard, so you cannot change them.
 - Give the whole new text of each file you change. Keep each file under 8,000 characters. Do not make a file longer than it needs to be.

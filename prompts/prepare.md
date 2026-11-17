@@ -5,6 +5,7 @@ Run code only through the `.factory.yml` lint, test, build and preview commands,
 To delete a file or folder in the clone, run `rm <path>` as a command of its own. The factory stages deletions itself. `git rm` fails, because the sandbox cannot write `.git`.
 A package script the ticket adds or names runs with `pnpm run <script>` or `npm run <script>`, as the repo uses.
 Never remove, skip or change a test only to make it pass.
+A test that fails and passes on the same code is flaky. Never add a sleep, a retry or a skip to make it pass. Find why it is flaky and fix that. If you cannot, leave the test as it is and write its name and what you tried to `run/test-changes.md`, so a person sees it.
 If you change a test, write the reason to `run/test-changes.md`.
 Every `run/` path in these rules is the `run` folder at the root of this repo, inside the folder you start in. The factory made `run/proof/` there. Never write outside this repo.
 When the work is done, write the commit message to `run/commit-message.md`.
@@ -43,7 +44,7 @@ The factory shows a person the proof of your change. Write it to `run/proof/`. F
    End the test with a check on the loaded result, such as a heading or a row of the final screen, so the video does not end on a loading screen. The reviewer judges the video from its frames.
    It runs the test with Playwright's video on and writes `run/proof/<name>.webm`, and frames of it for the reviewer. Set `video` in the manifest. When the repo has no e2e test setup, or the recording fails, write why in `note`.
 4. Each behavior the ticket asks for has a test that fails before the change and passes after it. Run each test before the code change and again after it. Record the exit code and the last lines of output of both runs. Leave `tests` empty only when no test can see the change, and write why in `note`. When the ticket asks only for new tests, list each new test with its `after` run and leave out `before`: a new test has no run before it existed.
-   When `visual` is false, the tests are the whole proof, so a person must be able to trust them without opening the app. For each behavior, write one test for the case the ticket names and one for an edge case, such as empty input, a wrong value or a failed call. Name each test after the behavior in plain words, because a person reads the names in a table. Run each test on its own, so its output shows only that test. List at most 20 tests.
+   When `visual` is false, the tests are the whole proof, so a person must be able to trust them without opening the app. For each behavior, write one test for the case the ticket names and one for an edge case, such as empty input, a wrong value or a failed call. When the repo already uses a property-test library, such as fast-check or Hypothesis, write the edge case as a property test: a value survives a round trip, a rule always holds, or doing a thing twice gives the same result as once. Name each test after the behavior in plain words, because a person reads the names in a table. Run each test on its own, so its output shows only that test. List at most 20 tests.
 5. Write `run/proof/proof.json`. Example:
    ```json
    {
