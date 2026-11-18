@@ -24,3 +24,6 @@ dist/
 
 # Reviewer eval cases hold target code, so they stay on this machine.
 /evals/
+
+# Private words the private-terms test looks for. Listing them in git would publish them.
+/.private-terms
