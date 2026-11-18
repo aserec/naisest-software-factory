@@ -130,14 +130,14 @@ case "${1:-}" in
     pending=()
     while true; do
       left=()
-      for p in "${pending[@]}"; do
+      for p in ${pending[@]+"${pending[@]}"}; do
         read -r target entry <<< "$p"
         if dir=$(free_slot "$target"); then start_run "$target" "$dir" "$entry"; else left+=("$p"); fi
       done
-      pending=("${left[@]}")
+      pending=(${left[@]+"${left[@]}"})
       for target in $targets; do
         # A target with a pending entry waits for its slot: a new poll would hand out more than it can run.
-        case " ${pending[*]} " in *" $target "*) continue ;; esac
+        case " ${pending[*]+${pending[*]}} " in *" $target "*) continue ;; esac
         if iids=$(ready "$target" "$(alive "$target")"); then
           for entry in $iids; do
             # A round prints as ticket:build run:change; a ready ticket as its number only.
