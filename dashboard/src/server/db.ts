@@ -378,7 +378,7 @@ export function openDb(path: string): Db {
 
     setSettings(target, s, user, autoMerge) {
       const at = new Date().toISOString();
-      const value: TargetSettings = { thresholds: s.thresholds, ...(s.factoryFile ? { factoryFile: s.factoryFile } : {}), ...(s.language ? { language: s.language } : {}) };
+      const value: TargetSettings = { thresholds: s.thresholds, ...(s.factoryFile ? { factoryFile: s.factoryFile } : {}), ...(s.language ? { language: s.language } : {}), ...(s.models ? { models: s.models } : {}) };
       inTransaction(() => {
         db.prepare("INSERT INTO settings (target, data, user, at) VALUES (?, ?, ?, ?) ON CONFLICT (target) DO UPDATE SET data = excluded.data, user = excluded.user, at = excluded.at").run(target, JSON.stringify(value), user, at);
         insertEvents([{ id: randomUUID(), run: "", at, target, ticket: "", type: "settings_change", data: { user, ...value } }]);

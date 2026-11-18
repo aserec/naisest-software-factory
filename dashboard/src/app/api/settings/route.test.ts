@@ -58,6 +58,21 @@ describe("/api/settings", () => {
     expect(getDb().settings("demo").language).toBeUndefined();
   });
 
+  it("saves the author's and reviewer's models for the factory, refuses a bad pick, and none falls back to router.yml", async () => {
+    const opts = ((await (await GET()).json()) as Record<string, { modelOptions: { author: { model: string; models: object } } }>).demo.modelOptions;
+    expect(opts.author.model).toBe("claude-opus-5-5");
+    expect(Object.keys(opts.author.models)).toContain("claude-sonnet-5-5");
+    expect((await put({ target: "demo", thresholds: {}, models: { author: { model: "claude-sonnet-5-5", effort: "high", extra: 1 } } })).status).toBe(204);
+    const state = await (await control.GET(new Request("http://x/api/factory/control?target=demo"))).json();
+    expect(state.settings).toEqual({ thresholds: {}, models: { author: { model: "claude-sonnet-5-5", effort: "high" } } });
+    const same = await put({ target: "demo", thresholds: {}, models: { reviewer: { model: "claude-opus-5-5", effort: "medium" } } });
+    expect([same.status, await same.text()]).toEqual([400, "Settings: author and reviewer are both family opus at effort medium"]);
+    expect((await put({ target: "demo", thresholds: {}, models: { author: { model: "gpt-9", effort: "high" } } })).status).toBe(400);
+    expect(getDb().settings("demo").models).toEqual({ author: { model: "claude-sonnet-5-5", effort: "high" } });
+    await put({ target: "demo", thresholds: {} });
+    expect(getDb().settings("demo").models).toBeUndefined();
+  });
+
   it("an empty factoryFile clears the commands, so the factory reads the repo's file again", async () => {
     await put({ target: "demo", thresholds: {}, factoryFile: FILE });
     expect((await put({ target: "demo", thresholds: {}, factoryFile: "  " })).status).toBe(204);

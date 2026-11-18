@@ -27,7 +27,7 @@ import { NotFactoryRunError, type FactoryState, type Mark } from "../seams";
 import { addStep, newRecord, runFacts, saveRecord } from "../record";
 import type { RunRecord } from "../record";
 import { fakeDashboard } from "../fakes";
-import { defaultSwitches, eventsOfType, runEvent, type ControlRequest, type SwitchName } from "../run-events";
+import { defaultSwitches, eventsOfType, runEvent, type ControlRequest, type SwitchName, type TargetSettings } from "../run-events";
 import * as apply from "./apply";
 import { findSecrets } from "../rules";
 import { pumpInbox } from "../inbox";
@@ -61,6 +61,16 @@ test("a thresholds setting that is not a map also sends the change to a person",
   const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: [1] as unknown as Record<string, unknown> } }));
   expect(w.finishTriggered).toBe(false);
   expect(w.mrComments.at(-1)).toContain("The thresholds setting is not a map");
+});
+test("the Settings page's models run the author and the reviewer, and a bad pick blocks at triage", async () => {
+  const models = { author: { model: "claude-sonnet-5-5", effort: "high" }, reviewer: { model: "claude-opus-5-5", effort: "high" } };
+  const w = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: {}, models } as TargetSettings }));
+  const used = (role: string) => w.harness.jobs.filter((j) => j.role === role).map((j) => `${j.model.model} ${j.model.effort}`);
+  expect(new Set(used("author"))).toEqual(new Set(["claude-sonnet-5-5 high"]));
+  expect(new Set(used("reviewer"))).toEqual(new Set(["claude-opus-5-5 high"]));
+  const bad = await runBuildPipeline(fakeWorld({ jev1: { risk: "trivial" }, settings: { thresholds: {}, models: { author: { model: "gpt-9", effort: "high" } } } as TargetSettings }));
+  expect(bad.harness.jobs.filter((j) => j.role === "author" && j.tools === "code")).toHaveLength(0);
+  expect(bad.states).toEqual(["blocked"]);
 });
 test("autoMergeTriageMax trivial sends a low-risk change to a person", async () => {
   const world = (thresholds: Record<string, unknown>) => fakeWorld({ jev1: { risk: "low" }, jev2: "pass", settings: { thresholds } });

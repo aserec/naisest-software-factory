@@ -18,8 +18,8 @@ const edited = (name: string, from: string | RegExp, to: string) => {
 
 test("router.yml gives the spec's models and bump", () => {
   const r = loadRouter();
-  expect(r.low).toMatchObject({ author: { harness: "claude-code", provider: "team-plan", model: "claude-sonnet-5-5", effort: "high" }, reviewer: { harness: "claude-code", provider: "team-plan", model: "claude-opus-5-5", effort: "high" }, mayAutoMerge: true });
-  expect(r.high).toMatchObject({ author: { model: "claude-sonnet-5-5" }, reviewer: { model: "claude-opus-5-5" }, mayAutoMerge: false });
+  expect(r.low).toMatchObject({ author: { harness: "claude-code", provider: "team-plan", model: "claude-opus-5-5", effort: "medium" }, reviewer: { harness: "claude-code", provider: "team-plan", model: "claude-opus-5-5", effort: "xhigh" }, mayAutoMerge: true });
+  expect(r.high).toMatchObject({ author: { model: "claude-opus-5-5" }, reviewer: { model: "claude-opus-5-5" }, mayAutoMerge: false });
   expect(r.writer).toMatchObject({ harness: "pi", provider: "tensorx" });
   expect(r.effortBump).toBe(8);
 });
@@ -29,11 +29,11 @@ test("seams.yml picks the GitLab, local CI, model judge and console adapters and
   expect(modelChoice(loadRouter().low.reviewer, s)).toEqual({
     provider: { name: "team-plan", api: "anthropic", keyEnv: "CLAUDE_CODE_OAUTH_TOKEN", onlyHarness: "claude-code", models: { "claude-sonnet-5-5": "sonnet", "claude-opus-5-5": "opus" }, images: ["claude-sonnet-5-5", "claude-opus-5-5"] },
     model: "claude-opus-5-5",
-    effort: "high",
+    effort: "xhigh",
   });
 });
 test("a role with an unknown provider or a model its provider does not list is refused", () => {
-  expect(() => loadRouter(edited("router.yml", "provider: team-plan, model: claude-opus-5-5", "provider: openrouter, model: claude-opus-5-5"))).toThrow("router.yml low.reviewer: unknown provider openrouter");
+  expect(() => loadRouter(edited("router.yml", "reviewer: { harness: claude-code, provider: team-plan", "reviewer: { harness: claude-code, provider: openrouter"))).toThrow("router.yml low.reviewer: unknown provider openrouter");
   expect(() => loadRouter(edited("router.yml", /(high:[\s\S]*?reviewer: [^}]*model: )claude-opus-5-5/, "$1gpt-9"))).toThrow("router.yml high.reviewer: provider team-plan has no model gpt-9");
   expect(() => loadRouter(edited("router.yml", "writer: { harness: pi, provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017", "writer: { harness: pi, provider: tensorx, model: nope"))).toThrow("router.yml writer: provider tensorx has no model nope");
 });
@@ -50,9 +50,9 @@ test("a provider with onlyHarness serves only that harness, and never the judge"
   expect(() => loadRouter(undefined, pinned)).not.toThrow();
   expect(() => loadSeams(edited("seams.yml", "keyEnv: TENSORX_API_KEY,", "keyEnv: TENSORX_API_KEY, onlyHarness: pi,"))).toThrow("seams.yml judgeModel: provider tensorx works only with harness pi");
 });
-test("one row's author and reviewer may not share a model family", () => {
-  const seams = loadSeams(edited("seams.yml", "claude-opus-5-5: opus", "claude-opus-5-5: sonnet"));
-  expect(() => loadRouter(undefined, seams)).toThrow("router.yml low: author and reviewer are both family sonnet");
+test("one row's author and reviewer may share a model family only at different efforts", () => {
+  expect(() => loadRouter()).not.toThrow();
+  expect(() => loadRouter(edited("router.yml", "effort: xhigh", "effort: medium"))).toThrow("router.yml low: author and reviewer are both family opus at effort medium");
 });
 test("gitlabUrl comes from seams.yml and must be https", () => {
   expect(loadSeams(edited("seams.yml", /^gitlabUrl: .*$/m, "gitlabUrl: https://gitlab.example.com")).gitlabUrl).toBe("https://gitlab.example.com");

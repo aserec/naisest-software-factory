@@ -5,6 +5,7 @@ import { z } from "zod";
 import { HARNESSES, HARNESS_NAMES } from "./harnesses";
 import type { ModelChoice } from "./seams";
 import { JEV_HOST } from "./jev";
+import { EFFORTS, sameFamilyError } from "./model-picks";
 import type { FactoryCommands, RoleChoice, Router, SeamsConfig, Target } from "./types";
 
 // Repo root, found from this file, so tests and CI agree whatever the cwd is.
@@ -16,7 +17,7 @@ const role = z.object({
   harness: z.enum(HARNESS_NAMES),
   provider: z.string().min(1),
   model: z.string().min(1),
-  effort: z.enum(["medium", "high"]).optional(),
+  effort: z.enum(EFFORTS).optional(),
 });
 const row = z.object({ author: role, reviewer: role, mayAutoMerge: z.boolean() });
 const routerSchema = z.object({ low: row, high: row, writer: role, effortBump: z.number() });
@@ -124,8 +125,9 @@ export function loadRouter(path = `${root}router.yml`, seams = loadSeams()): Rou
     return f;
   };
   for (const name of ["low", "high"] as const) {
-    const author = check(router[name].author, `router.yml ${name}.author`);
-    if (author === check(router[name].reviewer, `router.yml ${name}.reviewer`)) throw new Error(`router.yml ${name}: author and reviewer are both family ${author}`);
+    const { author, reviewer } = router[name];
+    const same = sameFamilyError({ author: check(author, `router.yml ${name}.author`), reviewer: check(reviewer, `router.yml ${name}.reviewer`) }, { author: author.effort, reviewer: reviewer.effort });
+    if (same) throw new Error(`router.yml ${name}: ${same}`);
   }
   check(router.writer, "router.yml writer");
   return router;

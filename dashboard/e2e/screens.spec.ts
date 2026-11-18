@@ -89,6 +89,9 @@ test("the Settings page opens from the menu with each target's form, and a refus
   await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
   const demo = page.getByRole("tabpanel", { name: "demo" });
   await expect(demo.getByLabel("Most rounds of implement and fix")).toHaveValue("10");
+  await expect(demo.getByLabel("Reviewer model")).toContainText("From router.yml (claude-opus-5-5, xhigh)");
+  await demo.getByLabel("Author model").selectOption("claude-sonnet-5-5");
+  await expect(demo.getByLabel("Author model effort")).toHaveValue("medium");
   await demo.getByLabel("Most rounds of implement and fix").fill("3");
   await demo.getByRole("button", { name: "Save" }).click();
   await expect(demo.getByRole("alert")).toContainText("Could not save the settings for demo. This sign-in is off.");

@@ -11,6 +11,7 @@
     "./config": "./factory/config.ts",
     "./factory-file": "./factory/factory-file.ts",
     "./thresholds": "./factory/thresholds.ts",
+    "./model-picks": "./factory/model-picks.ts",
     "./relay": "./factory/relay.ts",
     "./model-call": "./factory/adapters/model-call.ts"
   },

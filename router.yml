@@ -1,11 +1,11 @@
-# Claude Code on the team plan writes and reviews: Sonnet implements, Opus reviews, both at high effort.
+# Claude Code on the team plan writes and reviews: Opus 5.5 implements at medium effort and reviews at xhigh effort.
 low:
-  author: { harness: claude-code, provider: team-plan, model: claude-sonnet-5-5, effort: high }
-  reviewer: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: high }
+  author: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: medium }
+  reviewer: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: xhigh }
   mayAutoMerge: true
 high:
-  author: { harness: claude-code, provider: team-plan, model: claude-sonnet-5-5, effort: high }
-  reviewer: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: high }
+  author: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: medium }
+  reviewer: { harness: claude-code, provider: team-plan, model: claude-opus-5-5, effort: xhigh }
   mayAutoMerge: false
 writer: { harness: pi, provider: tensorx, model: deepseek/deepseek-v4.1-flash-1017 }
 effortBump: 8

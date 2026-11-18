@@ -1,5 +1,6 @@
 // Event schema shared by the factory (sender) and the dashboard (receiver).
 import { z } from "zod";
+import type { ModelPicks } from "./model-picks";
 
 export const EVENT_TYPES = ["run_start", "run_end", "step_start", "step_end", "tool_call", "jev_answer", "review_finding", "gate_check", "rule_check", "triage_outcome", "decision", "change_state", "label_change", "usage", "stop", "resume", "restart", "ready", "switch_change", "settings_change", "error", "prompt"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -86,7 +87,7 @@ export const EVENT_DATA = {
   ready: user,
   switch_change: z.object({ user: z.string(), name: z.enum(SWITCHES), scope: z.string(), on: z.boolean() }),
   // The Settings page's whole new value for the target, so the history shows who set which commands.
-  settings_change: z.object({ user: z.string(), thresholds: z.record(z.unknown()), factoryFile: z.string().optional(), language: z.string().optional() }),
+  settings_change: z.object({ user: z.string(), thresholds: z.record(z.unknown()), factoryFile: z.string().optional(), language: z.string().optional(), models: z.record(z.unknown()).optional() }),
   error: z.object({ message: z.string() }),
   // An agent's prompt, sent when the agent starts: step_start goes before the prompt exists. Masked and cut like a field.
   prompt: z.object({ role: z.string(), prompt: field }),
@@ -187,6 +188,7 @@ export interface TargetSettings {
   thresholds: Record<string, unknown>;
   factoryFile?: string; // the .factory.yml commands as YAML text; none means the factory reads .factory.yml from the repo
   language?: Language; // what the agents write for people in; none means the target file's language, else English
+  models?: ModelPicks; // the author's and reviewer's model and effort; a role with none uses router.yml (model-picks.ts)
 }
 
 export interface ControlState {

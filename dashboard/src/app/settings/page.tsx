@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { type Language, type SwitchName, type TargetSettings } from "software-factory/run-events";
+import { EFFORTS, PICK_ROLES, type Effort, type ModelPicks } from "software-factory/model-picks";
 import { DEFAULT_THRESHOLDS, THRESHOLD_RULES, TRIAGE_RISKS, type Thresholds } from "software-factory/thresholds";
 import { LoadError, PageTitle, SectionHeading } from "@/components/shell";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,12 @@ import { LANGUAGE_NAMES } from "@/lib/i18n";
 import { PREFS } from "@/lib/preferences";
 import { ago } from "@/lib/utils";
 
-type Saved = TargetSettings & { user?: string; at?: string; fileLanguage?: string };
+type Saved = TargetSettings & { user?: string; at?: string; fileLanguage?: string; modelOptions?: Record<"author" | "reviewer", { model: string; effort: Effort; models: Record<string, string> }> };
+
+const ROLE_TEXT = {
+  author: { label: "Author model", help: "The model that writes the code and fixes the review findings." },
+  reviewer: { label: "Reviewer model", help: "The model that reviews the diff. With the same model family as the author, it needs another effort." },
+};
 type NumberKey = Exclude<keyof Thresholds, "autoMergeTriageMax">;
 
 // The number settings in the order the run meets them, with their limits from THRESHOLD_RULES.
@@ -40,6 +46,7 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
   const [values, setValues] = useState<Thresholds>({ ...DEFAULT_THRESHOLDS, ...(saved.thresholds as Partial<Thresholds>) });
   const [factoryFile, setFactoryFile] = useState(saved.factoryFile ?? "");
   const [language, setLanguage] = useState<Language | "">(saved.language ?? "");
+  const [models, setModels] = useState<ModelPicks>(saved.models ?? {});
   const t = useT();
   // Auto-merge is the target's auto_merge switch, the same value as its cell on the Switches page.
   const switches = useQuery({
@@ -57,7 +64,7 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
   const save = useMutation({
     mutationFn: async () => {
       const autoMergeChange = autoMerge === undefined || autoMerge === savedAutoMerge ? {} : { autoMerge };
-      const r = await api("/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, thresholds: changed(values), factoryFile, language, ...autoMergeChange }) });
+      const r = await api("/api/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, thresholds: changed(values), factoryFile, language, models, ...autoMergeChange }) });
       // 400 and 403 carry the server's sentence: which value is wrong, or which role is missing.
       if (!r.ok) throw new Error(`Could not save the settings for ${target}. ${r.status === 400 || r.status === 403 ? await r.text() : "Try again."}`);
     },
@@ -90,6 +97,38 @@ function TargetForm({ target, saved }: { target: string; saved: Saved }) {
         </select>
         <p className="text-muted-foreground">{t("The language the agents write ticket comments, questions, dashboard notes, commit messages and pull requests in.")}</p>
       </div>
+      {PICK_ROLES.map((role) => {
+        const o = saved.modelOptions?.[role];
+        const p = models[role];
+        if (!o) return null;
+        return (
+          <div key={role} className="flex flex-col gap-1">
+            <label htmlFor={id(`${role}-model`)} className="font-medium">
+              {t(ROLE_TEXT[role].label)}
+            </label>
+            <div className="flex gap-2">
+              <select id={id(`${role}-model`)} value={p?.model ?? ""} onChange={(e) => setModels({ ...models, [role]: e.target.value ? { model: e.target.value, effort: p?.effort ?? o.effort } : undefined })} className="h-9 w-80 rounded-md border border-input bg-background px-2">
+                <option value="">{t("From router.yml ({model}, {effort})", { model: o.model, effort: o.effort })}</option>
+                {Object.keys(o.models).map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              {p && (
+                <select aria-label={t("{role} effort", { role: t(ROLE_TEXT[role].label) })} value={p.effort} onChange={(e) => setModels({ ...models, [role]: { ...p, effort: e.target.value as Effort } })} className="h-9 w-32 rounded-md border border-input bg-background px-2">
+                  {EFFORTS.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <p className="text-muted-foreground">{t(ROLE_TEXT[role].help)}</p>
+          </div>
+        );
+      })}
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-3">
           <label htmlFor={id("auto_merge")} className="font-medium">

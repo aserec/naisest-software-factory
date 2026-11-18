@@ -2,6 +2,7 @@
 import type { HarnessName } from "./harnesses";
 import type { RunRecord } from "./record";
 import type { AgentPlan, ControlState, EventType, FactoryState, RunEvent, Dispatch, UsageLimits } from "./run-events";
+import type { Effort } from "./model-picks";
 
 export type TicketRef = string; // opaque to steps; the GitLab adapter uses the iid as text
 export type PersonRef = string; // a username
@@ -137,7 +138,7 @@ export type { JevClient as Judge, JevQuestion, JevAnswer } from "./jev";
 export type ApiStyle = "anthropic" | "openai";
 export interface Price { input: number; output: number; cacheRead?: number; cacheWrite?: number } // USD per million tokens
 export interface Provider { name: string; api: ApiStyle; baseUrl?: string; keyEnv: string; onlyHarness?: HarnessName; models: Record<string, string>; images?: string[]; prices?: Record<string, Price> } // models: model id -> family; images: model ids that read images
-export interface ModelChoice { provider: Provider; model: string; effort?: "medium" | "high" }
+export interface ModelChoice { provider: Provider; model: string; effort?: Effort }
 export type Role = "author" | "reviewer" | "writer";
 // `until` is how far a poll read (the time of its newest comment), when it read any. `heard` is told how far the agent got:
 // the pump calls it when the agent has consumed a poll's news.

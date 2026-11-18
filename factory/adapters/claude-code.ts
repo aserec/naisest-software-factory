@@ -9,8 +9,9 @@ import { MAC_LOOKUPS, shellQuote } from "../repo";
 import { withBrowserServer } from "../browser-server";
 import { HARNESS_HOMES, type Harness, type HarnessJob, type HarnessResult, type Provider, type ToolCall } from "../seams";
 import type { UsageLimits } from "../run-events";
+import type { Effort } from "../model-picks";
 
-export interface ClaudeRun { prompt: string; model: string; effort: "medium" | "high"; maxTurns: number; cwd: string; resumeSessionId?: string; images?: boolean }
+export interface ClaudeRun { prompt: string; model: string; effort: Effort; maxTurns: number; cwd: string; resumeSessionId?: string; images?: boolean }
 export interface ClaudeResult { sessionId: string; isError: boolean; limitHit: boolean; costUsd: number; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }; contextTokens: number; resultText: string; limits?: UsageLimits }
 
 // The Claude-only part of the settings: permissions and the sandbox flags. The network and read rules every harness shares live in sandbox-rules.json.

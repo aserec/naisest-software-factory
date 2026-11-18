@@ -5,12 +5,13 @@ import { errText } from "../errors";
 import { JEV_BUSY } from "../jev";
 import { need } from "../record";
 import { pickModels } from "../router";
+import { checkModelPicks } from "../model-picks";
 import type { Ticket } from "../seams";
 import { INJECTION_LIMIT, askTriage, buildTriageState, decideTriage, type TriageAnswers } from "../triage";
 import type { RouterRow } from "../types";
 import { localPath, localSection } from "../local-instructions";
 import { conversation, md } from "../conversation";
-import { ENDED, NEXT, agent, switchOn, CONTINUE, facts, isMain, notify, prompt, runStep, save, thresholds, ticketRef, ticketText, type StepContext, type StepOutcome } from "./context";
+import { ENDED, NEXT, agent, switchOn, CONTINUE, controls, facts, isMain, notify, prompt, runStep, save, thresholds, ticketRef, ticketText, type StepContext, type StepOutcome } from "./context";
 import { block, endRun, stopReason, stopped, waiting } from "./run";
 
 export async function run(ctx: StepContext): Promise<StepOutcome> {
@@ -30,7 +31,12 @@ export async function run(ctx: StepContext): Promise<StepOutcome> {
   }
   // A dashboard the factory cannot reach keeps the default clarity limit here.
   const outcome = decideTriage(answers, (await thresholds(ctx)).values.clarityMin);
-  const row = pickModels(outcome.kind === "build" ? outcome.risk : answers.risk.value, answers.effort.value, ctx.router);
+  const routed = pickModels(outcome.kind === "build" ? outcome.risk : answers.risk.value, answers.effort.value, ctx.router);
+  // The Settings page's models win over the router's. A bad pick blocks: the factory does not guess which model the person meant.
+  const models = (role: "author" | "reviewer") => ctx.seams.providers[routed[role].provider].models;
+  const picked = checkModelPicks((await controls(ctx)).settings?.models, routed, { author: models("author"), reviewer: models("reviewer") });
+  if (picked.errors.length) return block(picked.errors.join("\n"));
+  const row: RouterRow = { ...routed, ...picked.row };
   // Agents only ever see this checked text, even if the work item changes later.
   ctx.record = { ...ctx.record, ticket: { title: state.title, description: state.description }, models: { author: `${row.author.harness}/${row.author.model}`, reviewer: `${row.reviewer.harness}/${row.reviewer.model}` } };
   save(ctx, "triage", { answers, outcome, row });

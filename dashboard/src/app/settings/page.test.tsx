@@ -24,11 +24,24 @@ test("shows each target's saved values, and saves only what differs from the def
   fireEvent.change(within(api).getByLabelText("Highest triage risk that merges alone"), { target: { value: "trivial" } });
   fireEvent.click(within(api).getByRole("button", { name: "Save" }));
   await waitFor(() =>
-    expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT", body: JSON.stringify({ target: "api", thresholds: { diffRiskMax: 6, clarityMin: 8, autoMergeTriageMax: "trivial" }, factoryFile: FILE, language: "" }) })),
+    expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT", body: JSON.stringify({ target: "api", thresholds: { diffRiskMax: 6, clarityMin: 8, autoMergeTriageMax: "trivial" }, factoryFile: FILE, language: "", models: {} }) })),
   );
   fireEvent.mouseDown(screen.getByRole("tab", { name: "web" }));
   const web = screen.getByRole("tabpanel", { name: "web" });
   expect((within(web).getByLabelText("Lowest clarity to build") as HTMLInputElement).value).toBe("6");
+});
+
+test("a target picks the author's model and effort, and the reviewer left empty follows router.yml", async () => {
+  const modelOptions = { author: { model: "opus", effort: "medium", models: { opus: "opus", sonnet: "sonnet" } }, reviewer: { model: "opus", effort: "xhigh", models: { opus: "opus", sonnet: "sonnet" } } };
+  const f = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === "PUT" ? new Response(null, { status: 204 }) : json({ api: { thresholds: {}, modelOptions } })));
+  vi.stubGlobal("fetch", f);
+  renderWithQuery(<SettingsPage />);
+  const api = await screen.findByRole("tabpanel", { name: "api" });
+  expect(within(api).getByLabelText("Reviewer model").textContent).toContain("From router.yml (opus, xhigh)");
+  fireEvent.change(within(api).getByLabelText("Author model"), { target: { value: "sonnet" } });
+  fireEvent.change(within(api).getByLabelText("Author model effort"), { target: { value: "high" } });
+  fireEvent.click(within(api).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(f).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT", body: expect.stringContaining('"models":{"author":{"model":"sonnet","effort":"high"}}') })));
 });
 
 test("a refused save shows the server's reason", async () => {
