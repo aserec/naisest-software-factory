@@ -16,6 +16,7 @@
     "./model-call": "./factory/adapters/model-call.ts"
   },
   "scripts": {
+    "dashboard": "pnpm --filter factory-dashboard dev --experimental-https",
     "test": "vitest run && pnpm --filter factory-dashboard test",
     "typecheck": "tsc --noEmit && pnpm --filter factory-dashboard typecheck",
     "e2e": "pnpm --filter factory-dashboard exec playwright test",

@@ -202,6 +202,12 @@ describe("runs", () => {
     expect(db.runs({})).toHaveLength(2);
   });
 
+  it("lists the run saved last first when two runs of a ticket start at the same time", () => {
+    const db = openDb(":memory:");
+    db.addEvents([ev("run_start", {}, { run: "old" }), ev("run_start", {}, { run: "new" })]);
+    expect(db.runs({ ticket: "T-1" }).map((r) => r.run)).toEqual(["new", "old"]);
+  });
+
   it("latestRuns gives only the newest run of each work item asked for", () => {
     const db = openDb(":memory:");
     db.addEvents([

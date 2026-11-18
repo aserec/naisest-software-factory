@@ -230,7 +230,8 @@ export function openDb(path: string): Db {
         if (s.conflicts) s.conflicts = false;
       } else if (e.type === "change_state") s.conflicts = e.data.conflicts;
     }
-    return [...byRun.values()].sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
+    // Reversed first: the sort keeps ties in place, so of two runs started at the same time the one saved last comes first.
+    return [...byRun.values()].reverse().sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0));
   }
 
   function inTransaction<T>(fn: () => T): T {

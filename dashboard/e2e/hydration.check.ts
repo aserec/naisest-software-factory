@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { test } from "@playwright/test";
 import { encode } from "next-auth/jwt";
 
-const env = Object.fromEntries(readFileSync(".env.local", "utf8").split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).replace(/^"|"$/g, "")]));
+const env = Object.fromEntries(readFileSync("../.env", "utf8").split("\n").filter((l) => /^[A-Z_]+=/.test(l)).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1).replace(/^"|"$/g, "")]));
 const COOKIE = "__Secure-authjs.session-token";
 
 test("print hydration warnings", async ({ context }) => {

@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# The local software factory in one command: the dashboard (https://localhost:3000), the factory loop for every
+# target in targets/ and the fixer. All of them read the one .env at the repo root (docs/install-with-ai.md lists its values).
+# Usage: ./sf setup|doctor|start|stop|restart|status|logs|autostart on|off
+set -euo pipefail
+cd "$(dirname "$0")"
+log=.cache/dashboard.log
+url=https://localhost:3000
+plist="$HOME/Library/LaunchAgents/com.software-factory.sf.plist"
+mkdir -p .cache
+
+# The dashboard's dev server of this repo, also when someone started it by hand with pnpm dashboard.
+dashboard_pids() { pgrep -f "$PWD/dashboard/node_modules/.*next dev" || true; }
+factory_runs() { ./local-factory.sh status | grep -q ' runs, pid'; }
+fixer_runs() { ./local-factory.sh fixer-status | grep -q ' runs, pid'; }
+# The local targets: each targets/*.yml, which git ignores.
+target_files() { git ls-files --others --ignored --exclude-standard -- 'targets/*.yml'; }
+
+# Prints each value .env lacks for this setup, and fails when one is missing. A variable set in the shell counts too.
+doctor() (
+  while IFS='=' read -r k v || [ -n "$k" ]; do [[ $k =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && [ -z "${!k+x}" ] && export "$k=$v"; done < <(cat .env 2>/dev/null)
+  missing=0 told=" "
+  need() { [ -n "${!1:-}" ] || [[ $told == *" $1 "* ]] || { echo "Missing in .env: $1 ($2)"; missing=1 told+="$1 "; }; }
+  for tool in node pnpm openssl curl; do command -v $tool >/dev/null || { echo "Missing tool: $tool"; missing=1; }; done
+  [ -f .env ] || { echo "No .env: run ./sf setup"; exit 1; }
+  for k in AUTH_SECRET FACTORY_DASHBOARD_TOKEN; do need $k "./sf setup makes it"; done
+  for k in CELERIS_API_KEY CLAUDE_CODE_OAUTH_TOKEN; do need $k "every run"; done
+  case "$(sed -n 's/^chat: *\([a-z]*\).*/\1/p' seams.yml)" in
+    slack) need SLACK_WEBHOOK_URL "seams.yml chat: slack" ;;
+    teams) need TEAMS_WEBHOOK_URL "seams.yml chat: teams" ;;
+  esac
+  files=$(target_files)
+  [ -n "$files" ] || { echo "No target in targets/: copy a sample from factory/fixtures/targets/"; missing=1; }
+  # A target without tracker or codeHost uses GitLab, as in the dashboard.
+  for f in $files; do
+    for key in tracker codeHost; do
+      case "$(sed -nE "s/^$key: *(git[a-z]*).*/\\1/p" "$f")" in
+        github*) need FACTORY_GITHUB_TOKEN "$f"; need GITHUB_READ_TOKEN "$f" ;;
+        *) need GL_TOKEN "$f"; need GITLAB_URL "$f"; need GITLAB_READ_TOKEN "$f" ;;
+      esac
+    done
+  done
+  [ $missing = 0 ] && echo "The .env has every value this setup needs"
+  exit $missing
+)
+
+start() {
+  local out; out=$(doctor) || { echo "$out"; echo "Fill the values above in .env, then run ./sf start again"; exit 1; }
+  if [ -n "$(dashboard_pids)" ]; then echo "The dashboard already runs"; else
+    nohup pnpm dashboard >> "$log" 2>&1 &
+    echo "The dashboard starts at $url. Log: $log"
+  fi
+  # The factory and the fixer read from the dashboard, so they start once it answers.
+  local i
+  for i in $(seq 60); do curl -skf -o /dev/null --max-time 5 "$url/sign-in" && break; sleep 2; done
+  curl -skf -o /dev/null --max-time 5 "$url/sign-in" || echo "The dashboard did not answer in 2 minutes; see $log. The factory and the fixer try again every minute."
+  if factory_runs; then echo "The factory already runs"; else
+    # Targets with maxRuns: 1 first: their .factory.yml starts the preview on the fixed port 3910, and only the first target's slot 1 gets 3910.
+    local files first; files=$(target_files)
+    first=$(grep -lx 'maxRuns: 1' $files || true)
+    FACTORY_TARGET=$(for f in $first $(grep -Lx 'maxRuns: 1' $files || true); do basename "$f" .yml; done | paste -sd' ' -) ./local-factory.sh start
+  fi
+  if fixer_runs; then echo "The fixer already runs"; else ./local-factory.sh fixer-start; fi
+}
+
+stop() {
+  ./local-factory.sh stop
+  ./local-factory.sh fixer-stop
+  local pids; pids=$(dashboard_pids)
+  if [ -z "$pids" ]; then echo "The dashboard does not run"; return; fi
+  kill $pids
+  for _ in $(seq 20); do [ -z "$(dashboard_pids)" ] && break; sleep 0.5; done
+  [ -z "$(dashboard_pids)" ] || { echo "The dashboard did not stop, pid $(dashboard_pids | paste -sd' ' -)"; exit 1; }
+  echo "The dashboard stopped"
+}
+
+status() {
+  local pids; pids=$(dashboard_pids)
+  if [ -n "$pids" ]; then echo "Dashboard: on, $url, pid $(echo "$pids" | paste -sd' ' -)"; else echo "Dashboard: off"; fi
+  if factory_runs; then echo "Factory: on"; else echo "Factory: off"; fi
+  if fixer_runs; then echo "Fixer: on"; else echo "Fixer: off"; fi
+  if [ -f "$plist" ]; then echo "Autostart: on"; else echo "Autostart: off"; fi
+  ./local-factory.sh status | grep '^Ticket' || true
+}
+
+setup() {
+  pnpm install
+  [ -f .env ] || { cp .env.example .env; echo "Made .env from .env.example"; }
+  # The two values nobody has to look up: random secrets.
+  local k
+  for k in AUTH_SECRET FACTORY_DASHBOARD_TOKEN; do
+    if ! grep -q "^$k=." .env; then
+      grep -v "^$k=" .env > .env.tmp || true
+      echo "$k=$(openssl rand -hex 32)" >> .env.tmp && mv .env.tmp .env
+      echo "Made $k in .env"
+    fi
+  done
+  doctor || echo "Fill the values above in .env (docs/install-with-ai.md says where to get each), then run ./sf start"
+}
+
+# Starts everything when you log in to this Mac, with a launchd agent. Its output goes to .cache/autostart.log.
+autostart() {
+  [ "$(uname)" = Darwin ] || { echo "autostart needs macOS (launchd)"; exit 1; }
+  local domain; domain="gui/$(id -u)"
+  case "${1:-}" in
+    on)
+      mkdir -p "$(dirname "$plist")"
+      # PATH from this shell: launchd starts with a short one that lacks node and pnpm.
+      # AbandonProcessGroup: sf start returns at once, and launchd must not end what it started.
+      cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.software-factory.sf</string>
+  <key>ProgramArguments</key><array><string>$PWD/sf</string><string>start</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>$PATH</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>AbandonProcessGroup</key><true/>
+  <key>StandardOutPath</key><string>$PWD/.cache/autostart.log</string>
+  <key>StandardErrorPath</key><string>$PWD/.cache/autostart.log</string>
+</dict>
+</plist>
+EOF
+      launchctl bootout "$domain" "$plist" 2>/dev/null || true
+      launchctl bootstrap "$domain" "$plist"
+      echo "Autostart on: ./sf start runs when you log in. Log: .cache/autostart.log"
+      ;;
+    off)
+      launchctl bootout "$domain" "$plist" 2>/dev/null || true
+      rm -f "$plist"
+      echo "Autostart off"
+      ;;
+    *) echo "usage: ./sf autostart on|off"; exit 1 ;;
+  esac
+}
+
+case "${1:-}" in
+  setup) setup ;;
+  doctor) doctor ;;
+  start) start ;;
+  stop) stop ;;
+  restart) stop; start ;;
+  status) status ;;
+  logs) tail -f .cache/factory.log .cache/fixer.log "$log" ;;
+  autostart) autostart "${2:-}" ;;
+  *) echo "usage: ./sf setup|doctor|start|stop|restart|status|logs|autostart on|off"; exit 1 ;;
+esac

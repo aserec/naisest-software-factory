@@ -3,7 +3,7 @@
 # That is the worker (factory/worker.ts), with each step in a new container: on this machine by default, or with hetzner
 # on a new Hetzner VM per run. With gitlab, GitLab CI runs them on one Hetzner VM per job instead (seams.yml ci: gitlab).
 # Usage: ./install.sh
-# Needs Docker. The first run asks for the values in README.md (Install) and writes deploy/.env.
+# Needs Docker. The first run asks for the values in docs/install-with-ai.md (Values) and writes deploy/.env.
 # Later runs keep deploy/.env and only rebuild and restart, so run it again after a git pull to update.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -28,7 +28,7 @@ ask() {
 }
 
 if [ ! -f "$env_file" ]; then
-  echo "== deploy/.env does not exist yet. README.md (Install) lists every value and where to get it; have them ready."
+  echo "== deploy/.env does not exist yet. docs/install-with-ai.md (Values) lists every value and where to get it; have them ready."
   ask DASHBOARD_HOST "Dashboard host name" \
     "The name people open the dashboard at, with a DNS A record to this machine. localhost on your own computer." localhost
   while true; do
