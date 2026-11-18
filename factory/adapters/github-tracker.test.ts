@@ -35,6 +35,15 @@ describe("labels", () => {
     expect(calls.at(-1)!.body).toEqual({ labels: ["factory_running"] });
   });
 
+  test("setOwner swaps another factory's owner label for its own and reads it back as the owner", async () => {
+    rest[`GET /repos/${REPO}/issues/8`] = issue({ labels: [{ name: "factory_owner_a" }, { name: "bug" }] });
+    expect((await t().ticket("8")).owner).toBe("a");
+    calls = [];
+    await t().setOwner("8", "b");
+    expect(calls.slice(1).map((c) => `${c.method} ${c.path}`)).toEqual([`DELETE /repos/${REPO}/issues/8/labels/factory_owner_a`, `POST /repos/${REPO}/issues/8/labels`]);
+    expect(calls.at(-1)!.body).toEqual({ labels: ["factory_owner_b"] });
+  });
+
   test("clearState removes every state label and keeps the marks and other labels", async () => {
     rest[`GET /repos/${REPO}/issues/8`] = issue({ labels: [{ name: "factory_running" }, { name: "factory_implemented" }, { name: "bug" }] });
     await t().clearState("8");

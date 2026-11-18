@@ -6,7 +6,7 @@ import { AI_LINE, commandIn, fingerprintMarker } from "../conversation";
 import type { GitHub } from "../github";
 import { confirmedRelays, withRelays } from "../relay";
 import { findSecrets } from "../rules";
-import { ENDED_STATES, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
+import { ENDED_STATES, OWNER_LABEL, ownerOf, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
 const READY = "factory_ready";
 const MARKS: Mark[] = ["watcher", "triaged", "risk_trivial", "risk_low", "risk_medium", "risk_high", "implemented", "reviewed", "checked", "risk_checked", "merged", "reverted"];
@@ -41,7 +41,7 @@ function toTicket(i: Issue, boardState?: FactoryState | null): Ticket {
     ended: boardState === undefined && state === "ready" ? ENDED_STATES.find((s) => i.labels.includes(labelOf(s))) : undefined,
     marks: MARKS.filter((m) => i.labels.includes(markLabel(m))),
     tags: i.labels.filter((l) => !l.startsWith("factory_")),
-    assignees: i.assignees, url: i.url, epic: i.subIssues > 0,
+    assignees: i.assignees, url: i.url, epic: i.subIssues > 0, owner: ownerOf(i.labels),
   };
 }
 
@@ -187,6 +187,11 @@ export function makeGitHubTracker(gh: GitHub, repo: string, projectNumber?: numb
       if (board) return board.clearState(ref);
       const has = fromRest(await gh.json("GET", `${base}/${Number(ref)}`)).labels;
       for (const l of has.filter((l) => STATE_LABELS.includes(l))) await removeLabel(ref, l);
+    },
+    async setOwner(ref, owner) {
+      const has = fromRest(await gh.json("GET", `${base}/${Number(ref)}`)).labels;
+      for (const l of has.filter((l) => l.startsWith(OWNER_LABEL) && l !== OWNER_LABEL + owner)) await removeLabel(ref, l);
+      await addLabels(ref, [OWNER_LABEL + owner]);
     },
     mark: async (ref, mark) => void (await addLabels(ref, [markLabel(mark)])),
     unmark: (ref, mark) => removeLabel(ref, markLabel(mark)),

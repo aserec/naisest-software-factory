@@ -37,6 +37,7 @@ export function fakeTracker(seed: Partial<Ticket>[] = []): Tracker & { tickets: 
     ticket: async (ref) => get(ref),
     setState: async (ref, state: FactoryState) => { get(ref).state = state; },
     clearState: async (ref) => { get(ref).state = undefined; get(ref).ended = undefined; cleared.push(ref); },
+    setOwner: async (ref, owner) => { get(ref).owner = owner; },
     mark: async (ref, mark) => { const t = get(ref); if (!t.marks.includes(mark)) t.marks = [...t.marks, mark]; },
     unmark: async (ref, mark) => { const t = get(ref); t.marks = t.marks.filter((m) => m !== mark); },
     comment: async (ref, text) => {

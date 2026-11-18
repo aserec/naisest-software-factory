@@ -16,6 +16,7 @@ import { needEnv } from "./ci-vars";
 import { checkDashboardUrl, loadRouter, loadSeams, loadTarget, modelChoice, providerKeys, TARGETS_DIR } from "./config";
 import { makeLocalCi } from "./adapters/local-ci";
 import { makeGitHubTracker } from "./adapters/github-tracker";
+import { ownTickets } from "./owner";
 import { makeGitHubCodeHost } from "./adapters/github-code-host";
 import { GitHub } from "./github";
 import { GitLab, GITLAB_URL } from "./gitlab";
@@ -180,6 +181,8 @@ export async function makeContext(env: NodeJS.ProcessEnv, secretDir?: string, se
     const t = tracker;
     tracker = { ...t, comments: async (ref, since) => aliasComments(await t.comments(ref, since), trackerAccount.login), parseEvent: (p) => t.parseEvent(aliasAll(p, trackerAccount.login)) };
   }
+  // A local factory sees only its own tickets and free ones (owner.ts).
+  if (env.FACTORY_ID) tracker = ownTickets(tracker, env.FACTORY_ID);
   return {
     tracker,
     codeHost,

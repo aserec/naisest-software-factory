@@ -11,6 +11,9 @@ export type { FactoryState }; // in run-events, so the dashboard can import it w
 // a tracker reads the states in STATE_ORDER, so an active run wins over ready, and ready wins over an ended run.
 export const ENDED_STATES = ["needs_info", "blocked", "done"] as const satisfies readonly FactoryState[];
 export const STATE_ORDER = ["running", "waiting", "stopped", "needs_approval", "ready", ...ENDED_STATES] as const satisfies readonly FactoryState[];
+// The label that names the local factory that took a ticket: factory_owner_<factory ID>.
+export const OWNER_LABEL = "factory_owner_";
+export const ownerOf = (labels: string[]) => labels.find((l) => l.startsWith(OWNER_LABEL))?.slice(OWNER_LABEL.length);
 // Progress marks: labels next to the state. A new run removes all but watcher.
 export type Mark = "watcher" | "triaged" | "risk_trivial" | "risk_low" | "risk_medium" | "risk_high" | "implemented" | "reviewed" | "checked" | "risk_checked" | "merged" | "reverted";
 
@@ -20,6 +23,7 @@ export interface Ticket {
   tags: string[]; // the non-factory labels
   assignees: PersonRef[]; url: string;
   epic?: boolean; // the ticket has sub-tickets: a person splits the work, the factory never starts it
+  owner?: string; // the ID of the local factory that took the ticket (owner.ts)
 }
 export interface Comment { author: PersonRef; byFactory: boolean; body: string; at: string; relayed?: true } // relayed: a person's 👍 on a Teams relay comment (relay.ts)
 
@@ -36,6 +40,7 @@ export interface Tracker {
   ticket(ref: TicketRef): Promise<Ticket>;
   setState(ref: TicketRef, state: FactoryState): Promise<void>;
   clearState(ref: TicketRef): Promise<void>; // removes the state and keeps every mark
+  setOwner(ref: TicketRef, owner: string): Promise<void>; // the owner label of this factory ID replaces any other
   mark(ref: TicketRef, mark: Mark): Promise<void>; // adds the mark and keeps every other one
   unmark(ref: TicketRef, mark: Mark): Promise<void>; // removes the mark and keeps every other one
   comment(ref: TicketRef, text: string): Promise<void>;

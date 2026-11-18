@@ -27,6 +27,9 @@ busy() { [ -f "$1/pid" ] && ps -p "$(cat "$1/pid")" -o command= 2>/dev/null | gr
 # The tickets that run now, one "<slot> <ticket>" per line.
 in_progress() { local d; for d in "$slotdir"/*/; do d=${d%/}; busy "$d" && echo "$(basename "$d") $(cat "$d/ticket" 2>/dev/null)"; done; return 0; }
 targets=${FACTORY_TARGET:-react_frontend}
+# This factory's own ID, made once. A ticket it sets running is its own: another factory skips it until a person sets it ready again.
+[ -s "$state/factory-id" ] || uuidgen | tr 'A-Z' 'a-z' | cut -c1-8 > "$state/factory-id"
+export FACTORY_ID=${FACTORY_ID:-$(cat "$state/factory-id")}
 need_tokens() {
   # Unset: the local dashboard's own value, which the default FACTORY_DASHBOARD_URL needs. Exported for the runs local-run.sh starts.
   [ -n "${FACTORY_DASHBOARD_TOKEN:-}" ] || export FACTORY_DASHBOARD_TOKEN=$(sed -n 's/^FACTORY_DASHBOARD_TOKEN=//p' dashboard/.env.local 2>/dev/null)
@@ -46,7 +49,7 @@ ready() { # $1 target, $2 its tickets that run now, comma-separated
   [ -z "${SLACK_WEBHOOK_URL:-}" ] || { printf %s "$SLACK_WEBHOOK_URL" > "$secrets/slack"; tokens+=(SLACK_WEBHOOK_URL="$secrets/slack"); }
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
   env -i PATH="$PATH" HOME="$HOME" CI_SERVER_URL=https://gitlab.example.com \
-    CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_SCHEDULE=poll FACTORY_TARGET="$1" \
+    CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_SCHEDULE=poll FACTORY_TARGET="$1" FACTORY_ID="$FACTORY_ID" \
     "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="$TENSORX_API_KEY" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
     node --import tsx factory/steps/poll.ts --list --finish --alive="$2"
 }
@@ -99,7 +102,7 @@ case "${1:-}" in
     rm -f "$slotdir"/*/pid "$slotdir"/*/ticket
     ;;
   status)
-    if running; then echo "The factory runs, pid $(cat "$pidfile"). Log: $log"; else echo "The factory does not run"; fi
+    if running; then echo "The factory $FACTORY_ID runs, pid $(cat "$pidfile"). Log: $log"; else echo "The factory $FACTORY_ID does not run"; fi
     in_progress | while read -r slot ticket; do echo "Ticket $ticket runs in slot $slot"; done
     ;;
   fixer-start)

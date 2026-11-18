@@ -2,7 +2,7 @@ import { isNotFound } from "../errors";
 import { AI_LINE, commandIn, fingerprintMarker, isRequest, noQuickActions } from "../conversation";
 import { confirmedRelays, withRelays } from "../relay";
 import { GitLab, refuseSecrets } from "../gitlab";
-import { ENDED_STATES, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
+import { ENDED_STATES, OWNER_LABEL, ownerOf, STATE_ORDER, ticketOfBranch, type FactoryEvent, type FactoryState, type Mark, type Ticket, type Tracker } from "../seams";
 
 const READY = "factory_ready";
 // GitLab access level of the Developer role. Developers and above may command the factory.
@@ -32,6 +32,7 @@ function toTicket(w: any): Ticket {
     tags: labels.filter((l) => !l.startsWith("factory_")),
     assignees: (w.assignees ?? []).map((a: { username: string }) => a.username),
     url: w.web_url,
+    owner: ownerOf(labels),
   };
 }
 
@@ -58,6 +59,10 @@ export function makeGitLabTracker(gitlab: GitLab, projectPath: string, relayUser
     },
     async clearState(ref) {
       await update(ref, { remove_labels: STATE_LABELS.join(",") });
+    },
+    async setOwner(ref, owner) {
+      const labels: string[] = (await gitlab.getJson(await issueUrl(ref))).labels ?? [];
+      await update(ref, { add_labels: OWNER_LABEL + owner, remove_labels: labels.filter((l) => l.startsWith(OWNER_LABEL) && l !== OWNER_LABEL + owner).join(",") });
     },
     async mark(ref, mark) {
       await update(ref, { add_labels: MARK_LABELS[mark] });
