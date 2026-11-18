@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The local factory: every minute it asks each target's tracker for ready tickets and runs each one with local-run.sh.
 # Each target runs up to its maxRuns (targets/<name>.yml, default 2) tickets at once, each in its own slot dir slots/<target>-<n>,
-# with its output in factory.log, every line prefixed with the slot. FACTORY_TARGET names the targets, space-separated (default react_frontend). Needs TENSORX_API_KEY,
+# with its output in factory.log, every line prefixed with the slot. FACTORY_TARGET names the targets, space-separated (default react_frontend). Needs
 # FACTORY_DASHBOARD_TOKEN (the dashboard's value, by default the one in dashboard/.env.local), and GL_TOKEN or FACTORY_GITHUB_TOKEN for the targets' tracker and code host. FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
 # Usage: ./local-factory.sh start|stop|status   (run: the same loop in the foreground)
 #        ./local-factory.sh fixer-start|fixer-stop|fixer-status   (the fix worker for plans approved in the dashboard chat;
@@ -34,7 +34,7 @@ need_tokens() {
   # Unset: the local dashboard's own value, which the default FACTORY_DASHBOARD_URL needs. Exported for the runs local-run.sh starts.
   [ -n "${FACTORY_DASHBOARD_TOKEN:-}" ] || export FACTORY_DASHBOARD_TOKEN=$(sed -n 's/^FACTORY_DASHBOARD_TOKEN=//p' dashboard/.env.local 2>/dev/null)
   [ -n "${GL_TOKEN:-}${FACTORY_GITHUB_TOKEN:-}" ] || { echo "set GL_TOKEN or FACTORY_GITHUB_TOKEN"; exit 1; }
-  : "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
+  : "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
 }
 
 # The poll step's checks (trusted person, no active run, at most 2 active runs) for target $1, without starting a pipeline.
@@ -50,7 +50,7 @@ ready() { # $1 target, $2 its tickets that run now, comma-separated
   printf %s "$FACTORY_DASHBOARD_TOKEN" > "$secrets/dash"
   env -i PATH="$PATH" HOME="$HOME" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_SCHEDULE=poll FACTORY_TARGET="$1" FACTORY_ID="$FACTORY_ID" \
-    "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="$TENSORX_API_KEY" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
+    "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" TENSORX_API_KEY="${TENSORX_API_KEY:-}" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
     node --import tsx factory/steps/poll.ts --list --finish --alive="$2"
 }
 max_runs() { local n; n=$(sed -n 's/^maxRuns: *\([0-9][0-9]*\).*/\1/p' "targets/$1.yml"); echo "${n:-2}"; } # 2: MAX_RUNS_PER_REPO

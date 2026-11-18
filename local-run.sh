@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local trial of the build pipeline on one ticket of FACTORY_TARGET (default react_frontend). Needs TENSORX_API_KEY,
+# Local trial of the build pipeline on one ticket of FACTORY_TARGET (default react_frontend). Needs
 # FACTORY_DASHBOARD_TOKEN (the dashboard's value), and GL_TOKEN or FACTORY_GITHUB_TOKEN for the target's tracker and code host. FACTORY_DASHBOARD_URL defaults to https://localhost:3000, trusted through mkcert's root CA.
 # Usage: ./local-run.sh <ticket iid> [step to start from]
 # With a step, the run goes on from that step with the kept run/ dir (its record and clone) instead of starting over.
@@ -27,7 +27,7 @@ if [ -n "$from" ]; then
 fi
 target=${FACTORY_TARGET:-react_frontend}
 [ -n "${GL_TOKEN:-}${FACTORY_GITHUB_TOKEN:-}" ] || { echo "set GL_TOKEN or FACTORY_GITHUB_TOKEN"; exit 1; }
-: "${TENSORX_API_KEY:?TENSORX_API_KEY is not set}" "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
+: "${FACTORY_DASHBOARD_TOKEN:?FACTORY_DASHBOARD_TOKEN is not set}"
 secrets="$root/.cache/tmp${slot:+/${slot#-}}" # under the only dir the CI adapter reads secret files from
 mkdir -p "$secrets"
 # A copy-on-write clone of your pnpm store, so sandboxed installs reuse it instead of downloading every package.
@@ -100,7 +100,7 @@ for step in "${steps[@]}"; do
   # Its own Claude config, as the worker has: your ~/.claude hooks, plugins and CLAUDE.md must not reach the agents.
   env -i PATH="$PATH" HOME="$HOME" CLAUDE_CONFIG_DIR="$PWD/run/claude-home" PLAYWRIGHT_BROWSERS_PATH="$browsers" CI_SERVER_URL=https://gitlab.example.com \
     CI_PROJECT_ID=1 CI_PIPELINE_ID=1 FACTORY_RUN_ID="$run_id" FACTORY_PIPELINE="$pipeline" FACTORY_LOCAL_FINISH=1 FACTORY_TARGET="$target" \
-    FACTORY_WORK_ITEM_IID="$iid" FACTORY_ID="${FACTORY_ID:-}" FACTORY_PORT="${FACTORY_PORT:-}" FACTORY_BUILD_PIPELINE_ID="${FACTORY_BUILD_PIPELINE_ID:-}" FACTORY_MR_IID="${FACTORY_MR_IID:-}" FACTORY_SKIP_APPLY="${FACTORY_SKIP_APPLY:-}" FACTORY_GIT_EMAIL="${FACTORY_GIT_EMAIL:-}" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="$TENSORX_API_KEY" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
+    FACTORY_WORK_ITEM_IID="$iid" FACTORY_ID="${FACTORY_ID:-}" FACTORY_PORT="${FACTORY_PORT:-}" FACTORY_BUILD_PIPELINE_ID="${FACTORY_BUILD_PIPELINE_ID:-}" FACTORY_MR_IID="${FACTORY_MR_IID:-}" FACTORY_SKIP_APPLY="${FACTORY_SKIP_APPLY:-}" FACTORY_GIT_EMAIL="${FACTORY_GIT_EMAIL:-}" "${tokens[@]}" FACTORY_DASHBOARD_TOKEN="$secrets/dash" FACTORY_DASHBOARD_URL="${FACTORY_DASHBOARD_URL:-https://localhost:3000}" NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-$HOME/Library/Application Support/mkcert/rootCA.pem}" FACTORY_PNPM_STORE="$store" TENSORX_API_KEY="${TENSORX_API_KEY:-}" CELERIS_API_KEY="${CELERIS_API_KEY:-}" \
     node --import "$tsx" "$root/$([ "$step" = resume ] && echo factory/local-resume.ts || echo "factory/steps/$step.ts")"
   # A round's event step restored the earlier run's run/ and its run-id: this run keeps its own number.
   [ "$step" != event ] || echo "$run_id" > run/run-id
