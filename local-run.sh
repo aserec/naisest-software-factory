@@ -49,6 +49,8 @@ if [ "$(uname)" = Darwin ] && [ -d "$browsers" ]; then
   for entry in "$browsers"/*; do
     case "$(basename "$entry")" in
       chromium_headless_shell-*)
+        # In the C locale a file such as DEPENDENCIES_VALIDATED sorts before the browser dir, so make the dir first.
+        mkdir -p "$sandboxed/$(basename "$entry")"
         for sub in "$entry"/*; do
           dest="$sandboxed/$(basename "$entry")/$(basename "$sub")"
           if [ -d "$sub" ]; then
