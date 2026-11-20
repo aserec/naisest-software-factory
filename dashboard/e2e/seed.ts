@@ -27,6 +27,7 @@ function startStub() {
       const issues: Record<string, object[]> = {
         factory_running: [issue(7, "Fix login", "factory_running")],
         factory_needs_approval: [issue(8, "Add rate limit", "factory_needs_approval")],
+        factory_ready: [issue(9, "Ready with no run", "factory_ready")],
       };
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(issues[url.searchParams.get("labels") ?? ""] ?? []));

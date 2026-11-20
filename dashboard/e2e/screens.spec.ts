@@ -62,6 +62,17 @@ test("a page without a session goes to sign-in, an API route answers 401", async
   expect((await request.get("/api/events?run=x")).status()).toBe(401);
 });
 
+test("a card with no run on this factory opens its issue in a new tab, like the Open issue button", async ({ page, context, baseURL }) => {
+  await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
+  await context.route("http://localhost/g/**", (r) => r.fulfill({ body: "the issue" })); // the stub tracker's issue page
+  await page.goto("/boards/demo");
+  const box = (await page.locator("li", { hasText: "Ready with no run" }).boundingBox())!;
+  const tab = context.waitForEvent("page", { timeout: 5000 });
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height - 8); // the card's last line, away from the title text and the buttons
+  expect((await tab).url()).toBe("http://localhost/g/demo/-/issues/9");
+  await expect(page).toHaveURL(/\/boards\/demo$/);
+});
+
 test("the account menu opens Preferences, a saved theme and range hold after a reload, and Sign out ends the session", async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: COOKIE, value: await sessionToken(), url: baseURL! }]);
   await page.goto("/");

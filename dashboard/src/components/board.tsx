@@ -149,7 +149,9 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
       {i.title}
     </Link>
   ) : (
-    <a href={i.url} className={link}>
+    // No run on this factory: a card still in Ready, or one another factory took. It opens the issue in a new tab, as the
+    // Open issue button does: a frame that cannot show the tracker, such as an editor's built-in browser, stays on the board.
+    <a href={i.url} target="_blank" rel="noreferrer" className={link}>
       {i.title}
     </a>
   );
