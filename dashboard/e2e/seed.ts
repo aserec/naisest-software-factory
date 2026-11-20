@@ -34,6 +34,9 @@ function startStub() {
     } else if (url.pathname === "/api/v4/projects/g%2Fdemo/merge_requests") {
       res.setHeader("content-type", "application/json");
       res.end("[]"); // no open merge request, so no card shows merge problems
+    } else if (url.pathname === "/api/v4/projects/g%2Fdemo/issues/9/links") {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify([{ link_type: "is_blocked_by", state: "opened", web_url: "http://localhost/g/demo/-/issues/10" }])); // the ready card waits for #10
     } else if (url.pathname === "/api/v4/projects/1/jobs/42/trace") {
       res.end("log line from the stub");
     } else {

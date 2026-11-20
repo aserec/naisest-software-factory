@@ -149,16 +149,13 @@ function Row({ item: i, now }: { item: BoardItem; now: number }) {
       {i.title}
     </Link>
   ) : (
-    // No run on this factory: a card still in Ready, or one another factory took. It opens the issue in a new tab, as the
-    // Open issue button does: a frame that cannot show the tracker, such as an editor's built-in browser, stays on the board.
-    <a href={i.url} target="_blank" rel="noreferrer" className={link}>
-      {i.title}
-    </a>
+    // No run on this factory: a card still in Ready, or one another factory took. The card opens nothing; its Open issue button opens the tracker.
+    <span className="font-medium">{i.title}</span>
   );
-  // The whole card is the link, so the focus ring goes on the card.
+  // A card with a run is one link, so the focus ring and the hover go on the card.
   // layoutId: a card that changes state slides from its old section to its new one. MotionConfig in providers.tsx honours reduced motion.
   return (
-    <motion.li layout="position" layoutId={workItemKey(i)} transition={{ layout: { duration: 0.4 } }} className="relative flex flex-col gap-1 rounded-lg border bg-card p-3 shadow-xs hover:border-foreground/20 hover:bg-active/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+    <motion.li layout="position" layoutId={workItemKey(i)} transition={{ layout: { duration: 0.4 } }} className={cn("relative flex flex-col gap-1 rounded-lg border bg-card p-3 shadow-xs has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring", i.run && "hover:border-foreground/20 hover:bg-active/40")}>
       {/* Three fixed lines, so every card has the same height: badges and progress, the title, the state. */}
       <div className="flex items-center gap-2">
         <Badge className="shrink-0 font-mono" title={t("Issue")}>

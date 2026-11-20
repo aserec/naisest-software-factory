@@ -25,7 +25,9 @@ test("renders a section per label, empty ones with 0, and a Stuck badge", async 
   expect(screen.getByText("$1.50")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Fix login" }).getAttribute("href")).toBe("/runs/r1");
   fireEvent.mouseDown(screen.getByRole("tab", { name: "Finished 1" }));
-  expect(screen.getByRole("link", { name: "Add docs" }).getAttribute("href")).toBe("http://gl/7"); // no run: links to GitLab
+  // No run on this factory: the card is not a link, only its Open issue button opens the tracker.
+  expect(screen.queryByRole("link", { name: "Add docs" })).toBeNull();
+  expect(within(screen.getByText("Add docs").closest("li")!).getByRole("link", { name: "Open issue" }).getAttribute("href")).toBe("http://gl/7");
 });
 
 test("Finished holds done work items and the ones closed before done; they leave Ongoing and wait for no one", async () => {
@@ -135,7 +137,7 @@ test("a ready card that waits for open work items shows which ones; a free one a
   ])));
   renderWithQuery(<Board />);
   await screen.findByText("Add docs");
-  expect(screen.getAllByText(/^Waits for/).map((b) => [within(b.closest("li")!).getAllByRole("link").at(-1)!.textContent, b.textContent, b.getAttribute("title")])).toEqual([
+  expect(screen.getAllByText(/^Waits for/).map((b) => [b.closest("li")!.children[1].textContent, b.textContent, b.getAttribute("title")])).toEqual([
     ["Fix login", "Waits for #2, #3", "Waits until #2, #3 are closed. The factory starts this work item after that."],
   ]);
 });
@@ -174,12 +176,12 @@ test("a failed board load says so in plain words, keeps the last board with its 
       </QueryClientProvider>,
     ).container,
   );
-  await view.findByRole("link", { name: "Fix login" });
+  await view.findByText("Fix login");
   fail = true;
   await client.refetchQueries();
   const alert = await view.findByRole("alert");
   expect(alert.textContent).toMatch(/^Could not load the board\. Showing it as of \d\d:\d\d.*\.Retry$/);
-  expect(view.getByRole("link", { name: "Fix login" })).toBeTruthy();
+  expect(view.getByText("Fix login")).toBeTruthy();
   fail = false;
   const calls = fetchMock.mock.calls.length;
   fireEvent.click(view.getByRole("button", { name: "Retry" }));
