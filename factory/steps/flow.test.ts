@@ -1164,8 +1164,8 @@ test("an unsure same asks instead of closing", async () => {
   expect(w.states).toEqual(["needs_info"]);
   expect(dash(w).events.filter((e) => e.type === "triage_outcome").map((e) => e.data.kind)).toEqual(["ask"]);
 });
-test("a work item that adds something gets the writer's question and needs_info, before the clarity questions", async () => {
-  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, dedupe: { verdict: "adds" } }));
+test("a work item that overlaps another gets the writer's question and needs_info, before the clarity questions", async () => {
+  const w = await runBuildPipeline(fakeWorld({ jev1: { clarity: 4 }, dedupe: { verdict: "overlaps" } }));
   expect(w.states).toEqual(["needs_info"]);
   expect(w.workItemComments.at(-1)).toContain("Does this belong in #9");
   expect(noteIn(w.workItemComments.at(-1)!, "duplicate")?.kind).toBe("duplicate_question"); // F-P3: a question is not a close
@@ -1175,16 +1175,16 @@ test("a work item that adds something gets the writer's question and needs_info,
   expect(w.claudeRuns.some((j) => j.role === "author")).toBe(false);
 });
 test("an injection in the candidates skips the writer and asks the fixed question", async () => {
-  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "adds", injectionYes: 0.4 } }));
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "overlaps", injectionYes: 0.4 } }));
   expect(w.claudeRuns.some((j) => j.role === "writer")).toBe(false);
   expect(w.workItemComments.at(-1)).toContain("Does it belong in #9, or is it a separate change?");
 });
 test("a writer text that does not name the original falls back to the fixed question", async () => {
-  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "adds" }, writerText: "Is this new?" }));
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "overlaps" }, writerText: "Is this new?" }));
   expect(w.workItemComments.at(-1)).toContain("Does it belong in #9");
 });
 test("the writer sees only the candidate text the judge checked", async () => {
-  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  const world = fakeWorld({ dedupe: { verdict: "overlaps" } });
   world.tracker.tickets.get("9")!.body = `${"x".repeat(300)}LATE-MARKER`;
   const w = await runBuildPipeline(world);
   const writer = w.claudeRuns.find((j) => j.role === "writer")!;
@@ -1198,24 +1198,24 @@ test("a same verdict about a newer work item asks instead of closing", async () 
   expect(w.workItemComments.at(-1)).toContain("#10");
 });
 test("a writer that throws falls back to the fixed question", async () => {
-  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "adds" }, writerThrows: true }));
+  const w = await runBuildPipeline(fakeWorld({ dedupe: { verdict: "overlaps" }, writerThrows: true }));
   expect(w.states).toEqual(["needs_info"]);
   expect(w.workItemComments.at(-1)).toContain("Does it belong in #9, or is it a separate change?");
 });
 test("a person who answered a dedupe comment is not asked again", async () => {
-  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  const world = fakeWorld({ dedupe: { verdict: "overlaps" } });
   await world.tracker.comment("8", noteText({ kind: "duplicate_question", text: "Looks close to #9." }));
   const w = await runBuildPipeline(world);
   expect(w.dedupeAsked).toBe(0);
   expect(w.tracker.tickets.get("8")!.marks).toContain("triaged");
 });
 test("a dedupe comment posted with the old marker still counts as answered", async () => {
-  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  const world = fakeWorld({ dedupe: { verdict: "overlaps" } });
   await world.tracker.comment("8", "Looks close to #9.\n\n<!-- factory:dedupe -->");
   expect((await runBuildPipeline(world)).dedupeAsked).toBe(0);
 });
 test("a dedupe marker from a person does not skip the check", async () => {
-  const world = fakeWorld({ dedupe: { verdict: "adds" } });
+  const world = fakeWorld({ dedupe: { verdict: "overlaps" } });
   world.tracker.say("8", "dev", noteText({ kind: "duplicate_question", text: "x" }));
   const w = await runBuildPipeline(world);
   expect(w.dedupeAsked).toBe(1);

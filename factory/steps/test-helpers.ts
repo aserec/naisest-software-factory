@@ -76,7 +76,7 @@ export interface WorldOptions {
   diffs?: Record<string, Record<string, string>>; // the change's diff by sha; any other sha gets DIFF
   baseFiles?: Record<string, string>; // files at the base commit, for repo.readBase
   files?: Record<string, string>; // files at the head of the base branch, for codeHost.readFile
-  dedupe?: { verdict?: "same" | "adds" | "different"; confidence?: number; closest?: string; injectionYes?: number } | "throw"; // the duplicate check's answers; default different
+  dedupe?: { verdict?: "same" | "overlaps" | "different"; confidence?: number; closest?: string; injectionYes?: number } | "throw"; // the duplicate check's answers; default different
   writerText?: string; // the writer agent's reply
   writerThrows?: boolean; // the writer agent's call throws
   runs?: Map<string, RunRecord>; // another world's ci.runs: this world resumes or finishes runs that world saved

@@ -9,7 +9,7 @@ An issue in the target's tracker that a person sets ready to ask the factory for
 _Avoid_: Task
 
 **Duplicate check**:
-The triage check that compares a work item a person wrote with the open work items. It closes a sure duplicate and asks on a near one. It runs on each new run until it closes the work item or asks once.
+The triage check that compares a work item a person wrote with the open work items. It closes a sure duplicate and asks when a large part of the change is already in another work item. It leaves out epics and the work items the ticket names, and a related change in the same area or epic is not a duplicate. It runs on each new run until it closes the work item or asks once.
 _Avoid_: Dedup, similarity check
 
 **Repo-local instructions**:
